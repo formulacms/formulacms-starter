@@ -187,7 +187,7 @@ function readConvexEnv(): ConvexEnvSnapshot {
     return {
       available: false,
       reason:
-        "the Convex CLI found no readable deployment (run `pnpm exec convex dev` once, and sign in if prompted)",
+        'the Convex CLI found no readable deployment (run "pnpm dev" once, and sign in if prompted)',
     }
   }
 
@@ -244,7 +244,7 @@ function checkPairedSecret(
     addCheck(
       key,
       "warning",
-      `${key} is not set; configure it before relying on publish-time revalidation.`
+      `${key} is not set. Run "pnpm dev" once; it sets it. Publishing needs it to refresh cached pages.`
     )
     return
   }
@@ -263,7 +263,7 @@ function checkPairedSecret(
     addCheck(
       key,
       "failed",
-      `${key} is missing from the active Convex deployment. ${consequence} Set it with \`pnpm exec convex env set ${key}\`.`
+      `${key} is missing from the active Convex deployment. ${consequence} Run "pnpm dev" once; it copies the value from .env.local. To set it by hand, see docs/starter/local-setup.md.`
     )
     return
   }
@@ -375,7 +375,7 @@ function checkConvexOwnerClaim(
     addCheck(
       label,
       "failed",
-      `${label} is missing from the active Convex deployment, so /setup cannot claim ownership and dead-ends at the account step. Generate a random value and pipe it in with \`pnpm exec convex env set ${currentKey}\`.`
+      `${label} is missing from the active Convex deployment, so /setup cannot claim ownership and dead-ends at the account step. Before setup is finished, run "pnpm dev" once; it makes the code and shows it. To set it by hand, see docs/starter/local-setup.md.`
     )
     return
   }
@@ -467,7 +467,7 @@ function main() {
     addCheck(
       ".env.local",
       "failed",
-      "Missing .env.local. Copy .env.local.example, then run `pnpm exec convex dev`."
+      'Missing .env.local. Run "pnpm dev" once; it creates the file.'
     )
   } else {
     addCheck(".env.local", "passed", ".env.local exists.")
@@ -522,7 +522,7 @@ function main() {
     addCheck(
       "Convex local state",
       "warning",
-      "No .convex/local directory found yet; run `pnpm exec convex dev` before browser checks."
+      'No .convex/local directory found yet; run "pnpm dev" once before browser checks.'
     )
   } else {
     addCheck("Convex local state", "passed", ".convex/local exists.")

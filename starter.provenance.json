@@ -2,9 +2,9 @@
   "schemaVersion": 2,
   "artifact": "community",
   "release": {
-    "engineSha": "a17ce9fdc7fd44eff9c8a2b66aa02fb8d85abc2a",
+    "engineSha": "12209bd42b1ddfde4cc6f1deab7c19824472e1d0",
     "releaseManifestSha256": "9207c1e67ebe27ebc7ecaff0cdc1905bb02080d0d1a8b0341e029a9e607cab15",
-    "distributionManifestSha256": "c9010f912b17712a7b89deffc685569f66bd632e3d49a452990affe1a35fb77c",
+    "distributionManifestSha256": "88bf0fb41e9fb8601a2c0ddce006b81a21b8d68b837866b68eccb7b617eee8f8",
     "generatorDigests": [
       {
         "path": "scripts/check-release-provenance.ts",
@@ -413,8 +413,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": ".env.local.example",
-      "sourceSha256": "2178fdaa22f1031659da8de246061d8f2537da273774754c84acbb0dbd95e1a9",
-      "outputSha256": "2178fdaa22f1031659da8de246061d8f2537da273774754c84acbb0dbd95e1a9"
+      "sourceSha256": "766680196c8b055cbfd7dfeca0cb3cfb3b9638a33f07d140bebe532caa6e0711",
+      "outputSha256": "766680196c8b055cbfd7dfeca0cb3cfb3b9638a33f07d140bebe532caa6e0711"
     },
     {
       "target": ".github/ISSUE_TEMPLATE/bug.yml",
@@ -4897,8 +4897,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "components/setup/setup-wizard.tsx",
-      "sourceSha256": "bac0c3e9d6b30b67c7e833947b52e01ad2419b3ceadbea195eb4d7f5d823fd7f",
-      "outputSha256": "bac0c3e9d6b30b67c7e833947b52e01ad2419b3ceadbea195eb4d7f5d823fd7f"
+      "sourceSha256": "605bb57e234a13257c58ff6f2875e98b9d77ae47c712384187d9e6e2cdecd434",
+      "outputSha256": "605bb57e234a13257c58ff6f2875e98b9d77ae47c712384187d9e6e2cdecd434"
     },
     {
       "target": "components/slice-kit/accordion.tsx",
@@ -5518,8 +5518,8 @@
       "disposition": "ship",
       "kind": "governed",
       "source": "CONTRIBUTING.md",
-      "sourceSha256": "d1cf78a66dc004a0e84f5d869c4dbac5066e5e390ed4256d7a2d48bb995983fb",
-      "outputSha256": "d1cf78a66dc004a0e84f5d869c4dbac5066e5e390ed4256d7a2d48bb995983fb"
+      "sourceSha256": "44fdfc9819243dfd1d41576be21616ad37cd4e58621ffdc7c2c08ddac6ebca24",
+      "outputSha256": "44fdfc9819243dfd1d41576be21616ad37cd4e58621ffdc7c2c08ddac6ebca24"
     },
     {
       "target": "convex.json",
@@ -8501,13 +8501,31 @@
       ]
     },
     {
+      "target": "docs/starter/hosting.md",
+      "origin": "overlay",
+      "disposition": "ship",
+      "kind": "governed",
+      "source": "docs/starter/hosting.md",
+      "sourceSha256": "92cd7c40b47db07f706bc191998a1c02d18d468c7a98b3d00b05ca6fe47a61db",
+      "outputSha256": "92cd7c40b47db07f706bc191998a1c02d18d468c7a98b3d00b05ca6fe47a61db"
+    },
+    {
+      "target": "docs/starter/local-setup.md",
+      "origin": "overlay",
+      "disposition": "ship",
+      "kind": "governed",
+      "source": "docs/starter/local-setup.md",
+      "sourceSha256": "b21d3b3636e2f8a0b3d7a16bd1560a094554a2ff2714bb31a14a278824798e90",
+      "outputSha256": "b21d3b3636e2f8a0b3d7a16bd1560a094554a2ff2714bb31a14a278824798e90"
+    },
+    {
       "target": "docs/starter/operations.md",
       "origin": "engine",
       "disposition": "ship",
       "kind": "governed",
       "source": "docs/starter/operations.md",
-      "sourceSha256": "31cfc1fd54a31d392e06f1907c2ea727cc2ed3d9504c75d8d2f58796ce7e2c5d",
-      "outputSha256": "417f2cc5211d45a6c6e0e3446eba4a467d2dfce30e4a6fb3309034837b9e69f9",
+      "sourceSha256": "bd4702581f0f56cd791c8c4a39f121676d6ca5b70e9fd75d398c162768f87d1b",
+      "outputSha256": "0aed94b5bf21bdff11b245b1b3d8d616244e9fada7036eb21da6fe437c73ebe6",
       "deterministicTransforms": [
         {
           "id": "community-surface-selection",
@@ -9611,8 +9629,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "lib/env.test.ts",
-      "sourceSha256": "a359bb809d5b889f1402a55d64faa02750ff88395ea4b7d66338819c017af4a0",
-      "outputSha256": "a359bb809d5b889f1402a55d64faa02750ff88395ea4b7d66338819c017af4a0"
+      "sourceSha256": "8b48ad554c188d8bfe7e6b74562cebc742ad915410a2f0dbb2379066f3375ec6",
+      "outputSha256": "8b48ad554c188d8bfe7e6b74562cebc742ad915410a2f0dbb2379066f3375ec6"
     },
     {
       "target": "lib/env.ts",
@@ -9620,8 +9638,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "lib/env.ts",
-      "sourceSha256": "7673d1b762fea2434df4ffa605e8de1b66b7b0f1cc6b1b6dce49d918c3ab4ed6",
-      "outputSha256": "7673d1b762fea2434df4ffa605e8de1b66b7b0f1cc6b1b6dce49d918c3ab4ed6"
+      "sourceSha256": "ddf258f8c0a004f7d20cbce88b94f34a4870c31347903b511227d91348cb9d46",
+      "outputSha256": "ddf258f8c0a004f7d20cbce88b94f34a4870c31347903b511227d91348cb9d46"
     },
     {
       "target": "lib/fonts.test.ts",
@@ -11630,8 +11648,8 @@
       "disposition": "ship",
       "kind": "governed",
       "source": "README.md",
-      "sourceSha256": "36eae5d30b07dabbd8c89ad30c9167a17a87aeea5222f097f1029d19f55dc0b8",
-      "outputSha256": "36eae5d30b07dabbd8c89ad30c9167a17a87aeea5222f097f1029d19f55dc0b8"
+      "sourceSha256": "a70f5bc4d1c253a97e8620542cfc115d8bdf8de62617a3857fe8dd260ea9ed89",
+      "outputSha256": "a70f5bc4d1c253a97e8620542cfc115d8bdf8de62617a3857fe8dd260ea9ed89"
     },
     {
       "target": "redirectsTestHelpers.ts",
@@ -11762,8 +11780,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "scripts/check-starter-preflight.ts",
-      "sourceSha256": "08624408297a0a5b068099e9e5f5e1069ec8e7d75c25637c395f6627d980bce6",
-      "outputSha256": "08624408297a0a5b068099e9e5f5e1069ec8e7d75c25637c395f6627d980bce6"
+      "sourceSha256": "3a031f4f68ce11e3d1e885f1d7f753b9b1e2de31bdf8452520363e51af0999a4",
+      "outputSha256": "3a031f4f68ce11e3d1e885f1d7f753b9b1e2de31bdf8452520363e51af0999a4"
     },
     {
       "target": "scripts/check-token-boundary.node.test.ts",
@@ -11964,6 +11982,24 @@
       "outputSha256": "87c45f4bbc957ec59db7cf76ace58c80fe8433ee8e56f9b546af7b2606c1c4a8"
     },
     {
+      "target": "scripts/lib/local-setup.test.ts",
+      "origin": "engine",
+      "disposition": "runtime",
+      "kind": "runtime",
+      "source": "scripts/lib/local-setup.test.ts",
+      "sourceSha256": "21f1523c75e08c768fd158304ba6f529e66141bda54d352e3976694bd65ba2e4",
+      "outputSha256": "21f1523c75e08c768fd158304ba6f529e66141bda54d352e3976694bd65ba2e4"
+    },
+    {
+      "target": "scripts/lib/local-setup.ts",
+      "origin": "engine",
+      "disposition": "runtime",
+      "kind": "runtime",
+      "source": "scripts/lib/local-setup.ts",
+      "sourceSha256": "3ae6202157d5d9a5b4a33271232795e2ebdfdf6fe68932d096235b72bbf34666",
+      "outputSha256": "3ae6202157d5d9a5b4a33271232795e2ebdfdf6fe68932d096235b72bbf34666"
+    },
+    {
       "target": "scripts/lib/slice-authoring-cli.ts",
       "origin": "engine",
       "disposition": "runtime",
@@ -12113,8 +12149,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "scripts/start-next-dev.ts",
-      "sourceSha256": "e69fe69ab85e54b98a41a00a5660554e2b684410dec62523c4d47b2b36a126ed",
-      "outputSha256": "e69fe69ab85e54b98a41a00a5660554e2b684410dec62523c4d47b2b36a126ed"
+      "sourceSha256": "9249a392fc78607541a2c5dd2e2aa8cb569b217b63940d5b52c7d1a49af9e472",
+      "outputSha256": "9249a392fc78607541a2c5dd2e2aa8cb569b217b63940d5b52c7d1a49af9e472"
     },
     {
       "target": "scripts/summarize-starter-feedback.test.ts",
@@ -12361,8 +12397,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "vercel.json",
-      "sourceSha256": "2bb97b345ca97ff42b0902d69dbc7d2d1acdd13ab8838fb28cdcf97e43701da2",
-      "outputSha256": "2bb97b345ca97ff42b0902d69dbc7d2d1acdd13ab8838fb28cdcf97e43701da2"
+      "sourceSha256": "51250085711ba170018902db8a4b9d16ae25212531da7f8bd3f1707f22b1beab",
+      "outputSha256": "51250085711ba170018902db8a4b9d16ae25212531da7f8bd3f1707f22b1beab"
     },
     {
       "target": "vitest.config.ts",

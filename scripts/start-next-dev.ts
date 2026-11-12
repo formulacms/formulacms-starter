@@ -9,6 +9,7 @@ import {
   resolveDevServerOrigin,
   type DevServerOrigin,
 } from "./lib/dev-server-origin"
+import { runLocalSetup } from "./lib/local-setup"
 
 async function assertPortAvailable(config: DevServerOrigin): Promise<void> {
   await new Promise<void>((resolveAvailable, reject) => {
@@ -43,6 +44,14 @@ async function assertPortAvailable(config: DevServerOrigin): Promise<void> {
 
 async function main(): Promise<void> {
   const projectRoot = process.cwd()
+  // Before loadEnvConfig: the step writes the secrets it fills into
+  // process.env itself, so Next.js starts with them.
+  const setup = await runLocalSetup({ projectRoot, processEnv: process.env })
+  for (const line of setup.lines) console.log(line)
+  if (setup.status === "failed") {
+    process.exitCode = 1
+    return
+  }
   nextEnv.loadEnvConfig(projectRoot, true)
   const config = resolveDevServerOrigin({
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
@@ -57,6 +66,8 @@ async function main(): Promise<void> {
   console.log(`[formulacms] Frontend: ${config.origin}`)
   console.log(`[formulacms] Convex: ${deployment}`)
   console.log(`[formulacms] Bundler: ${bundler}`)
+  // Last, so the owner setup code does not scroll away in the Convex log.
+  if (setup.box) console.log(setup.box)
 
   const nextBinary = resolve(projectRoot, "node_modules/next/dist/bin/next")
   const child = spawn(

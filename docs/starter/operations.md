@@ -294,11 +294,12 @@ part of starter publication.
 
 ## Required Environment
 
-Copy `.env.local.example` to `.env.local` before starting Next.js:
-
-```bash
-cp .env.local.example .env.local
-```
+On your computer, you set none of these by hand, and you do not copy
+`.env.local.example`. On the first start, `pnpm dev` writes the Convex
+addresses, the three secrets and `BETTER_AUTH_URL` to `.env.local`. It copies
+the secrets to the Convex development backend and makes the owner setup code.
+See [Quickstart](#quickstart). For a hosted site, follow
+[Put your site online](hosting.md).
 
 Required for the Next.js runtime:
 
@@ -311,12 +312,6 @@ Required for the Next.js runtime:
 Next.js validates these on Node server startup via `instrumentation.ts`, and
 the auth helpers validate them before wiring Better Auth. Missing or placeholder
 values fail fast.
-
-Generate secrets with:
-
-```bash
-openssl rand -hex 32
-```
 
 Required public-request proof pairing:
 
@@ -342,41 +337,20 @@ before the legacy fallback without changing each setting's blank-value semantics
 | `NEXT_PUBLIC_SITE_URL`   | Next env                | Canonical URL and Open Graph origin fallback.                         |
 | `RESEND_API_KEY`         | Convex env              | Enables readiness for the bundled Resend email adapter.               |
 
-Set shared Convex values with `npx convex env set`, using the same value as the
-matching Next runtime env when a variable is shared. `BETTER_AUTH_SECRET`,
-`CONTACT_IP_PROOF_SECRET`, and `REVALIDATE_SECRET` are each set in both places
-and must match: copy the `.env.local` value over stdin
-(`printf '%s' "$VALUE" | npx convex env set NAME`), never as a command argument
-and never with a fresh random value. `pnpm check:preflight` fails when either
-side is missing or the values differ.
+`BETTER_AUTH_SECRET`, `CONTACT_IP_PROOF_SECRET`, and `REVALIDATE_SECRET` are
+each set in the Next.js environment and in Convex, and the two values must be
+equal. If you set one by hand, send the same value to Convex over stdin, never
+as a command argument. `pnpm check:preflight` fails when either side is
+missing or the values differ.
 
-Before opening `/setup`, configure the one-time owner code without placing it
-in a URL, file, or shell argument. The block keeps the code in shell memory,
-pipes it to Convex over stdin, and prints it for the **Owner setup code** field.
-It starts in your site's folder and names its Convex deployment, so it works
-from any terminal folder and can never set the code on a different site; a bare
-`npx convex env set` writes to whichever deployment the current folder points
-at. Replace `/path/to/your-site` with your site's folder and the deployment name
-with the part of `CONVEX_DEPLOYMENT` in `.env.local` after the colon
-(`dev:happy-animal-123` gives `happy-animal-123`):
-
-```bash
-(
-  cd '/path/to/your-site' &&
-  FORMULACMS_OWNER_CLAIM_VALUE="$(openssl rand -hex 32)" &&
-  printf '%s' "$FORMULACMS_OWNER_CLAIM_VALUE" | npx convex env set FORMULACMS_OWNER_CLAIM --deployment <name from CONVEX_DEPLOYMENT in .env.local> &&
-  printf '%s\n' "$FORMULACMS_OWNER_CLAIM_VALUE"
-)
-```
-
-The variable disappears when the block ends. Printing the value is
-deliberate. The code is stored nowhere else, so a code you did not copy leaves
-the deployment with no way to create its owner account (ADR-0007, amendment
-2026-07-30). Keep the value only until setup
-finishes; the claim is consumed on first use.
+The owner setup code (`FORMULACMS_OWNER_CLAIM`) lives in Convex only. Never put
+it in a URL, a file or a command argument. Until the site has an owner,
+`pnpm dev` shows the code in the terminal. Setup uses the code once.
 
 Rotating `FORMULACMS_OWNER_CLAIM` enables the deployment-owner replacement
-path. Run the block above again with a new value, open `/setup`, choose
+path. To make a new code, follow step 3 of "By hand" in
+[Local setup](local-setup.md), or step 12 of [Put your site online](hosting.md)
+for a hosted site. Then open `/setup`, choose
 **Replace owner account**, and enter the new code with the successor account's
 details. The replacement rebinds the same installation-owner record, removes
 the outgoing account's owner authority in the binding transaction, and schedules
@@ -386,45 +360,10 @@ replacement receives CMS access.
 
 ## Quickstart
 
-1. Clone and install:
-
-```bash
-git clone <your-fork>
-cd formulacms
-pnpm install
-```
-
-2. Create `.env.local`, then start Convex once so it writes deployment URLs:
-
-```bash
-cp .env.local.example .env.local
-npx convex dev
-```
-
-   For a local backend with no Convex account, run
-   `CONVEX_AGENT_MODE=anonymous npx convex dev --until-success` instead. Only
-   that first command needs the variable; later commands read the deployment
-   from `.env.local`.
-
-3. Fill `NEXT_PUBLIC_CONVEX_URL`, `NEXT_PUBLIC_CONVEX_SITE_URL`, and
-   `BETTER_AUTH_SECRET` in `.env.local`. Set `BETTER_AUTH_SECRET`,
-   `CONTACT_IP_PROOF_SECRET`, and `REVALIDATE_SECRET` in Convex with the same
-   values, then configure and copy `FORMULACMS_OWNER_CLAIM` using the stdin flow
-   above.
-
-4. Start the app:
-
-```bash
-pnpm dev
-```
-
-5. Open `http://localhost:3000/setup`, paste the copied owner setup code,
-   complete onboarding, choose the site language, then finish. Setup creates
-   one home page at `/` that stays private until you publish it; there is no
-   starter content to seed.
-
-6. Open `/admin/pages`, edit the homepage, preview it, and publish when the
-   pre-publish checklist has no blockers.
+Follow the [Quickstart in the README](../../README.md#quickstart): get the
+code, run `pnpm install` and `pnpm dev`, then complete the setup screen.
+`pnpm dev` does the local setup by itself. [Local setup](local-setup.md) says
+what it does, and how to do the same work by hand when it does not run.
 
 ## Convex Quota Envelope
 

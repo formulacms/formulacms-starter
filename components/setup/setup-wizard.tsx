@@ -278,7 +278,8 @@ async function waitForConvexAuthentication(
 // there is no way to recover the original value — only to issue a new one.
 // Saying "ask the person who deployed it" is useless when that person is the
 // one reading this, which is the common case for a self-hosted CMS. So name
-// the way out. Commands mirror docs/starter/operations.md exactly.
+// the way out. The commands match the owner setup code steps in
+// docs/starter/local-setup.md (local) and docs/starter/hosting.md (hosted).
 
 /** Collapsed by default: only the deployer needs it, and only when stuck. */
 function RotateOwnerCodeHelp({

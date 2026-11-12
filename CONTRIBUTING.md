@@ -14,8 +14,7 @@ Thank you for your interest in improving the starter.
 git clone https://github.com/formulacms/formulacms-starter.git
 cd formulacms-starter
 pnpm install
-pnpm exec convex dev   # starts Convex and generates types
-pnpm dev               # starts Convex and Next.js
+pnpm dev   # starts Convex and Next.js, and finishes the local setup
 ```
 
 ## Pull requests
