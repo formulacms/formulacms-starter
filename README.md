@@ -68,6 +68,10 @@ Convex deployment. Follow these steps in this order.
    pnpm dev
    ```
 
+   On the first start, the Convex log may show "Too many writes per second" for
+   a few background jobs. Convex runs them again by itself, so you can ignore
+   these lines.
+
    The home address shows "Page not found" until you publish the home page. To
    publish it, open Pages, open the home page, then select Save and Publish. The
    first publish may ask "Publish with warnings?" because the SEO title and

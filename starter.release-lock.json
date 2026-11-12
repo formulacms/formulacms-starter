@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "artifact": "community",
   "recipeVersion": "0.1.0",
-  "engineSha": "70ad856d50a555aae7530eb331df78e8196c40b9",
-  "overlayDigest": "19abb6e260d034415a1b251a56c74e5a46efb68175d3f3e2e7d894ab78f5a09a",
+  "engineSha": "a17ce9fdc7fd44eff9c8a2b66aa02fb8d85abc2a",
+  "overlayDigest": "688688b25b01c14845e3300ef802cfd68f6c087f5d01e64fd96d9b28494d5d56",
   "releaseManifestDigest": "9207c1e67ebe27ebc7ecaff0cdc1905bb02080d0d1a8b0341e029a9e607cab15",
-  "distributionManifestDigest": "70dab15d93db68d791871775cd16639335f5474abaeaa8ea3b1e34250d579eb4",
+  "distributionManifestDigest": "c9010f912b17712a7b89deffc685569f66bd632e3d49a452990affe1a35fb77c",
   "shipListDigest": "62656e4574b898bf6e1f022b341cf590def62b35729ff0ce833a7a91c174cc47",
   "curationDigest": "8b21df99a0a5c381c6d77ca2dea8a32416a7617e01b0e918909a9a22c393b167",
-  "generatedTreeDigest": "565982957fabef69f2950503b646fbb37bce5d6a89dee29fcaf5c68c2c0759f4",
+  "generatedTreeDigest": "41a0a1495c2605445f4ebc8caa07c5bbdc8ca0ec5d17d74a6881e0556ee1cd57",
   "generatedTreeDigestExcludes": [
     "starter.release-lock.json"
   ]

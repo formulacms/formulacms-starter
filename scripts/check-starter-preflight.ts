@@ -99,10 +99,11 @@ function checkMajorVersion(
 function checkPlaywrightChromium() {
   const executablePath = chromium.executablePath()
   if (!executablePath || !existsSync(executablePath)) {
+    // Only the browser checks need Chromium, so it blocks in strict mode only.
     addCheck(
       "Playwright Chromium",
-      "failed",
-      "Playwright Chromium is not installed. Run `pnpm exec playwright install chromium` before browser checks."
+      strict ? "failed" : "warning",
+      'Playwright Chromium is not installed. You need it only for the browser checks; run "pnpm exec playwright install chromium" before them.'
     )
     return
   }

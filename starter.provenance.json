@@ -2,9 +2,9 @@
   "schemaVersion": 2,
   "artifact": "community",
   "release": {
-    "engineSha": "70ad856d50a555aae7530eb331df78e8196c40b9",
+    "engineSha": "a17ce9fdc7fd44eff9c8a2b66aa02fb8d85abc2a",
     "releaseManifestSha256": "9207c1e67ebe27ebc7ecaff0cdc1905bb02080d0d1a8b0341e029a9e607cab15",
-    "distributionManifestSha256": "70dab15d93db68d791871775cd16639335f5474abaeaa8ea3b1e34250d579eb4",
+    "distributionManifestSha256": "c9010f912b17712a7b89deffc685569f66bd632e3d49a452990affe1a35fb77c",
     "generatorDigests": [
       {
         "path": "scripts/check-release-provenance.ts",
@@ -3139,8 +3139,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "components/admin/menu/canonical-block-editor.tsx",
-      "sourceSha256": "fac4a776ec7684ba646d5dbcf3dfe9cbcf315aa1fad1dbb16b478f0ff7b54f43",
-      "outputSha256": "fac4a776ec7684ba646d5dbcf3dfe9cbcf315aa1fad1dbb16b478f0ff7b54f43"
+      "sourceSha256": "f704791cf66f4a451835ccc47989f4beb2c45f0f58825f3dac2305c5b09e723d",
+      "outputSha256": "f704791cf66f4a451835ccc47989f4beb2c45f0f58825f3dac2305c5b09e723d"
     },
     {
       "target": "components/admin/menu/canonical-nav-item-editor.tsx",
@@ -5518,8 +5518,17 @@
       "disposition": "ship",
       "kind": "governed",
       "source": "CONTRIBUTING.md",
-      "sourceSha256": "cc1e406211d19b649daa55224fee674e7d5e1cb4c3060344d043ac7669e1ebb9",
-      "outputSha256": "cc1e406211d19b649daa55224fee674e7d5e1cb4c3060344d043ac7669e1ebb9"
+      "sourceSha256": "d1cf78a66dc004a0e84f5d869c4dbac5066e5e390ed4256d7a2d48bb995983fb",
+      "outputSha256": "d1cf78a66dc004a0e84f5d869c4dbac5066e5e390ed4256d7a2d48bb995983fb"
+    },
+    {
+      "target": "convex.json",
+      "origin": "overlay",
+      "disposition": "runtime",
+      "kind": "runtime",
+      "source": "convex.json",
+      "sourceSha256": "c62aa1e83fff66ec93dfdc935494b0576b9af8d219eaacf8b74096fc52104893",
+      "outputSha256": "c62aa1e83fff66ec93dfdc935494b0576b9af8d219eaacf8b74096fc52104893"
     },
     {
       "target": "convex/_generated/ai/ai-files.state.json",
@@ -8966,8 +8975,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "lib/admin/content-types.test.ts",
-      "sourceSha256": "665e5e8503cacd949a386885a6bff7ddaf33d7a4fbfbfa6ae0e27ed79ec5efcc",
-      "outputSha256": "665e5e8503cacd949a386885a6bff7ddaf33d7a4fbfbfa6ae0e27ed79ec5efcc"
+      "sourceSha256": "64b55600c14587d85c2fac43eb8d3ffe46c1b34b7c9ff65a34dda50908d94864",
+      "outputSha256": "64b55600c14587d85c2fac43eb8d3ffe46c1b34b7c9ff65a34dda50908d94864"
     },
     {
       "target": "lib/admin/content-types.ts",
@@ -8975,8 +8984,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "lib/admin/content-types.ts",
-      "sourceSha256": "6f6b6f901ca91fdbfdbd08e29621f85c2aeacd9ce5091fccf92a30d0e8c228ad",
-      "outputSha256": "6f6b6f901ca91fdbfdbd08e29621f85c2aeacd9ce5091fccf92a30d0e8c228ad"
+      "sourceSha256": "63b7f7c711d5da0a240935d711c19698d4d6ab434dde4a307c569e2d3b94828f",
+      "outputSha256": "63b7f7c711d5da0a240935d711c19698d4d6ab434dde4a307c569e2d3b94828f"
     },
     {
       "target": "lib/admin/destructive-action.ts",
@@ -9602,8 +9611,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "lib/env.test.ts",
-      "sourceSha256": "e55eeff24e050c4a78080bc38d13099af13ee396f0a6383755f1797809653af0",
-      "outputSha256": "e55eeff24e050c4a78080bc38d13099af13ee396f0a6383755f1797809653af0"
+      "sourceSha256": "a359bb809d5b889f1402a55d64faa02750ff88395ea4b7d66338819c017af4a0",
+      "outputSha256": "a359bb809d5b889f1402a55d64faa02750ff88395ea4b7d66338819c017af4a0"
     },
     {
       "target": "lib/env.ts",
@@ -9611,8 +9620,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "lib/env.ts",
-      "sourceSha256": "ef32b04b684debfcebf09f3c3a8c62d454ca90e268790544f27207499a1144ea",
-      "outputSha256": "ef32b04b684debfcebf09f3c3a8c62d454ca90e268790544f27207499a1144ea"
+      "sourceSha256": "7673d1b762fea2434df4ffa605e8de1b66b7b0f1cc6b1b6dce49d918c3ab4ed6",
+      "outputSha256": "7673d1b762fea2434df4ffa605e8de1b66b7b0f1cc6b1b6dce49d918c3ab4ed6"
     },
     {
       "target": "lib/fonts.test.ts",
@@ -11621,8 +11630,8 @@
       "disposition": "ship",
       "kind": "governed",
       "source": "README.md",
-      "sourceSha256": "cc24ea506fd4ee22f25009ca3ab35200e2273966d836d94f0be679970b8357e2",
-      "outputSha256": "cc24ea506fd4ee22f25009ca3ab35200e2273966d836d94f0be679970b8357e2"
+      "sourceSha256": "36eae5d30b07dabbd8c89ad30c9167a17a87aeea5222f097f1029d19f55dc0b8",
+      "outputSha256": "36eae5d30b07dabbd8c89ad30c9167a17a87aeea5222f097f1029d19f55dc0b8"
     },
     {
       "target": "redirectsTestHelpers.ts",
@@ -11753,8 +11762,8 @@
       "disposition": "runtime",
       "kind": "runtime",
       "source": "scripts/check-starter-preflight.ts",
-      "sourceSha256": "a8862e4dbc36f97f5f6eb34084493dfd2e4d404aa23a81b78b9e8c49d14cbee6",
-      "outputSha256": "a8862e4dbc36f97f5f6eb34084493dfd2e4d404aa23a81b78b9e8c49d14cbee6"
+      "sourceSha256": "08624408297a0a5b068099e9e5f5e1069ec8e7d75c25637c395f6627d980bce6",
+      "outputSha256": "08624408297a0a5b068099e9e5f5e1069ec8e7d75c25637c395f6627d980bce6"
     },
     {
       "target": "scripts/check-token-boundary.node.test.ts",

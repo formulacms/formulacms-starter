@@ -33,18 +33,12 @@ import {
   useErrorExpansion,
   useMenuValidation,
 } from "./menu-validation"
-import { adminContentTypes } from "@/lib/admin/content-types"
+import {
+  adminContentTypes,
+  menuContentTypeOptionLabel,
+} from "@/lib/admin/content-types"
 
 type LocaleLink = Extract<LocaleBlock, { kind: "linkGroup" }>["links"][number]
-
-const CONTENT_TYPE_PLURAL_KEYS = {
-  author: "contentTypeOptions.author",
-  job: "contentTypeOptions.job",
-  "landing-page": "contentTypeOptions.landingPage",
-  page: "contentTypeOptions.page",
-  post: "contentTypeOptions.post",
-  testimonial: "contentTypeOptions.testimonial",
-} as const
 
 interface CanonicalBlockEditorProps {
   block: LocaleBlock
@@ -461,7 +455,7 @@ export function CanonicalBlockEditor({
                   >
                     {adminContentTypes().map((contentType) => (
                       <option key={contentType.type} value={contentType.type}>
-                        {t(CONTENT_TYPE_PLURAL_KEYS[contentType.type])}
+                        {menuContentTypeOptionLabel(contentType, t)}
                       </option>
                     ))}
                   </select>

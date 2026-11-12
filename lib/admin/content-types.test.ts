@@ -1,8 +1,12 @@
 import { describe, expect, test } from "vitest"
 import { CONTENT_TYPES } from "@/convex/lib/contentTypes"
+import en from "@/messages/admin/en.json"
+import fr from "@/messages/admin/fr.json"
 import {
   adminContentTypeDetail,
   adminContentTypes,
+  menuContentTypeOptionLabel,
+  type MenuContentTypeOptionKey,
 } from "./content-types"
 
 // A site curates which types it activates, so "the non-routable one" is not a
@@ -47,5 +51,49 @@ describe("admin content-type projections", () => {
 
   test("does not expose unknown or registered-but-inactive slugs", () => {
     expect(adminContentTypeDetail("unknown")).toBeNull()
+  })
+})
+
+describe("menu content-type option labels", () => {
+  type OptionMessages = typeof en.menus.items.contentTypeOptions
+
+  function translator(messages: OptionMessages) {
+    return (key: MenuContentTypeOptionKey) =>
+      messages[key.slice("contentTypeOptions.".length) as keyof OptionMessages]
+  }
+
+  test.each([
+    ["author", "Authors", "Auteurs"],
+    ["job", "Jobs", "Offres d’emploi"],
+    ["landing-page", "Landing pages", "Pages d’atterrissage"],
+    ["page", "Pages", "Pages"],
+    ["post", "Posts", "Articles"],
+    ["testimonial", "Testimonials", "Témoignages"],
+  ])("shipped type %s keeps its translated label", (type, english, french) => {
+    const entry = { type, singular: "Ignored", plural: "Ignored" }
+    const enOptions = en.menus.items.contentTypeOptions
+    const frOptions = fr.menus.items.contentTypeOptions
+    expect(menuContentTypeOptionLabel(entry, translator(enOptions))).toBe(
+      english
+    )
+    expect(menuContentTypeOptionLabel(entry, translator(frOptions))).toBe(
+      french
+    )
+  })
+
+  test("an owner-written type shows its descriptor plural label", () => {
+    const entry = { type: "event", singular: "Event", plural: "Events" }
+    const enOptions = en.menus.items.contentTypeOptions
+    expect(menuContentTypeOptionLabel(entry, translator(enOptions))).toBe(
+      "Events"
+    )
+  })
+
+  test("an owner-written type with no plural label falls back to its label", () => {
+    const entry = { type: "event", singular: "Event", plural: "" }
+    const enOptions = en.menus.items.contentTypeOptions
+    expect(menuContentTypeOptionLabel(entry, translator(enOptions))).toBe(
+      "Event"
+    )
   })
 })

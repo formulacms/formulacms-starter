@@ -83,6 +83,48 @@ export function adminContentTypeSingularMessageKey(
   }
 }
 
+export type MenuContentTypeOptionKey =
+  | "contentTypeOptions.author"
+  | "contentTypeOptions.job"
+  | "contentTypeOptions.landingPage"
+  | "contentTypeOptions.page"
+  | "contentTypeOptions.post"
+  | "contentTypeOptions.testimonial"
+
+function menuContentTypeOptionKey(
+  type: string
+): MenuContentTypeOptionKey | null {
+  switch (type) {
+    case "author":
+      return "contentTypeOptions.author"
+    case "job":
+      return "contentTypeOptions.job"
+    case "landing-page":
+      return "contentTypeOptions.landingPage"
+    case "page":
+      return "contentTypeOptions.page"
+    case "post":
+      return "contentTypeOptions.post"
+    case "testimonial":
+      return "contentTypeOptions.testimonial"
+    default:
+      return null
+  }
+}
+
+/**
+ * Label for the Menus editor's content-type select. Shipped types keep their
+ * reviewed `menus.items.contentTypeOptions.*` copy; an owner-written type
+ * shows its descriptor's plural label, or its singular label when that is empty.
+ */
+export function menuContentTypeOptionLabel(
+  contentType: { type: string; singular: string; plural: string },
+  translate: (key: MenuContentTypeOptionKey) => string
+): string {
+  const key = menuContentTypeOptionKey(contentType.type)
+  return key ? translate(key) : contentType.plural || contentType.singular
+}
+
 const summaries: readonly AdminContentType[] = CONTENT_TYPES.map((type) => {
   const def = contentTypeDefs[type]
   return {
