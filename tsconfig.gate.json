@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./tsconfig.gate.tsbuildinfo"
+  },
+  "include": [
+    "next-env.d.ts",
+    "next.config.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.mts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".next/**",
+    "scripts/starter/overlay/**",
+    "lib/design-system/__fixtures__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ]
+}

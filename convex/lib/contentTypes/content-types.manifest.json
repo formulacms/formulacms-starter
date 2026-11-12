@@ -1,0 +1,189 @@
+[
+  {
+    "type": "landing-page",
+    "module": "landingPage",
+    "exportName": "landingPageContentType",
+    "labels": {
+      "en": {
+        "singular": "Landing page",
+        "plural": "Landing pages"
+      },
+      "fr": {
+        "singular": "Page d'atterrissage",
+        "plural": "Pages d'atterrissage"
+      }
+    },
+    "selected": true,
+    "sliceBody": true,
+    "pathPrefix": "",
+    "renderer": "custom-slice-body",
+    "rendererModule": "./landing-page",
+    "rendererExport": "LandingPageRenderer",
+    "sharedFieldKeys": [],
+    "localizedFieldKeys": [
+      "title",
+      "metaTitle",
+      "metaDescription"
+    ]
+  },
+  {
+    "type": "page",
+    "module": "page",
+    "exportName": "pageContentType",
+    "labels": {
+      "en": {
+        "singular": "Page",
+        "plural": "Pages"
+      },
+      "fr": {
+        "singular": "Page",
+        "plural": "Pages"
+      }
+    },
+    "selected": true,
+    "sliceBody": true,
+    "pathPrefix": "",
+    "renderer": "custom-slice-body",
+    "rendererModule": "./page",
+    "rendererExport": "PageRenderer",
+    "sharedFieldKeys": [],
+    "localizedFieldKeys": [
+      "title",
+      "metaTitle",
+      "metaDescription"
+    ]
+  },
+  {
+    "type": "post",
+    "module": "post",
+    "exportName": "postContentType",
+    "labels": {
+      "en": {
+        "singular": "Post",
+        "plural": "Posts"
+      },
+      "fr": {
+        "singular": "Article",
+        "plural": "Articles"
+      }
+    },
+    "selected": true,
+    "sliceBody": true,
+    "pathPrefix": "",
+    "renderer": "custom-slice-body",
+    "rendererModule": "./post",
+    "rendererExport": "PostRenderer",
+    "sharedFieldKeys": [
+      "authorIds",
+      "tags",
+      "category",
+      "featured",
+      "promoteToFront"
+    ],
+    "localizedFieldKeys": [
+      "title",
+      "metaTitle",
+      "metaDescription"
+    ]
+  },
+  {
+    "type": "author",
+    "module": "author",
+    "exportName": "authorContentType",
+    "labels": {
+      "en": {
+        "singular": "Author",
+        "plural": "Authors"
+      },
+      "fr": {
+        "singular": "Auteur",
+        "plural": "Auteurs"
+      }
+    },
+    "selected": true,
+    "sliceBody": true,
+    "pathPrefix": "authors",
+    "renderer": "custom-slice-body",
+    "rendererModule": "./author",
+    "rendererExport": "AuthorRenderer",
+    "sharedFieldKeys": [
+      "name",
+      "socials"
+    ],
+    "localizedFieldKeys": [
+      "title",
+      "metaTitle",
+      "metaDescription",
+      "roleTitle"
+    ]
+  },
+  {
+    "type": "testimonial",
+    "module": "testimonial",
+    "exportName": "testimonialContentType",
+    "labels": {
+      "en": {
+        "singular": "Testimonial",
+        "plural": "Testimonials"
+      },
+      "fr": {
+        "singular": "Témoignage",
+        "plural": "Témoignages"
+      }
+    },
+    "selected": false,
+    "sliceBody": false,
+    "renderer": "custom-pure-form",
+    "rendererModule": "./testimonial",
+    "rendererExport": "TestimonialRenderer",
+    "sharedFieldKeys": [
+      "personName",
+      "personRole",
+      "personCompany",
+      "personImage",
+      "sourceUrl"
+    ],
+    "localizedFieldKeys": [
+      "title",
+      "quote"
+    ]
+  },
+  {
+    "type": "job",
+    "module": "job",
+    "exportName": "jobContentType",
+    "labels": {
+      "en": {
+        "singular": "Job",
+        "plural": "Jobs"
+      },
+      "fr": {
+        "singular": "Offre d'emploi",
+        "plural": "Offres d'emploi"
+      }
+    },
+    "selected": false,
+    "sliceBody": true,
+    "pathPrefix": "jobs",
+    "renderer": "custom-slice-body",
+    "rendererModule": "./job",
+    "rendererExport": "JobRenderer",
+    "sharedFieldKeys": [
+      "department",
+      "location",
+      "remoteType",
+      "employmentType",
+      "salaryCurrency",
+      "salaryMin",
+      "salaryMax",
+      "applyUrl",
+      "applyEmail",
+      "closingDate",
+      "jobStatus"
+    ],
+    "localizedFieldKeys": [
+      "title",
+      "summary"
+    ]
+  }
+]

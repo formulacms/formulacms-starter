@@ -1,0 +1,49 @@
+name: Slice Type Request
+description: Propose a reusable example Slice Type for the official starter
+labels: [slice-request]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The shipped Slice Types are examples, not a closed catalog. Site owners may create any legitimate typed Slice Type their project needs.
+        Use this template only to propose an example that would be broadly useful in the official starter. Search and upvote an existing request before filing a duplicate.
+
+  - type: input
+    id: name
+    attributes:
+      label: Slice name
+      placeholder: e.g. "pricing-table", "testimonials-grid"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What does this slice do?
+      placeholder: Describe the visual / content structure and how it would be used.
+    validations:
+      required: true
+
+  - type: textarea
+    id: fields
+    attributes:
+      label: Proposed fields
+      placeholder: |
+        - title: string
+        - plans: Array<{ name, price, features[], cta }>
+        - billingToggle: boolean
+    validations:
+      required: true
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Real-world examples / references
+      placeholder: Links to sites that use this kind of slice.
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Contribution
+      options:
+        - label: I'm willing to implement this slice and open a PR

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "artifact": "community",
+  "recipeVersion": "0.1.0",
+  "engineSha": "70ad856d50a555aae7530eb331df78e8196c40b9",
+  "overlayDigest": "19abb6e260d034415a1b251a56c74e5a46efb68175d3f3e2e7d894ab78f5a09a",
+  "releaseManifestDigest": "9207c1e67ebe27ebc7ecaff0cdc1905bb02080d0d1a8b0341e029a9e607cab15",
+  "distributionManifestDigest": "70dab15d93db68d791871775cd16639335f5474abaeaa8ea3b1e34250d579eb4",
+  "shipListDigest": "62656e4574b898bf6e1f022b341cf590def62b35729ff0ce833a7a91c174cc47",
+  "curationDigest": "8b21df99a0a5c381c6d77ca2dea8a32416a7617e01b0e918909a9a22c393b167",
+  "generatedTreeDigest": "565982957fabef69f2950503b646fbb37bce5d6a89dee29fcaf5c68c2c0759f4",
+  "generatedTreeDigestExcludes": [
+    "starter.release-lock.json"
+  ]
+}

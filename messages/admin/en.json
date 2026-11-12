@@ -1,0 +1,3559 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "back": "Back",
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "success": "Saved successfully",
+    "localeTabs": {
+      "label": "Content languages",
+      "edit": "Edit {language}",
+      "hasContent": "Has content"
+    },
+    "confirm": "Confirm",
+    "presets": "Presets",
+    "pickStartingBrief": "Pick a starting brief…"
+  },
+  "inventory": {
+    "adminError": {
+      "title": "Something went wrong",
+      "errorId": "Error ID: {digest}",
+      "description": "An unexpected error occurred in the admin.",
+      "retry": "Try again"
+    },
+    "archive": {
+      "title": "Archive",
+      "subtitle": "Documents taken out of circulation but kept for later. Restoring one reveals the publication state it retained while archived.",
+      "unavailableTitle": "Archive is unavailable right now.",
+      "unavailableDescription": "Check your permissions or refresh the page to try again.",
+      "authorityIncomplete": "Publication authority is incomplete. Run the supported bootstrap or cutover command before managing archived pages.",
+      "loading": "Loading archive…",
+      "empty": "Archive is empty.",
+      "untitled": "Untitled",
+      "lifecycleUnavailable": "Snapshot lifecycle state is unavailable",
+      "noSlug": "No slug",
+      "restored": "\"{title}\" restored",
+      "restoreFailed": "Could not restore document",
+      "restoring": "Restoring…",
+      "restore": "Restore",
+      "loadingMore": "Loading more…",
+      "loadMore": "Load more",
+      "end": "End of archive"
+    },
+    "trash": {
+      "title": "Trash",
+      "subtitle": "Pages and other content in the trash can be restored, but not yet deleted for good.",
+      "untitled": "Untitled",
+      "lifecycleUnavailable": "Snapshot lifecycle state is unavailable",
+      "authorityIncomplete": "Publication authority is incomplete. Run the supported bootstrap or cutover command before managing trash.",
+      "restored": "“{title}” restored",
+      "restoreFailed": "Restore failed",
+      "referenceCheckFailed": "Could not check page references",
+      "childBlocker": "This page has {count, plural, one {# child page} other {# child pages}}. Re-parent or delete {count, plural, one {it} other {them}} first.",
+      "menuBlocker": "{count, plural, one {Menu {menus} links} other {Menus {menus} link}} to this page. Remove those links or delete the {count, plural, one {menu} other {menus}} before permanently deleting the page.",
+      "deleteDescription": "\"{title}\" will be gone for good. This cannot be undone.",
+      "redirectImpact": "Also deletes {count, plural, one {# redirect} other {# redirects}}.",
+      "confirmTitle": "Permanently delete?",
+      "confirm": "Delete permanently",
+      "deleted": "\"{title}\" permanently deleted",
+      "deleteFailed": "Delete failed",
+      "loading": "Loading trash…",
+      "empty": "Trash is empty.",
+      "moved": "Moved {date}",
+      "restore": "Restore",
+      "deleteForever": "Delete forever",
+      "loadMore": "Load more"
+    },
+    "contentTypes": {
+      "title": "Content Types",
+      "subtitle": "The active content catalog for this site. Inspect fields, capabilities, and a bounded usage signal.",
+      "usageUnavailable": "Usage unavailable",
+      "usageCapped": "25+ documents (includes Trash)",
+      "usageCount": "{count, plural, one {# document} other {# documents}} (includes Trash)",
+      "capabilities": {
+        "sliceBody": "Block body",
+        "revisions": "Revisions",
+        "scheduling": "Scheduling",
+        "presence": "Presence",
+        "requiredBody": "Required body"
+      },
+      "referenceOnly": "Reference only",
+      "unavailableTitle": "Content Types are unavailable right now.",
+      "unavailableDescription": "Refresh the page or ask an administrator to check your permissions.",
+      "loading": "Loading Content Types…",
+      "nonRoutable": "Non-routable",
+      "archived": "Archived",
+      "inStarter": "In starter",
+      "fieldCount": "{count, plural, one {# field} other {# fields}}",
+      "empty": "No Content Types in this view.",
+      "active": "Active",
+      "noFields": "No fields.",
+      "exposure": {
+        "public": "Shown on the site",
+        "admin": "Admin only"
+      },
+      "status": {
+        "yes": "yes",
+        "no": "no",
+        "lifecycleLoading": "Lifecycle loading"
+      },
+      "loadingUsage": "Loading usage…",
+      "routableAt": "Routable at /{prefix}{slug}",
+      "nonRoutableDescription": "Non-routable; reference this type from other content.",
+      "usage": "Usage",
+      "usageDescription": "Bounded signal across saved content and Trash.",
+      "capabilitiesHeading": "Capabilities",
+      "sharedFields": "Shared fields",
+      "localizedFields": "Localized fields",
+      "fieldLabels": {
+        "name": "Name",
+        "socials": "Social links",
+        "authorIds": "Authors",
+        "tags": "Tags",
+        "category": "Category",
+        "featured": "Featured",
+        "promoteToFront": "Promote to front",
+        "title": "Title",
+        "metaTitle": "Meta title",
+        "metaDescription": "Meta description",
+        "roleTitle": "Role title"
+      },
+      "lifecycle": {
+        "confirmTitle": "Archive {label}?",
+        "confirmDescription": "It leaves the new-document picker. Existing documents keep rendering, updating, and resolving as relations. You can restore it anytime.",
+        "archive": "Archive",
+        "restored": "Restored {label}",
+        "archived": "Archived {label}",
+        "updateFailed": "Could not update Content Type",
+        "removedFromStarter": "Removed {label} from starter",
+        "addedToStarter": "{label} added to starter",
+        "starterUpdateFailed": "Could not update starter Content Types",
+        "title": "Lifecycle",
+        "description": "Archive is reversible operational curation, not deletion.",
+        "loading": "Loading",
+        "archivedStatus": "Archived",
+        "active": "Active",
+        "loadingDescription": "Lifecycle state is still loading; creation controls remain fail-closed.",
+        "archivedDescription": "New documents and duplicates are blocked. Existing documents and relations remain available.",
+        "activeDescription": "Active in the new-document picker. Archiving keeps existing documents and relations intact.",
+        "permissionTitle": "Only settings administrators can change Content Type lifecycle.",
+        "loadingTitle": "Lifecycle state is still loading.",
+        "loadingAction": "Loading lifecycle",
+        "restore": "Restore",
+        "permissionDescription": "Only settings administrators can change lifecycle state.",
+        "starterTitle": "Starter configuration",
+        "inStarter": "In starter",
+        "notInStarter": "Not in starter",
+        "starterDescription": "Adds this type to the starter configuration for future projects. It does not change this site. Regeneration and Git integration are separate.",
+        "removeFromStarter": "Remove from starter",
+        "addToStarter": "Add to starter"
+      }
+    },
+    "redirects": {
+      "moduleOffNotice": "Redirects is not enabled. You can enable it here.",
+      "title": "Redirects",
+      "subtitle": "Forward old URLs to new destinations. Page-backed destinations follow the page if its slug changes; URL-backed destinations are stored verbatim.",
+      "loadFailed": "Redirects couldn’t load",
+      "loadFailedDescription": "Something went wrong while loading your redirects. The rest of the admin still works.",
+      "retry": "Try again",
+      "pickLocale": "Pick a locale",
+      "pickSourcePage": "Pick a source page",
+      "sourceSlash": "Source must start with /",
+      "pickDestinationPage": "Pick a destination page",
+      "enterDestination": "Enter a destination URL",
+      "destinationInvalid": "Destination must be an absolute URL or start with /",
+      "genericError": "Something went wrong",
+      "created": "Redirect created",
+      "deleted": "Redirect deleted",
+      "deleteConfirm": "Delete redirect {label}?",
+      "add": "Add redirect",
+      "dialogDescription": "A redirect always targets a single locale. Pick the locale first; the page menus below are scoped to it.",
+      "activationDelay": "Newly created redirects can take up to 15 seconds to become active.",
+      "locale": "Locale",
+      "localePlaceholder": "Pick a locale…",
+      "default": "(default)",
+      "from": "From",
+      "existingPage": "Existing page",
+      "customPath": "Custom path",
+      "pageUrlPlaceholder": "Pick a page URL…",
+      "noPublishedPages": "No published pages in this locale",
+      "customPathPlaceholder": "/old-page",
+      "customPathHelp": "Use this for URLs from a previous CMS that no longer match a page.",
+      "to": "To",
+      "externalUrl": "External URL",
+      "destinationPlaceholder": "Pick a destination page…",
+      "pageDestinationHelp": "The redirect follows this page even if its slug changes later.",
+      "externalPlaceholder": "https://example.com or /landing",
+      "status": "Status",
+      "permanent": "301 — Permanent",
+      "temporary": "302 — Temporary",
+      "cancel": "Cancel",
+      "create": "Create",
+      "loading": "Loading…",
+      "empty": "No redirects yet. Add one to forward an old URL to a new destination.",
+      "deleteLabel": "Delete redirect {path}",
+      "loadingMore": "Loading more…",
+      "loadMore": "Load more"
+    },
+    "mediaLibrary": {
+      "title": "Media Library",
+      "subtitle": "Upload and organize images for your pages.",
+      "cropped": "Cropped",
+      "focal": "Focal {x} / {y}",
+      "saved": "Saved",
+      "saveFailed": "Save failed",
+      "usageFailed": "Could not check media usage",
+      "confirmTitle": "Move this image to trash?",
+      "confirmUnreferenced": "It will leave the library. Restoring images from the trash is not available yet.",
+      "confirm": "Move to trash",
+      "movedToTrash": "Moved to trash",
+      "deleteFailed": "Delete failed",
+      "referencedDeleteRefusal": "This image is still in use. Remove it from Pages or site settings, then try again.",
+      "edit": "Edit image",
+      "folder": "Folder",
+      "noFolder": "No folder",
+      "tags": "Tags",
+      "trash": "Trash",
+      "save": "Save",
+      "bytes": "{value} B",
+      "kilobytes": "{value} KB",
+      "megabytes": "{value} MB"
+    }
+  },
+  "setup": {
+    "statusUnavailable": {
+      "title": "We can’t verify setup yet",
+      "description": "formulacms couldn’t confirm this deployment’s setup status. Account creation is paused so an existing site can’t be mistaken for a new one.",
+      "unchanged": "Nothing has been reset or changed. Try again in a moment.",
+      "retry": "Try again",
+      "operator": "For the site operator",
+      "operatorHint": "Check that the Convex deployment is running and that <variable>NEXT_PUBLIC_CONVEX_URL</variable> points to it."
+    },
+    "steps": {
+      "language": "Language and region",
+      "account": "Account",
+      "identity": "Site identity"
+    },
+    "ownerCodeHelp": {
+      "summary": "Set this site up yourself? Make a new code",
+      "instructionsLocal": "Run these lines in a terminal. They start in this site’s folder, {folder}. The last line prints the new code — copy it and enter it above.",
+      "instructionsLocalReload": "Run these lines in a terminal. They start in this site’s folder, {folder}. The last line prints the new code — copy it, reload this page, and enter it in the form.",
+      "instructionsLive": "Run these lines in a terminal in this site’s project folder. They set the code on this site’s live deployment, {deployment}. The last line prints the new code — copy it and enter it above.",
+      "instructionsLiveReload": "Run these lines in a terminal in this site’s project folder. They set the code on this site’s live deployment, {deployment}. The last line prints the new code — copy it, reload this page, and enter it in the form.",
+      "localUnbound": "This page can’t tell which Convex deployment this site uses. Run npx convex dev in this site’s folder, then reload this page.",
+      "liveUnbound": "This page can’t tell which Convex deployment this live site uses. Open this site’s project in the Convex dashboard and note the deployment name, then set the code on that deployment.",
+      "replacementWarning": "Keep the code only until setup finishes. Making a new setup code always replaces the previous code."
+    },
+    "errors": {
+      "connectAccount": "Your account is signed in, but setup couldn't connect it to the CMS yet. Try again.",
+      "tooManyAttempts": "Too many attempts. Wait a minute, then try again.",
+      "accountAlreadyExists": "An account with that email already exists here. Use a different email address, or enter that account's password to sign in with it.",
+      "ownerCodeUnavailable": "This site can't use an owner setup code yet. Its code is either missing or already used, and used codes can't be reused or looked up. If someone else set this site up, ask them for a new one — or make one yourself below.",
+      "createOwner": "Could not create the owner account. Check the details above and try again.",
+      "ownerCodeMismatch": "That setup code doesn't match the one this site is expecting. Check it for typos or extra spaces — codes are exact. If you set this site up, you can make a new one below.",
+      "signIn": "Could not sign in.",
+      "signOut": "Could not sign out. Try again.",
+      "createAccount": "Could not create account.",
+      "saveSite": "Could not save site."
+    },
+    "notices": {
+      "ownerMoved": "Owner access moved to {email}. The previous account is no longer the site owner.",
+      "ownerCreated": "Owner account created for {email}. You're signed in and this site now belongs to you. The setup code is used up — you won't need it again.",
+      "thisAccount": "this account",
+      "you": "you"
+    },
+    "status": {
+      "checkingTitle": "Checking setup status",
+      "checkingDescription": "Confirming this deployment before account creation becomes available.",
+      "checkingLabel": "Checking setup status"
+    },
+    "complete": {
+      "title": "Setup is complete",
+      "description": "This deployment is initialized and ready to use."
+    },
+    "resume": {
+      "signInTitle": "Sign in to resume setup",
+      "signInDescription": "Use the owner account that already exists here. Any saved setup progress will resume.",
+      "connectingTitle": "Connecting your account",
+      "connectingDescription": "You're signed in. Setup will resume when the CMS confirms your account.",
+      "connectingLabel": "Connecting",
+      "checkingAccessTitle": "Checking setup access",
+      "checkingAccessDescription": "Setup will resume after your owner session is confirmed.",
+      "checkingAccessLabel": "Checking access",
+      "wrongAccountTitle": "This account can't resume setup",
+      "wrongAccountDescription": "{email} is signed in, but only the site owner can continue setup."
+    },
+    "wizard": {
+      "title": "Welcome to formulacms",
+      "progress": "{current}: step {step} of {total}",
+      "loadedHandoff": "Loaded setup answers from the CLI handoff. Review each step before finishing.",
+      "resumeBanner": "Resuming from <step></step> — earlier steps were already complete."
+    },
+    "language": {
+      "description": "Choose the site’s language and your time zone first. The rest of setup and your admin use them."
+    },
+    "account": {
+      "signedInAs": "Signed in as {email}.",
+      "replaceDescription": "Create the replacement owner account using the newly rotated setup code. The previous account will lose CMS access immediately.",
+      "createDescription": "Create the owner account for this site using the one-time setup code from the person who deployed it."
+    },
+    "fields": {
+      "name": "Your name",
+      "email": "Email",
+      "accountPassword": "Account password",
+      "newPassword": "Account password (min 8 chars)",
+      "newPasswordHint": "Use this password with your email to sign in after setup.",
+      "ownerCode": "Owner setup code",
+      "siteName": "Site name",
+      "siteUrl": "Site address",
+      "siteUrlPlaceholder": "https://example.com",
+      "siteUrlHint": "The address where visitors see your site, e.g. https://www.example.com. Suggested from the address you opened setup on.",
+      "siteDescription": "Description (optional)",
+      "timezone": "Timezone",
+      "siteLanguage": "Site language",
+      "siteLanguageHint": "Choose the site’s starting language. Setup and your admin use it too; after setup, turn on Multilingual in Settings to add more languages.",
+      "siteLanguageHintOther": "Choose the site’s starting language. After setup, turn on Multilingual in Settings to add more languages.",
+      "siteLanguageEnglishOnly": "Setup and your admin stay in English for this language. Your site will still use it.",
+      "timezoneNow": "{timezone} · {time}",
+      "timezoneDetected": "Detected from your browser.",
+      "signInEmail": "Sign-in email",
+      "signInEmailHint": "You’ll use it to sign in. Password reset emails go here once email delivery is set up. Never shown on your site.",
+      "confirmPassword": "Confirm password",
+      "passwordsMismatch": "Passwords don’t match.",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password"
+    },
+    "actions": {
+      "openAdmin": "Open admin",
+      "replaceOwnerAccount": "Replace owner account",
+      "signInAndResume": "Sign in and resume",
+      "signOutAndRetry": "Sign out and try another account",
+      "cancel": "Cancel",
+      "back": "Back",
+      "replaceOwner": "Replace owner",
+      "createReplacementAccount": "Create replacement account",
+      "continue": "Continue",
+      "createAccount": "Create account",
+      "finishSetup": "Finish setup"
+    },
+    "metadata": {
+      "title": "Setup"
+    }
+  },
+  "auth": {
+    "signIn": {
+      "validation": {
+        "emailRequired": "Enter the email address you signed up with.",
+        "emailInvalid": "That doesn’t look like an email address.",
+        "passwordRequired": "Enter your password."
+      },
+      "errors": {
+        "default": "Sign in failed. Try again.",
+        "unreachable": "Couldn’t reach the sign-in service. Check your connection and try again.",
+        "googleDefault": "Google sign-in failed. Try again.",
+        "googleUnreachable": "Couldn’t reach Google sign-in. Check your connection and try again."
+      },
+      "checking": {
+        "title": "Checking this site",
+        "description": "Confirming account access for this deployment.",
+        "label": "Checking account access"
+      },
+      "unconfigured": {
+        "title": "This site isn't set up yet",
+        "description": "Nobody has created an account here, so there is nothing to sign in with. Finish setup to create the owner account.",
+        "setup": "Set up this site",
+        "forceForm": "I already have an account — let me sign in"
+      },
+      "form": {
+        "title": "Sign in",
+        "description": "Use your formulacms account to open the admin area.",
+        "resetSuccess": "Password updated — sign in to continue.",
+        "emailLabel": "Email",
+        "passwordLabel": "Password",
+        "forgotPassword": "Forgot password?",
+        "signingIn": "Signing in…",
+        "submit": "Sign in",
+        "divider": "or",
+        "googleConnecting": "Connecting to Google…",
+        "googleContinue": "Continue with Google",
+        "invitation": "Need access? Ask an administrator for an invitation."
+      },
+      "loading": {
+        "title": "Loading sign-in",
+        "description": "Preparing your secure sign-in form.",
+        "label": "Loading sign-in"
+      }
+    },
+    "forgotPassword": {
+      "validation": {
+        "emailRequired": "Enter your email address.",
+        "emailInvalid": "That doesn’t look like an email address."
+      },
+      "title": "Reset your password",
+      "confirmation": "If an account exists and email delivery is available, you'll receive a reset link. If it doesn't arrive, ask the site owner for help.",
+      "backToSignIn": "Back to sign in",
+      "instructions": "Enter the email address on your account. If email delivery is available, you'll receive a link to choose a new password.",
+      "emailLabel": "Email",
+      "emailPlaceholder": "Email",
+      "sending": "Sending…",
+      "sendResetLink": "Send reset link",
+      "remembered": "Remembered it?",
+      "signIn": "Sign in"
+    },
+    "resetPassword": {
+      "validation": {
+        "passwordLength": "Use at least 8 characters.",
+        "confirmRequired": "Type the new password a second time.",
+        "passwordMismatch": "This doesn’t match the new password above."
+      },
+      "errors": {
+        "expired": "Link expired or already used. Request a new one to continue."
+      },
+      "invalid": {
+        "title": "Invalid or expired link",
+        "description": "This password reset link is invalid, expired, or already used."
+      },
+      "requestNewLink": "Request a new reset link",
+      "form": {
+        "title": "Choose a new password",
+        "passwordLabel": "New password",
+        "passwordPlaceholder": "At least 8 characters",
+        "confirmLabel": "Confirm new password",
+        "confirmPlaceholder": "Type it again",
+        "updating": "Updating…",
+        "updatePassword": "Update password"
+      }
+    }
+  },
+  "sidebar": {
+    "brand": "formulacms",
+    "nav": {
+      "dashboard": "Dashboard",
+      "content": "Content",
+      "contentTypes": "Content Types",
+      "slices": "Blocks",
+      "menus": "Menus",
+      "media": "Media",
+      "redirects": "Redirects",
+      "submissions": "Submissions",
+      "trash": "Trash",
+      "archive": "Archive",
+      "settings": "Settings"
+    },
+    "contentType": {
+      "page": {
+        "singular": "Page",
+        "plural": "Pages"
+      },
+      "landing-page": {
+        "singular": "Landing page",
+        "plural": "Landing pages"
+      },
+      "post": {
+        "singular": "Post",
+        "plural": "Posts"
+      },
+      "author": {
+        "singular": "Author",
+        "plural": "Authors"
+      }
+    },
+    "role": {
+      "admin": "Admin",
+      "editor": "Editor",
+      "viewer": "Viewer"
+    },
+    "signOut": "Sign out"
+  },
+  "shell": {
+    "modulesUnavailable": "Some modules can’t be shown right now. Refresh the page to try again.",
+    "sidebar": {
+      "hide": "Hide sidebar",
+      "show": "Show sidebar",
+      "title": "{label} ({shortcut})",
+      "section": "Layout",
+      "hideDescription": "Give the editor and live preview more room",
+      "showDescription": "Restore the admin navigation",
+      "keywords": {
+        "collapse": "collapse",
+        "navigation": "navigation",
+        "previewSpace": "preview space"
+      }
+    }
+  },
+  "commandPalette": {
+    "title": "Command palette",
+    "searchPlaceholder": "Search pages, actions, settings...",
+    "searchLabel": "Search commands",
+    "emptyTitle": "No commands found",
+    "emptyDescription": "Try a page title, admin area, or action name.",
+    "open": "Open command palette",
+    "untitled": "Untitled",
+    "sections": {
+      "create": "Create",
+      "goTo": "Go to",
+      "pages": "Pages"
+    },
+    "create": {
+      "label": "New {type}",
+      "description": "Create a new {type} shell",
+      "unavailableLabel": "New content unavailable",
+      "unavailableDescription": "Content Type availability could not be confirmed",
+      "unavailableReason": "Refresh the page before creating a new document."
+    },
+    "status": {
+      "draft": "draft",
+      "published": "published",
+      "archived": "archived"
+    }
+  },
+  "help": {
+    "title": "Help",
+    "intro": "Ask how something works. I answer and point you to the right screen. I never change your site.",
+    "questions": {
+      "addFrench": "How do I add French to my site?",
+      "publish": "How do I publish a page?",
+      "writeWithAi": "How do I write a page with AI?"
+    },
+    "placeholder": "Ask about your admin…",
+    "questionLabel": "Your question",
+    "send": "Send",
+    "footer": "Answers only. Nothing on your site is changed.",
+    "loading": "Looking for the answer…",
+    "open": "Open Help",
+    "close": "Close Help",
+    "missing": "Help is not set up yet: its connection is missing.",
+    "errors": {
+      "unreachable": "Couldn't reach {provider}. Ask again in a moment.",
+      "busy": "Too many questions in a short time. Wait a moment and ask again.",
+      "other": "Help could not answer this time. Ask again."
+    },
+    "screenPath": "{section} › {screen}",
+    "command": "Ask AI Help"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "Manage your website content",
+    "stats": {
+      "pages": "Pages",
+      "mediaFiles": "Media Files"
+    },
+    "actions": {
+      "newPage": "New Page",
+      "uploadMedia": "Upload Media",
+      "settings": "Settings"
+    },
+    "quickActions": "Quick actions",
+    "recentlyUpdated": "Recently updated",
+    "viewAll": "View all →",
+    "noPages": "No pages yet.",
+    "createFirstPage": "Create your first page",
+    "untitled": "Untitled"
+  },
+  "settings": {
+    "nav": {
+      "heading": "Settings",
+      "general": "General",
+      "languages": "Languages",
+      "ai": "AI",
+      "email": "Email",
+      "modules": "Modules",
+      "account": "Account",
+      "contentTypes": "Content Types",
+      "slices": "Blocks"
+    },
+    "common": {
+      "loading": "Loading…",
+      "notInitialized": "Site settings aren't initialized yet. Finish onboarding first.",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "failedSave": "Failed to save"
+    },
+    "modules": {
+      "moduleError": "{name} can’t be checked right now, so it stays hidden. Refresh the page to try again.",
+      "title": "Modules",
+      "subtitle": "Review the parts of your site and choose which optional modules are available.",
+      "loading": "Loading module configuration…",
+      "error": "Module configuration could not be loaded. Refresh and try again.",
+      "availability": "Can be used",
+      "available": "Available",
+      "unavailable": "Unavailable",
+      "effective": "Current state",
+      "active": "Active",
+      "inactive": "Inactive",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "readiness": "Setup status",
+      "ready": "Ready",
+      "needsSetup": "Needs setup",
+      "setup": "Setup",
+      "notRequired": "Not required",
+      "required": "Required",
+      "dependencies": "Needs",
+      "requiredDependencies": "Also needed for this change",
+      "none": "None",
+      "exactChanges": "Changes to review",
+      "noChanges": "No changes to review.",
+      "reviewing": "Checking this change…",
+      "reviewBeforeSave": "The server checks these changes before saving them.",
+      "save": "Apply reviewed changes",
+      "saving": "Applying changes…",
+      "saved": "Module configuration updated.",
+      "stale": "This configuration changed while you were reviewing it. Review the changes again before applying them.",
+      "reviewAgain": "Review current configuration",
+      "commitFailed": "The reviewed module configuration could not be applied. Review the blockers and try again.",
+      "blockers": "Blockers",
+      "requiredBlocker": "{name} is needed for the site and cannot be turned off.",
+      "dependencyBlocker": "Turn on {relatedName} before turning on {name}.",
+      "dependantBlocker": "Turn off {relatedName} before turning off {name}.",
+      "redirectRulesBlocker": "Redirects can’t be turned off while {count, plural, one {# redirect is} other {# redirects are}} saved. Delete {count, plural, one {it} other {them}} on the Redirects page first. Nothing is deleted for you.",
+      "redirectRulesBlockerMore": "Redirects can’t be turned off while more than {count} redirects are saved. Delete them on the Redirects page first. Nothing is deleted for you.",
+      "redirectRuleLocale": "{fromPath} (language: {locale})",
+      "languageAlwaysOn": "Every page and address has a language, so language support stays on.",
+      "openLanguages": "Open Languages",
+      "multilingualActiveBlocker": "Multilingual cannot be turned off while more than one language is active. Review each language first:",
+      "manageLanguage": "Manage {language}",
+      "returnToOneLanguage": "Use one language",
+      "languageOperationBlocker": "Finish or stop the open language change before turning Multilingual off.",
+      "languageStateInvalid": "The language setup is inconsistent. Nothing changed. Fix it in Languages and try again.",
+      "statusLabel": "{name} status",
+      "toggle": "Turn {name} on or off",
+      "items": {
+        "system": {
+          "name": "System",
+          "summary": "The basic parts that make the site work."
+        },
+        "owner-access": {
+          "name": "Owner access",
+          "summary": "Sign-in and access for the site owner."
+        },
+        "content-model": {
+          "name": "Content model",
+          "summary": "Choose what kinds of content your site can store."
+        },
+        "content-editor": {
+          "name": "Content editor",
+          "summary": "Create and edit pages and other content."
+        },
+        "publication": {
+          "name": "Publication",
+          "summary": "Publish content so visitors can see it on your site."
+        },
+        "media": {
+          "name": "Media",
+          "summary": "Upload, edit, and reuse images and files."
+        },
+        "language": {
+          "name": "Language",
+          "summary": "Choose the main language used in site settings."
+        },
+        "email": {
+          "name": "Email",
+          "summary": "Set up email for account recovery and contact messages."
+        },
+        "redirects": {
+          "name": "Redirects",
+          "summary": "Send visitors from old addresses to new ones."
+        },
+        "multilingual": {
+          "name": "Multilingual",
+          "summary": "Publish your site in more than one language."
+        },
+        "ai": {
+          "name": "AI",
+          "summary": "Writing, translation and help assistants in the admin. Providers, models and instructions are set in Settings › AI. Translation also requires Multilingual. Content sent to an assistant goes to its provider, which bills you per use."
+        }
+      },
+      "aiSetup": {
+        "missing": "Not configured: API key is missing",
+        "refused": "Not configured: {provider} refused the key",
+        "description": "AI is on but cannot run yet.",
+        "finish": "Finish setup"
+      }
+    },
+    "languageLifecycle": {
+      "title": "Public site updates",
+      "upToDate": "Up to date",
+      "updating": "Updating…",
+      "notReached": "Last update didn’t reach your site",
+      "failing": "Last update didn’t reach your site · retrying",
+      "local": "Local site — nothing to send",
+      "retry": "Retry now",
+      "retrying": "Retrying…",
+      "pushStarted": "Public-site updates were queued again.",
+      "noAddress": "Add the <link>site address</link> so the public site updates.",
+      "incomplete": "Finish connecting public updates: add the private code.",
+      "pushNothing": "Nothing to send again — updates are already retrying",
+      "pushFailed": "The updates could not be queued. Try again."
+    },
+    "general": {
+      "title": "General",
+      "subtitle": "Site identity, contact details, social links and branding.",
+      "identity": {
+        "heading": "Site identity",
+        "description": "How your site presents itself in metadata, sitemaps and emails.",
+        "siteName": "Site name",
+        "siteNamePlaceholder": "My site",
+        "siteDescription": "Site description",
+        "siteDescriptionPlaceholder": "A short description of your site",
+        "siteNameShared": "Same in every language",
+        "descriptionLanguages": "Description language",
+        "descriptionIn": "Site description in {language}",
+        "descriptionPlaceholderIn": "Write the description in {language}",
+        "descriptionPresent": "Has a description",
+        "descriptionMissing": "No description yet",
+        "descriptionNotWritten": "Not written yet",
+        "copyDescriptionFrom": "Copy from {language}",
+        "siteUrl": "Site address",
+        "siteUrlPlaceholder": "https://example.com",
+        "siteUrlHelp": "Used for canonical tags, sitemap and hreflang. Changing it purges the public cache."
+      },
+      "contact": {
+        "heading": "Contact",
+        "description": "Optional contact details for footers and structured data.",
+        "email": "Email",
+        "emailPlaceholder": "hello@example.com",
+        "phone": "Phone",
+        "phonePlaceholder": "+1 555 123 4567",
+        "address": "Address",
+        "addressPlaceholder": "123 Example Street, City"
+      },
+      "social": {
+        "heading": "Social links",
+        "facebook": "Facebook",
+        "facebookPlaceholder": "https://facebook.com/…",
+        "instagram": "Instagram",
+        "instagramPlaceholder": "https://instagram.com/…",
+        "x": "X",
+        "xPlaceholder": "https://x.com/…",
+        "linkedin": "LinkedIn",
+        "linkedinPlaceholder": "https://linkedin.com/…"
+      },
+      "brandVoice": {
+        "heading": "AI brand voice",
+        "description": "Short tone & style guide every AI agent inherits when writing or refining content. Optional.",
+        "label": "Brand voice",
+        "placeholder": "e.g. Warm and direct. Occasionally playful. Avoid jargon and superlatives."
+      },
+      "branding": {
+        "heading": "Branding",
+        "description": "Logo, favicon and the default social-share (OG) image. Choose files from the media library; changes save immediately.",
+        "logo": "Logo",
+        "favicon": "Favicon",
+        "og": "OG image",
+        "previewAlt": "{label} preview",
+        "noImage": "No image",
+        "replace": "Replace",
+        "choose": "Choose",
+        "remove": "Remove"
+      },
+      "diagnostics": {
+        "heading": "Public-site update checks",
+        "description": "Check whether saved changes reach your public site and whether forms can limit repeat requests.",
+        "loading": "Checking public-site updates…",
+        "noAttempts": "No public-site updates have been checked yet.",
+        "healthy": "The latest public-site update completed.",
+        "unconfigured": "Public-site updates need setup.",
+        "httpFailure": "The public site rejected the latest update (code {status}).",
+        "httpFailureUnknown": "The public site rejected the latest update.",
+        "networkFailure": "The latest update could not reach the public site. Check the site address and whether the site is available.",
+        "failureHistory": "{count, plural, one {# consecutive failure} other {# consecutive failures}}",
+        "failureHistoryCapped": "At least 50 consecutive failures.",
+        "health": {
+          "label": "Latest public-site update"
+        },
+        "readOnly": "You can view these results, but you do not have permission to run checks.",
+        "selfTest": {
+          "run": "Test public-site updates",
+          "pending": "Testing public-site updates…",
+          "success": "The public site accepted the test update (code {status}).",
+          "successUnknown": "The public site accepted the test update.",
+          "httpFailure": "The public site rejected the test update (code {status}).",
+          "httpFailureUnknown": "The public site rejected the test update.",
+          "networkFailure": "The test could not reach the public site. Check the site address and try again.",
+          "unconfigured": "Public-site updates need setup. Ask your site maintainer to add the site address and matching private code.",
+          "unavailable": "The public-site update test could not be completed. Try again."
+        },
+        "pairing": {
+          "run": "Test form request protection",
+          "pending": "Testing form request protection…",
+          "pass": "Your forms can limit repeat requests.",
+          "fail": "The form protection settings do not match. Ask your site maintainer to use the same private code everywhere.",
+          "unconfigured": "Form request protection needs setup. Ask your site maintainer to add the same private code everywhere.",
+          "unavailable": "Form request protection could not be tested. Try again."
+        }
+      },
+      "toast": {
+        "saved": "Settings saved",
+        "imageUpdated": "Image updated",
+        "imageRemoved": "Image removed",
+        "failedUpdateImage": "Failed to update image",
+        "failedRemoveImage": "Failed to remove"
+      }
+    },
+    "multilingualLanguages": {
+      "title": "Languages",
+      "turnOnModule": "To publish in more languages, turn on Multilingual in <modules>Modules</modules>.",
+      "invalid": "The language setup has a problem. Nothing was changed.",
+      "cancel": "Cancel",
+      "showMore": "Show more",
+      "list": {
+        "default": "Default",
+        "actionsFor": "Actions for {language}",
+        "makeDefault": "Make default",
+        "remove": "Remove",
+        "removeDefaultFirst": "Make another language the default first",
+        "addLabel": "Language to add",
+        "addPlaceholder": "Add a language…",
+        "searchPlaceholder": "Search languages…",
+        "noMatch": "No language matches.",
+        "addButton": "Add",
+        "allAdded": "All supported languages are added.",
+        "defaultNow": "{language} is now the default language.",
+        "menuTextMissing": "Menu text missing ({count, plural, one {# item} other {# items}})"
+      },
+      "resume": {
+        "defaultChange": "Making {language} the default is not finished.",
+        "languageChange": "Changing your site language is not finished.",
+        "continue": "Continue"
+      },
+      "change": {
+        "title": "Change site language",
+        "description": "Switch the language your site is written in.",
+        "preparing": "Getting your site ready…"
+      },
+      "errors": {
+        "stale": "The languages changed in another window. The list is up to date now; try again.",
+        "reviewRequired": "Check what changes first, then add the language.",
+        "operationOpen": "Finish or stop the language change in progress first.",
+        "reviewIncomplete": "Check every item before you confirm.",
+        "scheduledWork": "This language still has scheduled or held publications. Finish or cancel them first.",
+        "homeMissing": "The new default language needs a published home page first.",
+        "menuText": "A menu has no text in the new default language yet.",
+        "addressTooLong": "An address would be too long after this change. Shorten it first.",
+        "alreadyAdded": "That language is already added.",
+        "unsupported": "That language is not available.",
+        "notLastExtra": "The languages changed in the meantime. Reload the page and try again.",
+        "notReady": "This change is not available yet for this site. Nothing was changed.",
+        "moduleOff": "Turn on Multilingual in Modules first. Nothing was changed.",
+        "invalid": "The language setup has a problem. Nothing was changed.",
+        "generic": "That did not work. Nothing was changed."
+      },
+      "add": {
+        "review": "Check what changes",
+        "confirm": "Add {language}",
+        "added": "{language} was added.",
+        "conflict": "{language} wasn’t added. Existing addresses already use /{locale}. Change those addresses first.",
+        "conflictPage": "{path} (page)",
+        "conflictFormerAddress": "{path} (former address)",
+        "conflictRedirect": "{path} (redirect)",
+        "conflictMore": "and more"
+      },
+      "remove": {
+        "title": "Remove {language}?",
+        "description": "Nothing is deleted. Its pages, menus and addresses are hidden until you add {language} again. Addresses that start with /{locale}/ will show “not found”.",
+        "counting": "Counting what is affected…",
+        "continue": "Count what is affected",
+        "confirm": "Remove",
+        "removed": "{language} was removed."
+      },
+      "makeDefault": {
+        "title": "Make {language} the default?",
+        "description": "Visitors who have not chosen a language will see {language}. Check these first.",
+        "reviewDescription": "Check how addresses change, then switch.",
+        "checklist": "Before you switch",
+        "home": "Home page published in {language}",
+        "menu": "Menu text in {language}",
+        "descriptionRow": "Site description in {language}",
+        "openPages": "Open pages",
+        "openMenus": "Open menus",
+        "copyFrom": "Copy from {language}",
+        "copied": "Description copied.",
+        "addressNote": "Addresses change: /about becomes /{old}/about, and /{new}/about becomes /about. Old addresses redirect on their own.",
+        "start": "Check address changes",
+        "status": {
+          "ok": "Done",
+          "todo": "Not done",
+          "advice": "Worth checking"
+        },
+        "nothingToCopy": "There is no description in {language} to copy."
+      },
+      "preview": {
+        "countsLabel": "What this changes",
+        "preparing": "Counting what changes. A large site can take a moment.",
+        "pages": "{count, plural, one {# published page} other {# published pages}}",
+        "menus": "{count, plural, one {# menu} other {# menus}}"
+      },
+      "review": {
+        "loading": "Loading what changes…",
+        "listLabel": "Items to check",
+        "complete": "Everything has been checked."
+      },
+      "migration": {
+        "title": "Changing the default language from {from} to {to}",
+        "phase": {
+          "enumerating": "Listing affected addresses…",
+          "validating": "Checking pages, menus and addresses…",
+          "ready": "Ready once you have checked everything"
+        },
+        "summary": "{addresses, plural, one {# address} other {# addresses}} · {collisions, number} kept behind redirects · {blockers, plural, one {# problem to fix} other {# problems to fix}}",
+        "blocked": "Fix the listed page, menu or address problems before this language can become the default.",
+        "addresses": "Address changes",
+        "noAddresses": "No addresses to show yet.",
+        "routeShadowed": "{path} stays with {oldLanguage}; the {language} address is kept safe behind a redirect.",
+        "routeRetired": "{path} is an old address and stays reserved.",
+        "routeRedirect": "{path} keeps leading to the page in {locale}.",
+        "reviewTitle": "Check these before switching",
+        "continue": "Continue",
+        "continued": "Picking up where it stopped.",
+        "activate": "Make {language} the default",
+        "activated": "{language} is now the default.",
+        "cancel": "Stop this change",
+        "cancelled": "The change was stopped."
+      },
+      "disclosure": {
+        "selection": "Page “{title}” uses {path}.",
+        "selectionWithoutAddress": "Page “{title}” does not have a public address.",
+        "historical": "Old address {path} remains reserved.",
+        "localePrefixShadow": "Language-prefixed address {path} would overlap with another address.",
+        "anotherPage": "another page",
+        "ruleMoves": "Redirect {from} moves to {to}; it currently points to {destination}.",
+        "rule": "Redirect {from} points to {destination}.",
+        "menu": "Menu “{menu}” item {item} is affected.",
+        "menuBlocker": "Menu “{menu}” item {item} needs text or a valid destination before continuing.",
+        "shadowed": "{path} stays reserved for {language}.",
+        "addressTooLong": "{path} would exceed the public address limit.",
+        "shortened": "Some details were shortened for display."
+      }
+    },
+    "languages": {
+      "adminNote": "This changes your website only. The language of this admin screen is in your account settings.",
+      "invalid": "Your language setup has a problem that must be fixed before the language can change. Nothing on your live site was changed.",
+      "multi": "Your site shows content in more than one language ({languages}). Changing the language here is not available for this site yet. Nothing was changed.",
+      "current": "Your site is written in {language}.",
+      "uninitialized": "Your site is written in {language}. Turn on language changes to fix the label or switch languages later.",
+      "initialize": "Turn on language changes",
+      "startHeading": "Change your site's language",
+      "newLanguage": "New language",
+      "chooseLanguage": "Choose a language…",
+      "chooseMode": "What do you need?",
+      "modes": {
+        "correct_label": {
+          "title": "Fix the language label",
+          "hint": "Your text is already written in the new language and only the label is wrong. Your pages keep their text."
+        },
+        "replace_content": {
+          "title": "Switch to content in another language",
+          "hint": "Your current pages stay live while you write the new language version privately. Nothing is translated for you."
+        }
+      },
+      "start": "Start",
+      "progressHeading": "Changing from {source} to {target}",
+      "liveNote": "Your site stays live in {source}. Visitors cannot see the {target} version yet.",
+      "phases": {
+        "enumerating": "Listing your pages…",
+        "preparing": "Getting pages ready",
+        "validating": "Checking that everything is ready…",
+        "ready": "Ready to switch",
+        "cancelling": "Stopping…"
+      },
+      "counts": "{pages, plural, one {# page} other {# pages}} · {ready, plural, one {# ready} other {# ready}} · {undecided, plural, one {# needs a decision} other {# need a decision}} · {blocked, plural, one {# needs attention} other {# need attention}}",
+      "continue": "Continue",
+      "check": "Check if ready",
+      "confirmPreview": "I have reviewed the pages, site name and menus",
+      "previewConfirmed": "Reviewed",
+      "readyNote": "Everything is ready. Your site stays in {source} until you switch.",
+      "switch": "Switch my site to {target}",
+      "switchTitle": "Switch your live site to {target}?",
+      "switchDescription": "Visitors see the {target} version right away. Pages you chose to take offline or send elsewhere change at the same time. Your {source} pages are kept and nothing is deleted.",
+      "switchConfirm": "Switch now",
+      "switching": "Switching…",
+      "notYet": "Not yet",
+      "sharedWarning": "Search settings, card text and other shared fields are the same in every language. If you type {target} text there, it goes live the next time this page is published in {source}.",
+      "cancel": "Stop the language change",
+      "cancelTitle": "Stop the language change?",
+      "cancelDescription": "Your live site stays exactly as it is. Choose what happens to {target} drafts created by this change. Adopted published versions you did not withdraw, and drafts that existed before this change, are kept unless the change must pause to protect newer content.",
+      "keepDrafts": "Stop and keep drafts",
+      "discardDrafts": "Stop and delete drafts",
+      "keepGoing": "Keep going",
+      "pagesHeading": "Pages",
+      "noPages": "No pages are part of this change.",
+      "loadMore": "Show more",
+      "carry": {
+        "title": "Existing address decisions",
+        "description": "These saved addresses are either carried into the new language or left behind for the reason shown. Review the full list before confirming.",
+        "none": "No existing address decisions were recorded.",
+        "kept": "Kept with the page",
+        "drop_locale": "Left with another language",
+        "drop_claimed": "Replaced by a current address",
+        "drop_duplicate": "Duplicate address left behind",
+        "drop_disposition": "Left behind by the page decision",
+        "drop_retired": "Retired address left behind",
+        "reviewAll": "Show the rest of the list before confirming your review."
+      },
+      "page": {
+        "noAddress": "Page without a web address",
+        "newAddress": "New address: {path}",
+        "sections": "Content: {keys}",
+        "seo": "Search settings: {seo}",
+        "conflict": "Another page already uses this address in {target}.",
+        "status": {
+          "unready": "Needs work",
+          "stale": "Changed since last check",
+          "ready": "Ready",
+          "blocked": "Needs attention"
+        },
+        "decision": "What visitors get after the switch",
+        "decisions": {
+          "undecided": "Not decided yet",
+          "target": "The {target} version",
+          "withdraw": "Nothing, take it offline",
+          "redirect": "Send them to another page"
+        },
+        "redirectTo": "Send visitors to",
+        "writeTarget": "Write the {target} version",
+        "editTarget": "Edit the {target} version",
+        "copy": "Copy current text as a starting point",
+        "unconfirmedHint": "Copied text does not count as {target} until you confirm it.",
+        "confirm": "This text is in {target}",
+        "confirmed": "Confirmed as {target}",
+        "prepare": "Get this page ready",
+        "privateDraft": "This is a private draft in the current language. It cannot become the new-language page and will stay offline after the switch.",
+        "retained": {
+          "heading": "Review the retained {target} content",
+          "description": "This content existed before this language change. Nothing is reused, replaced, or taken offline until you choose an outcome.",
+          "reviewRequired": "Review the retained version and make a deliberate choice.",
+          "published": "Published version: {title} at {path}, published {date}",
+          "noAddress": "without a web address",
+          "seoTitle": "Search title: {title}",
+          "seoDescription": "Search description: {description}",
+          "noPublished": "There is no published {target} version.",
+          "draft": "Working Draft: {title} ({slug}), version {generation}",
+          "newerDraftPreserved": "This newer private draft is not the published version. Reusing the published version keeps this draft unchanged.",
+          "baseOnly": "Earlier saved content is retained for this private version, but there is no Working Draft to open.",
+          "usePublished": "Use the previously published version",
+          "withdrawPublished": "Withdraw the retained published version",
+          "prepareDraft": "Prepare the Working Draft",
+          "keepPrivate": "Keep it private",
+          "usingPublished": "The exact retained published version will be reused. No new publication is created.",
+          "preparingDraft": "The retained Working Draft was chosen. Confirm its current text before preparing it.",
+          "changedSinceDecision": "This content changed after you chose. Review it and choose again."
+        },
+        "blockers": {
+          "targetMissing": "The {target} page is missing or no longer matches this decision. Choose a valid outcome.",
+          "parent": "Prepare the parent page first.",
+          "retained": "Page {page} has a retained {target} Working Draft. Cancel this language change, then open Page {page} and choose Delete {target} Working Draft.",
+          "retainedRemedy": "Open Page {page}",
+          "generic": "This page needs attention before the language can switch."
+        }
+      },
+      "errors": {
+        "stale": "Something changed in the meantime. The latest state is shown, try again.",
+        "alreadyOpen": "A language change is already in progress.",
+        "pending": "A scheduled publication is waiting. Finish or cancel it first.",
+        "retained": "A Page has a retained Working Draft in this language. Cancel the language change, then open that Page from the blocker list and delete the named Working Draft.",
+        "retainedStale": "The retained content changed after it was shown. Review the latest version and choose again.",
+        "retainedInvalid": "That retained-content choice is no longer available. Review the latest page state.",
+        "retainedWithdrawFirst": "Withdraw the retained published version before choosing its newer Working Draft.",
+        "multi": "This site shows more than one language, so its language cannot change here.",
+        "confirmationStale": "The text changed after you confirmed it. Confirm it again.",
+        "ancestry": "Get the parent page ready first.",
+        "notResolved": "Some pages still need a decision or need attention.",
+        "previewUnconfirmed": "Review the pages, site name and menus first.",
+        "menuText": "A menu is missing text in the new language.",
+        "generic": "That did not work. Nothing on your live site was changed.",
+        "invalid": "Your language setup has a problem that must be fixed first. Nothing on your live site was changed."
+      },
+      "toast": {
+        "initialized": "Language changes turned on",
+        "started": "Language change started",
+        "cancelled": "Language change stopped",
+        "switched": "Your site is now in {target}"
+      }
+    },
+    "account": {
+      "title": "Account",
+      "subtitle": "Personal preferences for your admin session. These do not affect the public site.",
+      "adminLanguage": "Admin language",
+      "adminLanguageDescription": "The language used in this interface. Switch and the page reloads in your chosen language.",
+      "save": "Save preferences",
+      "ok": "OK",
+      "updateFailed": "Failed to update language preference."
+    },
+    "ai": {
+      "title": "AI",
+      "subtitle": "Choose how each AI context connects, then pick which model handles each job.",
+      "header": {
+        "eyebrow": "Settings",
+        "description": "Choose the AI provider that powers your live site, then fine-tune what each agent does. Every agent already uses a model suited to its job — change it only if you need to."
+      },
+      "boundary": "AI has two separate switches: Development AI runs on your computer while you build the site, and Production AI runs on your live site for visitors and editors. Changing one never changes the other.",
+      "workbench": {
+        "subtitle": "Choose where AI runs, then set its connection and models in one place.",
+        "connectionChanged": "Connection changed to {connection}. Task choices were reset.",
+        "resetAnnouncement": "Reset unsaved changes for {lane}.",
+        "savedAnnouncement": "Saved changes for {lane}.",
+        "lanes": {
+          "liveSite": "Live site",
+          "thisComputer": "This computer"
+        },
+        "connection": "AI connection",
+        "connectionHint": "An API key or a signed-in app that can reach the models below.",
+        "checkConnection": "Test connection",
+        "checkingConnection": "Testing…",
+        "checkAgain": "Test again",
+        "connectionRequired": "Set up or test this AI connection before assigning models to it.",
+        "invalidSelection": "That model and effort cannot run this task on the selected connection.",
+        "connectionStates": {
+          "off": "Off",
+          "configured": "Configured",
+          "checking": "Testing",
+          "authenticated": "Authenticated",
+          "not-configured": "Needs setup",
+          "invalid": "Not usable",
+          "unreachable": "Check failed"
+        },
+        "connectionIssues": {
+          "missing-key": "No API key was detected where this connection runs.",
+          "missing-cli": "The required app is not installed or cannot be found on this computer.",
+          "signed-out": "The app is installed but not signed in.",
+          "wrong-auth-method": "This app is signed in with an API key, not the required subscription account.",
+          "credentials-rejected": "The service rejected these credentials. Replace or renew them.",
+          "wrong-key-type": "This key can manage an account but cannot run AI models.",
+          "quota-exhausted": "The key is valid, but its spending limit has been reached.",
+          "rate-limited": "The service is rate-limiting connection checks. Try again shortly.",
+          "timeout": "The connection check took too long. Try again.",
+          "network": "The service could not be reached from the place where this connection runs.",
+          "service-error": "The service could not complete the check. Try again shortly.",
+          "command-failed": "The local app could not report its sign-in status."
+        },
+        "setupGuidance": {
+          "openGuide": "Open setup guide",
+          "production": {
+            "openrouter": "Create an OpenRouter inference key, then run `npx convex env set OPENROUTER_API_KEY` from this project. Keep the key in Convex only.",
+            "anthropic": "Create an Anthropic API key, then run `npx convex env set ANTHROPIC_API_KEY` from this project. Keep the key in Convex only.",
+            "openai": "Create an OpenAI API key, then run `npx convex env set OPENAI_API_KEY` from this project. Keep the key in Convex only."
+          },
+          "development": {
+            "openrouter": "Add `FORMULACMS_DEV_OPENROUTER_API_KEY` to this computer's gitignored `.env.local`, then restart the development server.",
+            "anthropic": "Add `FORMULACMS_DEV_ANTHROPIC_API_KEY` to this computer's gitignored `.env.local`, then restart the development server.",
+            "openai": "Add `FORMULACMS_DEV_OPENAI_API_KEY` to this computer's gitignored `.env.local`, then restart the development server."
+          },
+          "claude": {
+            "missingCli": "Install Claude Code (`brew install --cask claude-code` on macOS), run `claude`, and sign in with your Claude subscription.",
+            "signedOut": "Run `claude auth login` and sign in with the Claude subscription you want this computer to use.",
+            "wrongAuthMethod": "Run `claude auth logout`, then `claude auth login` and use your Claude subscription instead of an API key."
+          },
+          "codex": {
+            "missingCli": "Install Codex (`npm install -g @openai/codex`), then run `codex login` and choose Sign in with ChatGPT.",
+            "signedOut": "Run `codex login` and choose Sign in with ChatGPT so this computer uses your subscription.",
+            "wrongAuthMethod": "Run `codex logout`, then `codex login` and choose Sign in with ChatGPT instead of an API key."
+          },
+          "issues": {
+            "missing-key": "Add the required API key in the environment where this connection runs, restart it, and test again.",
+            "missing-cli": "Install the required local app, make sure its command is on PATH, and test again.",
+            "signed-out": "Sign in to the local app with the required subscription account, then test again.",
+            "wrong-auth-method": "Sign out of the API-key session and sign back in with the required subscription account.",
+            "credentials-rejected": "Replace or renew the key in the same environment where this connection runs, restart it, and test again.",
+            "wrong-key-type": "Create an inference key that can run models; management and provisioning keys are not accepted.",
+            "quota-exhausted": "Increase the provider's spending limit or add credits, then test the same connection again.",
+            "rate-limited": "Wait for the provider's rate-limit window to clear, then test again without changing connections.",
+            "timeout": "Check network access from the execution environment, then retry the connection test.",
+            "network": "Check DNS, proxy, firewall, and outbound HTTPS access where this connection runs, then retry.",
+            "service-error": "The provider returned a temporary service error. Check its status page and retry shortly.",
+            "command-failed": "Run the app's status command in a terminal, fix any local error it reports, then test again."
+          }
+        },
+        "modelsByTask": "Models by task",
+        "modelsByTaskHint": "Keep the recommended defaults, or choose a model for one task.",
+        "agentInstructions": "Agent instructions — optional",
+        "agentInstructionsHint": "Prompt templates and writing shortcuts stay here, close to the tasks they affect but out of the main setup path.",
+        "taskOff": "AI is off for this context",
+        "useLiveSiteAi": "Use live-site AI",
+        "runsOnLiveSite": "Uses live-site AI: {connection}",
+        "liveSiteOff": "Needs live-site AI, which is currently off",
+        "viewLiveSettings": "View live-site settings",
+        "defaultConnection": "Default → {connection}",
+        "defaultModel": "Default → {model}",
+        "unsavedChanges": "Unsaved changes for {lane}",
+        "savedState": "All changes are saved.",
+        "resetChanges": "Reset changes",
+        "saveChanges": "Save changes"
+      },
+      "providers": {
+        "off": "Off",
+        "openrouter": "OpenRouter",
+        "anthropic": "Anthropic",
+        "openai": "OpenAI"
+      },
+      "tree": {
+        "production": "Production — live site",
+        "development": "Development — this machine",
+        "provider": "Connection",
+        "taskRouting": "Task routing",
+        "overrideCount": "{count, plural, =1 {# override} other {# overrides}}",
+        "defaults": "defaults",
+        "customized": "customized",
+        "default": "default",
+        "notApplicable": "off"
+      },
+      "panes": {
+        "providerTitle": "API connection",
+        "providerSubtitle": "The company your site's AI runs on. The tasks below can only use models this provider offers.",
+        "devProviderTitle": "AI connection",
+        "devProviderSubtitle": "AI that runs only on this computer while you build the site — visitors never use it. Every task starts on this provider; open the Task routing pane to change any one job.",
+        "devTaskRoutingTitle": "Task routing",
+        "devTaskRoutingSubtitle": "Each job runs on {provider}. Jobs it can run show a model and effort to tune; the rest run on your live-site AI.",
+        "devTaskRoutingNoProviderSubtitle": "Pick a Development AI provider first",
+        "devTaskRoutingNoProviderBody": "Open the Provider pane above, choose an engine, then come back here to fine-tune per task.",
+        "taskRoutingTitle": "Task routing",
+        "taskRoutingSubtitle": "Every task comes with a recommended model, shown as “Default”. Effort is how long the model thinks — higher is smarter but slower. Choices come from {provider}. This runs when someone edits on your live site — while you build locally, the Development section below handles these jobs on your own subscription.",
+        "taskRoutingOffSubtitle": "AI is switched off for your live site, so there is nothing to set up here.",
+        "taskRoutingOffBody": "Choose a provider first.",
+        "siteDefaultLabel": "Default model for every task",
+        "siteDefaultHint": "Optional. Only shows model and effort combinations that work for every task on your live site.",
+        "colTask": "Task",
+        "colConnection": "Connection",
+        "colModel": "Model",
+        "colEffort": "Effort",
+        "devTuning": {
+          "liveSiteNote": "Runs on your live-site AI"
+        },
+        "save": "Save",
+        "saving": "Saving…",
+        "savedTitle": "Saved",
+        "savedSubtitle": "Your changes are in place.",
+        "makeMoreChanges": "Make more changes",
+        "savedToast": "Saved",
+        "agentTemplateBrokenNote": "Fix the template below before saving",
+        "agentNoProvider": "This agent uses whatever Production AI provider is active. Turn one on above to give it a model to run."
+      },
+      "groups": {
+        "sliceAuthoring": {
+          "label": "Block authoring",
+          "description": "Turns designs into new page sections while you build the site."
+        }
+      },
+      "tasks": {
+        "mechanical-translation": {
+          "label": "Mechanical translation",
+          "hint": "Fast, literal translation for large amounts of content"
+        },
+        "brand-translation": {
+          "label": "Brand translation",
+          "hint": "Careful translation that keeps your tone of voice"
+        },
+        "editorial-copy": {
+          "label": "Editorial copy",
+          "hint": "Writes and improves your page content"
+        },
+        "structured-outline-meta": {
+          "label": "Outline & metadata",
+          "hint": "Plans page structure and search-engine text"
+        },
+        "grounded-help": {
+          "label": "Grounded help",
+          "hint": "Answers your questions inside the admin"
+        },
+        "vision-spec": {
+          "label": "Block author",
+          "hint": "Turns a design or brief into a section definition"
+        },
+        "renderer-jsx": {
+          "label": "Block renderer",
+          "hint": "Turns a section definition into the React layout"
+        }
+      },
+      "saveError": {
+        "incompatibleDefaultModelForEffort": "The default model for {task} ({model}) doesn't support {effort} effort. Pick a model too, or choose a different effort.",
+        "incompatibleEffortForModel": "{model} doesn't support {effort} effort for {task}. Pick a different effort."
+      },
+      "picker": {
+        "inheritDefault": "Default",
+        "effortDefaultTemplate": "Default · {effort}",
+        "notAdjustable": "Not adjustable",
+        "notAdjustableTitle": "This model doesn't offer a thinking-effort setting",
+        "searchPlaceholder": "Search {count} models…",
+        "priceLegend": "USD per 1 million tokens. OpenRouter bills these amounts per use.",
+        "inputPrice": "Input / 1M",
+        "outputPrice": "Output / 1M",
+        "noneMatch": "No models match “{query}”",
+        "chooseModel": "Choose a model",
+        "chooseEffort": "Choose an effort",
+        "useTaskDefaults": "Use each task's recommendation"
+      },
+      "catalog": {
+        "footer": "OpenRouter catalog refreshes weekly",
+        "refreshing": "Refreshing {count} models…",
+        "refreshFailed": "Refresh failed. Showing the last valid {count}-model catalog.",
+        "synced": "{count} models · updated {date} · refreshes weekly",
+        "bundled": "{count} bundled models · refreshes weekly after the first sync"
+      },
+      "providerBadges": {
+        "ready": "configured",
+        "needsSetup": "needs setup"
+      },
+      "providerNotes": {
+        "off": "Your live site runs without AI",
+        "openrouter": "One account, models from every company",
+        "anthropic": "Claude models, billed to your own Anthropic account",
+        "openai": "GPT models, billed to your own OpenAI account"
+      },
+      "development": {
+        "eyebrow": "Runs on this machine",
+        "title": "Development AI",
+        "description": "Runs supported editor help, writing, translation, outline, and section-authoring tasks on this development computer. It has no effect on your live site; editor tasks set to Off use the Live site route instead.",
+        "choiceLabel": "Development AI connection",
+        "defaultChoiceMeta": "OpenRouter (default)",
+        "defaultNote": "No engine saved yet — the command-line tool uses the OpenRouter API by default.",
+        "offCliNote": "With Off, the command-line tool stops instead of picking one for you — you must pass an engine explicitly.",
+        "cliSummary": "The command-line tool uses {choice} automatically.",
+        "envOverrideNote": "The FORMULACMS_DEV_AI_ENGINE={engine} environment variable is set on this server, so it overrides the saved engine in any terminal where it's exported.",
+        "storeError": "Couldn't read the saved engine: {message} Saving a choice below rewrites it.",
+        "save": "Save selection",
+        "saving": "Saving…",
+        "savedToast": "Development AI set to {choice}",
+        "codexPathHint": "If `codex` isn't on your PATH, set FORMULACMS_CODEX_BIN to its location.",
+        "claudeOverride": {
+          "heading": "Claude Code override",
+          "hint": "Optional. Leave this blank and each task automatically gets the model and reasoning effort suited to it. Reasoning effort never goes above \"xhigh\".",
+          "modelLabel": "Model",
+          "effortLabel": "Reasoning effort",
+          "useProfileDefaults": "Pick automatically per task"
+        },
+        "contentLane": {
+          "toggleLabel": "Also use this AI to write and translate content",
+          "hint": "Off (default): the editor's Translate and Write buttons use Production AI. On: they use this Development AI instead, running on your machine through your subscription, so your online AI provider isn't charged for it. Only works with Claude Code for now.",
+          "requiresDraftNote": "Only takes effect on pages that are already drafts. Live pages keep using Production AI, so nothing accidental lands on your live site."
+        },
+        "choices": {
+          "off": {
+            "label": "Off",
+            "note": "The command-line tool stops instead of quietly falling back to another engine."
+          },
+          "claude": {
+            "label": "Claude Code",
+            "note": "Runs through Claude Code on this computer and requires a signed-in Claude subscription."
+          },
+          "codex": {
+            "label": "Codex",
+            "note": "Runs through Codex on this computer and requires a signed-in ChatGPT subscription."
+          },
+          "openrouter": {
+            "label": "OpenRouter API",
+            "note": "Uses an OpenRouter API key configured on this computer."
+          },
+          "anthropic": {
+            "label": "Anthropic API",
+            "note": "Uses an Anthropic API key configured on this computer."
+          },
+          "openai": {
+            "label": "OpenAI API",
+            "note": "Uses an OpenAI API key configured on this computer."
+          }
+        }
+      },
+      "production": {
+        "eyebrow": "Runs on your live site",
+        "title": "Production AI",
+        "description": "One provider powers every AI feature on your live site. Your API key stays in your deployment's environment variables — formulacms never stores it.",
+        "choiceLabel": "Live-site API connection",
+        "providerNote": "Requires an API key for this provider",
+        "offNote": "No AI features run on your live site",
+        "offSummary": "AI features stay off until you pick a provider.",
+        "profileSummary": "This provider covers all {count} AI tasks. Each task picks its own model and reasoning.",
+        "viewProfiles": "See what each task uses",
+        "siteDefaultModel": "Default model for every task",
+        "siteDefaultHint": "Optional. Only shows model and reasoning combinations that work for every AI task on your site.",
+        "modelLabel": "Model",
+        "reasoningLabel": "Reasoning",
+        "useWorkflowDefaults": "Pick automatically per task",
+        "chooseModelFirst": "Choose a model first",
+        "noReasoning": "No reasoning control",
+        "saveActivate": "Save & activate",
+        "saving": "Saving…",
+        "savedToast": "Production AI set to {provider}"
+      },
+      "states": {
+        "active": "Selected",
+        "available": "Supported",
+        "needsSetup": "Needs setup",
+        "activeNeedsSetup": "Selected — needs setup",
+        "off": "Off"
+      },
+      "workflows": {
+        "heading": "What this affects",
+        "development": {
+          "sliceAuthoring": "Building page sections",
+          "rendererRefinement": "Adjusting page section designs",
+          "contentTypeAuthoring": "Creating content types"
+        },
+        "production": {
+          "translation": "Translation",
+          "contentWriting": "Writing & refining content",
+          "help": "Help assistant & other site features"
+        }
+      },
+      "profiles": {
+        "mechanical-translation": "Mechanical translation",
+        "brand-translation": "Brand translation",
+        "editorial-copy": "Editorial copy",
+        "structured-outline-meta": "Structured outline and metadata",
+        "grounded-help": "Grounded help",
+        "judgment-transform": "Judgment transform",
+        "explicit-agentic-rescue": "Explicit agentic rescue"
+      },
+      "agents": {
+        "heading": "Agents",
+        "description": "Adjust what each agent does, independently of the provider you chose above."
+      },
+      "agent": {
+        "modelOverrides": "Use a different model for this agent",
+        "modelOverridesHint": "This model must support all {count} tasks assigned to this agent.",
+        "useSiteDefault": "Use site default",
+        "inherited": "Inherited",
+        "model": "Model",
+        "useDefault": "Use site default model",
+        "useSpecific": "Use {model}",
+        "userPromptTemplate": "Prompt template",
+        "resetToDefault": "Reset to default",
+        "resetToDefaults": "Reset to defaults",
+        "savedToast": "{label} agent saved",
+        "placeholders": "Available placeholders:",
+        "requiredPlaceholders": "Required — the agent breaks without them:",
+        "missingPlaceholder": "Add {placeholder} back to the template — the agent needs it to work."
+      },
+      "presets": {
+        "writeTitle": "Write — brief seeds",
+        "writeHint": "Shown as a dropdown above the Write brief field. Click an entry to fill in the brief, then edit it before submitting.",
+        "writeLabelPlaceholder": "Hero for '{audience}'",
+        "writeBodyPlaceholder": "Hero for first-time homebuyers researching mortgage rates. Reassuring tone.",
+        "refineTitle": "Refine — quick presets",
+        "refineHint": "Shown as chips above the Refine instruction field. Click one to fill it in, then edit before submitting.",
+        "refineLabelPlaceholder": "Tighten",
+        "refineBodyPlaceholder": "Cut filler. Keep every concrete claim. Aim for ~25% shorter.",
+        "empty": "No presets yet. The dropdown won't be shown until you add one.",
+        "add": "Add preset",
+        "remove": "Remove"
+      },
+      "accessDenied": "You don't have permission to change AI settings. Ask an administrator.",
+      "readOnlyNote": "You can view these settings but not change them."
+    },
+    "email": {
+      "title": "Email",
+      "subtitle": "Set up delivery for your site's transactional email.",
+      "accessDenied": "Only the site owner can change email delivery settings.",
+      "status": {
+        "inactive": "No delivery provider active",
+        "inactiveDescription": "Messages are not sent until you add and activate a provider.",
+        "active": "{provider} is active",
+        "activeBadge": "Active",
+        "activeDescription": "This is the selected delivery provider. Each send still requires server readiness, and provider acceptance does not guarantee inbox delivery."
+      },
+      "catalogue": {
+        "heading": "Email providers",
+        "description": "Choose an included provider or open developer instructions for a custom one.",
+        "included": "Included",
+        "back": "Back to providers",
+        "developerDescription": "This opens developer instructions. It does not install code or change email delivery.",
+        "addProvider": "Add this provider"
+      },
+      "detail": {
+        "emptyHeading": "Choose a provider",
+        "emptyDescription": "Select a provider to view its setup details."
+      },
+      "readiness": {
+        "heading": "Server setup",
+        "description": "Checks whether the required Resend security setting is available. Its value is never shown here.",
+        "detected": "Detected",
+        "notDetected": "Not detected",
+        "notChecked": "Not checked",
+        "check": "Check configuration"
+      },
+      "sender": {
+        "heading": "Sender",
+        "description": "This identity appears in the From field. Contact notifications still go to the site owner's account.",
+        "address": "From address",
+        "addressPlaceholder": "noreply@example.com",
+        "name": "From name",
+        "namePlaceholder": "My Site",
+        "save": "Save configuration"
+      },
+      "test": {
+        "heading": "Delivery test",
+        "description": "Send a fixed test only to {email}. A provider-accepted result is required before activation.",
+        "ownerAccount": "the site owner's account",
+        "send": "Send test email",
+        "state": {
+          "queued": "Test queued. Waiting for the provider result.",
+          "provider_accepted": "Provider accepted the test. Activation is available for a short time.",
+          "failed": "The provider did not accept the test.",
+          "unknown": "Delivery is uncertain. Send a new test before activation."
+        },
+        "blocked": {
+          "not_configured": "Save the provider and sender before testing.",
+          "needs_setup": "Finish the server setup before testing.",
+          "owner_email_missing": "The site owner's account has no email address.",
+          "rate_limited": "Too many tests were requested. Try again later."
+        }
+      },
+      "activation": {
+        "status": "{provider} is on.",
+        "turnOff": "Turn off",
+        "turnOffTitle": "Turn off {provider}?",
+        "turnOffDescription": "Your site stops sending emails, including contact form messages and password resets. To turn it back on you'll send a new test.",
+        "turnOffConfirm": "Turn off",
+        "activate": "Activate Resend",
+        "description": "Changing the provider or sender requires a new accepted test before activation."
+      },
+      "toast": {
+        "saved": "Email configuration saved",
+        "failedSave": "Email configuration was not saved. Check the sender details and try again.",
+        "configurationReady": "Resend server setup detected",
+        "configurationMissing": "Resend server setup was not detected",
+        "failedCheck": "Could not check the server setup",
+        "testQueued": "Test queued. Provider acceptance is still pending.",
+        "failedTest": "Could not queue the delivery test",
+        "activated": "Resend activated",
+        "failedActivate": "Resend was not activated. Send a new successful test and try again.",
+        "deactivated": "{provider} is off",
+        "failedDeactivate": "{provider} was not turned off. Try again."
+      }
+    },
+    "aiScreen": {
+      "title": "AI",
+      "connections": "Connections",
+      "connectionsDescription": "The AI services your assistants can run with. An assistant sends the content you ask it to work on to its provider. API providers bill you for each use.",
+      "apiKeys": "API keys",
+      "connected": "Connected · key found in your environment",
+      "replaceKey": "Replace {envVar} in your environment.",
+      "refusedAssistants": "Assistants that use {provider} show \"Key refused\" and can't run until it is fixed.",
+      "temporary": "Usually temporary. The key is fine; try the action again.",
+      "addKey": "Add {envVar} to your environment. formulacms never stores your key.",
+      "today": "today {time}",
+      "assistants": "Assistants",
+      "assistantsLocal": "Choose what each assistant runs with and how it behaves. These choices are saved for local development; your live site keeps its own.",
+      "assistantsLive": "Choose what each assistant runs with and how it behaves on your live site.",
+      "ready": "Ready",
+      "needsAttention": "Needs attention",
+      "keysConnected": "{connected} of {total} API keys connected",
+      "keyRefused": "Key refused",
+      "finishConnection": "Finish setup: its connection is not set up",
+      "runsWith": "Runs with",
+      "notSetUp": " · not set up",
+      "model": "Model",
+      "effort": "Effort",
+      "effortNotSet": "Not set",
+      "noEffort": "Not available for this model",
+      "instructions": "Instructions (system prompt)",
+      "instructionsNote": "Sent to the model before every request from this assistant.",
+      "reset": "Reset to default",
+      "presetsNote": "Brief seeds and quick refine presets stay as they are today.",
+      "save": "Save",
+      "saved": "Saved",
+      "active": "Active",
+      "refusedCard": "Not configured: {provider} refused the key",
+      "missingCard": "Not configured: API key is missing",
+      "description": "Connect an AI service, then set up your assistants. To turn AI off, go to Modules.",
+      "offNotice": "AI is not enabled. You can enable it here.",
+      "errorTitle": "AI settings couldn't load",
+      "errorDescription": "Something went wrong while loading your AI settings. The rest of the admin still works.",
+      "retry": "Try again",
+      "providers": {
+        "anthropic": "Anthropic",
+        "openrouter": "OpenRouter",
+        "openai": "OpenAI"
+      },
+      "connection": {
+        "refused": "Key refused: {provider} rejected {envVar} on your last AI action ({at})",
+        "unreachable": "Couldn't reach {provider} on your last AI action ({at})",
+        "missing": "Not configured: {envVar} is missing"
+      },
+      "tasks": {
+        "writing": {
+          "title": "Writing assistant",
+          "summary": "Writes a whole page from a short brief, and writes or refines text in the page editor.",
+          "prompt": "You write clear, friendly web pages. Use short sentences and plain words. Follow the brand voice in Settings › General. Never invent prices, dates or facts."
+        },
+        "translation": {
+          "title": "Translation assistant",
+          "summary": "Translates a field, a section or a whole page into one language. You review it before saving.",
+          "prompt": "Translate faithfully into the target language. Keep the brand voice, product names and links. Never translate the site name."
+        },
+        "help": {
+          "title": "Help assistant",
+          "summary": "Answers questions about using your admin, with links to the right screen.",
+          "prompt": "Answer questions about this admin only. Link to the right screen. If you are not sure, say so."
+        }
+      },
+      "sliceCreator": {
+        "title": "Block creator",
+        "summary": "Designs new block types with you: their fields, the rules for what can be entered, and how they look. Works on your project files during local development, never on the live site.",
+        "prompt": "You design block types for this site. Follow the project's block rules and design settings. Show every file change for review before writing it.",
+        "finishSetup": "Finish setup",
+        "keyMissing": "Not configured on this computer: {envVar} is missing",
+        "keyHelp": "The Block creator runs on your computer, so it uses a key stored there, separate from the connections above. Add {envVar} to your project's .env.local file. It is found automatically; formulacms never stores your key.",
+        "keyMissingAny": "No Block creator key on this computer",
+        "keyHelpAny": "The Block creator runs on your computer and uses a key stored there, separate from the connections above. Add one of {openrouter}, {anthropic} or {openai} to your project's .env.local file. It is found automatically; formulacms never stores your key."
+      },
+      "picker": {
+        "searchPlaceholder": "Search {count} models…",
+        "noneMatch": "No models match “{query}”"
+      }
+    }
+  },
+  "menus": {
+    "list": {
+      "title": "Menus",
+      "subtitle": "Manage the navigation menus on your site",
+      "createMenu": "Create menu",
+      "dialog": {
+        "title": "Create a new menu",
+        "description": "Enter a unique name for the menu. Its structure is shared across every enabled language.",
+        "slugPlaceholder": "e.g. sidebar, utility",
+        "cancel": "Cancel",
+        "create": "Create"
+      },
+      "defaults": {
+        "primary": {
+          "name": "Main navigation",
+          "description": "Links shown in the site header"
+        },
+        "footer": {
+          "name": "Footer navigation",
+          "description": "Links and sections shown in the footer"
+        },
+        "mobile": {
+          "name": "Mobile navigation",
+          "description": "Navigation shown on smaller screens"
+        }
+      },
+      "loadingAccess": "Loading menu access…",
+      "noAccess": "You do not have access to existing menus.",
+      "configured": "Configured",
+      "notConfigured": "Not configured",
+      "customHeading": "Custom menus",
+      "customDescription": "Custom menu",
+      "toast": {
+        "slugRequired": "Enter a menu name",
+        "created": "Menu “{slug}” created"
+      }
+    },
+    "editor": {
+      "back": "Menus",
+      "title": "Menu: {slug}",
+      "description": "Choose the navigation items shown in the {slug} menu",
+      "loadingAccess": "Loading menu access…",
+      "noAccess": "You do not have access to this menu.",
+      "loading": "Loading menu…",
+      "viewOnly": "View only",
+      "viewOnlyDescription": "You can review this menu, but you do not have permission to change it.",
+      "unsavedChanges": "Unsaved changes",
+      "discardConfirm": "Discard unsaved changes and switch language?",
+      "copyFrom": "Copy from…",
+      "copyFromLocale": "Copy from {locale}",
+      "copied": "Copied localized menu text from {locale}",
+      "save": "Save menu",
+      "saved": "Menu saved",
+      "saveFailed": "Failed to save menu",
+      "addItem": "Add navigation item",
+      "empty": "No navigation items yet. Add one to get started.",
+      "emptyReadOnly": "This menu has no navigation items.",
+      "untitledItem": "Untitled item",
+      "leaveConfirm": "Discard unsaved changes and leave the editor?",
+      "copyOverwrite": "Replace existing {locale} text with {source} text?",
+      "invalidFields": "Correct the marked fields before saving.",
+      "deleteItemConfirm": "Delete the item?"
+    },
+    "navigationItem": {
+      "moveUp": "Move item up",
+      "moveDown": "Move item down",
+      "labelPlaceholder": "Navigation item label",
+      "panelMenu": "Panel menu",
+      "disabled": "Disabled",
+      "disable": "Disable item",
+      "delete": "Delete item",
+      "collapse": "Collapse item",
+      "expand": "Expand item",
+      "simpleLink": "Link to",
+      "configureLink": "Set up link",
+      "configurePanelMenu": "Set up panel menu",
+      "removePanel": "Remove panel",
+      "destination": "Destination",
+      "panelTab": "Panel",
+      "panelLinkHint": "Shown at the top of the open panel.",
+      "leavePanelConfirm": "Delete the panel and its blocks to choose “{type}”?",
+      "removePanelConfirm": "Delete the panel and all its blocks?"
+    },
+    "panel": {
+      "empty": "No columns yet. Add a column to start building the panel menu.",
+      "addFirstColumn": "Add first column",
+      "layout": "Panel layout",
+      "columnCount": "{count} / {max} columns",
+      "columnTab": "Column {number}",
+      "doubleWidthShort": "2×",
+      "addColumn": "Add column",
+      "width": "Width",
+      "standardWidth": "Standard width",
+      "doubleWidth": "Double width",
+      "sectionCount": "{count, plural, one {# section} other {# sections}}",
+      "moveColumnLeft": "Move column left",
+      "moveColumnRight": "Move column right",
+      "deleteColumn": "Delete column",
+      "addSection": "Add section",
+      "blockCount": "{count, plural, one {# block} other {# blocks}}",
+      "noBlocks": "No blocks yet.",
+      "addLinkGroup": "Add link group",
+      "addFeaturedBlock": "Add featured block",
+      "addDynamicList": "Add dynamic list",
+      "columns": "Panel columns",
+      "panelBlocks": "Panel blocks",
+      "footerBlocks": "Panel bottom",
+      "addInRegion": "{action} — {region}"
+    },
+    "section": {
+      "moveUp": "Move section up",
+      "moveDown": "Move section down",
+      "collapse": "Collapse section",
+      "expand": "Expand section",
+      "titlePlaceholder": "Section title (optional)",
+      "titleLabel": "Section title",
+      "itemCount": "{count, plural, one {# item} other {# items}}",
+      "delete": "Delete section",
+      "addItem": "Add menu item"
+    },
+    "items": {
+      "untitled": "Untitled item",
+      "moveUp": "Move item up",
+      "moveDown": "Move item down",
+      "featured": "Mark as featured",
+      "disable": "Disable item",
+      "delete": "Delete",
+      "type": "Item type",
+      "types": {
+        "link": "Simple link",
+        "link_icon": "Link with icon",
+        "link_icon_desc": "Link with icon and description",
+        "card": "Card with image and action",
+        "section_header": "Section heading"
+      },
+      "sectionTitle": "Section title",
+      "sectionTitlePlaceholder": "Section title",
+      "icon": "Icon",
+      "description": "Description",
+      "descriptionPlaceholder": "Short description for this menu item",
+      "image": "Image",
+      "imageAlt": "Image alt text",
+      "removeImage": "Remove image",
+      "changeImage": "Change image",
+      "selectImage": "Select image",
+      "buttonLabel": "Button label",
+      "buttonLabelPlaceholder": "e.g. Watch video, Learn more",
+      "collapseBlock": "Collapse block",
+      "expandBlock": "Expand block",
+      "blockKinds": {
+        "featured": "Featured block",
+        "dynamicList": "Dynamic list",
+        "linkGroup": "Link group"
+      },
+      "panelSpan": "Block width",
+      "columnCount": "{count, plural, one {# column} other {# columns}}",
+      "heading": "Heading",
+      "groupHeadingPlaceholder": "Group heading (optional)",
+      "addLink": "Add link",
+      "listHeadingPlaceholder": "List heading (optional)",
+      "contentType": "Content type",
+      "contentTypeOptions": {
+        "author": "Authors",
+        "job": "Jobs",
+        "landingPage": "Landing pages",
+        "page": "Pages",
+        "post": "Posts",
+        "testimonial": "Testimonials"
+      },
+      "itemLimit": "Item limit",
+      "seeAllLink": "See-all link",
+      "remove": "Remove",
+      "seeAllLabel": "See-all label",
+      "addSeeAllLink": "Add see-all link",
+      "featuredHeadingPlaceholder": "Featured heading",
+      "required": "Required",
+      "imageRequired": "Choose an image.",
+      "deleteBlockConfirm": "Delete the block?",
+      "deleteLinkConfirm": "Delete the link?"
+    },
+    "iconPicker": {
+      "select": "Select icon…",
+      "searchPlaceholder": "Search icons…",
+      "searchLabel": "Search icons",
+      "none": "No icon"
+    },
+    "link": {
+      "label": "Label",
+      "labelPlaceholder": "Menu item label",
+      "page": "Page",
+      "url": "URL",
+      "jump": "Jump to a spot on the page",
+      "none": "No link",
+      "selectPage": "Select page ({locale})",
+      "archived": "archived",
+      "missingPage": "Missing page",
+      "deleted": "deleted",
+      "selectPagePlaceholder": "Select a page…",
+      "selectedPage": "Selected page",
+      "unavailable": "unavailable",
+      "unavailablePage": "Page unavailable",
+      "unavailableWarning": "You do not have permission to inspect this linked page. Pick another page or choose None.",
+      "searchPlaceholder": "Search pages by title or address…",
+      "searchLabel": "Search pages",
+      "loadingPages": "Loading pages…",
+      "noPages": "No pages found for {locale}.",
+      "address": "Address: /{locale}/{slug}",
+      "archivedWarning": "This page is archived, so the link will not appear on the site.",
+      "missingWarning": "The linked page no longer exists. Pick another page or choose None.",
+      "externalUrl": "External URL",
+      "externalUrlPlaceholder": "https://example.com",
+      "openInNewTab": "Open in a new tab",
+      "jumpLabel": "Jump to a spot on the page",
+      "jumpPlaceholder": "#section-name",
+      "noneDescription": "This item will not be clickable. Use it for section headings or placeholders.",
+      "noTargetConfigured": "No link target is configured.",
+      "urlError": "Enter a complete address, for example https://example.com. For a page on this site, use the Page tab.",
+      "pageRequired": "Choose a page or another link type.",
+      "notPublished": "{locale} unpublished",
+      "notPublishedHint": "Not published in {locale} yet: visitors in {locale} see the label without a link.",
+      "panel": "Panel"
+    },
+    "emptyText": {
+      "item": "Empty: this item does not appear in {locale}.",
+      "link": "Empty: this link does not appear in {locale}.",
+      "block": "Empty: this block does not appear in {locale}.",
+      "heading": "Empty: no heading in {locale}.",
+      "seeAll": "Empty: the See all link does not appear in {locale}."
+    },
+    "reorder": {
+      "move": "Move {label}",
+      "untitled": "Untitled item",
+      "help": "Press Space to pick up the item. Use the up and down arrows to move it. Space to drop, Escape to cancel.",
+      "grab": "{label} picked up. Position {position} of {count}. Up and down arrows to move, Space to drop, Escape to cancel.",
+      "movePosition": "{label}, position {position} of {count}.",
+      "drop": "{label} dropped. Position {position} of {count}.",
+      "cancel": "{label} move cancelled. Position {position} of {count}."
+    }
+  },
+  "pages": {
+    "title": "Pages",
+    "newPage": "New page",
+    "noPages": "No pages yet",
+    "list": {
+      "heading": "Content",
+      "description": "Manage your site content",
+      "newContent": "New content",
+      "untitled": "Untitled",
+      "missingLocaleTitle": "Missing {locale} title",
+      "revalidation": {
+        "setupHeading": "Public-site updates need setup.",
+        "setupDescription": "Changes may not appear on your public site until this is set up.",
+        "attentionHeading": "Public-site updates need attention.",
+        "cappedFailures": "At least {count} recent update attempts failed.",
+        "failures": "{count, plural, one {# recent update attempt failed.} other {# recent update attempts failed.}}",
+        "openSettings": "Open General Settings"
+      },
+      "count": {
+        "loading": "Loading…",
+        "matching": "{count} matching",
+        "loaded": "{count} loaded"
+      },
+      "resetFilters": "Reset filters",
+      "filters": {
+        "contentType": "Filter by content type",
+        "allTypes": "All types",
+        "status": "Filter by status",
+        "allStatuses": "All statuses",
+        "locale": "Filter by locale",
+        "allLocales": "All languages"
+      },
+      "status": {
+        "draft": "draft",
+        "published": "published",
+        "archived": "archived"
+      },
+      "loading": "Loading…",
+      "searchUnavailable": "Admin search is unavailable during the snapshot foundation cut.",
+      "noMatches": "No pages match your filters.",
+      "empty": "No pages yet.",
+      "missingLocaleContent": "no {locale} content",
+      "languages": "Languages",
+      "languagesDetails": "Languages: {translated} of {total} translated. Show details",
+      "languagesComplete": "All languages translated",
+      "languagesMissing": "Missing translations",
+      "translated": "Translated",
+      "missingTranslation": "Missing translation",
+      "editLanguage": "Edit {locale}",
+      "edit": "Edit",
+      "defaultSlug": "default URL name",
+      "hasLocaleContent": "Has {locale} content",
+      "noLocaleContent": "No {locale} content",
+      "publishes": "Publishes {date}",
+      "expires": "Expires {date}",
+      "actionsFor": "Actions for {title}",
+      "actions": {
+        "duplicate": "Duplicate",
+        "archive": "Archive",
+        "unarchive": "Unarchive",
+        "moveToTrash": "Move to trash",
+        "publish": "Publish",
+        "unpublish": "Unpublish",
+        "translate": "Translate",
+        "homeNoArchive": "The home page can’t be archived."
+      },
+      "archiveDialog": {
+        "title": "Archive this page?",
+        "description": "Archived pages are hidden from the public site."
+      },
+      "trashDialog": {
+        "title": "Move this page to trash?",
+        "description": "You can restore it later from the trash.",
+        "confirm": "Move to trash"
+      },
+      "toast": {
+        "archived": "Page archived",
+        "archiveFailed": "Archive failed",
+        "restored": "Page restored",
+        "restoredToDraft": "Page restored to draft",
+        "unarchiveFailed": "Unarchive failed",
+        "movedToTrash": "Moved to trash",
+        "deleteFailed": "Delete failed",
+        "menuReference": "This page is still used in a live menu. Remove the menu link, then try again.",
+        "publishedPostReference": "This Author is still used by a published Post. Remove it from the Post and publish that change, then try again.",
+        "published": "Published ({locale})",
+        "unpublished": "Unpublished ({locale})",
+        "publishFailed": "This page couldn’t be published. Try again.",
+        "unpublishFailed": "This page couldn’t be unpublished. Try again.",
+        "openEditor": "Open editor",
+        "ancestryInUse": "This page can’t be unpublished while a published page below it depends on its address. Unpublish those pages first.",
+        "homeMustBeRoot": "The home page must be a top-level page. Remove its parent page, then try again.",
+        "releaseReplacement": "A publication is already pending for this page. Wait for it to finish, then try again."
+      },
+      "pagination": {
+        "loading": "Loading…",
+        "loadMore": "Load more"
+      },
+      "rowStatus": {
+        "published": "Published",
+        "draft": "Draft",
+        "notTranslated": "Not translated",
+        "archived": "Archived"
+      },
+      "homePage": "Home page",
+      "notTranslatedSuffix": "(not translated)",
+      "noAddress": "No address yet",
+      "noPagesMatch": "No pages match these filters.",
+      "clearFilters": "Clear filters",
+      "wholePage": "Whole page",
+      "unpublish": {
+        "title": "Unpublish this page?",
+        "homeTitle": "Unpublish the home page?",
+        "redirect": "Visitors to {address} will be sent to the {language} home page ({other}) until you publish this one again.",
+        "notFoundNoOther": "No other home page is published. Visitors to {address} will see “Page not found” until you publish it again.",
+        "notFound": "Visitors to {address} will see “Page not found” until you publish it again.",
+        "confirm": "Unpublish",
+        "cancel": "Cancel"
+      }
+    },
+    "newForm": {
+      "validation": {
+        "titleRequired": "Give the new page a title."
+      },
+      "created": "Page created",
+      "createFailed": "Failed to create page",
+      "availabilityNotConfirmed": "Content Type availability is not confirmed yet.",
+      "createdFromMarkdown": "Page created from Markdown import",
+      "heading": "New {type}",
+      "description": "Create a new {type}",
+      "titleLabel": "Title",
+      "titlePlaceholder": "My new page",
+      "availabilityLoading": "Content Type availability is still loading.",
+      "unavailable": "This Content Type is unavailable for creation.",
+      "availabilityChecking": "Checking which Content Types are available for new documents…",
+      "languageLabel": "Language",
+      "defaultLanguage": " (default)",
+      "languageHelp": "The language you’ll author this page in first. Add more translations later in the editor.",
+      "creating": "Creating…",
+      "create": "Create {type}",
+      "importMarkdown": "Import .md",
+      "cancel": "Cancel"
+    },
+    "aiWrite": {
+      "button": "Write page with AI",
+      "keyRefused": "Key refused: {provider} rejected {envVar}",
+      "settingsLink": "Go to Settings › AI",
+      "runningNotice": "A page job is already running.",
+      "runningLink": "Open the running job",
+      "wizard": {
+        "title": "Write a page with AI",
+        "description": "Describe the page; the agent will plan a structure and write a draft you can edit before saving.",
+        "brief": "Brief",
+        "startingBrief": "Use a starting brief…",
+        "briefPlaceholder": "What’s this page about? Who’s it for? What’s the action you want a visitor to take?",
+        "briefHelp": "One to three sentences works best. The model will propose a structure you can edit before any copy is written.",
+        "language": "Language",
+        "brandVoice": "Brand voice (set in Settings › General)",
+        "noBrandVoice": "No brand voice configured. The agent will default to a neutral, professional tone.",
+        "cancel": "Cancel",
+        "plan": "Plan the page",
+        "planning": "Planning…",
+        "planAgain": "Try planning again",
+        "planFailed": "Planning failed",
+        "pageTitle": "Page title",
+        "metaTitle": "Meta title",
+        "metaDescription": "Meta description",
+        "sections": "Sections",
+        "noSections": "No sections — add one below to write something.",
+        "dragToReorder": "Drag to reorder",
+        "purposePlaceholder": "One sentence: what this section is for.",
+        "purposeLabel": "Section purpose",
+        "removeSection": "Remove section",
+        "addSection": "Add section",
+        "back": "Back",
+        "start": "Start",
+        "startFailed": "The job could not start. Try again."
+      },
+      "job": {
+        "running": "Running",
+        "canceling": "Finishing the current unit…",
+        "canceled": "Canceled",
+        "failed": "Failed",
+        "done": "Done",
+        "expired": "Expired · saved results are gone",
+        "count": "{saved} of {total} sections",
+        "savedUnits": "Saved units",
+        "reused": "{count, plural, =1 {1 saved unit reused} other {# saved units reused}}",
+        "savedResults": "Saved results",
+        "unit": "Section {number} · {purpose}",
+        "unitReused": "Reused",
+        "unitSaved": "Saved",
+        "unitFailed": "Failed",
+        "unitInProgress": "In progress",
+        "unitWaiting": "Waiting",
+        "cancel": "Cancel",
+        "resume": "Resume",
+        "dismiss": "Dismiss",
+        "reviewSections": "Review sections",
+        "actionFailed": "Something went wrong. Try again."
+      },
+      "review": {
+        "heading": "Sections to review",
+        "meta": "{title} · Draft · {language}",
+        "saveFailed": "Could not save. Your sections are kept. Try again.",
+        "acceptChosen": "Accept chosen ({count})",
+        "dismissAll": "Dismiss all",
+        "saved": "Saved to your draft. Nothing is published."
+      },
+      "dismiss": {
+        "title": "Dismiss these sections?",
+        "movesToTrash": "The page \"{title}\" was created for this job. It moves to Trash. You can restore it from Trash.",
+        "staysInPages": "You edited the page \"{title}\" after the job started, so it stays in your pages.",
+        "confirmTrash": "Dismiss and move to Trash",
+        "confirm": "Dismiss",
+        "movedToTrash": "Moved to Trash",
+        "dismissed": "Dismissed"
+      }
+    },
+    "aiTranslate": {
+      "button": "Translate from {source}",
+      "translating": "Translating…",
+      "start": "Start",
+      "running": "Translating this page into {language}.",
+      "targetHasContent": "This language already has content. Translate page works only on an empty language.",
+      "sourceTooLarge": "This page is too long to translate in one job.",
+      "job": {
+        "count": "{saved} of {total} segments",
+        "unit": "Segment {number}",
+        "reviewTranslation": "Review translation"
+      },
+      "review": {
+        "heading": "Translation into {language}",
+        "sourceChanged": "{elided, select, yes {{language}} other {{language}}} was edited after the translation started. This translation follows the earlier text.",
+        "targetChanged": "{elided, select, yes {{language}} other {{language}}} was changed after the translation started. Nothing was saved.",
+        "title": "Title",
+        "metaTitle": "Meta title",
+        "metaDescription": "Meta description",
+        "section": "Section {number}",
+        "accept": "Accept",
+        "dismiss": "Dismiss",
+        "saved": "Saved to your draft. Nothing is published."
+      },
+      "dismiss": {
+        "title": "Dismiss this translation?",
+        "description": "Nothing is saved."
+      }
+    },
+    "columns": {
+      "title": "Title",
+      "slug": "Slug",
+      "status": "Status",
+      "updatedAt": "Updated"
+    },
+    "contentType": {
+      "label": "Content type",
+      "helpText": "Content type is fixed after creation. Duplicate to a new type instead.",
+      "noPublicUrl": "no public URL"
+    },
+    "authorMember": {
+      "conflictCopyUnavailable": "Authors cannot be copied. Reload and merge the conflicting edits into this Author."
+    }
+  },
+  "editor": {
+    "preview": {
+      "untitled": "Untitled",
+      "notRoutable": "This content type is not routable; there is no public preview for it yet.",
+      "formOnly": "This content type is form-only (no block body); use the editor for a live-editable view.",
+      "noStagedContent": "No staged content for {locale}. Start editing in that locale to preview it here.",
+      "noRenderer": "This content type does not have a block-body renderer.",
+      "fallbackContent": "No {requestedLocale} content — showing {defaultLocale}.",
+      "title": "Staged preview",
+      "locale": "Locale: {locale}",
+      "unpublishedChanges": "Unpublished changes",
+      "edited": "edited {date}",
+      "showingLive": "No staged changes — showing live"
+    },
+    "contentFields": {
+      "localizedDescription": "These fields are edited per language.",
+      "allLocales": "All locales",
+      "sharedDescription": "These fields apply to every language.",
+      "addPlaceholder": "add…"
+    },
+    "contentTypeAvailability": {
+      "title": "Content Type availability is unavailable.",
+      "description": "New documents are disabled until this page can confirm the current archive state. Refresh the page or ask an administrator to check the site settings."
+    },
+    "duplicateDialog": {
+      "titleRequired": "Give the copy a title.",
+      "untitled": "Untitled",
+      "copyTitle": "{title} (Copy)",
+      "failed": "Duplicate failed",
+      "created": "Created \"{title}\"",
+      "title": "Duplicate page",
+      "description": "The copy will be created as a draft with its own URL.",
+      "newTitle": "New title",
+      "cancel": "Cancel",
+      "duplicating": "Duplicating…",
+      "action": "Duplicate page",
+      "unavailable": "Duplicating pages isn’t available yet."
+    },
+    "markdownImport": {
+      "invalidFile": "Please select a Markdown file (.md or .markdown).",
+      "readFailed": "Failed to read file. Please try again.",
+      "noContent": "No content to import.",
+      "importedPage": "Imported page",
+      "parseFailed": "Failed to parse markdown.",
+      "title": "Import Markdown",
+      "fileSummary": "{lineCount, plural, one {# line} other {# lines}}, {wordCount, plural, one {# word} other {# words}}",
+      "dropPrompt": "Drop a <extension>.md</extension> file here or click to browse",
+      "fileLabel": "Import Markdown file",
+      "pasteLabel": "Or paste Markdown",
+      "pastePlaceholder": "# My page\n\nStart pasting content here…",
+      "pageTitle": "Page title",
+      "pageTitleHint": "(leave blank to use the first # heading)",
+      "titlePlaceholder": "Extracted from first heading…",
+      "cancel": "Cancel",
+      "action": "Import as draft"
+    },
+    "linkDialog": {
+      "editTitle": "Edit link",
+      "addTitle": "Add link",
+      "pageTab": "Page",
+      "urlTab": "URL",
+      "mediaTab": "Media",
+      "searchPlaceholder": "Search pages by title or slug…",
+      "searchLabel": "Search pages by title or slug",
+      "noPages": "No pages match.",
+      "urlPlaceholder": "https://example.com or /path",
+      "urlLabel": "Enter URL",
+      "changeMedia": "Change media",
+      "chooseMedia": "Choose media",
+      "newTab": "Open in new tab",
+      "newTabDescription": "Adds target=_blank and rel=noopener noreferrer.",
+      "noFollow": "No follow",
+      "noFollowDescription": "Tell search engines not to pass link equity.",
+      "sponsored": "Sponsored",
+      "sponsoredDescription": "Mark paid or affiliate links.",
+      "ugc": "User-generated content",
+      "ugcDescription": "Mark links inside user-submitted content.",
+      "remove": "Remove link",
+      "cancel": "Cancel",
+      "update": "Update",
+      "add": "Add link"
+    },
+    "buttons": {
+      "title": "Buttons",
+      "add": "Add button",
+      "empty": "No buttons yet.",
+      "labelPlaceholder": "Label",
+      "label": "Button label",
+      "variant": "Button {index} variant",
+      "remove": "Remove button",
+      "linkType": "Button {index} link type",
+      "internalPage": "Button {index} internal page",
+      "selectPage": "Select page…",
+      "externalPlaceholder": "https://…",
+      "externalUrl": "External URL",
+      "anchorPlaceholder": "#section",
+      "anchorTarget": "Anchor target",
+      "changeMedia": "Change media",
+      "chooseMedia": "Choose media",
+      "newTab": "New tab",
+      "noFollow": "No follow",
+      "sponsored": "Sponsored",
+      "ugc": "UGC",
+      "showIcon": "Show icon",
+      "icon": "Icon",
+      "variants": {
+        "primary": "Primary",
+        "secondary": "Secondary",
+        "outline": "Outline",
+        "ghost": "Ghost",
+        "link": "Link"
+      },
+      "linkTypes": {
+        "internal": "Internal",
+        "external": "External",
+        "anchor": "Anchor",
+        "media": "Media",
+        "none": "None"
+      }
+    },
+    "imageField": {
+      "cropped": "Cropped",
+      "focal": "Focal {position}",
+      "remove": "Remove image",
+      "altText": "Alt text",
+      "editFraming": "Edit crop & focal",
+      "replace": "Replace image",
+      "resetFraming": "Reset framing",
+      "choose": "Choose image"
+    },
+    "relationField": {
+      "clear": "Clear relation",
+      "searchTypes": "Search {types}",
+      "searchPages": "Search pages",
+      "noMatches": "No matching pages."
+    },
+    "mediaPicker": {
+      "title": "Select media"
+    },
+    "mediaBrowser": {
+      "uploaded": "{count, plural, one {Uploaded # file} other {Uploaded # files}}",
+      "uploadFailed": "Upload failed",
+      "imported": "Imported image",
+      "importFailed": "Could not import image",
+      "importUrlTitle": "Import image from URL",
+      "imageUrl": "Image URL",
+      "urlPlaceholder": "https://example.com/image.jpg",
+      "importAction": "Import",
+      "clipboardEmpty": "Clipboard does not contain an image or image URL",
+      "clipboardFailed": "Could not read clipboard",
+      "newFolder": "New folder",
+      "folderName": "Folder name",
+      "folderPlaceholder": "Marketing",
+      "createFolder": "Create",
+      "folderCreated": "Folder created",
+      "folderFailed": "Could not create folder",
+      "allMedia": "All media",
+      "uploadMedia": "Upload media",
+      "pasteTitle": "Paste image or image URL",
+      "paste": "Paste",
+      "url": "URL",
+      "uploading": "Uploading…",
+      "uploadFiles": "Upload files",
+      "loading": "Loading…",
+      "noSearchMatches": "No media matches your search.",
+      "empty": "No media yet — upload, paste, or drop images to get started.",
+      "loadMore": "Load more"
+    },
+    "imageTransform": {
+      "focalPoint": "Focal point",
+      "setFocalPoint": "Click to set focal point",
+      "xAxis": "X",
+      "yAxis": "Y",
+      "title": "Crop, resize & focal point",
+      "cropTool": "Crop tool",
+      "selection": "Selection {size}",
+      "output": "Output {size}",
+      "cropArea": "Crop area",
+      "handles": {
+        "topLeft": "Top left crop handle",
+        "top": "Top crop handle",
+        "topRight": "Top right crop handle",
+        "right": "Right crop handle",
+        "bottomRight": "Bottom right crop handle",
+        "bottom": "Bottom crop handle",
+        "bottomLeft": "Bottom left crop handle",
+        "left": "Left crop handle"
+      },
+      "aspect": "Aspect",
+      "aspects": {
+        "original": "Original",
+        "square": "1:1",
+        "landscape": "4:3",
+        "portrait": "3:4",
+        "wide": "16:9",
+        "custom": "Custom"
+      },
+      "customDimensions": "Custom dimensions",
+      "width": "Width",
+      "customWidth": "Custom width",
+      "height": "Height",
+      "customHeight": "Custom height",
+      "autoHeight": "Auto height",
+      "reset": "Reset",
+      "apply": "Apply"
+    },
+    "readiness": {
+      "checking": "Checking the saved draft…",
+      "nextSteps": "Next steps",
+      "generating": "Generating…",
+      "reportHint": "This report does not change your draft. Publishing runs a final check.",
+      "checkingShort": "Checking",
+      "unavailableShort": "Unavailable",
+      "unavailable": "We couldn’t check this page. You can keep editing.",
+      "publishWait": "You can publish once we've checked this page. Select Try again.",
+      "retry": "Try again",
+      "blockerCount": "{count, plural, one {# blocker} other {# blockers}}",
+      "warningCount": "{count, plural, one {# warning} other {# warnings}}",
+      "readyShort": "Ready",
+      "title": "Page readiness",
+      "description": "Review the saved Working Draft before publishing.",
+      "suggestions": {
+        "addTitle": "Add title",
+        "addContent": "Add content",
+        "reviewContent": "Review content",
+        "reviewSeo": "Review SEO",
+        "generateSeo": "Generate SEO suggestion",
+        "reviewLocale": "Review {locale} content"
+      }
+    },
+    "prePublish": {
+      "loading": "Loading…",
+      "ready": "Ready to publish",
+      "blockers": "Blockers",
+      "warnings": "Warnings",
+      "acknowledged": "Warnings acknowledged",
+      "items": {
+        "missingDefaultTitle": "Add a title for the default locale ({locale}) before publishing.",
+        "missingDefaultContent": "Add at least one content section for {locale} before publishing.",
+        "missingSeoTitle": "Add an SEO title for {locale} before publishing.",
+        "missingSeoDescription": "Add an SEO description for {locale} before publishing.",
+        "missingTranslation": "Add {locale} content before publishing to every enabled locale.",
+        "missingRequiredField": "{scope}{contentType} is missing required {field}.",
+        "missingBody": "Add at least one enabled content section for {locale} — this content type requires body content before publishing.",
+        "missingSliceField": "{scope}{sliceType} is missing required {field}.",
+        "missingSliceImage": "{scope}{sliceType} is missing a required image.",
+        "missingSliceRelation": "{scope}{sliceType} is missing a required related page.",
+        "missingImageAlt": "{scope}{context} image is missing alt text.",
+        "missingLinkTarget": "{scope}{sliceType} has an internal link without a target page.",
+        "missingTarget": "This {context} refers to a page that no longer exists. Replace the reference before publishing.",
+        "disallowedTarget": "This {contentType} refers to \"{title}\", which is not an allowed content type here. Choose a different page.",
+        "unpublishedTarget": "\"{title}\" isn’t published. Publish it first or replace the reference before publishing.",
+        "unpublishedTargetLocales": "\"{title}\" isn’t published in {locale}. Publish it first or replace the reference before publishing.",
+        "unpublishedDescriptorTarget": "\"{title}\" isn’t published. Publish it first or choose another page before publishing this {contentType}.",
+        "unpublishedDescriptorTargetLocales": "\"{title}\" isn’t published in {locale}. Publish it first or choose another page before publishing this {contentType}.",
+        "content": "content",
+        "contentType": "content type",
+        "sliceType": "content section",
+        "field": "field",
+        "untitled": "Untitled",
+        "locale": "the selected language"
+      }
+    },
+    "seo": {
+      "heading": "SEO: {locale}",
+      "generating": "Generating…",
+      "generate": "Generate meta from page",
+      "metaTitle": "Meta title",
+      "metaDescription": "Meta description",
+      "metaDescriptionPlaceholder": "Describe this page for search engines…",
+      "socialAndIndexing": "Social & indexing",
+      "sharedHint": "(applies to all locales)",
+      "socialTitle": "Social title (OG)",
+      "socialDescription": "Social description (OG)",
+      "socialDescriptionPlaceholder": "Shown when shared on social media",
+      "socialImage": "Social image URL (OG)",
+      "socialImagePlaceholder": "https://…/share-image.jpg",
+      "noIndex": "Hide from search engines (<code>noindex</code>)",
+      "noFollow": "Don't follow links on this page (<code>nofollow</code>)"
+    },
+    "settings": {
+      "heading": "Page settings",
+      "title": "Title",
+      "internalIdentifier": "— Internal identifier, never public",
+      "titlePlaceholder": "Page title",
+      "slug": "URL identifier",
+      "saved": "Saved",
+      "notSaved": "Not saved",
+      "slugLinkedHint": "Auto-generated from title. Edit to override.",
+      "defaultSlugHint": "The last part of this page’s address. Clear it to link it to the title again.",
+      "localizedSlugHint": "URL for the {locale} version. Clear to reuse the default-locale slug.",
+      "savedSlug": "{locale} URL segment: /{slug}",
+      "unsavedSlug": "Not saved yet — click Save to use /{slug} as the {locale} URL segment.",
+      "defaultLocaleSlug": "Uses the default-locale slug (/{slug}). Translate the title or enter a different slug to localize this URL.",
+      "parentPage": "Parent page",
+      "noParent": "No parent (root page)",
+      "parentHint": "Nest this page under another. Used for breadcrumbs and URL hierarchy.",
+      "authors": "Authors",
+      "postByline": "Post byline",
+      "authorsHint": "Byline shown on the published post. The first author is the lead — reorder with the arrows to change who's named first. Only published authors expose a public link; drafts still appear here for editorial pairing.",
+      "tags": "Tags",
+      "tagsHint": "Curation labels (e.g. <code>featured</code>). Shared with media; referenced by relation-field filters.",
+      "status": "Status",
+      "created": "Created: {date}",
+      "updated": "Updated: {date}",
+      "moveToTrash": "Move to trash",
+      "archive": "Archive page",
+      "archiveHint": "A page must be archived before it can be moved to trash."
+    },
+    "slicesPanel": {
+      "heading": "Content blocks: {locale}",
+      "count": "{count, plural, one {# block} other {# blocks}}",
+      "inlineRefusal": {
+        "unsupported": "This field can only be edited in the form. It is focused there.",
+        "begin": "Inline editing could not start. This field is focused in the form.",
+        "capture": "The preview could not open this field. It is focused in the form.",
+        "stale": "This field changed in the preview. The current field is focused in the form."
+      }
+    },
+    "transfer": {
+      "copyFrom": "Copy from",
+      "translateFrom": "Translate from",
+      "noContentToCopy": "{locale} has no content to copy",
+      "noContentToTranslate": "{locale} has no content to translate",
+      "fillFrom": "Fill {locale} from",
+      "noContentYet": "{locale} has no content to use yet",
+      "noContent": "no content",
+      "sendToAnother": "Send {locale} to another locale"
+    },
+    "relations": {
+      "published": " · published",
+      "draft": " · draft",
+      "clear": "Clear",
+      "missing": "Referenced document no longer exists.",
+      "loading": "Loading…",
+      "searchLabel": "Search relation targets",
+      "searchPlaceholder": "Search…",
+      "targetsLabel": "Relation targets",
+      "noMatches": "No matches",
+      "noTargets": "No available targets",
+      "noMoreTargets": "No more available targets",
+      "lead": "Lead",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "remove": "Remove",
+      "untitled": "Untitled"
+    },
+    "tags": {
+      "placeholder": "Add tag…",
+      "remove": "Remove {tag}",
+      "label": "Tags",
+      "create": "Create"
+    },
+    "livePreview": {
+      "empty": "Add a content block to start building the page preview.",
+      "inlineEdit": "Inline edit {label}",
+      "cancelInlineEdit": "Cancel inline edit",
+      "primary": "Primary",
+      "items": "Items",
+      "editSlice": "Edit {label} block {index}",
+      "title": "Live preview",
+      "unsavedEdits": "Unsaved {locale} edits render here.",
+      "inlineEditing": "Inline preview editing",
+      "inlineEditingOn": "Edit text in preview: on",
+      "inlineEditingOff": "Edit text in preview: off",
+      "frameUpdated": "The site was updated. Reload the editor to continue.",
+      "frameStillLoading": "Still loading the preview. You can keep editing in the form.",
+      "frameRetry": "Retry preview",
+      "viewport": "Preview viewport",
+      "viewports": {
+        "desktop": "Desktop",
+        "tablet": "Tablet",
+        "mobile": "Mobile"
+      },
+      "zoom": {
+        "label": "Preview zoom",
+        "fit": "Fit"
+      },
+      "saved": "Saved",
+      "frameLoading": "Preparing the page preview…",
+      "frameUnavailable": "The page preview is unavailable. Your content remains accessible in the form.",
+      "frameUnsupported": "Full page preview currently supports landing pages in an enabled public language. Use the form for this page.",
+      "frameConflict": "The preview changed while you were editing. Recover your pending content from the page recovery notice.",
+      "frameResolveRecovery": "Restore or discard recovered work before editing directly in the preview."
+    },
+    "sliceBuilder": {
+      "starterFailed": "Starter failed",
+      "removeUnavailable": "This block couldn't be removed. Review it before trying again.",
+      "thisLocale": "this locale",
+      "removeConfirm": {
+        "title": "Remove {label} from {locale}?",
+        "description": "The removal will be saved to this Page's Working Draft when you save.",
+        "action": "Remove"
+      },
+      "empty": "Nothing is available to add yet.",
+      "add": "Add block",
+      "moveUp": "Move {label} up",
+      "moveDown": "Move {label} down",
+      "enable": "Enable block",
+      "disable": "Disable block",
+      "remove": "Remove block",
+      "chooseType": "Choose content to add",
+      "cancel": "Cancel",
+      "checkingTypes": "Checking available block types…",
+      "typesUnavailable": "Block types couldn't be checked. Adding is unavailable until we can confirm which types are active.",
+      "sample": "Add example",
+      "starter": "Starter",
+      "changedDuringEdit": "This block changed. Review it before trying again.",
+      "sectionName": "{label} {position}",
+      "removeNamed": "Remove {label}",
+      "enableNamed": "Enable {label}",
+      "disableNamed": "Disable {label}"
+    },
+    "sliceEditor": {
+      "unknown": {
+        "title": "Unknown block type",
+        "description": "This block has the type <type></type>, which is no longer registered. It can't be edited here — remove it with the trash control above."
+      },
+      "items": "Items",
+      "overwrite": {
+        "title": "Override the {label} section's text?",
+        "copy": "This replaces every text field with the {locale} values, unchanged. Image and layout stay as they are.",
+        "translate": "This replaces every text field with a translation from {locale}. Image and layout stay as they are.",
+        "write": "This replaces every text field with AI-written copy. Image and layout stay as they are.",
+        "action": "Override"
+      },
+      "translationFailed": "Translation failed",
+      "generationFailed": "Generation failed",
+      "write": {
+        "title": "Write the {label} section",
+        "description": "Describe what this section should say — subject, audience, tone. A short brief works best.",
+        "brief": "Brief",
+        "placeholder": "e.g. hero for a downtown dental clinic, friendly tone",
+        "action": "Write",
+        "presets": "Start from a brief seed"
+      },
+      "wholeSlice": "Whole block",
+      "writeWithAiTitle": "Write this block with AI",
+      "writeWithAi": "Write with AI",
+      "copyTitle": "Copy every text field from {locale}, unchanged",
+      "noMatchTitle": "No matching {locale} section — use the page Translate menu to build it",
+      "copyFrom": "Copy from {locale}",
+      "translateTitle": "AI-translate every text field from {locale}",
+      "translateFrom": "Translate from {locale}",
+      "presentation": {
+        "label": "Presentation",
+        "default": "Default",
+        "centered": "Centered",
+        "scope": "Choose a shared design for this occurrence. Its content stays the same.",
+        "retained": "Saved choice: {id}",
+        "fallback": "This saved design is unavailable. The default design is shown; the saved choice is preserved.",
+        "archived": "This design is retired from new choices. This occurrence can keep using it.",
+        "unavailable": "Design choices could not be verified. Keep editing content or try again when they are available.",
+        "changeTitle": "Change presentation",
+        "currentRetained": "Current · retained",
+        "newActive": "New choice · active",
+        "localeOnly": "{locale} only",
+        "occurrenceScope": "{page} · {occurrence}",
+        "onlyOccurrence": "Only this draft occurrence changes. The public snapshot stays as it is.",
+        "onlyOccurrenceWithPeers": "Only this draft occurrence changes. {locales} and the public snapshot stay as they are.",
+        "cancel": "Cancel",
+        "use": "Use {label}",
+        "confirmUse": "Confirm {label} for this {locale} draft occurrence",
+        "afterConfirm": "Then Save the draft. Publish remains separate.",
+        "schematic": "{label} schematic, not a renderer preview",
+        "previewTitle": "Room for your next idea.",
+        "previewBody": "One Hero, the same content.",
+        "replaceWith": "Replace with"
+      }
+    },
+    "fields": {
+      "genericField": "field",
+      "replace": {
+        "namedTitle": "Replace the {label} field?",
+        "title": "Replace this field?",
+        "translationDescription": "This replaces the current content with a translation from {locale}.",
+        "writeDescription": "This replaces the current content with AI-written copy.",
+        "action": "Replace"
+      },
+      "translationFailed": "Translation failed",
+      "generationFailed": "Generation failed",
+      "refinementFailed": "Refinement failed",
+      "translateTitle": "AI-translate this field from {locale}",
+      "nothingToTranslate": "Nothing to translate — no {locale} content for this field",
+      "translate": "Translate",
+      "write": {
+        "namedTitle": "Write the {label} field",
+        "title": "Write this field",
+        "description": "Describe what this field should say. A short brief works best (e.g. “hero for a downtown dental clinic, friendly tone”).",
+        "brief": "Brief",
+        "placeholder": "What is this section about?",
+        "action": "Write",
+        "presets": "Start from a brief seed"
+      },
+      "writeWithAiTitle": "Write this field with AI",
+      "refine": {
+        "namedTitle": "Refine the {label} field",
+        "title": "Refine this field",
+        "description": "How should the AI steer this? Short instructions work best — e.g. “more humane tone”, “plainer language”, “drop the marketing tone”.",
+        "restructuringHint": " For restructuring (merge paragraphs, shorten overall), use Write instead — Refine rewrites each segment independently and can't change the structure.",
+        "instruction": "Instruction",
+        "placeholder": "more humane tone",
+        "action": "Refine",
+        "presets": "Quick presets"
+      },
+      "refineTitle": "Refine this field with AI",
+      "nothingToRefine": "Nothing to refine — fill the field first",
+      "link": {
+        "types": {
+          "internal": "Internal",
+          "external": "External",
+          "anchor": "Anchor",
+          "media": "Media",
+          "none": "None"
+        },
+        "externalPlaceholder": "https://example.com",
+        "externalLabel": "{label} external URL",
+        "anchorPlaceholder": "#section",
+        "anchorLabel": "{label} anchor",
+        "changeMedia": "Change media",
+        "chooseMedia": "Choose media"
+      },
+      "geopoint": {
+        "latitude": "Latitude",
+        "latitudeLabel": "{label} latitude",
+        "longitude": "Longitude",
+        "longitudeLabel": "{label} longitude"
+      },
+      "embed": {
+        "urlPlaceholder": "https://...",
+        "urlLabel": "{label} embed URL",
+        "provider": "Provider",
+        "providerLabel": "{label} provider",
+        "title": "Title",
+        "titleLabel": "{label} embed title"
+      },
+      "table": {
+        "headerRow": "Header row",
+        "row": "Row",
+        "column": "Column",
+        "headerColumnLabel": "{label} header column {column}",
+        "removeColumn": "Remove column",
+        "empty": "No rows yet.",
+        "cellLabel": "{label} row {row} column {column}",
+        "removeRow": "Remove row"
+      },
+      "unsupported": "No editor for field “{name}” (kind: {kind}).",
+      "list": {
+        "add": "Add item",
+        "empty": "No items yet.",
+        "remove": "Remove {label} {index}"
+      }
+    },
+    "richText": {
+      "commands": "Editor commands",
+      "noCommands": "No commands match.",
+      "richText": "rich text",
+      "toolbar": {
+        "undo": "Undo",
+        "redo": "Redo",
+        "paragraph": "Paragraph",
+        "withShortcut": "{action} ({shortcut})",
+        "bold": "Bold",
+        "italic": "Italic",
+        "underline": "Underline",
+        "strikethrough": "Strikethrough",
+        "highlight": "Highlight",
+        "subscript": "Subscript",
+        "superscript": "Superscript",
+        "inlineCode": "Inline code",
+        "heading": "Heading {level}",
+        "bulletList": "Bullet list",
+        "numberedList": "Numbered list",
+        "blockquote": "Blockquote",
+        "link": "Link",
+        "insertImage": "Insert image",
+        "horizontalRule": "Horizontal rule",
+        "insertTable": "Insert table",
+        "addRowAbove": "Add row above",
+        "addRowBelow": "Add row below",
+        "deleteRow": "Delete row",
+        "addColumnLeft": "Add column left",
+        "addColumnRight": "Add column right",
+        "deleteColumn": "Delete column",
+        "toggleHeaderRow": "Toggle header row",
+        "mergeSplitCells": "Merge / split cells",
+        "deleteTable": "Delete table"
+      },
+      "replace": {
+        "title": "Replace the {label} field?",
+        "writeDescription": "This replaces the current rich text with AI-written copy.",
+        "translationDescription": "This replaces the current rich text with a translation from {locale}.",
+        "action": "Replace"
+      },
+      "write": {
+        "title": "Write the {label} field",
+        "description": "Describe what this field should say. A short brief works best.",
+        "brief": "Brief",
+        "placeholder": "What is this section about?",
+        "action": "Write",
+        "presets": "Start from a brief seed"
+      },
+      "refine": {
+        "title": "Refine the {label} field",
+        "description": "How should the AI steer this? Short instructions work best.",
+        "instruction": "Instruction",
+        "placeholder": "make this clearer",
+        "action": "Refine",
+        "presets": "Quick presets"
+      },
+      "insertImage": {
+        "title": "Insert image",
+        "label": "Image URL",
+        "placeholder": "https://example.com/image.jpg"
+      },
+      "insertLink": {
+        "title": "Insert link",
+        "label": "URL",
+        "placeholder": "https://example.com"
+      },
+      "insert": "Insert",
+      "commandFailed": "Command failed",
+      "slash": {
+        "aiWrite": {
+          "label": "Ask AI to write...",
+          "description": "Replace this field with AI-written rich text"
+        },
+        "improve": {
+          "label": "Improve writing",
+          "description": "Rewrite for clarity without changing structure"
+        },
+        "shorten": {
+          "label": "Make shorter",
+          "description": "Condense the current field"
+        },
+        "expand": {
+          "label": "Make longer",
+          "description": "Expand the current field"
+        },
+        "tone": {
+          "label": "Change tone...",
+          "description": "Describe a new tone for this field"
+        },
+        "translate": {
+          "label": "Translate from {locale}",
+          "description": "Replace this field with translated source content",
+          "noSource": "No source-locale content for this field"
+        },
+        "paragraph": {
+          "label": "Paragraph",
+          "description": "Plain body text"
+        },
+        "heading": {
+          "label": "Heading {level}",
+          "description": "Section heading"
+        },
+        "bulletList": {
+          "label": "Bullet list",
+          "description": "Unordered list"
+        },
+        "numberedList": {
+          "label": "Numbered list",
+          "description": "Ordered list"
+        },
+        "quote": {
+          "label": "Quote",
+          "description": "Block quote"
+        },
+        "codeBlock": {
+          "label": "Code block",
+          "description": "Preformatted code block"
+        },
+        "divider": {
+          "label": "Divider",
+          "description": "Horizontal rule"
+        },
+        "table": {
+          "label": "Table",
+          "description": "Insert a 3 x 3 table"
+        },
+        "image": {
+          "label": "Image",
+          "description": "Insert an image by URL"
+        },
+        "link": {
+          "label": "Link",
+          "description": "Insert a linked URL"
+        },
+        "textFormatting": "Text formatting"
+      }
+    },
+    "page": {
+      "cancel": "Cancel",
+      "loading": "Loading...",
+      "pageTitle": "Page title",
+      "page": "Page",
+      "copiedContent": "Copied {locale} content — review and save",
+      "languageChange": {
+        "sourceNotice": "Your site is changing to {target}.",
+        "sharedFields": "Search settings, card text and other shared fields are the same in every language, so anything typed there also goes live in {source} the next time this page is published.",
+        "targetNotice": "You are writing the {target} version of this page. It stays private until your site switches to {target}.",
+        "confirmAgain": "After saving, confirm the text again on the language change page.",
+        "publishTitle": "Publish while your site changes language?",
+        "publishDescription": "Search settings, card text and other shared fields changed since this page was last published. They are the same in every language, so any {target} text typed there goes live now in {source}.",
+        "publishAnyway": "Publish anyway"
+      },
+      "retainedTargetRemedy": {
+        "heading": "{locale} Working Draft blocks a language change",
+        "description": "Delete only this private {locale} Working Draft to continue. Published versions of this Page will not change.",
+        "confirmTitle": "Delete the {locale} Working Draft?",
+        "confirmDescription": "Only this private {locale} Working Draft will be deleted. Published versions of this Page will not change. This cannot be undone.",
+        "action": "Delete {locale} Working Draft",
+        "keep": "Keep draft",
+        "deleted": "{locale} Working Draft deleted",
+        "failed": "The Working Draft could not be deleted. Reload the Page and try again."
+      },
+      "prePublish": {
+        "loadFailed": "The pre-publish check couldn't be loaded. Try again.",
+        "resolveBlockers": "Resolve {count, plural, one {# blocker} other {# blockers}} before publishing",
+        "reviewFirst": "Review first",
+        "warningsTitle": "Publish with warnings?",
+        "publishAnyway": "Publish anyway"
+      },
+      "discard": {
+        "neverPublishedTitle": "Delete all content for this page?",
+        "neverPublishedDescription": "This page has never been published, so its content lives only in the current draft. Discarding will remove everything you have entered. This cannot be undone.",
+        "deleteDraft": "Delete draft content",
+        "keepEditing": "Keep editing",
+        "title": "Discard unpublished changes?",
+        "description": "Your unpublished edits will be thrown away and the page will revert to the published version. This cannot be undone.",
+        "action": "Discard changes",
+        "menuAction": "Discard unpublished changes"
+      },
+      "recovery": {
+        "repeatedTargetConflict": "The list changed while you were editing. Copy your pending text, discard this buffer, then select the intended field again. Your current page edits are preserved.",
+        "pendingText": "Pending text",
+        "restored": "Recovered draft restored",
+        "incompatible": "This recovered draft is incompatible with the current content type, locale or fields. It has been kept in this tab.",
+        "copyUnavailable": "Recovered-copy flow is not available for this content type.",
+        "savedAsNewPage": "Recovered draft saved as a new page",
+        "browserDraft": "Recovered browser draft",
+        "restore": "Restore",
+        "discard": "Discard",
+        "locale": "Locale {locale}",
+        "titleDiffers": "title differs",
+        "sliceCount": "{count, plural, one {# recovered block} other {# recovered blocks}}"
+      },
+      "conflict": {
+        "title": "This page changed elsewhere",
+        "description": "Your current edits were kept in this browser. Save them as a new draft page, or cancel and reload to review the latest version.",
+        "saveAsNew": "Save as new draft"
+      },
+      "focus": {
+        "title": "Editing focus",
+        "takeOverTitle": "Take over editing?",
+        "takeOverDescription": "This only changes the page-level editing focus. It will not block the other editor from saving.",
+        "takeOver": "Take over",
+        "anotherEditor": "Another editor",
+        "hasFocus": "{label} has editing focus",
+        "takenOver": "Editing focus taken over",
+        "claimed": "Editing focus claimed",
+        "updateFailed": "Could not update focus",
+        "released": "Editing focus released",
+        "releaseFailed": "Could not release focus",
+        "open": "Focus open",
+        "yours": "Focus yours",
+        "owner": "Focus: {label}",
+        "editor": "Editor",
+        "unclaimed": "No one has claimed page-level focus.",
+        "youHaveFocus": "You have page-level focus.",
+        "lastActive": "Last active {time}",
+        "release": "Release focus",
+        "claim": "Claim focus"
+      },
+      "transfer": {
+        "replaceTitle": "Replace {locale} content?",
+        "replaceDescription": "This will replace the current {target} editor content with content from {source}. You can still review before saving.",
+        "replaceAction": "Replace content",
+        "noContentToCopy": "{locale} has no content to copy",
+        "noContentToTranslate": "{locale} has no content to translate"
+      },
+      "previewAfterLanguageSwitch": "You can preview the {locale} version after your site switches language.",
+      "trash": {
+        "title": "Move this page to trash?",
+        "description": "You can restore it later from the trash.",
+        "action": "Move to trash",
+        "moved": "Moved to trash",
+        "failed": "Delete failed",
+        "menuReference": "This page is still used in a live menu. Remove the menu link, then try again.",
+        "publishedPostReference": "This Author is still used by a published Post. Remove it from the Post and publish that change, then try again.",
+        "homeRefused": "The home page can’t be archived."
+      },
+      "commands": {
+        "section": "Current page",
+        "unarchiveFirst": "Unarchive before publishing",
+        "reviewActive": "Review is active for this draft",
+        "approvalRequired": "Submit and approve this draft before publishing",
+        "resolveBlockers": "Resolve pre-publish blockers",
+        "savePage": "Save current page",
+        "persistLocale": "Persist the active locale",
+        "noUnsaved": "No unsaved changes",
+        "saveRunning": "Save already running",
+        "insertSlice": "Insert block",
+        "insertSliceDescription": "Open the block picker for this page",
+        "history": "Open revision history",
+        "historyDescription": "Review previous saves and restore a draft",
+        "unpublishPage": "Unpublish page",
+        "publishPage": "Publish page",
+        "unpublishDescription": "Move the page back to draft",
+        "publishDescription": "Save and publish this page",
+        "previewPage": "Preview page",
+        "previewDescription": "Open the saved draft preview in a new tab"
+      },
+      "activeEditors": {
+        "title": "Active editors",
+        "none": "No active editors",
+        "count": "{count, plural, one {# editor} other {# editors}}",
+        "editingNow": "Editing now",
+        "noRecent": "No recent editor heartbeats.",
+        "unknown": "Unknown editor"
+      },
+      "unsavedChanges": "Unsaved changes",
+      "saveShortcut": "(press {shortcut} to save)",
+      "backToLanguageChange": "Back to the language change",
+      "backToPages": "Back to pages",
+      "status": {
+        "draft": "Draft",
+        "published": "Published",
+        "archived": "Archived"
+      },
+      "unpublishedHint": "You have unpublished changes on this page. Click Publish to make them live.",
+      "unpublishedChanges": "Unpublished changes",
+      "savedAt": "Saved {time}",
+      "privateVersion": "{locale} version · private",
+      "copyBetweenLocales": "Copy content between locales",
+      "copy": "Copy",
+      "moreActions": "More page actions",
+      "duplicate": "Duplicate this page",
+      "unpublish": "Unpublish",
+      "archive": "Archive",
+      "saving": "Saving…",
+      "save": "Save",
+      "preview": "Preview",
+      "unarchive": "Unarchive",
+      "nothingToPublish": {
+        "noChanges": "Nothing to publish — no unpublished changes",
+        "saveFirst": "Nothing to publish — save your edits first"
+      },
+      "publishUnpublished": "Publish your unpublished changes",
+      "publishChanges": "Publish changes",
+      "publish": "Publish",
+      "tabs": {
+        "content": "Content",
+        "seo": "SEO",
+        "settings": "Settings",
+        "history": "History"
+      },
+      "snapshotHistory": {
+        "title": "Published history · {locale}",
+        "description": "Restore a published version into drafts. The public site changes only when you publish.",
+        "saveFirst": "Save or discard your unsaved changes before restoring.",
+        "loading": "Loading published history…",
+        "empty": "No published versions yet.",
+        "version": "Published version {generation}",
+        "unavailable": "Restore unavailable: required content code is missing at {paths}.",
+        "confirmTitle": "Restore this published version?",
+        "confirmDescription": "This replaces this language’s Working Draft and the Page-wide Shared Draft. Shared fields affect every language’s drafts. All published versions stay unchanged until you explicitly publish.",
+        "restore": "Restore draft",
+        "cancel": "Cancel",
+        "restored": "Published version restored to drafts",
+        "failed": "Restore failed"
+      },
+      "sliceChanged": "This block changed. Review it before trying again.",
+      "header": {
+        "address": "Address:",
+        "contentType": "Content type:",
+        "language": "Language:",
+        "status": "Page status:"
+      },
+      "homePage": "Home page",
+      "noAddress": "No address yet"
+    },
+    "pageSave": {
+      "publication": {
+        "targetLocaleUnavailable": "A referenced page isn't published in this language. Publish it first, then try again.",
+        "targetMissing": "A referenced page no longer exists. Replace the reference, then try again.",
+        "referenceLimit": "This page has too many linked items to publish. Remove some links or related pages, then try again."
+      },
+      "recoveryDiscarded": "Recovered draft discarded",
+      "contentTypeChangeUnavailable": "You can't change the content type of this page yet",
+      "saved": "Saved",
+      "changedElsewhere": "This page changed elsewhere",
+      "saveFailed": "This page couldn't be saved. Try again.",
+      "published": "Page published",
+      "publishFailed": "This page couldn't be published. Try again.",
+      "allContentRemoved": "All content for this page has been removed",
+      "revertedToPublished": "Reverted to the published version",
+      "discardFailed": "Draft changes couldn't be discarded. Try again.",
+      "unpublished": "Page unpublished",
+      "unpublishFailed": "This page couldn't be unpublished. Try again.",
+      "archived": "Page archived",
+      "archiveFailed": "This page couldn't be archived. Try again.",
+      "restoredToDraft": "Page restored to draft",
+      "restoreFailed": "This page couldn't be restored. Try again.",
+      "finishTextInput": "Finish the current text input before saving.",
+      "titleRequired": "Give the page a title before saving.",
+      "slugRequired": "Give the page an address before saving.",
+      "resolveRecovery": "Restore or discard the recovered draft before saving or publishing.",
+      "homeArchiveRefused": "The home page can’t be archived."
+    },
+    "linkPagePicker": {
+      "archived": "archived",
+      "archivedWarning": "This page is archived, so the link will not appear on the site.",
+      "deleted": "deleted",
+      "loadingPages": "Loading pages…",
+      "missingPage": "Missing page",
+      "missingWarning": "The linked page no longer exists. Pick another page or choose None.",
+      "noPages": "No pages found.",
+      "searchLabel": "Search pages",
+      "searchPlaceholder": "Search pages by title or address…",
+      "selectPagePlaceholder": "Select a page…",
+      "selectedPage": "Selected page",
+      "unavailable": "unavailable",
+      "unavailablePage": "Page unavailable",
+      "unavailableWarning": "You do not have permission to inspect this linked page. Pick another page or choose None."
+    },
+    "designSystem": {
+      "publicFont": {
+        "search": "Search registered fonts",
+        "family": "Public heading font",
+        "default": "Default ({family})",
+        "unavailable": "Current font is unavailable here",
+        "scope": "Shared public heading role. Saving changes every renderer that uses this role; admin fonts stay unchanged.",
+        "capabilities": "Registered weights: {weights}. Registered styles: {styles}. Other weights or styles require reviewed font registration.",
+        "variableWeight": "variable",
+        "normal": "normal",
+        "italic": "italic",
+        "unsupported": "This font has no proven public layout attachment or known weight and style options. It cannot be selected here.",
+        "loadProof": "Registration describes the source. Confirm the actual font in the public preview; loading can retain a fallback.",
+        "cancel": "Cancel font preview",
+        "specimenLabel": "Temporary font specimen",
+        "specimen": "Public heading preview"
+      }
+    }
+  },
+  "media": {
+    "title": "Media",
+    "upload": "Upload",
+    "noFiles": "No files yet",
+    "columns": {
+      "name": "Name",
+      "type": "Type",
+      "size": "Size",
+      "uploadedAt": "Uploaded"
+    }
+  },
+  "slices": {
+    "modelFieldOrder": "Field order",
+    "modelSnapshotUpdated": "The preview snapshot is up to date.",
+    "modelSnapshotFailed": "The preview snapshot could not be refreshed. Retry the snapshot.",
+    "modelSavedSnapshotPending": "The model was saved. Its preview snapshot is being refreshed.",
+    "modelSavedSnapshotInvalidated": "The model was saved. The source changed before its preview snapshot finished, so that capture was discarded. Retry the snapshot for the current model.",
+    "manualModelTitle": "Manual model review",
+    "manualModelDescription": "Review a developer-authored block spec for this Block Type. Review does not save changes; Apply checks current source and stored content before writing the model.",
+    "manualModelInput": "Block spec JSON",
+    "manualModelReview": "Review model JSON",
+    "manualModelReset": "Reset to current model",
+    "manualModelReviewing": "Checking the model for review…",
+    "manualModelReviewed": "Review the model changes, then Apply to save them.",
+    "manualModelDraft": "Manual model draft",
+    "manualModelWrongType": "This model belongs to a different Block Type. Review an update for the current Type. Your input has been kept.",
+    "manualModelInvalid": "This JSON does not match the supported block spec contract. Correct it and review again. Your input has been kept.",
+    "manualModelReviewFailed": "The model could not be reviewed. Check your owner access and try again. Your input has been kept.",
+    "modelProposalStale": "This proposal is out of date. Refresh the model and review a new request. Your current work has been kept.",
+    "modelProposalDiscarded": "The proposal was discarded. Generation may still finish, but its result will be ignored. Your current work has been kept.",
+    "modelProposalDiscard": "Discard proposal",
+    "editor": {
+      "addSlice": "Add block",
+      "noSlices": "No blocks yet — add one to get started",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "delete": "Delete block",
+      "duplicate": "Duplicate"
+    },
+    "lifecycleRetainedDeleteHint": "Retained drafts or publication history still use this Type. Those references prevent deletion.",
+    "lifecyclePublicationInstances": "Uses in published versions",
+    "lifecycleVersionCounts": "Saved counts show uses in saved Page content. Pending counts show uses in changes not yet applied to the Page. A Page can appear in both counts. Published versions are counted separately, including publication history.",
+    "lifecycleNoDependencies": "No saved Page content, pending changes or publication history uses this Block Type.",
+    "lifecyclePublicationRow": "{count} in published versions",
+    "usageUnavailable": "Page usage is unavailable. Apply will recheck saved, staged and retained publication content before writing.",
+    "usageUnused": "This Block Type has no retained content dependencies, so structural updates keep their current flexibility.",
+    "usageCounts": "{count, plural, one {# retained content dependency} other {# retained content dependencies}} across {pages, plural, one {# Page} other {# Pages}}.",
+    "usageBlockers": "{count, plural, one {# compatibility blocker must be resolved.} other {# compatibility blockers must be resolved.}}",
+    "usageCompatibleUpdates": "Every proposed update is compatible with retained content.",
+    "catalog": {
+      "unavailable": "Block Type status could not be loaded",
+      "unavailableHint": "Archive status could not be loaded. You can still browse Block Types, but their actions are unavailable until the connection recovers.",
+      "system": "Core blocks",
+      "yourSlices": "Your custom blocks",
+      "archived": "Archived",
+      "emptyOwn": "No blocks of your own yet",
+      "emptyOwnHint": "Blocks you create with the command-line tool appear here, separate from the core blocks.",
+      "emptyCustom": "No custom blocks yet.",
+      "emptyCore": "No core blocks are active.",
+      "originTabs": "Show blocks by origin",
+      "emptyArchive": "No archived blocks.",
+      "emptyArchiveHint": "Archived blocks can't be added to new pages; pages that already use them keep them.",
+      "originCore": "Core",
+      "originCustom": "Custom",
+      "searchPlaceholder": "Search blocks…",
+      "search": "Search blocks",
+      "noSnapshot": "No preview image yet",
+      "inStarter": "Included in new sites",
+      "open": "Open",
+      "noMatch": "No blocks match “{query}”.",
+      "noArchivedMatch": "No archived blocks match “{query}”.",
+      "previewAlt": "{label} preview",
+      "title": "Blocks",
+      "intro": "The reusable sections your pages are built from. Open a block to edit its fields and how it looks.",
+      "guide": "Block guide: <code>{path}</code>",
+      "addSlice": "Add block",
+      "finishSetup": "Finish setup",
+      "openSimulator": "Open simulator",
+      "editor": "Block Editor",
+      "reference": "Original design",
+      "referenceDescription": "Original design image saved when this Block Type was created.",
+      "referenceAlt": "Original design for {label}"
+    },
+    "lifecycle": {
+      "archiveTitle": "Archive {label}?",
+      "archiveDescription": "It leaves the list of blocks available when editing Pages. Existing Pages keep displaying it, and you can restore it anytime.",
+      "archiveCatalogDescription": "It moves to the Archived tab and leaves the list of blocks available when editing Pages. Existing Pages keep displaying it, and you can restore it anytime.",
+      "archive": "Archive",
+      "restore": "Restore",
+      "restored": "Restored {label}",
+      "archivedToast": "Archived {label}",
+      "updateFailed": "Could not update Block Type",
+      "removedStarter": "Removed {label} from the starting files for new sites",
+      "willShip": "{label} will be included in the starting files for new sites",
+      "shipFailed": "Could not update which blocks new sites start with",
+      "restoreHint": "Puts this Block Type back in the list editors pick from when they build a Page.",
+      "archiveHint": "Takes this Block Type out of the list editors pick from. Pages already using it keep working, and you can restore it anytime.",
+      "restoreCatalogHint": "Put this Block Type back in the list editors pick from.",
+      "archiveCatalogHint": "Take this Block Type out of the list editors pick from. Pages already using it keep working.",
+      "stopShipHint": "Removes this Block Type from the starting files for new sites. Existing sites keep their current files.",
+      "shipHint": "Includes this Block Type in the starting files for new sites.",
+      "stopShipCatalogHint": "Remove this Block Type from the starting files for new sites. Existing sites keep their current files.",
+      "shipCatalogHint": "Include this Block Type in the starting files for new sites.",
+      "removeStarter": "Remove from new sites",
+      "ship": "Include in new sites",
+      "renameTitle": "Rename Block Type",
+      "renameDescription": "This changes only the name shown to editors. Pages keep using the same Block Type.",
+      "name": "Name",
+      "rename": "Rename",
+      "renamed": "Renamed to {label}",
+      "renameFailed": "Rename failed",
+      "deleteTitle": "Delete {label} ({type})?",
+      "deleteDescription": "This permanently removes the Block Type. No saved Page content, pending changes or publication history uses it. This cannot be undone.",
+      "deleteConfirm": "Delete Block Type",
+      "unavailable": "Unavailable right now — this Block Type's details could not be loaded.",
+      "renameHint": "Changes the name editors see. Pages and their content stay exactly as they are.",
+      "archiveFirst": "Archive this Block Type first — only archived ones can be deleted.",
+      "deleteHint": "Permanently removes this Block Type and its project files. This cannot be undone.",
+      "title": "Availability and use",
+      "system": "Built-in",
+      "yourSlice": "Your block",
+      "archived": "Archived",
+      "active": "Active",
+      "description": "Where this Block Type is used and whether it is available for new Pages.",
+      "unavailableTitle": "Block Type status could not be loaded",
+      "unavailableDescription": "Archive and usage details could not be loaded. Changes to this Block Type are unavailable until the connection recovers.",
+      "pages": "Pages",
+      "savedInstances": "Uses in saved Pages",
+      "stagedInstances": "Uses in pending Page changes",
+      "trashPages": "Pages in Trash",
+      "usage": "Usage",
+      "noSlug": "No page address",
+      "trash": "Trash",
+      "starter": "Included in the starting files for new sites",
+      "included": "Included",
+      "notIncluded": "Not included",
+      "delete": "Delete",
+      "inUse": "In use on {count, plural, one {# Page} other {# Pages}}. Remove it from those Pages first.",
+      "usageRow": "{saved} in saved content · {staged} in pending Page changes",
+      "morePages": "+ {count, plural, one {# more Page not shown} other {# more Pages not shown}}",
+      "locales": "Languages used by the Pages shown: {locales}"
+    },
+    "design": {
+      "chooseImage": "Choose an image file.",
+      "smallerImage": "Use a smaller image ({max} max).",
+      "readFailed": "Could not read that image.",
+      "widthRequired": "Enter how wide this design was made for.",
+      "widthInvalid": "Use a number of pixels greater than zero, like 1440.",
+      "mobileUpdated": "Mobile design updated",
+      "desktopUpdated": "Desktop design updated",
+      "saveFailed": "The design was not saved",
+      "saveRefused": "Check your owner access and the image, then try again.",
+      "rolledBack": "The design was not saved. Everything was put back as it was.",
+      "rollbackFailed": "The design was not saved, and earlier files could not all be restored. Check your project files before trying again.",
+      "widthQuestion": "How wide was this design made for?",
+      "widthDescription": "This image is {width} pixels wide. Enter the browser width it was designed for — a design exported at 2× from a 1440px layout is 2880 pixels wide, so the answer is 1440.",
+      "widthLabel": "Design width in pixels",
+      "cancel": "Cancel",
+      "saving": "Saving…",
+      "saveMobile": "Save mobile design",
+      "saveDesktop": "Save desktop design",
+      "scaleWarning": "The image size does not match the design width at common export sizes. Check the width you entered before comparing the design with the preview."
+    },
+    "presentations": {
+      "title": "Presentations",
+      "count": "{count, plural, =0 {0 existing occurrences} one {# existing occurrence} other {# existing occurrences}}",
+      "countLoading": "Counting occurrences…",
+      "countUnavailable": "Occurrence count unavailable",
+      "description": "Choose what can be added. Existing content is retained.",
+      "required": "Required",
+      "active": "Active",
+      "archived": "Archived",
+      "available": "Available for new occurrences",
+      "fallback": "Required fallback · stays active",
+      "locked": "Default cannot be archived: required fallback",
+      "archive": "Archive {label}",
+      "restore": "Restore {label} for new choices",
+      "archiveQuestion": "Archive {label}?",
+      "archiveConsequence": "Hide from new choices. Existing occurrences keep {label}.",
+      "noContentChange": "No Page content or Published Snapshot changes.",
+      "cancel": "Cancel",
+      "confirmArchive": "Confirm archive {label}",
+      "archiveButton": "Archive",
+      "unavailable": "Design choices could not be verified. Try again when they are available.",
+      "failed": "The change could not be confirmed. Check the current presentation state before trying again.",
+      "archivedDescription": "Kept on existing occurrences. Hidden from new choices.",
+      "restoreQuestion": "Restore {label}?",
+      "restoreConsequence": "Available for new occurrences.",
+      "confirmRestore": "Confirm restore {label}",
+      "restoreButton": "Restore"
+    },
+    "create": {
+      "metadata": {
+        "title": "Create block",
+        "description": "Create a design-time block scaffold from a prompt or snapshot."
+      },
+      "page": {
+        "back": "Blocks",
+        "title": "Create block",
+        "description": "Generate a reviewed block spec from a prompt or snapshot, then scaffold it into the local code-first block registry."
+      },
+      "readiness": {
+        "title": "Block creator",
+        "status": "Finish setup: its connection is not set up",
+        "action": "Finish setup"
+      },
+      "tabBound": "Keep this tab open until your block is created. If you close or reload it, the proposal is lost.",
+      "tabs": {
+        "prompt": "Prompt",
+        "snapshot": "Snapshot",
+        "code": "From code"
+      },
+      "badges": {
+        "devOnly": "Dev only",
+        "localCodeWrite": "Local code write",
+        "structuralSource": "Structural source of truth"
+      },
+      "generate": "Generate proposal",
+      "fields": {
+        "suggestedName": "Suggested name",
+        "faqNamePlaceholder": "e.g. FAQ",
+        "operatorNote": "Operator note",
+        "operatorNotePlaceholder": "Intent, repeatable rows, or known non-fields."
+      },
+      "prompt": {
+        "description": "Describe a block to prototype. The accepted spec is scaffolded into the local workspace.",
+        "label": "Prompt",
+        "placeholder": "Create a FAQ block with question and answer rows."
+      },
+      "snapshot": {
+        "description": "Paste or upload the block design snapshot and add optional intent. The original stays local and a compact reference is saved with the block.",
+        "uploadLabel": "Upload snapshot image",
+        "imageLabel": "Snapshot image",
+        "previewAlt": "Block snapshot preview",
+        "empty": "Paste an image here or upload one.",
+        "clipboardImage": "clipboard image",
+        "upload": "Upload"
+      },
+      "code": {
+        "description": "Paste the design's real HTML or JSX/TSX. The field model and renderer are derived from its structure and its classes are translated into design-system tokens. A screenshot is an optional visual cross-check — markup alone yields high fidelity.",
+        "uploadLabel": "Upload design snapshot",
+        "markupLabel": "Markup",
+        "markupPlaceholderHtml": "<section class=\"py-24\">…</section>",
+        "markupPlaceholderTsx": "export function Section() {\n  return <section className=\"py-24\">…</section>\n}",
+        "namePlaceholder": "e.g. Features grid",
+        "optionalSnapshot": "Optional snapshot (visual cross-check)",
+        "replaceImage": "Replace image",
+        "addImage": "Add image",
+        "previewAlt": "Optional cross-check snapshot"
+      },
+      "designWidth": {
+        "pixelWidth": "This image is {width} pixels wide.",
+        "hint": "Enter the browser width it was designed for. A design exported at 2× from a 1440px layout is 2880 pixels wide, so the answer is 1440."
+      },
+      "status": {
+        "runningAuthor": "Running block author...",
+        "preparingSnapshot": "Preparing compact snapshot for AI analysis...",
+        "generatingRenderer": "Generating design-matched renderer...",
+        "retryingRenderer": "Renderer failed verification. Retrying with feedback...",
+        "creatingDefault": "Creating with the default layout...",
+        "proposalReady": "Proposal generated with {model}. Review before writing.",
+        "noSpec": "Proposal generated with {model}, but no new-block spec was returned. Revise the brief and try again.",
+        "created": "Created {label} ({type})."
+      },
+      "validation": {
+        "chooseImage": "Choose an image file.",
+        "smallerScreenshot": "Use a smaller screenshot ({size} max).",
+        "describeFirst": "Describe the block first.",
+        "addSnapshotFirst": "Add a snapshot image first.",
+        "pasteMarkupFirst": "Paste the design's HTML or TSX first."
+      },
+      "errors": {
+        "proposalFailed": "Block proposal failed",
+        "defaultLayoutFailed": "Default layout creation failed",
+        "rendererFailedWithoutError": "Renderer generation failed without an error."
+      },
+      "toast": {
+        "created": "Created {label}",
+        "rendererFollowUp": "Renderer needs follow-up",
+        "defaultLayout": "The Block Type was created with the deterministic default layout.",
+        "notShownYet": "Not shown yet: {fields}",
+        "noSpec": "No block spec returned"
+      },
+      "review": {
+        "title": "Review block spec",
+        "note": "Proposal only. No local source or reference files have been written.",
+        "type": "Type",
+        "label": "Label",
+        "group": "Group",
+        "purpose": "Purpose",
+        "primaryFields": "Primary fields",
+        "itemShape": "Item shape",
+        "noItems": "No repeatable items",
+        "noFields": "No fields",
+        "optional": "optional",
+        "required": "required",
+        "revise": "Revise brief",
+        "regenerate": "Regenerate",
+        "write": "Write code"
+      },
+      "rendererFailure": {
+        "title": "Renderer needs a decision",
+        "revise": "Revise brief",
+        "retry": "Try renderer again",
+        "useDefault": "Create with default layout"
+      },
+      "handoff": {
+        "title": "Created {label}",
+        "defaultLayout": "This Block Type was created with the default layout and needs renderer work in the block simulator.",
+        "followUp": "Renderer follow-up is needed for: <mono>{fields}</mono>.",
+        "next": "Review the content model, then tune the real renderer in the block simulator.",
+        "reviewModel": "Review content model",
+        "tune": "Tune renderer in the block simulator"
+      },
+      "decomposition": {
+        "page": "This looks like a page. Author one section at a time.",
+        "reuse": "Reuse {type} unchanged.",
+        "newPresentation": "Review a new presentation for {type}.",
+        "appShell": "This belongs to the app shell, not the block catalog.",
+        "noSlice": "No block was generated. Review this scope decision before authoring.",
+        "open": "Open {type}",
+        "openSimulator": "Open in simulator",
+        "presentationReview": "Presentation review required. No candidate or source was written. The unchanged content model must be checked again before a presentation can be accepted.",
+        "inspectRenderer": "Inspect current renderer",
+        "start": "Start this section",
+        "appShellHint": "Keep this in the shared site layout or the layout for that kind of page."
+      },
+      "triage": {
+        "reuse": "Reuse {type} unchanged",
+        "newPresentation": "Proposed presentation for {type}; review required",
+        "newSibling": "New Block Type in {family} family",
+        "appShell": "Shared layout concern",
+        "newSlice": "New Block Type"
+      },
+      "continuation": {
+        "pageImageAndMarkup": "The full-page image and page markup were removed. Add a section-only image before visual matching.",
+        "pageImage": "The full-page image was removed. Add a section-only image before visual matching.",
+        "pageMarkup": "The page markup was removed. Generate a proposal for this section when the brief is right.",
+        "ready": "Section ready. Generate its proposal when the brief is right."
+      }
+    }
+  },
+  "caughtErrors": {
+    "slugTaken": "This address is already used. Choose another.",
+    "mediaFetchFailed": "Could not fetch this image. Check its URL.",
+    "mediaNotImage": "Choose an image file or image URL.",
+    "mediaTooLarge": "The image must be smaller than 10 MB.",
+    "folderNameRequired": "Enter a folder name.",
+    "folderExists": "A folder with this name already exists.",
+    "redirectDestinationRequired": "Choose a page or enter a destination URL.",
+    "redirectDestinationAmbiguous": "Choose either a page or a URL.",
+    "redirectSamePath": "Source and destination must differ.",
+    "redirectExists": "A redirect already exists for this source and language.",
+    "pilotPageLimit": "This site has reached its limit of 499 pages and other content, including what is archived or in the trash.",
+    "revalidationUnconfigured": "Add the site address and matching private code, then select Retry now.",
+    "siteDescriptionLocaleNotEnabled": "A site description was set for a language that is no longer on. Reload the page and try again.",
+    "invalidCredentials": "Check your email and password.",
+    "invalidPassword": "Check your password.",
+    "passwordTooShort": "Choose a longer password.",
+    "passwordTooLong": "Choose a shorter password.",
+    "accountExists": "An account with this email already exists.",
+    "invalidUrl": "Enter a valid absolute URL.",
+    "urlScheme": "Use an HTTP or HTTPS URL.",
+    "urlPort": "Use a URL with the standard HTTP or HTTPS port.",
+    "urlCredentials": "Remove the credentials from this URL.",
+    "urlLocal": "Use a publicly accessible image URL.",
+    "urlIp": "Use a publicly accessible image URL.",
+    "urlRedirectMissing": "The image URL returned an incomplete redirect.",
+    "urlRedirectUnsupported": "The image URL returned an unsupported redirect.",
+    "urlRedirectLimit": "The image URL has too many redirects.",
+    "imageUnsupported": "This image format is not supported.",
+    "imageMimeMismatch": "The file does not match its declared image format.",
+    "imageTruncated": "The image file is incomplete.",
+    "imageMalformed": "The image file is invalid.",
+    "imageDimensionsMissing": "The image dimensions could not be read.",
+    "imageDimensionsInvalid": "The image must have valid positive dimensions.",
+    "imageScanLimit": "The image metadata is too large to read safely.",
+    "invalidEmail": "Enter a valid email address."
+  },
+  "contentDefaults": {
+    "button": "Button",
+    "menuItem": "Menu item",
+    "recentPosts": "Recent posts",
+    "seeAll": "See all",
+    "importedPage": "Imported page",
+    "recoveredDraft": "Recovered draft"
+  },
+  "metadata": {
+    "fields": {
+      "heading": "Heading",
+      "title": "Title",
+      "body": "Body",
+      "eyebrow": "Eyebrow",
+      "description": "Description",
+      "eyebrowLinkLabel": "Eyebrow Link Label",
+      "eyebrowLink": "Eyebrow Link",
+      "image": "Image",
+      "question": "Question",
+      "answer": "Answer",
+      "icon": "Icon",
+      "label": "Label",
+      "link": "Link",
+      "name": "Name",
+      "socials": "Socials",
+      "platform": "Platform",
+      "url": "Url",
+      "roleTitle": "Role Title",
+      "category": "Category",
+      "featured": "Featured",
+      "promoteToFront": "Promote To Front",
+      "items": "Items"
+    },
+    "hints": {
+      "fullName": "Full name",
+      "faqQuestion": "How does your pricing work?",
+      "featuresEyebrow": "Features",
+      "agencyEyebrow": "MONTRÉAL, QC — DIGITAL AGENCY",
+      "hiringEyebrow": "We're hiring!",
+      "hiringLink": "Join our remote team"
+    },
+    "slices": {
+      "cta-band": {
+        "label": "CTA Band",
+        "description": "A full-width branded call-to-action band with a heading, optional body copy, and up to two CTA buttons."
+      },
+      "faq-simple": {
+        "label": "FAQ Simple",
+        "description": "Questions visitors can open to see the answers."
+      },
+      "features-icon-grid": {
+        "label": "Features Icon Grid",
+        "description": "Show key benefits in a grid, with optional icons."
+      },
+      "hero-agency": {
+        "label": "Hero Agency",
+        "description": "A large opening message with supporting text and links."
+      },
+      "hero-with-image": {
+        "label": "Hero with Image",
+        "description": "Introduce your page with a headline, image and buttons."
+      },
+      "rich-text-body": {
+        "label": "Rich Text Body",
+        "description": "Write text with headings, lists and links."
+      }
+    },
+    "groups": {
+      "heroes": "Heroes",
+      "features": "Features",
+      "body-copy": "Body copy",
+      "cta": "Calls to action",
+      "faq": "FAQ",
+      "forms": "Forms",
+      "misc": "Other"
+    },
+    "email": {
+      "resendDescription": "Transactional email delivery through Resend.",
+      "customLabel": "Custom provider",
+      "customDescription": "Register a reviewed provider implementation in this application build."
+    }
+  },
+  "accessibility": {
+    "notifications": "Notifications",
+    "closeToast": "Close toast",
+    "close": "Close"
+  },
+  "development": {
+    "caption": "Local development",
+    "unidentified": "Convex not identified",
+    "label": "Development instance"
+  },
+  "pageAddress": {
+    "S3r": "As a root page, this page’s address would be {path}, which “{title}” already uses. Choose a parent page or change the URL identifier.",
+    "S3or": "In {languageName}, as a root page, this page’s address would be {path}, which “{title}” already uses. Choose a parent page or change the URL identifier.",
+    "S3rd": "As a root page, this page’s address would be {path}, which is reserved for formulacms. Choose a parent page or change the URL identifier.",
+    "S3re": "As a root page, this page’s address would be {path}, which is reserved for the {languageName} version of the site. Choose a parent page or change the URL identifier.",
+    "S2a-d": "Page created at {newPath}. {wantedPath} is reserved for formulacms.",
+    "S2a-e": "Page created at {newPath}. {wantedPath} is reserved for the {languageName} version of the site.",
+    "S2b-d": "{wantedPath} is reserved for formulacms, so this page uses {newPath}.",
+    "S2b-e": "{wantedPath} is reserved for the {languageName} version of the site, so this page uses {newPath}.",
+    "S1g": "{path} is the old address of “{title}”. Choose another URL identifier.",
+    "S6g": "This page can’t be published: {path} is the old address of “{title}”. Change the URL identifier, then try again.",
+    "S1a": "{path} is already used by “{title}”. Choose another URL identifier.",
+    "S1b": "{path} is already used by the archived page “{title}”. Choose another URL identifier.",
+    "S1c": "{path} is the old address of “{title}” and still redirects there. Choose another URL identifier.",
+    "S1d": "{path} is reserved for formulacms and can’t be a page address. Choose another URL identifier.",
+    "S1e": "{path} is reserved for the {languageName} version of the site. Choose another URL identifier.",
+    "S1f": "This page wasn’t saved. Its URL identifier is already used.",
+    "S2hint": "The last part of this page’s address. Clear it to link it to the title again.",
+    "S2a": "Page created at {newPath}. {wantedPath} is already used by “{title}”.",
+    "S2b": "{wantedPath} is used by “{title}”, so this page uses {newPath}.",
+    "S3": "Under “{parent}”, this page’s address would be {path}, which “{title}” already uses. Choose another parent or change the URL identifier.",
+    "S3o": "In {languageName}, under “{parent}”, this page’s address would be {path}, which “{title}” already uses. Choose another parent or change the URL identifier.",
+    "S3t": "This page wasn’t saved. Its new address is already used.",
+    "S4": "Published version restored to drafts. Its address {oldPath} is now used by “{title}”, so this page keeps {currentPath}.",
+    "S5": "“{title}” restored as {newPath}, unpublished in {languageName}. {oldPath} is now used by “{holder}”.",
+    "S5f": "“{title}” restored",
+    "S6a": "This page can’t be published: {path} is already used by “{title}”. Change the URL identifier, then try again.",
+    "S6b": "This page can’t be published: {path} is the old address of “{title}” and still redirects there. Change the URL identifier, then try again.",
+    "S6c": "This page can’t be published: {path} is reserved for the {languageName} version of the site. Change the URL identifier, then try again.",
+    "S6d": "This page can’t be published: {path} is reserved for formulacms. Change the URL identifier, then try again.",
+    "S6e": "“{parent}” can’t be published at {path}: its page “{child}” would move to {childPath}, which “{holder}” already uses. Change one of the URL identifiers, then try again."
+  }
+}

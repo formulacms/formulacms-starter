@@ -1,0 +1,119 @@
+{
+  "type": "job",
+  "labels": {
+    "en": { "singular": "Job", "plural": "Jobs" },
+    "fr": { "singular": "Offre d'emploi", "plural": "Offres d'emploi" }
+  },
+  "routing": { "pathPrefix": "jobs" },
+  "capabilities": {
+    "sliceBody": true,
+    "revisions": true,
+    "scheduling": true,
+    "presence": true,
+    "requiresBodyContent": true
+  },
+  "sharedFields": {
+    "department": { "kind": "text", "optional": true, "public": true },
+    "location": { "kind": "text", "optional": true, "public": true },
+    "remoteType": {
+      "kind": "select",
+      "public": true,
+      "config": {
+        "options": ["remote", "hybrid", "onsite"],
+        "default": "onsite",
+        "labels": {
+          "remote": "Remote",
+          "hybrid": "Hybrid",
+          "onsite": "On-site"
+        }
+      }
+    },
+    "employmentType": {
+      "kind": "select",
+      "public": true,
+      "config": {
+        "options": [
+          "full-time",
+          "part-time",
+          "contract",
+          "internship",
+          "temporary"
+        ],
+        "default": "full-time",
+        "labels": {
+          "full-time": "Full-time",
+          "part-time": "Part-time",
+          "contract": "Contract",
+          "internship": "Internship",
+          "temporary": "Temporary"
+        }
+      }
+    },
+    "salaryCurrency": {
+      "kind": "select",
+      "public": true,
+      "config": {
+        "options": ["USD", "EUR", "GBP", "CAD", "AUD"],
+        "default": "USD",
+        "labels": {
+          "USD": "USD",
+          "EUR": "EUR",
+          "GBP": "GBP",
+          "CAD": "CAD",
+          "AUD": "AUD"
+        }
+      }
+    },
+    "salaryMin": {
+      "kind": "number",
+      "optional": true,
+      "public": true,
+      "config": { "default": 0, "min": 0 }
+    },
+    "salaryMax": {
+      "kind": "number",
+      "optional": true,
+      "public": true,
+      "config": { "default": 0, "min": 0 }
+    },
+    "applyUrl": { "kind": "link", "optional": true, "public": true },
+    "applyEmail": {
+      "kind": "text",
+      "optional": true,
+      "public": true,
+      "config": { "placeholder": "careers@example.com" }
+    },
+    "closingDate": { "kind": "date", "optional": true, "public": true },
+    "jobStatus": {
+      "kind": "select",
+      "public": true,
+      "config": {
+        "options": ["open", "closed", "filled"],
+        "default": "open",
+        "labels": {
+          "open": "Open",
+          "closed": "Closed",
+          "filled": "Filled"
+        }
+      }
+    }
+  },
+  "localizedFields": {
+    "title": { "kind": "text", "public": true },
+    "summary": {
+      "kind": "text",
+      "optional": true,
+      "public": true,
+      "config": { "multiline": true }
+    }
+  },
+  "referenceCard": {
+    "title": { "scope": "localized", "field": "title" },
+    "subtitle": { "scope": "shared", "field": "department" }
+  },
+  "seo": { "schemaOrgType": "JobPosting", "ogType": "website" },
+  "aiHint": {
+    "purpose": "A single job opening/posting on the site's careers section. Each job has its own public URL and is listed on job-board views (queried as a set, filtered by department/location/employment type/status).",
+    "fields": "department, location, remoteType, employmentType, salaryCurrency, salaryMin/salaryMax, applyUrl/applyEmail, closingDate, and jobStatus are shared (locale-agnostic) fields. title and summary are localized. The full description (responsibilities, requirements, benefits) is authored as slice body content."
+  }
+}

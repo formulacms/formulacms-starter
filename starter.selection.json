@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "contentTypes": [
+    "landing-page",
+    "page",
+    "post",
+    "author"
+  ],
+  "setup": {
+    "emailDelivery": "unconfigured"
+  },
+  "slices": [
+    "faq-simple",
+    "features-icon-grid",
+    "hero-agency",
+    "hero-with-image",
+    "rich-text-body"
+  ],
+  "distribution": {
+    "artifact": "community",
+    "provenance": "starter.provenance.json"
+  }
+}

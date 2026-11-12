@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Starter extraction gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
+        with:
+          version: 11.20.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Dependency high-advisory gate (DEP-09)
+        run: pnpm audit --audit-level high
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Lint
+        run: pnpm lint
+
+      # Covers test files too: `tsconfig.json` no longer excludes `*.test.ts(x)`
+      # wholesale. Keep its small named compatibility exclusions shrinking.
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test:run
+
+      - name: Slice manifest sync
+        run: pnpm slices:sync --check
+
+      - name: Token boundary (ADR-0025 §3)
+        run: pnpm check:tokens
+
+      - name: Next image configuration
+        run: pnpm check:public:images
+
+      - name: Prepare local Convex runtime
+        run: |
+          pnpm exec convex dev --once
+          pnpm exec convex env set CONTACT_IP_PROOF_SECRET "$CONTACT_IP_PROOF_SECRET"
+          printf '%s' 'http://localhost:3000' | pnpm exec convex env set BETTER_AUTH_URL
+          printf '%s' 'ci-better-auth-secret-ci-better-auth-secret' | pnpm exec convex env set BETTER_AUTH_SECRET
+          printf '%s' 'ci-revalidate-secret' | pnpm exec convex env set REVALIDATE_SECRET
+        env:
+          CONTACT_IP_PROOF_SECRET: ci-contact-ip-proof-secret
+
+      - name: Bounded pilot route/sitemap envelope (ROUTE-04 interim gate)
+        run: pnpm check:pilot-envelope
+
+      - name: Build production app
+        run: pnpm build
+        env:
+          BETTER_AUTH_SECRET: ci-better-auth-secret-ci-better-auth-secret
+          CONTACT_IP_PROOF_SECRET: ci-contact-ip-proof-secret
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
+          FORMULACMS_ALLOW_LOCAL_IMAGE_IPS: "1"
+
+      - name: Fresh setup and password-recovery e2e
+        run: |
+          pnpm exec convex dev --tail-logs disable --start "pnpm exec next start -p 3000" &
+          DEV_PID=$!
+          trap 'kill "$DEV_PID" 2>/dev/null || true' EXIT
+
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error http://localhost:3000 >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              echo "Next.js server did not become ready."
+              exit 1
+            fi
+            sleep 2
+          done
+
+          OWNER_CLAIM="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))')"
+          printf '%s\n' "$OWNER_CLAIM" | pnpm exec convex env set FORMULACMS_OWNER_CLAIM
+          PUBLIC_BASE_URL=http://localhost:3000 \
+            STARTER_E2E_ONBOARDING=single \
+            STARTER_E2E_OWNER_CLAIM="$OWNER_CLAIM" \
+            pnpm check:e2e
+        env:
+          BETTER_AUTH_SECRET: ci-better-auth-secret-ci-better-auth-secret
+          CONTACT_IP_PROOF_SECRET: ci-contact-ip-proof-secret
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
+          FORMULACMS_ALLOW_LOCAL_IMAGE_IPS: "1"
+
+      - name: Convex dry-run deploy (trusted-branch push)
+        if: github.event_name == 'push'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          if [ -z "${CONVEX_DEPLOY_KEY:-}" ]; then
+            echo "::warning title=Convex dry run skipped::Add the CONVEX_DEPLOY_KEY repository secret to check your Convex deployment on every push to main."
+            exit 0
+          fi
+          pnpm exec convex deploy --dry-run
+
+      - name: Convex dry-run deploy (internal PR deferred)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        run: |
+          echo "::notice title=Convex dry-run deferred::Dry-run validation runs on the push to main after merge when the CONVEX_DEPLOY_KEY secret is set. No deploy key is exposed to pull request code."
+
+      - name: Convex dry-run deploy (fork skipped)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        run: |
+          echo "::notice title=Convex dry-run skipped::Fork pull requests cannot access CONVEX_DEPLOY_KEY. Dry-run validation runs on the push to main after merge when the secret is set."

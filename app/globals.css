@@ -1,0 +1,484 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ADR-0025 §3 — cascade-layer order so admin-only and public-only token edits
+ * cannot reach across surfaces. `base-tokens` holds shadcn neutrals that the
+ * shared UI primitives consume; `admin-tokens` holds admin-only roles
+ * (sidebar, etc.); `public-tokens` holds the ADR-0020 design system; client
+ * forks override public tokens by appending to `public-tokens-overrides`. */
+@layer base-tokens, admin-tokens, admin-base, public-tokens, public-base, public-tokens-overrides, components, utilities;
+
+@theme inline {
+  --font-heading: var(--font-inter);
+  --font-public-heading: var(--public-heading-family);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* ---- Site design system (ADR-0020) --------------------------------
+     * One per site. The values below mirror the shadcn Neutral theme so
+     * nothing changes visually until a site owner overrides them (from
+     * Figma / HTML / inferred-from-snapshot). Slice renderers TARGET these
+     * tokens; when a design's color/type/spacing can't be confidently
+     * identified, the renderer falls back to the nearest token here. */
+
+  /* Color roles — brand/accent + layered surfaces (utilities: bg-brand,
+     * text-brand, bg-surface-2, text-on-surface-muted, …). */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-accent-brand: var(--accent-brand);
+  --color-surface: var(--background);
+  --color-surface-2: var(--muted);
+  --color-surface-3: var(--card);
+  --color-on-surface: var(--foreground);
+  --color-on-surface-muted: var(--muted-foreground);
+
+  /* Fluid type scale — mobile-first via clamp(min, fluid, max). Utilities:
+     * text-display, text-title, text-heading, text-lead, text-body, text-caption.
+     * Tuned to a conventional marketing/editorial scale so a renderer that
+     * rounds to the nearest token stays faithful: text-display tops out near a
+     * Tailwind text-5xl (≈3rem/48px), text-lead near text-lg (≈18px). Headlines
+     * stay one line in a normal column; overshoot used to force two-line wraps. */
+  --text-display: clamp(2.25rem, 1.7rem + 2.4vw, 3rem);
+  --text-display--line-height: 1.1;
+  --text-display--letter-spacing: -0.02em;
+  --text-title: clamp(1.875rem, 1.55rem + 1.4vw, 2.25rem);
+  --text-title--line-height: 1.15;
+  --text-title--letter-spacing: -0.015em;
+  --text-heading: clamp(1.375rem, 1.2rem + 0.8vw, 1.75rem);
+  --text-heading--line-height: 1.25;
+  --text-heading--letter-spacing: inherit;
+  --text-lead: clamp(1.0625rem, 1rem + 0.3vw, 1.125rem);
+  --text-lead--line-height: 1.6;
+  --text-lead--letter-spacing: inherit;
+  --text-body: 1rem;
+  --text-body--line-height: 1.6;
+  --text-body--letter-spacing: inherit;
+  --text-caption: 0.875rem;
+  --text-caption--line-height: 1.4;
+  --text-caption--letter-spacing: inherit;
+
+  /* Spacing / rhythm — 8pt-based, responsive section padding (utilities:
+     * py-section, px-gutter, gap-stack). */
+  --spacing-gutter: 1.5rem;
+  --spacing-stack: 1rem;
+  --spacing-section: clamp(3rem, 2rem + 5vw, 6rem);
+  --spacing-228: 57rem;
+
+  /* Container max-widths (utilities: max-w-prose-content, max-w-content, max-w-wide). */
+  --container-prose-content: 42rem;
+  --container-content: 72rem;
+  --container-wide: 80rem;
+}
+
+@layer base-tokens {
+  /* shadcn Neutral defaults — consumed by admin shell AND public UI primitives
+   * (Button, Dialog, Toaster, etc.). Both surfaces may reference these. */
+  :root {
+    color-scheme: light;
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.545 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    color-scheme: dark;
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+  }
+}
+
+@layer admin-tokens {
+  /* Admin-shell-only tokens. Only app/(core)/** and components/admin/** should
+   * reference these. The public surface must not use --sidebar* tokens. */
+  :root {
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.205 0 0);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+  }
+
+  .dark {
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+  }
+}
+
+@layer public-tokens {
+  /* ADR-0020 public values are scoped, not global aliases of --primary:
+   * public primitives map --primary back to --brand below. Explicit values
+   * avoid a custom-property cycle and leave admin chrome neutral.
+   * Owners append scoped overrides in public-tokens-overrides, for example:
+   * [data-public-ui] { --brand: ...; --brand-foreground: ...; }
+   * Tailwind's @theme above only defines the shared utility vocabulary. */
+  [data-public-ui] {
+    --public-heading-family: var(--font-inter);
+    /* Opaque CTA focus in both themes; owners may override public tokens. */
+    --public-cta-focus: #737373;
+    --brand: oklch(0.205 0 0);
+    --brand-foreground: oklch(0.985 0 0);
+    --accent-brand: oklch(0.97 0 0);
+  }
+
+  .dark [data-public-ui],
+  [data-public-ui].dark,
+  [data-public-ui] .dark {
+    --brand: oklch(0.922 0 0);
+    --brand-foreground: oklch(0.205 0 0);
+    --accent-brand: oklch(0.269 0 0);
+  }
+
+  /* Demo colors belong to rendered public regions, never simulator chrome. */
+  .sim-demo-brand [data-public-ui],
+  [data-public-ui].sim-demo-brand,
+  [data-public-ui] .sim-demo-brand {
+    --brand: oklch(0.42 0.16 268);
+    --brand-foreground: oklch(0.985 0 0);
+    --accent-brand: oklch(0.42 0.16 268);
+  }
+
+  .dark .sim-demo-brand [data-public-ui],
+  .sim-demo-brand.dark [data-public-ui],
+  .sim-demo-brand .dark [data-public-ui],
+  .sim-demo-brand [data-public-ui].dark,
+  .sim-demo-brand [data-public-ui] .dark,
+  .dark [data-public-ui].sim-demo-brand,
+  [data-public-ui].sim-demo-brand.dark,
+  [data-public-ui].sim-demo-brand .dark,
+  .dark [data-public-ui] .sim-demo-brand,
+  [data-public-ui].dark .sim-demo-brand,
+  [data-public-ui] .dark .sim-demo-brand,
+  [data-public-ui] .sim-demo-brand.dark,
+  [data-public-ui] .sim-demo-brand .dark {
+    --brand: oklch(0.78 0.13 268);
+    --brand-foreground: oklch(0.205 0 0);
+    --accent-brand: oklch(0.78 0.13 268);
+  }
+}
+
+@layer public-base {
+  /* Public shadcn controls consume the site's brand. Owner-approved parity
+   * exceptions (2026-10-17): retain existing focus rings and neutral simulator
+   * primary controls. No new palette or layout is introduced.
+   * CTA-only amendment (owner 2026-10-29, C1): rendered slice CTAs use
+   * --public-cta-focus; all other focus rings are retained. */
+  [data-public-ui]:not([data-public-simulator]):not([data-public-simulator] *),
+  [data-public-ui]:not([data-public-simulator]):not([data-public-simulator] *) .dark {
+    --primary: var(--brand);
+    --primary-foreground: var(--brand-foreground);
+  }
+
+  /* In public-base so it follows utilities and admin-base in compiled layer order; owners may still override the token in public-tokens-overrides. */
+  [data-public-ui] .public-cta-focus:focus-visible {
+    @apply ring-0 outline-solid outline-2 outline-offset-2 outline-(--public-cta-focus);
+  }
+}
+
+@layer admin-base {
+  /* Selection controls are editor chrome even inside a public preview frame.
+   * Do not let a site's brand overrides recolor those controls. */
+  [data-preview-slice-control],
+  [data-preview-inline-editor],
+  [data-preview-slice-control] + [aria-hidden="true"] {
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --ring: oklch(0.708 0 0);
+  }
+
+  .dark [data-preview-slice-control],
+  .dark [data-preview-inline-editor],
+  .dark [data-preview-slice-control] + [aria-hidden="true"] {
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --ring: oklch(0.556 0 0);
+  }
+
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* Tailwind v4 buttons use the default cursor. Restore the hand for enabled
+   * buttons; disabled ones keep the default. Documented snippet:
+   * https://tailwindcss.com/docs/upgrade-guide#buttons-use-the-default-cursor */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  /* hand-cursor:start */
+  [role="menuitem"]:not([aria-disabled="true"]):not([data-disabled]),
+  [role="menuitemcheckbox"]:not([aria-disabled="true"]):not([data-disabled]),
+  [role="menuitemradio"]:not([aria-disabled="true"]):not([data-disabled]),
+  [role="option"]:not([aria-disabled="true"]):not([data-disabled]),
+  [role="checkbox"]:not(:disabled):not([aria-disabled="true"]):not([data-disabled]),
+  [role="switch"]:not(:disabled):not([aria-disabled="true"]):not([data-disabled]),
+  [role="radio"]:not(:disabled):not([aria-disabled="true"]):not([data-disabled]),
+  [role="tab"]:not(:disabled):not([aria-disabled="true"]):not([data-disabled]),
+  select:not(:disabled),
+  summary,
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  label:has(
+    input[type="checkbox"]:not(:disabled),
+    input[type="radio"]:not(:disabled),
+    [role="checkbox"]:not(:disabled):not([aria-disabled="true"]),
+    [role="switch"]:not(:disabled):not([aria-disabled="true"]),
+    [role="radio"]:not(:disabled):not([aria-disabled="true"])
+  ) {
+    cursor: pointer;
+  }
+  /* hand-cursor:end */
+  html {
+    @apply font-sans;
+    /* Linux browsers reserve physical scrollbar width. Keep that gutter
+     * present before hydration so route content cannot shift the page shell. */
+    scrollbar-gutter: stable;
+  }
+
+  /* Respect users who ask their OS for reduced motion (WCAG 2.3.3). Neutralizes
+   * the tw-animate-css / Tailwind enter-exit animations and CSS transitions used
+   * across the admin + public UI for anyone with `prefers-reduced-motion: reduce`
+   * (vestibular-disorder, motion-sickness, and focus-sensitivity accommodations). */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* admin-disabled:start */
+/* Disabled controls look grey in the admin, setup and sign-in screens only
+ * (owner, 2026-11-02). The scope is a data attribute on the core layout's body,
+ * so menus and dialogs, which mount under the body, are covered too. Public
+ * pages share components/ui, but never carry this attribute, so they keep the
+ * library default. Unlayered, so it wins over the utility classes without
+ * !important. Read-only fields are not :disabled and stay readable. */
+[data-admin-ui] button:disabled,
+[data-admin-ui] [data-slot="button"]:disabled,
+[data-admin-ui] [data-slot="select-trigger"]:disabled,
+[data-admin-ui] [data-slot="select-trigger"][data-disabled] {
+  background-color: var(--muted);
+  color: var(--muted-foreground);
+  border-color: var(--border);
+  opacity: 1;
+  cursor: not-allowed;
+}
+[data-admin-ui] button:disabled svg {
+  color: var(--muted-foreground);
+}
+[data-admin-ui] input:disabled,
+[data-admin-ui] textarea:disabled {
+  background-color: var(--muted);
+  color: var(--muted-foreground);
+  opacity: 1;
+  cursor: not-allowed;
+}
+[data-admin-ui] [role="menuitem"][data-disabled] {
+  color: var(--muted-foreground);
+  opacity: 1;
+  cursor: not-allowed;
+}
+/* admin-disabled:end */
+
+/* admin-help-launcher:start */
+/* Room for the floating Help button (components/admin/ai-help/help-chat.tsx).
+ * While the button is on screen, the admin <main> gets 6rem of bottom space so
+ * a screen's last control can scroll clear of it (button: 1.5rem from the
+ * bottom, 3rem tall). Without the button the layout is unchanged. Unlayered,
+ * so it wins over `p-6 lg:p-8`. Full-height screens (the page editor's
+ * `h-screen` root) keep their layout: there the space would only add outer
+ * scrolling. */
+body:has([data-help-launcher]) main[data-admin-main]:not(:has(.h-screen)) {
+  padding-bottom: 6rem;
+}
+/* admin-help-launcher:end */
+
+/* Hero background-mode: dark overlay + white text are CSS concerns, not
+ * stored on the slice (presentation layer = CSS only). The renderer emits
+ * `.hero--has-bg` only when the image is actively used as background.
+ */
+.hero--has-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+.hero--has-bg > div {
+  color: #fff;
+}
+
+/* Testimonial overlay on hero images — dark tint is CSS-only so the renderer
+ * stays token-bound. Text is always white because the overlay is always dark
+ * (this is a design invariant, not a mode-sensitive choice). */
+.hero-overlay {
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+}
+.hero-overlay__text {
+  color: #fff;
+}
+.hero-overlay__text--muted {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+@layer components {
+  .aspect-portrait {
+    aspect-ratio: 3 / 4;
+  }
+
+  .background-pattern-mask {
+    -webkit-mask-image: radial-gradient(
+      ellipse,
+      rgba(0, 0, 0, 0.3) 30%,
+      black 50%
+    );
+    mask-image: radial-gradient(ellipse, rgba(0, 0, 0, 0.3) 30%, black 50%);
+  }
+
+  .bg-muted-stripes {
+    background-image: repeating-linear-gradient(
+      315deg,
+      var(--muted) 0,
+      var(--muted) 1px,
+      transparent 0,
+      transparent 50%
+    );
+    background-size: 10px 10px;
+  }
+
+  .nav-menu-grid {
+    width: 25rem;
+  }
+
+  @media (min-width: 48rem) {
+    .nav-menu-grid {
+      width: 31.25rem;
+    }
+  }
+
+  @media (min-width: 64rem) {
+    .nav-menu-grid {
+      width: 37.5rem;
+    }
+  }
+}
+
+.media-image-cropper {
+  --rc-border-color: rgba(255, 255, 255, 0.95);
+  --rc-drag-handle-bg-colour: rgba(255, 255, 255, 0.95);
+  --rc-drag-handle-size: 14px;
+  --rc-drag-handle-mobile-size: 26px;
+  --rc-focus-color: #0ea5e9;
+}
+
+.media-image-cropper .ReactCrop__crop-selection {
+  box-shadow:
+    0 0 0 9999px rgba(0, 0, 0, 0.58),
+    0 0 0 1px rgba(0, 0, 0, 0.35) inset;
+}
+
+.media-image-cropper .ReactCrop__drag-handle {
+  border-radius: 9999px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}

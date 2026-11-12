@@ -1,0 +1,37 @@
+[
+  {
+    "type": "faq-simple",
+    "label": "FAQ Simple",
+    "description": "Section heading with an expandable accordion of FAQ items.",
+    "icon": "HelpCircle",
+    "group": "faq"
+  },
+  {
+    "type": "features-icon-grid",
+    "label": "Features Icon Grid",
+    "description": "Responsive grid of feature cards with optional icon, title, and description under a section heading.",
+    "icon": "LayoutGrid",
+    "group": "features"
+  },
+  {
+    "type": "hero-agency",
+    "label": "Hero Agency",
+    "description": "High-impact agency hero with eyebrow text and split footer layout.",
+    "icon": "Layout",
+    "group": "heroes"
+  },
+  {
+    "type": "hero-with-image",
+    "label": "Hero with Image",
+    "description": "Split hero with eyebrow announcement, headline, description, CTAs, and a side image.",
+    "icon": "Layers",
+    "group": "heroes"
+  },
+  {
+    "type": "rich-text-body",
+    "label": "Rich Text Body",
+    "description": "A plain full-width rich-text content block for article bodies, long-form prose, or imported documents.",
+    "icon": "FileText",
+    "group": "body-copy"
+  }
+]

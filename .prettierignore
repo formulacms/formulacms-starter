@@ -1,0 +1,10 @@
+dist/
+node_modules/
+.next/
+.turbo/
+coverage/
+pnpm-lock.yaml
+.pnpm-store/
+# Plan 033 Phase 0 fixture checkouts are byte-exact source under test. Their
+# formatting is part of what the scanner and classifier are asserted against.
+lib/design-system/__fixtures__/

@@ -1,0 +1,132 @@
+packages: []
+
+overrides:
+  kysely: "0.28.17"
+  eslint-import-resolver-typescript: "3.10.0"
+  # DEP-09: pin the currently patched advisory floors for transitive paths.
+  # Keep these centralized so generated starters inherit the same security floor.
+  # Security floors use major-bounded range selectors (`pkg@>=M.0.0 <floor`), never global exact pins, so parent upgrades keep their own ranges (2026-11-06).
+  "fast-uri@>=3.0.0 <3.1.9": "3.1.9"
+  "hono@>=4.0.0 <4.13.16": "4.13.16"
+  "nanoid@>=3.0.0 <3.3.18": "3.3.18"
+  "postcss@>=8.0.0 <8.5.23": "8.5.23"
+  "semver@>=6.0.0 <6.3.1": "6.3.1"
+  "ws@>=8.0.0 <8.21.0": "8.21.0"
+  "proxy-addr@>=2.0.0 <2.0.8": "2.0.8"
+  "js-yaml@>=4.0.0 <4.3.2": "4.3.2"
+  "undici@>=7.0.0 <7.30.1": "7.30.1"
+  "body-parser@>=2.0.0 <2.4.0": "2.4.0"
+  "happy-dom@>=17.0.0 <21.0.4": "21.0.4"
+  "brace-expansion@>=1.0.0 <1.1.21": "1.1.21"
+  "brace-expansion@>=5.0.0 <5.0.12": "5.0.12"
+  "postcss-selector-parser@>=6.0.0 <6.1.5": "6.1.5"
+  "source-map-js@>=1.0.0 <1.2.2": "1.2.2"
+  "systeminformation@>=5.0.0 <5.33.16": "5.33.16"
+
+audit:
+  ignore:
+    # Dev-only (eslint/typescript-eslint, ts-morph via shadcn CLI, scripts/check-token-boundary.ts); `pnpm why -P` shows no production path; only fix is a major (minimatch 11 / glob 14). Decision 2026-11-06; remove in the majors unit (eslint 10 et al.)
+    - GHSA-g3hv-75wg-m249
+    # Dev-only (eslint/typescript-eslint, ts-morph via shadcn CLI, scripts/check-token-boundary.ts); `pnpm why -P` shows no production path; only fix is a major (minimatch 11 / glob 14). Decision 2026-11-06; remove in the majors unit (eslint 10 et al.)
+    - GHSA-3g3m-2fjr-6pw4
+
+# Reject any package update whose supply-chain trust signals (provenance,
+# signatures) are weaker than an earlier published version. Guards against a
+# compromised maintainer pushing a release that quietly drops attestation.
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  # Security patch for GHSA-c2qf-rxjj-qqgw; semver 6.3.1 lacks the newer
+  # trust evidence required by no-downgrade, so keep the exception versioned.
+  - semver@6.3.1
+
+allowBuilds:
+  "@parcel/watcher": true
+  "@swc/core": true
+  esbuild: true
+  msgpackr-extract: true
+  msw: true
+  sharp: true
+  unrs-resolver: true
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  # September 22 critical Next.js security patch; do not delay for age floor.
+  - "@next/env@16.3.6"
+  - "@next/eslint-plugin-next@16.3.6"
+  - "@next/swc-darwin-arm64@16.3.6"
+  - "@next/swc-darwin-x64@16.3.6"
+  - "@next/swc-linux-arm64-gnu@16.3.6"
+  - "@next/swc-linux-arm64-musl@16.3.6"
+  - "@next/swc-linux-x64-gnu@16.3.6"
+  - "@next/swc-linux-x64-musl@16.3.6"
+  - "@next/swc-win32-arm64-msvc@16.3.6"
+  - "@next/swc-win32-x64-msvc@16.3.6"
+  - eslint-config-next@16.3.6
+  - next@16.3.6
+  - shadcn@4.8.2
+  - "@better-auth/core@1.6.13"
+  - "@better-auth/drizzle-adapter@1.6.13"
+  - "@better-auth/kysely-adapter@1.6.13"
+  - "@better-auth/memory-adapter@1.6.13"
+  - "@better-auth/mongo-adapter@1.6.13"
+  - "@better-auth/prisma-adapter@1.6.13"
+  - "@better-auth/telemetry@1.6.13"
+  - better-auth@1.6.13
+  - shadcn@4.9.0
+  - "@ai-sdk/gateway@3.0.122"
+  - "@next/env@16.2.7"
+  - "@next/eslint-plugin-next@16.2.7"
+  - "@next/swc-darwin-arm64@16.2.7"
+  - "@next/swc-darwin-x64@16.2.7"
+  - "@next/swc-linux-arm64-gnu@16.2.7"
+  - "@next/swc-linux-arm64-musl@16.2.7"
+  - "@next/swc-linux-x64-gnu@16.2.7"
+  - "@next/swc-linux-x64-musl@16.2.7"
+  - "@next/swc-win32-arm64-msvc@16.2.7"
+  - "@next/swc-win32-x64-msvc@16.2.7"
+  - "@typescript-eslint/eslint-plugin@8.60.1"
+  - "@typescript-eslint/parser@8.60.1"
+  - "@typescript-eslint/project-service@8.60.1"
+  - "@typescript-eslint/scope-manager@8.60.1"
+  - "@typescript-eslint/tsconfig-utils@8.60.1"
+  - "@typescript-eslint/type-utils@8.60.1"
+  - "@typescript-eslint/types@8.60.1"
+  - "@typescript-eslint/typescript-estree@8.60.1"
+  - "@typescript-eslint/utils@8.60.1"
+  - "@typescript-eslint/visitor-keys@8.60.1"
+  - ai@6.0.194
+  - convex@1.40.0
+  - eslint-config-next@16.2.7
+  - next@16.2.7
+  - oxlint-plugin-react-doctor@0.2.16
+  - react-doctor@0.2.16
+  - react-dom@19.2.7
+  - react@19.2.7
+  - typescript-eslint@8.60.1
+  - "@tailwindcss/typography@0.5.20"
+  - "@ai-sdk/gateway@3.0.127"
+  - "@next/env@16.2.9"
+  - "@next/eslint-plugin-next@16.2.9"
+  - "@next/swc-darwin-arm64@16.2.9"
+  - "@next/swc-darwin-x64@16.2.9"
+  - "@next/swc-linux-arm64-gnu@16.2.9"
+  - "@next/swc-linux-arm64-musl@16.2.9"
+  - "@next/swc-linux-x64-gnu@16.2.9"
+  - "@next/swc-linux-x64-musl@16.2.9"
+  - "@next/swc-win32-arm64-msvc@16.2.9"
+  - "@next/swc-win32-x64-msvc@16.2.9"
+  - ai@6.0.199
+  - convex@1.41.0
+  - eslint-config-next@16.2.9
+  - next@16.2.9
+  - oxlint-plugin-react-doctor@0.5.1
+  - prettier@3.8.4
+  - react-doctor@0.5.1
+  - "@ai-sdk/openai@3.0.74"
+  - convex-helpers@0.1.120
+onlyBuiltDependencies:
+  - esbuild
+  - msw
+  - sharp
+  - unrs-resolver
+patchedDependencies:
+  next-themes@0.4.6: patches/next-themes@0.4.6.patch

@@ -1,0 +1,108 @@
+{
+  "$comment": "Engine version manifest (plan 023 Phase 4 #1-minimal, ADR-0025). Read by downstream forks (and the future upgrade CLI) to decide what an engine sync requires. Keep in lockstep with convex/lib/versions.ts — lib/engine-manifest.test.ts fails the gates on drift.",
+  "name": "formulacms-engine",
+  "engineVersion": "0.2.0",
+  "schemaVersion": 4,
+  "compatibility": {
+    "freshInstallBaseline": 4,
+    "supportedUpgradeFromSchemaVersions": [3],
+    "note": "Schema version 4 adds the dynamic-list menu variant and a recent-page index. Narrowed schema version 3 upgrades directly without a data migration; upgrades from schema version 2 remain unsupported."
+  },
+  "migrations": [],
+  "migrationHistory": [
+    {
+      "id": "backfillSiteSettingsSchemaVersion",
+      "status": "completed",
+      "summary": "001 backfilled schemaVersion=1 before the field was narrowed."
+    },
+    {
+      "id": "splitEmailSettings",
+      "status": "completed",
+      "summary": "002 copied legacy siteSettings email fields into emailSettings."
+    },
+    {
+      "id": "dropLegacyEmailFields",
+      "status": "historical-noop",
+      "summary": "003 recorded the schema narrow; its migration body is intentionally empty."
+    },
+    {
+      "id": "backfillPageRevisionContentJson",
+      "status": "historical-noop",
+      "summary": "004 completed the page-revision archival backfill and remains only as a no-op record."
+    },
+    {
+      "id": "dropLegacyPageRevisionContent",
+      "status": "historical-noop",
+      "summary": "005 completed the page-revision content narrow and remains only as a no-op record."
+    },
+    {
+      "id": "runClearOrganizationId",
+      "status": "completed",
+      "summary": "006 removed vestigial organizationId fields before their schema narrow."
+    },
+    {
+      "id": "backfillPageSearch",
+      "status": "completed",
+      "summary": "007 built pageSearch rows for pages that predated full-text search."
+    },
+    {
+      "id": "stripAuthorBio",
+      "status": "historical-noop",
+      "summary": "008 removed legacy author bio fields and is now an intentional no-op stub."
+    },
+    {
+      "id": "migrateAuthorIdToAuthorIds",
+      "status": "historical-noop",
+      "summary": "009 renamed authorId to authorIds and is now an intentional no-op stub."
+    },
+    {
+      "id": "backfillPostEditorialFlags",
+      "status": "completed",
+      "summary": "010 backfilled post editorial flags before the fields were narrowed."
+    },
+    {
+      "id": "hoistDraftContentToStaging",
+      "status": "completed",
+      "summary": "011 moved draft content into pageStaging at the editor cutover boundary."
+    },
+    {
+      "id": "moveScheduledAtToStaging",
+      "status": "historical-pre-narrow",
+      "summary": "012 had to run before scheduledAt was removed from pages. The required ordering cannot be recovered from the narrowed schema version 2 tree, so it is not a runnable schema version 1 to schema version 2 instruction."
+    },
+    {
+      "id": "backfillMenuReferences",
+      "status": "completed",
+      "summary": "013 reconciled exact canonical menu references before and after the menu cutover."
+    },
+    {
+      "id": "copyLegacyMenusToCanonical",
+      "status": "historical-pre-narrow",
+      "summary": "014 copied locale rows into canonical nav before consumers cut over; it cannot run after the C3 schema narrow."
+    },
+    {
+      "id": "deleteLegacyMenuRows",
+      "status": "historical-pre-narrow",
+      "summary": "015 deleted frozen legacy menu rows after the guarded C3 preflight and before locale/items fields and indexes were removed."
+    }
+  ],
+  "engineOwnedPaths": [
+    "convex/**",
+    "lib/slices/authoring/**",
+    "lib/slices/visual-tweak/**",
+    "scripts/**",
+    "components/admin/**",
+    "components/slice-kit/**",
+    "app/(core)/**"
+  ],
+  "ownerOwnedPaths": [
+    "app/globals.css",
+    "lib/slices/slices.manifest.json",
+    "convex/lib/slices/*.ts",
+    "components/slices/**",
+    "public/**"
+  ],
+  "releaseOnlyPaths": ["scripts/starter/**"],
+  "$releaseOnlyComment": "Engine-internal release tooling. Overrides engineOwnedPaths (which globs scripts/**): these paths are NEVER distributed to formulacms-starter nor synced to forks — the slice ship-list + report command that curate which slices ship. Their presence is also the engine-vs-starter signal for the /admin/slices 'Ship to starter' toggle, so shipping them would surface engine-only tooling in a fork.",
+  "$pathsComment": "engineOwnedPaths: expect these to fast-forward from upstream on sync; local edits there are upstream-port candidates (playbook step 10). ownerOwnedPaths: the fork's own surface — sync must never clobber these (slice descriptors/renderers a fork authored, its tokens, its assets). Paths in both lists (slice registry files) resolve per the playbook's conflict classes. releaseOnlyPaths takes precedence over engineOwnedPaths: a path it matches is engine-local and excluded from distribution even when an engineOwnedPaths glob (e.g. scripts/**) also matches it."
+}

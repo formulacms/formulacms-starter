@@ -1,0 +1,86 @@
+name: Rehearse starter release transition
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: Exact annotated source tag
+        required: true
+        type: string
+      target_tag:
+        description: Exact annotated target tag
+        required: true
+        type: string
+      target_tag_object_oid:
+        description: Recorded target annotated-tag object ID
+        required: true
+        type: string
+      target_starter_commit_oid:
+        description: Recorded target peeled starter commit ID
+        required: true
+        type: string
+      target_engine_commit_oid:
+        description: Recorded target canonical engine commit ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    name: Verify identities and merge a clean customer fork
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
+        with:
+          version: 11.20.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install target release verification tools
+        run: pnpm install --frozen-lockfile
+
+      - name: Rehearse the exact declared transition
+        id: rehearsal
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          TARGET_TAG: ${{ inputs.target_tag }}
+          TARGET_TAG_OBJECT_OID: ${{ inputs.target_tag_object_oid }}
+          TARGET_STARTER_COMMIT_OID: ${{ inputs.target_starter_commit_oid }}
+          TARGET_ENGINE_COMMIT_OID: ${{ inputs.target_engine_commit_oid }}
+          EVIDENCE_PATH: ${{ runner.temp }}/rehearsal.evidence.json
+        run: |
+          pnpm exec tsx scripts/rehearse-release-transition.ts \
+            --source-tag "$SOURCE_TAG" \
+            --target-tag "$TARGET_TAG" \
+            --target-tag-object-oid "$TARGET_TAG_OBJECT_OID" \
+            --target-starter-commit-oid "$TARGET_STARTER_COMMIT_OID" \
+            --target-engine-commit-oid "$TARGET_ENGINE_COMMIT_OID" \
+            --evidence "$EVIDENCE_PATH"
+
+      - name: Upload immutable transition evidence
+        id: evidence-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: starter-transition-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rehearsal.evidence.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record immutable evidence digest
+        env:
+          ARTIFACT_DIGEST: ${{ steps.evidence-upload.outputs.artifact-digest }}
+        run: |
+          printf 'Transition evidence artifact SHA-256: `%s`\n' "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"

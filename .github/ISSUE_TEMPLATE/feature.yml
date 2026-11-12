@@ -1,0 +1,42 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Search existing issues first, then describe the user-visible problem in the self-hosted Next.js + Convex starter.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      placeholder: What are you trying to do that formulacms doesn't support?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      placeholder: Describe the feature and how it would work.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface does this affect?
+      options:
+        - Public site
+        - Admin and content authoring
+        - Developer and agent workflow
+        - Operations and recovery
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: What else did you try or consider?

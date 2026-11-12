@@ -1,0 +1,66 @@
+{
+  "compilerOptions": {
+    // ES2022, not ES2017: `lib` is already `esnext`, `tsc` runs `--noEmit`, and
+    // SWC transpiles from browserslist rather than this value — so `target`
+    // only gates which syntax type-checks. At ES2017 the `/s` regex flag used
+    // in three test files was rejected.
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "next.config.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.mts",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "scripts/starter/overlay/**",
+    "lib/design-system/__fixtures__/**",
+
+    // Test files are deliberately NOT excluded wholesale. When they were, the
+    // editor opened every `*.test.ts(x)` in an inferred project with no `@/*`
+    // path aliases and no `types` — so `@/convex/...` imports and jest-dom
+    // matchers showed as errors that `tsc` never reported. That mismatch is
+    // what produced a hand-"fix" importing the wrong jest-dom entry and
+    // rewriting `toHaveAttribute` into `getAttribute()`.
+    //
+    // Catalog-dependent, not a backlog item. This file names slice types
+    // directly (`createSampleSlice("newsletter-signup-simple")`) behind
+    // `test.skipIf` guards, because a starter release ships a subset of designs
+    // and unregisters the rest. A runtime guard cannot narrow a type, so in a
+    // tree with a narrower `SLICE_TYPES` those literals — and every property
+    // read off the resulting slice — fail to compile even though the tests
+    // correctly skip. It runs and passes in both trees; only type coverage is
+    // given up. Upgrade path: a starter overlay providing its own copy.
+    "lib/slices/sample.test.ts",
+
+    // The entries below are the named compatibility backlog. Shrink this list,
+    // don't grow it.
+    "app/(core)/admin/(authenticated)/design-system/page.test.tsx",
+    "app/(sim)/slice-sim/[type]/inspector-rail.test.tsx",
+    "lib/slices/authoring/scaffold.test.ts"
+  ]
+}
