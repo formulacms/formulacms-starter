@@ -32,6 +32,8 @@ The pages and media you made on your computer stay there. The hosted site starts
    pnpm exec convex dev --configure new --project my-site --once
    ```
 
+   Convex may ask "Where should this dev deployment run?". Choose the region nearest to your visitors and press Enter.
+
    From now on, `pnpm dev` uses a new, empty development backend in the cloud. The next `pnpm dev` sets up this backend by itself and shows a new owner setup code for it. Then complete the setup screen again, as in README Quickstart step 3.
 
 4. Send the backend code to production:
@@ -86,10 +88,12 @@ The pages and media you made on your computer stay there. The hosted site starts
 10. Set the addresses on Vercel:
 
     ```bash
-    printf '%s' "$SITE" | vercel env add NEXT_PUBLIC_SITE_URL production --sensitive --force --yes
-    printf '%s' "$CLOUD" | vercel env add NEXT_PUBLIC_CONVEX_URL production --sensitive --force --yes
-    printf '%s' "${CLOUD%.convex.cloud}.convex.site" | vercel env add NEXT_PUBLIC_CONVEX_SITE_URL production --sensitive --force --yes
+    printf '%s' "$SITE" | vercel env add NEXT_PUBLIC_SITE_URL production --force --yes
+    printf '%s' "$CLOUD" | vercel env add NEXT_PUBLIC_CONVEX_URL production --force --yes
+    printf '%s' "${CLOUD%.convex.cloud}.convex.site" | vercel env add NEXT_PUBLIC_CONVEX_SITE_URL production --force --yes
     ```
+
+    These three are public addresses, so they are not secret, and the Vercel warning that visitors can see them is expected.
 
 11. Create the three secrets. This block makes a new value for each secret, sets it on both sides and prints nothing. The hosted site uses new values, not the ones in `.env.local`.
 
