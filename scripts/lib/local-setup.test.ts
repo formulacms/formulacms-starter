@@ -316,6 +316,11 @@ describe("planLocalEnv", () => {
     expect(result.text).not.toContain("BETTER_AUTH_URL")
   })
 
+  test("keeps a shell secret byte for byte, spaces included", () => {
+    const result = plan(CONVEX_LINES, { processEnv: { BETTER_AUTH_SECRET: " from-the-shell-123 " } })
+    expect(result.effective.BETTER_AUTH_SECRET).toBe(" from-the-shell-123 ")
+  })
+
   test("copies a Convex value when the local one is missing", () => {
     const result = plan(CONVEX_LINES, {
       convexValues: new Map([["CONTACT_IP_PROOF_SECRET", "convex-has-this-one"]]),

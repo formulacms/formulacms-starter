@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, test } from "vitest"
 import { SCHEMA_VERSION } from "../convex/lib/versions"
@@ -31,6 +31,16 @@ const manifest = JSON.parse(
   engineOwnedPaths: string[]
   ownerOwnedPaths: string[]
   releaseOnlyPaths: string[]
+  sharedRegistries: {
+    id: string
+    manifest: string
+    generated: string[]
+    regenerate: string
+    check: string
+    rule: string
+  }[]
+  pathRules: { id: string; paths: string[]; rule: string }[]
+  defaultRule: string
 }
 
 // Translate a manifest glob (only the `dir/**` and exact forms this manifest
@@ -110,6 +120,30 @@ describe("engine.manifest.json", () => {
       ...manifest.releaseOnlyPaths,
     ]) {
       expect(p).not.toMatch(/^\//)
+    }
+
+    expect(manifest.sharedRegistries.length).toBeGreaterThan(0)
+    expect(manifest.pathRules.length).toBeGreaterThan(0)
+    expect(manifest.defaultRule.length).toBeGreaterThan(0)
+    for (const registry of manifest.sharedRegistries) {
+      expect(registry.id.length).toBeGreaterThan(0)
+      expect(registry.generated.length).toBeGreaterThan(0)
+      expect(registry.regenerate.length).toBeGreaterThan(0)
+      expect(registry.check.length).toBeGreaterThan(0)
+      expect(registry.rule.length).toBeGreaterThan(0)
+      // Every registry file must exist, so an upgrade can regenerate it.
+      for (const file of [registry.manifest, ...registry.generated]) {
+        expect(file).not.toMatch(/^\//)
+        expect(
+          existsSync(join(process.cwd(), file)),
+          `registry "${registry.id}" lists missing file "${file}"`
+        ).toBe(true)
+      }
+    }
+    for (const rule of manifest.pathRules) {
+      expect(rule.paths.length).toBeGreaterThan(0)
+      expect(rule.rule.length).toBeGreaterThan(0)
+      for (const p of rule.paths) expect(p).not.toMatch(/^\//)
     }
   })
 

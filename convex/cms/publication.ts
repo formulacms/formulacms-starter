@@ -4883,6 +4883,9 @@ async function transitionLifecycle(
     slug: string
     content: Record<string, unknown>
     addressAllocation?: { wantedSlug: string; allocatedSlug: string }
+    // Only the draft address was reused; the live address is free, so the
+    // language stays published (a draft-only change must not reach public).
+    keepLive?: boolean
   }> = []
   const retireHistory: Array<Id<"pageHistoricalLocaleRoutes">> = []
   const releasedLocales = new Set<string>()
@@ -4931,6 +4934,10 @@ async function transitionLifecycle(
           : future
         const conflict = future.kind !== "free" ? future : live
         if (conflict.kind !== "free") {
+          const keepLive =
+            live.kind === "free" &&
+            Boolean(localeState.currentPath) &&
+            localeState.hasCurrentSnapshot
           const allocated = await allocatePageAddress(ctx, input)
           restorePlans.push({
             state: localeState,
@@ -4941,6 +4948,7 @@ async function transitionLifecycle(
             ...(allocated.addressAllocation
               ? { addressAllocation: allocated.addressAllocation }
               : {}),
+            ...(keepLive ? { keepLive: true } : {}),
           })
           if (conflict.path && allocated.check.path)
             addressNotices.push({
@@ -4948,10 +4956,15 @@ async function transitionLifecycle(
               oldPath: conflict.path,
               newPath: allocated.check.path,
               check: conflict,
+              ...(keepLive
+                ? { kept: next === "active" ? "published" : "archived" }
+                : {}),
             })
         }
         if (
-          !restorePlans.some((plan) => plan.state._id === localeState._id) &&
+          !restorePlans.some(
+            (plan) => plan.state._id === localeState._id && !plan.keepLive
+          ) &&
           localeState.currentPath &&
           localeState.hasCurrentSnapshot
         )
@@ -5030,6 +5043,14 @@ async function transitionLifecycle(
       undefined,
       now
     )
+    if (plan.keepLive) {
+      await occurrenceUsageWrites(ctx).patch(
+        "pageLocalePublicationStates",
+        plan.state._id,
+        { draftGeneration: generation, updatedAt: now }
+      )
+      continue
+    }
     await clearCurrentReferences(ctx, pageId, plan.state.locale)
     await occurrenceUsageWrites(ctx).patch(
       "pageLocalePublicationStates",

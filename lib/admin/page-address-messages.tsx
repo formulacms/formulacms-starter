@@ -216,7 +216,11 @@ export function createPageAddressMessages(
     function message(notice: PageAddressNotice) {
       if (!notice.check.holder) return fallback
       return copy(
-        kind,
+        kind === "S5" && notice.kept === "published"
+          ? "S5k"
+          : kind === "S5" && notice.kept === "archived"
+            ? "S5a"
+            : kind,
         {
           ...language(notice.locale),
           oldPath: displayPath(notice.locale, notice.oldPath),

@@ -1133,6 +1133,9 @@ describe("ED10 R1 parent publication", () => {
     async () => {
       const parent = await setup()
       const child = await island()
+      // Tiptap focuses a mounted island one animation frame later. Let that
+      // focus land before the sidebar takes focus, as it does for a person.
+      await waitFor(() => expect(document.activeElement).toBe(child.host))
       const runtime = globalThis as typeof globalThis & {
         IS_REACT_ACT_ENVIRONMENT?: boolean
       }

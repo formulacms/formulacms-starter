@@ -3549,6 +3549,8 @@
     "S3t": "Cette page n’a pas été enregistrée. Sa nouvelle adresse est déjà utilisée.",
     "S4": "Version publiée restaurée dans les brouillons. Son adresse {oldPath} est maintenant utilisée par « {title} » ; cette page garde donc {currentPath}.",
     "S5": "« {title} » restauré à l’adresse {newPath}, non publié en {languageNameLower}. L’adresse {oldPath} est maintenant utilisée par « {holder} ».",
+    "S5k": "« {title} » restauré, toujours publié en {languageNameLower}. Son brouillon utilise désormais l’adresse {newPath}. L’adresse {oldPath} est maintenant utilisée par « {holder} ».",
+    "S5a": "« {title} » restauré, toujours archivé. Son brouillon utilise désormais l’adresse {newPath}. L’adresse {oldPath} est maintenant utilisée par « {holder} ».",
     "S5f": "« {title} » restauré",
     "S6a": "Impossible de publier cette page : l’adresse {path} est déjà utilisée par « {title} ». Modifiez l’identifiant d’URL, puis réessayez.",
     "S6b": "Impossible de publier cette page : l’adresse {path} est l’ancienne adresse de « {title} » et y redirige encore. Modifiez l’identifiant d’URL, puis réessayez.",

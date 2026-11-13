@@ -58,6 +58,8 @@ The pages and media you made on your computer stay there. The hosted site starts
    vercel link --yes --project my-site
    ```
 
+   If your Vercel account has more than one team, `vercel link` asks which team to use.
+
    If `pnpm dev` stops working afterwards, restore the backup with `cp .env.backup.local .env.local`.
 
 7. Find your site address:
@@ -125,6 +127,8 @@ The pages and media you made on your computer stay there. The hosted site starts
     ```
 
 14. Open `https://my-site.vercel.app/setup`, with your address from step 7. Complete the three setup steps with the code from step 12.
+
+    After the first deploy, the address can show "deployment not found" for about a minute, so wait and reload the page.
 
     Use only this address. The other addresses that Vercel prints are protected by Vercel, and the admin sign-in does not work on them.
 

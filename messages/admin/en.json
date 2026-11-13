@@ -3549,6 +3549,8 @@
     "S3t": "This page wasn’t saved. Its new address is already used.",
     "S4": "Published version restored to drafts. Its address {oldPath} is now used by “{title}”, so this page keeps {currentPath}.",
     "S5": "“{title}” restored as {newPath}, unpublished in {languageName}. {oldPath} is now used by “{holder}”.",
+    "S5k": "“{title}” restored, still published in {languageName}. Its draft now uses {newPath}. {oldPath} is now used by “{holder}”.",
+    "S5a": "“{title}” restored, still archived. Its draft now uses {newPath}. {oldPath} is now used by “{holder}”.",
     "S5f": "“{title}” restored",
     "S6a": "This page can’t be published: {path} is already used by “{title}”. Change the URL identifier, then try again.",
     "S6b": "This page can’t be published: {path} is the old address of “{title}” and still redirects there. Change the URL identifier, then try again.",

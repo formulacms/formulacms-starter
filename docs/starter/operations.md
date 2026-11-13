@@ -582,6 +582,8 @@ This is the manual procedure for a customer-owned fork. Regeneration creates a
 fresh starter and never updates the fork. Treat paths as engine, starter, or
 client owned before resolving conflicts.
 
+For a specific release, follow its upgrade file in `upgrades/`; it takes precedence over this general playbook.
+
 Before integrating, record the exact source and target annotated SemVer starter
 tags and generated-tree digests for both sides. An untagged checkout is not a
 release transition. Stop if the target release declares the path unsupported;
@@ -618,7 +620,7 @@ git switch -c upgrade/<version>
 | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Engine paths                 | Prefer upstream. Conflicts here usually mean the release needs a migration note.                      |
 | Starter paths                | Three-way merge deliberately; preserve starter rendering behavior unless release notes say otherwise. |
-| Client paths                 | Preserve the fork. Upstream never overwrites these.                                                   |
+| Client paths                 | Preserve the fork. On a conflict, keep yours; review upstream changes that merged without a conflict. |
 | Shared content-type registry | Keep both sides' entries, then regenerate. Never take the whole file from one side.                   |
 
 The content-type registry is shared: it holds entries from formulacms and

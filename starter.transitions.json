@@ -2,5 +2,37 @@
   "schemaVersion": 1,
   "artifact": "community",
   "manualActions": [],
-  "transitions": []
+  "transitions": [
+    {
+      "id": "v0.1.0-to-v0.1.1",
+      "source": {
+        "tag": "v0.1.0",
+        "tagObjectOid": "8f9198c786f29ed989524f23da9015d58363870d",
+        "starterCommitOid": "5f16ee2afd6cfa5fa10d043f7be21731f067a168",
+        "engineCommitOid": "7b8efcbdc7948447f250b6f319ba31f1a7036ff3",
+        "generatedTreeDigest": "58f22093bf9b3b3aeb3fc141ac45026013682b4b45ef4e35c7c435423eeb38ae"
+      },
+      "targetTag": "v0.1.1",
+      "class": "update",
+      "composable": false,
+      "rollback": {
+        "codeArtifact": "supported",
+        "boundary": "Restore the verified v0.1.0 code artifact; this hop changes no data, required configuration, or administrator state."
+      },
+      "migrationIds": [],
+      "configurationChanges": [],
+      "manualActionIds": [],
+      "requirements": {
+        "membershipReconciliation": false
+      },
+      "checks": [
+        "frozen-install",
+        "typecheck",
+        "lint",
+        "tests",
+        "slice-registration",
+        "tokens"
+      ]
+    }
+  ]
 }
