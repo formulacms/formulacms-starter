@@ -93,7 +93,42 @@
     "scripts/**",
     "components/admin/**",
     "components/slice-kit/**",
-    "app/(core)/**"
+    "app/(core)/**",
+    "convex/lib/slices/aiHint.test.ts",
+    "convex/lib/slices/authoringState.ts",
+    "convex/lib/slices/body-contract.test.ts",
+    "convex/lib/slices/fields.ts",
+    "convex/lib/slices/heroPresentationDefinitions.ts",
+    "convex/lib/slices/identity.test.ts",
+    "convex/lib/slices/identity.ts",
+    "convex/lib/slices/kit-adoption.test.ts",
+    "convex/lib/slices/occurrencePresentation-usage.test.ts",
+    "convex/lib/slices/occurrencePresentation.test.ts",
+    "convex/lib/slices/occurrencePresentation.ts",
+    "convex/lib/slices/occurrenceUsage-writers.node.test.ts",
+    "convex/lib/slices/permissions.test.ts",
+    "convex/lib/slices/permissions.ts",
+    "convex/lib/slices/presentationMutations.test.ts",
+    "convex/lib/slices/presentationMutations.ts",
+    "convex/lib/slices/presentationRendererInventory.ts",
+    "convex/lib/slices/presentationResolution.ts",
+    "convex/lib/slices/presentations.test.ts",
+    "convex/lib/slices/presentations.ts",
+    "convex/lib/slices/primitives.ts",
+    "convex/lib/slices/profile.test.ts",
+    "convex/lib/slices/profile.ts",
+    "convex/lib/slices/repeating.test.ts",
+    "convex/lib/slices/repeating.ts",
+    "convex/lib/slices/resolve.test.ts",
+    "convex/lib/slices/resolve.ts",
+    "convex/lib/slices/rf2a-identities.test.ts",
+    "convex/lib/slices/sample.ts",
+    "convex/lib/slices/siteSearch.test.ts",
+    "convex/lib/slices/validate.contract-resolver.test.ts",
+    "convex/lib/slices/validate.ts",
+    "convex/lib/slices/walk.test.ts",
+    "convex/lib/slices/walk.ts",
+    "convex/lib/slices/write-tier.test.ts"
   ],
   "ownerOwnedPaths": [
     "app/globals.css",
@@ -104,5 +139,55 @@
   ],
   "releaseOnlyPaths": ["scripts/starter/**"],
   "$releaseOnlyComment": "Engine-internal release tooling. Overrides engineOwnedPaths (which globs scripts/**): these paths are NEVER distributed to formulacms-starter nor synced to forks — the slice ship-list + report command that curate which slices ship. Their presence is also the engine-vs-starter signal for the /admin/slices 'Ship to starter' toggle, so shipping them would surface engine-only tooling in a fork.",
-  "$pathsComment": "engineOwnedPaths: expect these to fast-forward from upstream on sync; local edits there are upstream-port candidates (playbook step 10). ownerOwnedPaths: the fork's own surface — sync must never clobber these (slice descriptors/renderers a fork authored, its tokens, its assets). Paths in both lists (slice registry files) resolve per the playbook's conflict classes. releaseOnlyPaths takes precedence over engineOwnedPaths: a path it matches is engine-local and excluded from distribution even when an engineOwnedPaths glob (e.g. scripts/**) also matches it."
+  "$pathsComment": "engineOwnedPaths: expect these to fast-forward from upstream on sync; local edits there are upstream-port candidates (playbook step 10). ownerOwnedPaths: the site owner's own surface (slice descriptors and renderers the owner authored, design tokens, assets). On a merge conflict there, keep the owner's version; upstream changes that do not conflict may still merge in silently, so review them. lib/slices/slices.manifest.json stays listed here for the admin design-system drift report; on an upgrade its sharedRegistries class wins. The exact convex/lib/slices/*.ts entries in engineOwnedPaths are engine files inside the owner-owned slice folder. releaseOnlyPaths takes precedence over engineOwnedPaths: a path it matches is engine-local and excluded from distribution even when an engineOwnedPaths glob (e.g. scripts/**) also matches it.",
+  "$classesComment": "Upgrade merge classes. When a path matches more than one class, the first match in this order wins: releaseOnlyPaths > sharedRegistries (manifest, then generated files) > pathRules > an exact-path entry in any list > an ownerOwnedPaths glob > an engineOwnedPaths glob > defaultRule. The formulacms release tooling classifies paths in this same order.",
+  "sharedRegistries": [
+    {
+      "id": "content-types",
+      "manifest": "convex/lib/contentTypes/content-types.manifest.json",
+      "generated": [
+        "convex/schema.ts",
+        "convex/lib/contentTypes/index.ts",
+        "convex/lib/contentTypes/inputShapes.ts",
+        "convex/lib/contentTypes/starterSelection.ts",
+        "convex/lib/pages/types.ts",
+        "components/content-types/index.ts"
+      ],
+      "regenerate": "pnpm content-types:sync",
+      "check": "pnpm content-types:sync --check",
+      "rule": "Keep both sides' entries in the manifest. Never edit the generated files by hand: take either side, then run the regenerate command and confirm the check command passes."
+    },
+    {
+      "id": "slices",
+      "manifest": "lib/slices/slices.manifest.json",
+      "generated": [
+        "convex/lib/slices/index.ts",
+        "lib/slices/builder.ts",
+        "components/slices/slice-zone-registry.tsx",
+        "components/slices/slice-sim-registry.tsx",
+        "components/slices/tweak-loc-modules.d.ts"
+      ],
+      "regenerate": "pnpm slices:sync",
+      "check": "pnpm slices:sync --check",
+      "rule": "Keep both sides' entries in the manifest. Never edit the generated files by hand: take either side, then run the regenerate command and confirm the check command passes."
+    }
+  ],
+  "pathRules": [
+    {
+      "id": "package-json",
+      "paths": ["package.json"],
+      "rule": "Keep both sides' dependency and script entries, one entry at a time. Never keep a whole conflicting block from one side. When one package changed on both sides, take the starter's version unless you pinned yours on purpose."
+    },
+    {
+      "id": "pnpm-lock",
+      "paths": ["pnpm-lock.yaml"],
+      "rule": "Never edit it by hand. Resolve package.json first. Then take the starter's lockfile (git checkout --theirs pnpm-lock.yaml), or leave the conflict markers in, because pnpm removes them. Run pnpm install. Then pnpm install --frozen-lockfile must pass."
+    },
+    {
+      "id": "public-site-and-messages",
+      "paths": ["app/(public)/**", "messages/**"],
+      "rule": "Resolve each conflict on its own. Keep your text and styling, and keep the starter's new keys and fixes. Never take a whole file from one side."
+    }
+  ],
+  "defaultRule": "Resolve each conflict on its own. Keep your text and styling, and keep the starter's new keys and fixes. Never take a whole file from one side."
 }

@@ -224,7 +224,7 @@ export function planLocalEnv(options: {
   const keep = (key: LocalKey): boolean => {
     const fromProcess = processEnv[key]
     const fromFile = fileValues.get(key)
-    if (isRealValue(fromProcess)) effective[key] = fromProcess.trim()
+    if (isRealValue(fromProcess)) effective[key] = fromProcess
     else if (isRealValue(fromFile)) effective[key] = fromFile
     else return false
     return true

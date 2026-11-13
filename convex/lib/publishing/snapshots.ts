@@ -69,12 +69,14 @@ export const pageAddressNoticeValidator = v.object({
   oldPath: v.string(),
   newPath: v.string(),
   check: pageAddressCheckValidator,
+  kept: v.optional(v.union(v.literal("published"), v.literal("archived"))),
 })
 export type PageAddressNotice = {
   locale: string
   oldPath: string
   newPath: string
   check: PageAddressCheck
+  kept?: "published" | "archived"
 }
 export type AddressReadCache = Map<string, Promise<unknown>>
 async function addressRead<T>(

@@ -161,6 +161,56 @@ test("R5 appends a type only to the holder when restored and holder titles match
   expect(result[0]).toContain("used by “Contact” (Post).")
 })
 
+// A restored language that keeps its Published Snapshot says "still published"
+// (S5k), an archived page that stays archived says "still archived" (S5a), and
+// a notice without `kept` keeps the S5 "unpublished" text.
+test.each([
+  [
+    "en",
+    "“A” restored, still published in English. Its draft now uses /contact-2. /contact is now used by “Contact” (Post).",
+    "“A” restored, still archived. Its draft now uses /contact-2. /contact is now used by “Contact” (Post).",
+    "“A” restored as /contact-2, unpublished in English. /contact is now used by “Contact” (Post).",
+  ],
+  [
+    "fr",
+    "« A » restauré, toujours publié en anglais. Son brouillon utilise désormais l’adresse /contact-2. L’adresse /contact est maintenant utilisée par « Contact » (Article).",
+    "« A » restauré, toujours archivé. Son brouillon utilise désormais l’adresse /contact-2. L’adresse /contact est maintenant utilisée par « Contact » (Article).",
+    "« A » restauré à l’adresse /contact-2, non publié en anglais. L’adresse /contact est maintenant utilisée par « Contact » (Article).",
+  ],
+] as const)(
+  "%s: S5k when kept published, S5a when kept archived, S5 otherwise",
+  (admin, stillPublishedText, stillArchivedText, unpublishedText) => {
+    const m = messages(admin)
+    const notice = {
+      locale: "en",
+      oldPath: "/contact",
+      newPath: "/contact-2",
+      check,
+    }
+    expect(
+      m.restored(
+        [{ ...notice, kept: "published" as const }],
+        "S5",
+        "generic",
+        "A",
+        "page"
+      )
+    ).toEqual([stillPublishedText])
+    expect(
+      m.restored(
+        [{ ...notice, kept: "archived" as const }],
+        "S5",
+        "generic",
+        "A",
+        "page"
+      )
+    ).toEqual([stillArchivedText])
+    expect(m.restored([notice], "S5", "generic", "A", "page")).toEqual([
+      unpublishedText,
+    ])
+  }
+)
+
 test("S5f changes trash quotes only; archive copy is preserved", () => {
   expect(en.inventory.trash.restored).toBe(en.pageAddress.S5f)
   expect(en.inventory.archive.restored).toBe('"{title}" restored')
