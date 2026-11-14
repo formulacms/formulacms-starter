@@ -22,58 +22,14 @@ export const rateLimiter = new RateLimiter(components.rateLimiter, {
     capacity: 5,
   },
   contactGlobal: { kind: "fixed window", rate: 200, period: HOUR },
-  // Phase 9 — forgot-password endpoint. The deployment-wide fixed window is
-  // the hard delivery ceiling. Per-email caps how often one inbox can be targeted;
-  // per-IP caps how fast one client can sweep addresses. All are enforced
-  // silently — a hit never reveals limiter state to the caller.
-  forgotPasswordGlobal: { kind: "fixed window", rate: 100, period: HOUR },
-  forgotPasswordPerEmail: { kind: "fixed window", rate: 3, period: HOUR },
-  forgotPasswordPerIp: {
-    kind: "token bucket",
-    rate: 10,
-    period: HOUR,
-    capacity: 10,
-  },
   // E04 — owner-derived operational delivery probe. Provider readiness is
   // checked before this budget is consumed; callers never choose a recipient.
   emailOwnerTestPerOwner: { kind: "fixed window", rate: 5, period: HOUR },
-  // Phase 10 — admin invitations. Per-inviter cap blocks a single admin (or a
-  // compromised session) from blasting many invites; global cap bounds the
-  // whole deployment's outbound invite volume independent of who's issuing.
-  // Accept attempts use a global ceiling. A per-token hash key does not help
-  // blind scans because every guessed token hashes to a different key; the
-  // 256-bit token space remains the primary defense.
-  inviteCreatePerUser: { kind: "fixed window", rate: 5, period: HOUR },
-  inviteCreateGlobal: {
-    kind: "token bucket",
-    rate: 50,
-    period: HOUR,
-    capacity: 50,
-  },
-  inviteAcceptGlobal: { kind: "fixed window", rate: 100, period: HOUR },
-  // G0 — the authenticated owner-claim mutation. The identity bucket slows
-  // repeated guesses from one session; the deliberately wide deployment
-  // backstop bounds aggregate work without becoming the primary signup
-  // perimeter. Failed attempts return normally so these transactional limiter
-  // writes commit instead of rolling back with a thrown claim error.
-  ownerClaimPerIdentity: {
-    kind: "token bucket",
-    rate: 5,
-    period: 10 * MINUTE,
-    capacity: 5,
-  },
+  // G0 — the public owner-account function (ADR-0056 rule 1). One wide
+  // deployment-level window bounds code guessing; the grants themselves cannot
+  // be guessed. Failed attempts return normally so the limiter writes commit
+  // instead of rolling back with a thrown error.
   ownerClaimGlobal: { kind: "fixed window", rate: 300, period: HOUR },
-  // G0-B — public account-creation perimeter. The per-client bucket is keyed
-  // by a one-way hash of the trusted client identity for each transport
-  // origin. A deliberately wide deployment backstop also bounds aggregate
-  // claim guessing without making a small site easy to lock out globally.
-  authSignupPerClient: {
-    kind: "token bucket",
-    rate: 5,
-    period: 10 * MINUTE,
-    capacity: 5,
-  },
-  authSignupGlobal: { kind: "fixed window", rate: 300, period: HOUR },
   // Authenticated-but-costly endpoints. Both are already permission-gated, so
   // these are not anti-abuse gates against anonymous callers — they bound what
   // a single legitimate (or compromised) session can spend when each call has

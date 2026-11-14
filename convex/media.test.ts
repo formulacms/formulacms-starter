@@ -13,7 +13,7 @@ const modules = import.meta.glob("./**/*.ts")
 
 const TEST_USER = {
   subject: "test-user",
-  tokenIdentifier: "https://convex.test|test-user",
+  tokenIdentifier: "test-user",
   name: "Test User",
   email: "test@example.com",
 }
@@ -80,7 +80,7 @@ describe("media URL import", () => {
           url: `https://cdn.example.com/${filename}`,
         })
 
-        const media = await t.run((ctx) => ctx.db.get(mediaId))
+        const media = await t.run((ctx) => ctx.db.get("media", mediaId))
         expect(media).toMatchObject({
           mimeType,
           width,
@@ -164,7 +164,7 @@ describe("media URL import", () => {
       const mediaId = await asUser.action(api.cms.media.importFromUrl, {
         url: "https://cdn.example.com/start",
       })
-      await expect(t.run((ctx) => ctx.db.get(mediaId))).resolves.toMatchObject({
+      await expect(t.run((ctx) => ctx.db.get("media", mediaId))).resolves.toMatchObject({
         filename: "final.png",
         width: fixture.width,
         height: fixture.height,
@@ -231,7 +231,7 @@ describe("media dimension backfill", () => {
       nextCursor: null,
       isDone: true,
     })
-    await expect(t.run((ctx) => ctx.db.get(mediaId))).resolves.toMatchObject({
+    await expect(t.run((ctx) => ctx.db.get("media", mediaId))).resolves.toMatchObject({
       width: fixture.width,
       height: fixture.height,
     })
@@ -278,7 +278,7 @@ describe("media dimension backfill", () => {
       }),
     ])
     await expect(
-      t.run((ctx) => ctx.db.get(mediaId))
+      t.run((ctx) => ctx.db.get("media", mediaId))
     ).resolves.not.toMatchObject({
       width: expect.any(Number),
       height: expect.any(Number),
@@ -510,8 +510,8 @@ describe("media usage", () => {
       .rejects.toThrow("MEDIA_SOFT_DELETE_REFERENCED")
     await expect(owner.mutation(api.cms.media.remove, { id: media.mediaId }))
       .rejects.toThrow(/used by/i)
-    expect(await t.run((ctx) => ctx.db.get(media.mediaId))).toMatchObject({ storageId: media.storageId })
-    expect((await t.run((ctx) => ctx.db.get(media.mediaId)))?.deletedAt).toBeUndefined()
+    expect(await t.run((ctx) => ctx.db.get("media", media.mediaId))).toMatchObject({ storageId: media.storageId })
+    expect((await t.run((ctx) => ctx.db.get("media", media.mediaId)))?.deletedAt).toBeUndefined()
     expect(await t.run(async (ctx) => (await ctx.storage.get(media.storageId))?.text()))
       .toBe("test image")
   })
@@ -638,7 +638,7 @@ describe("media usage", () => {
     await expect(
       asUser.mutation(api.cms.media.remove, { id: media.mediaId })
     ).rejects.toThrow(/used by/i)
-    const stillThere = await t.run((ctx) => ctx.db.get(media.mediaId))
+    const stillThere = await t.run((ctx) => ctx.db.get("media", media.mediaId))
     expect(stillThere).toBeDefined()
   })
 
@@ -649,7 +649,7 @@ describe("media usage", () => {
 
     await asUser.mutation(api.cms.media.remove, { id: media.mediaId })
 
-    const deletedDoc = await t.run((ctx) => ctx.db.get(media.mediaId))
+    const deletedDoc = await t.run((ctx) => ctx.db.get("media", media.mediaId))
     const deletedBlob = await t.run((ctx) =>
       ctx.storage.get(media.storageId as Id<"_storage">)
     )

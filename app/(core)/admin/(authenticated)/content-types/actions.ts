@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { api } from "@/convex/_generated/api"
 import { assertLocalDevelopment } from "@/lib/assert-local-dev"
-import { fetchAuthMutation, requireAuth } from "@/lib/auth-server"
+import { fetchAuthMutation, requireAuth } from "@/lib/auth/server"
 import { setStarterContentTypeSelection } from "@/lib/content-types/starter-curation"
 import { requireInstallationOwner } from "@/lib/owner-server"
 

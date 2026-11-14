@@ -11,6 +11,7 @@
 //  - `sendTestEmail` accepts no recipient argument, derives the durable owner,
 //    and consumes an owner-derived rate-limit bucket before queueing.
 
+import { getActor, getOwnerNotificationEmail } from "./lib/access/actor"
 import { v, ConvexError, type Infer } from "convex/values"
 import {
   ActionRetrier,
@@ -56,8 +57,23 @@ import {
   type PersistedEmailProviderState,
 } from "./lib/email/providerState"
 import { readOwnerState } from "./lib/access/owner"
-import { hashAuthClientIdentity } from "./lib/authIpProof"
 import { rateLimiter } from "./lib/rateLimits"
+
+/**
+ * Rate-limit key for the email functions: a SHA-256 hex digest of the trimmed,
+ * lower-cased identity, so raw user IDs never appear as limiter keys. Same
+ * digest as the retired auth IP proof helper (ADR-0056), so existing keys
+ * keep their values.
+ */
+export async function hashAuthClientIdentity(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value.trim().toLowerCase())
+  )
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("")
+}
 
 export const emailRetrier = new ActionRetrier(components.actionRetrier, {
   initialBackoffMs: 1000,
@@ -395,13 +411,13 @@ export async function queueFormulaCmsEmail(
     { eventId },
     { onComplete: internal.email._recordDeliveryResult }
   )
-  await ctx.db.patch(eventId, { runId: runId as string })
+  await ctx.db.patch("emailDeliveryEvents", eventId, { runId: runId as string })
   if (input.consumer.kind === "contact") {
-    await ctx.db.patch(input.consumer.submissionId, {
+    await ctx.db.patch("formSubmissions", input.consumer.submissionId, {
       notifyRunId: runId as string,
     })
   } else if (input.consumer.kind === "invitation") {
-    await ctx.db.patch(input.consumer.inviteId, {
+    await ctx.db.patch("invites", input.consumer.inviteId, {
       deliveryRunId: runId as string,
       deliveryState: "queued",
       deliveryError: undefined,
@@ -432,7 +448,7 @@ export const prepareDeliveryAttempt = internalMutation({
   args: { eventId: v.id("emailDeliveryEvents") },
   returns: preparedEmailDeliveryValidator,
   handler: async (ctx, { eventId }) => {
-    const event = await ctx.db.get(eventId)
+    const event = await ctx.db.get("emailDeliveryEvents", eventId)
     if (!event) {
       return {
         kind: "terminal" as const,
@@ -446,7 +462,7 @@ export const prepareDeliveryAttempt = internalMutation({
       }
     }
     if (event.expiresAt <= Date.now()) {
-      await ctx.db.patch(eventId, {
+      await ctx.db.patch("emailDeliveryEvents", eventId, {
         state: "failed",
         failureReason: "expired",
         message: undefined,
@@ -468,7 +484,7 @@ export const prepareDeliveryAttempt = internalMutation({
     const activeDelivery =
       event.consumer.kind !== "owner_test" && state.provider.kind === "active"
     if ((!ownerTestMatches && !activeDelivery) || !state.sender) {
-      await ctx.db.patch(eventId, { attempts, updatedAt: Date.now() })
+      await ctx.db.patch("emailDeliveryEvents", eventId, { attempts, updatedAt: Date.now() })
       return {
         kind: "terminal" as const,
         result: {
@@ -482,7 +498,7 @@ export const prepareDeliveryAttempt = internalMutation({
       throw new ConvexError("CMS_EMAIL_PROVIDER_STATE_INVALID")
     }
 
-    await ctx.db.patch(eventId, {
+    await ctx.db.patch("emailDeliveryEvents", eventId, {
       attempts,
       providerId: state.provider.providerId,
       updatedAt: Date.now(),
@@ -510,7 +526,7 @@ export const getDeliveryState = internalQuery({
     })
   ),
   handler: async (ctx, { eventId }) => {
-    const event = await ctx.db.get(eventId)
+    const event = await ctx.db.get("emailDeliveryEvents", eventId)
     if (!event) return null
     return {
       state: event.state,
@@ -585,7 +601,7 @@ async function recordOwnerTestCompletion(
       internal.email._expireActivationReceipt,
       { activationReceiptId }
     )
-    await ctx.db.patch(stateRow._id, {
+    await ctx.db.patch("emailProviderState", stateRow._id, {
       lastTest: {
         providerId: event.consumer.providerId,
         configurationVersion: event.consumer.configurationVersion,
@@ -605,7 +621,7 @@ async function recordOwnerTestCompletion(
       : terminal.state === "unknown"
         ? "delivery_unknown"
         : terminal.reason
-  await ctx.db.patch(stateRow._id, {
+  await ctx.db.patch("emailProviderState", stateRow._id, {
     lastTest: {
       providerId: event.consumer.providerId,
       configurationVersion: event.consumer.configurationVersion,
@@ -628,7 +644,7 @@ export const _recordDeliveryResult = internalMutation({
     if (!event) return null
 
     const terminal = completionResult(event, result)
-    await ctx.db.patch(event._id, {
+    await ctx.db.patch("emailDeliveryEvents", event._id, {
       state: terminal.state,
       ...(terminal.providerId ? { providerId: terminal.providerId } : {}),
       failureReason:
@@ -638,9 +654,9 @@ export const _recordDeliveryResult = internalMutation({
     })
 
     if (event.consumer.kind === "contact") {
-      const submission = await ctx.db.get(event.consumer.submissionId)
+      const submission = await ctx.db.get("formSubmissions", event.consumer.submissionId)
       if (submission) {
-        await ctx.db.patch(submission._id, {
+        await ctx.db.patch("formSubmissions", submission._id, {
           notifyStatus:
             terminal.state === "provider_accepted" ? "sent" : "failed",
           notifyError:
@@ -655,9 +671,9 @@ export const _recordDeliveryResult = internalMutation({
         })
       }
     } else if (event.consumer.kind === "invitation") {
-      const invite = await ctx.db.get(event.consumer.inviteId)
+      const invite = await ctx.db.get("invites", event.consumer.inviteId)
       if (invite) {
-        await ctx.db.patch(invite._id, {
+        await ctx.db.patch("invites", invite._id, {
           deliveryState: terminal.state,
           deliveryError:
             terminal.state === "provider_accepted"
@@ -676,9 +692,9 @@ export const _expireDeliveryEvent = internalMutation({
   args: { eventId: v.id("emailDeliveryEvents") },
   returns: v.null(),
   handler: async (ctx, { eventId }) => {
-    const event = await ctx.db.get(eventId)
+    const event = await ctx.db.get("emailDeliveryEvents", eventId)
     if (event && event.expiresAt <= Date.now()) {
-      await ctx.db.delete(eventId)
+      await ctx.db.delete("emailDeliveryEvents", eventId)
     }
     return null
   },
@@ -690,7 +706,7 @@ export const _expireActivationReceipt = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, { activationReceiptId }) => {
-    const receipt = await ctx.db.get(activationReceiptId)
+    const receipt = await ctx.db.get("emailProviderActivationReceipts", activationReceiptId)
     if (!receipt || receipt.expiresAt > Date.now()) return null
 
     const stateRow = await readPersistedEmailProviderStateRow(ctx)
@@ -698,12 +714,12 @@ export const _expireActivationReceipt = internalMutation({
       stateRow?.lastTest?.state === "provider_accepted" &&
       stateRow.lastTest.activationReceiptId === activationReceiptId
     ) {
-      await ctx.db.patch(stateRow._id, {
+      await ctx.db.patch("emailProviderState", stateRow._id, {
         lastTest: undefined,
         updatedAt: Date.now(),
       })
     }
-    await ctx.db.delete(activationReceiptId)
+    await ctx.db.delete("emailProviderActivationReceipts", activationReceiptId)
     return null
   },
 })
@@ -780,7 +796,7 @@ export const saveEmailProviderConfiguration = mutation({
       updatedAt: Date.now(),
     }
     if (row) {
-      await ctx.db.patch(row._id, {
+      await ctx.db.patch("emailProviderState", row._id, {
         provider: nextState.provider,
         sender,
         configurationVersion,
@@ -859,7 +875,7 @@ export const enqueueOwnerTestDelivery = internalMutation({
     })
     const row = await readPersistedEmailProviderStateRow(ctx)
     if (!row) throw new ConvexError("CMS_EMAIL_PROVIDER_STATE_INVALID")
-    await ctx.db.patch(row._id, {
+    await ctx.db.patch("emailProviderState", row._id, {
       lastTest: {
         providerId: args.providerId,
         configurationVersion: args.configurationVersion,
@@ -916,7 +932,7 @@ export const activateEmailProvider = mutation({
     ) {
       throw new ConvexError("CMS_EMAIL_PROVIDER_TEST_REQUIRED")
     }
-    const receipt = await ctx.db.get(test.activationReceiptId)
+    const receipt = await ctx.db.get("emailProviderActivationReceipts", test.activationReceiptId)
     const now = Date.now()
     if (
       !receipt ||
@@ -928,8 +944,8 @@ export const activateEmailProvider = mutation({
       throw new ConvexError("CMS_EMAIL_PROVIDER_TEST_REQUIRED")
     }
 
-    await ctx.db.patch(receipt._id, { consumedAt: now })
-    await ctx.db.patch(row._id, {
+    await ctx.db.patch("emailProviderActivationReceipts", receipt._id, { consumedAt: now })
+    await ctx.db.patch("emailProviderState", row._id, {
       provider: {
         kind: "active",
         providerId,
@@ -1026,12 +1042,7 @@ export const getDurableOwnerRecipient = internalQuery({
     if (owner.status === "invalid") {
       throw new ConvexError("CMS_OWNER_STATE_INVALID")
     }
-    const user = await ctx.runQuery(components.betterAuth.adapter.findOne, {
-      model: "user",
-      where: [{ field: "_id", operator: "eq", value: owner.owner.authId }],
-    })
-    const email = typeof user?.email === "string" ? user.email.trim() : ""
-    return email || null
+    return await getOwnerNotificationEmail(ctx)
   },
 })
 
@@ -1078,12 +1089,15 @@ export const sendTestEmail = action({
     // Owner gate precedes the account lookup so an unrelated caller cannot
     // reach the recipient or rate-limit path.
     await ctx.runQuery(internal.email.assertSettingsUpdate, {})
-    const identity = await ctx.auth.getUserIdentity()
-    if (!identity) {
+    const actor = await getActor(ctx)
+    if (!actor) {
       throw new ConvexError("Unauthenticated: sign in to continue")
     }
 
-    const email = identity.email
+    const email = await ctx.runQuery(
+      internal.email.getDurableOwnerRecipient,
+      {}
+    )
     if (!email) {
       return {
         status: "blocked",
@@ -1107,7 +1121,7 @@ export const sendTestEmail = action({
       return { status: "blocked", reason: "needs_setup" }
     }
 
-    const ownerKey = await hashAuthClientIdentity(identity.tokenIdentifier)
+    const ownerKey = await hashAuthClientIdentity(actor.userId)
     const limit = await rateLimiter.limit(ctx, "emailOwnerTestPerOwner", {
       key: ownerKey,
     })
@@ -1119,7 +1133,7 @@ export const sendTestEmail = action({
     }
 
     const eventKey = await hashAuthClientIdentity(
-      `${identity.tokenIdentifier}:${Date.now()}:${crypto.randomUUID()}`
+      `${actor.userId}:${Date.now()}:${crypto.randomUUID()}`
     )
     await ctx.runMutation(internal.email.enqueueOwnerTestDelivery, {
       providerId: state.provider.providerId,

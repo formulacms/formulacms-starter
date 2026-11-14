@@ -9,7 +9,7 @@ const reads = vi.hoisted(() => ({
   anonymous: vi.fn(),
   context: vi.fn(),
 }))
-vi.mock("@/lib/auth-server", () => ({ fetchAuthQuery: reads.auth }))
+vi.mock("@/lib/auth/server", () => ({ fetchAuthQuery: reads.auth }))
 vi.mock("convex/nextjs", () => ({ fetchQuery: reads.anonymous }))
 vi.mock("@/lib/slices/render-context", () => ({
   buildSliceRenderContext: reads.context,

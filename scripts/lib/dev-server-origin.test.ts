@@ -6,12 +6,9 @@ import {
 } from "./dev-server-origin"
 
 describe("development server origin", () => {
-  test("uses the Better Auth origin as the fixed Next.js address", () => {
+  test("a local NEXT_PUBLIC_SITE_URL is the fixed Next.js address", () => {
     expect(
-      resolveDevServerOrigin({
-        BETTER_AUTH_URL: "http://localhost:3001",
-        NEXT_PUBLIC_SITE_URL: "http://localhost:3001",
-      })
+      resolveDevServerOrigin({ NEXT_PUBLIC_SITE_URL: "http://localhost:3001" })
     ).toEqual({
       hostname: "localhost",
       origin: "http://localhost:3001",
@@ -19,23 +16,23 @@ describe("development server origin", () => {
     })
   })
 
-  test("refuses an origin with a path that would break sign-in trust", () => {
+  test("refuses a local origin with a path", () => {
     expect(() =>
       resolveDevServerOrigin({
-        BETTER_AUTH_URL: "http://localhost:3000/admin",
+        NEXT_PUBLIC_SITE_URL: "http://localhost:3000/admin",
       })
     ).toThrow(/must not include a path/)
   })
 
-  test("refuses to run local development at a deployed origin", () => {
-    expect(() =>
-      resolveDevServerOrigin({
-        BETTER_AUTH_URL: "https://cms.example.com",
-      })
-    ).toThrow(/must be a local HTTP origin/)
+  test("a deployed or schemeless site address leaves the default", () => {
+    for (const value of ["https://cms.example.com", "example.com"]) {
+      expect(resolveDevServerOrigin({ NEXT_PUBLIC_SITE_URL: value }).origin).toBe(
+        "http://localhost:3000"
+      )
+    }
   })
 
-  test("defaults to localhost 3000 when neither optional origin is set", () => {
+  test("defaults to localhost 3000 when the site address is not set", () => {
     expect(resolveDevServerOrigin({})).toEqual({
       hostname: "localhost",
       origin: "http://localhost:3000",

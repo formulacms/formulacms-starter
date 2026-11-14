@@ -32,7 +32,7 @@ export async function resolveEffectiveHomePageId(
   configuredHomePageId: Id<"pages"> | undefined
 ): Promise<Id<"pages"> | null> {
   if (configuredHomePageId) {
-    const configured = await ctx.db.get(configuredHomePageId)
+    const configured = await ctx.db.get("pages", configuredHomePageId)
     if (
       configured &&
       configured.deletedAt === undefined &&

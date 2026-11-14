@@ -14,7 +14,7 @@ vi.mock("next/cache", () => ({
   revalidateTag: mocks.revalidateTag,
 }))
 vi.mock("convex/nextjs", () => ({ fetchQuery: mocks.fetchQuery }))
-vi.mock("@/lib/auth-server", () => ({ requireAuth: mocks.requireAuth }))
+vi.mock("@/lib/auth/server", () => ({ requireAuth: mocks.requireAuth }))
 vi.mock("@/lib/operation-server", () => ({
   requireOperationAccess: mocks.requireOperationAccess,
 }))

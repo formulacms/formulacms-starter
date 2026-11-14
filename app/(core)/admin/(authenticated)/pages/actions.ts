@@ -4,7 +4,7 @@ import { revalidatePath, revalidateTag } from "next/cache"
 import { fetchQuery } from "convex/nextjs"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { requireAuth } from "@/lib/auth-server"
+import { requireAuth } from "@/lib/auth/server"
 import { CMS_TAGS } from "@/lib/cms/tags"
 import { requireOperationAccess } from "@/lib/operation-server"
 

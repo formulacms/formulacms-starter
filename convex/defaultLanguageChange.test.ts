@@ -20,11 +20,11 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "u2-owner",
-  tokenIdentifier: "https://convex.test|u2-owner",
+  tokenIdentifier: "u2-owner",
 }
 const STRANGER = {
   subject: "u2-stranger",
-  tokenIdentifier: "https://convex.test|u2-stranger",
+  tokenIdentifier: "u2-stranger",
 }
 const FIXED_NOW = Date.UTC(2026, 10, 2, 12, 0, 0)
 const ORIGIN = "https://site.example.com"
@@ -195,7 +195,7 @@ async function mlSite(): Promise<Site> {
   }
   await t.run(async (ctx) => {
     for (const row of await ctx.db.query("cmsModuleState").collect()) {
-      await ctx.db.delete(row._id)
+      await ctx.db.delete("cmsModuleState", row._id)
     }
   })
   await owner.mutation(api.cms.modules.commit, {
@@ -264,7 +264,7 @@ async function localeState(t: T, pageId: Id<"pages">, locale: string) {
 function setCutover(t: T, phase: "preparing" | "snapshot_active") {
   return t.run(async (ctx) => {
     const row = (await ctx.db.query("pagePublicationCutover").unique())!
-    await ctx.db.patch(row._id, { phase })
+    await ctx.db.patch("pagePublicationCutover", row._id, { phase })
   })
 }
 
@@ -316,7 +316,7 @@ async function storeF09Continuity(
       })
     }
     const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-    await ctx.db.patch(authority._id, {
+    await ctx.db.patch("siteLanguageAuthority", authority._id, {
       lastCommittedTransitionId: transitionId,
     })
     return transitionId
@@ -381,7 +381,7 @@ async function storePointedGeneration(
         createdAt: FIXED_NOW,
       })
     }
-    await ctx.db.patch(authority._id, {
+    await ctx.db.patch("siteLanguageAuthority", authority._id, {
       continuityPointer: { migrationId, generation: 1 },
     })
     return migrationId
@@ -430,7 +430,7 @@ async function seedMigration(
       createdAt: FIXED_NOW,
       updatedAt: FIXED_NOW,
     })
-    await ctx.db.patch(authority._id, { activeDefaultMigrationId: id })
+    await ctx.db.patch("siteLanguageAuthority", authority._id, { activeDefaultMigrationId: id })
     return id
   })
 }
@@ -480,7 +480,7 @@ describe("U2 setDefaultLanguage: the silent change", () => {
     ).length
     // M05 A5: a legacy single description exists, so it moves to D.
     await t.run((ctx) =>
-      ctx.db.patch(settingsBefore._id, {
+      ctx.db.patch("siteSettings", settingsBefore._id, {
         siteDescription: "Une description",
         siteDescriptions: { fr: "Deja francais" },
       } as never)
@@ -608,18 +608,18 @@ describe("U2 setDefaultLanguage: the silent change", () => {
 
     // 3. invalid state, then not adopted
     const authority = await authorityRow(t)
-    await t.run((ctx) => ctx.db.patch(authority._id, { mode: "single" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageAuthority", authority._id, { mode: "single" }))
     expect(await refusalWritesNothing(t, go())).toEqual(
       refused("SITE_LANGUAGE_AUTHORITY_INVALID")
     )
-    await t.run((ctx) => ctx.db.patch(authority._id, { mode: "multilingual" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageAuthority", authority._id, { mode: "multilingual" }))
     const single = await mlSite()
     await single.t.run(async (ctx) => {
       for (const row of await ctx.db.query("cmsModuleState").collect()) {
-        await ctx.db.delete(row._id)
+        await ctx.db.delete("cmsModuleState", row._id)
       }
       for (const row of await ctx.db.query("siteLanguageAuthority").collect()) {
-        await ctx.db.delete(row._id)
+        await ctx.db.delete("siteLanguageAuthority", row._id)
       }
     })
     expect(
@@ -656,8 +656,8 @@ describe("U2 setDefaultLanguage: the silent change", () => {
       refused("LANGUAGE_OPERATION_OPEN")
     )
     await t.run(async (ctx) => {
-      await ctx.db.patch(authority._id, { activeDefaultMigrationId: undefined })
-      await ctx.db.delete(migrationId)
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { activeDefaultMigrationId: undefined })
+      await ctx.db.delete("siteDefaultLanguageMigrations", migrationId)
     })
 
     // 6. the locale checks
@@ -697,7 +697,7 @@ describe("U2 setDefaultLanguage: the silent change", () => {
         await publish(site, other, "en")
         const settings = await settingsRow(site.t)
         await site.t.run((ctx) =>
-          ctx.db.patch(settings._id, { homePageId: other })
+          ctx.db.patch("siteSettings", settings._id, { homePageId: other })
         )
       },
       "draft only": async (site) => {
@@ -705,7 +705,7 @@ describe("U2 setDefaultLanguage: the silent change", () => {
         await publish(site, other, "en")
         const settings = await settingsRow(site.t)
         await site.t.run((ctx) =>
-          ctx.db.patch(settings._id, { homePageId: other })
+          ctx.db.patch("siteSettings", settings._id, { homePageId: other })
         )
       },
       "delayed release": async (site) => {
@@ -717,13 +717,13 @@ describe("U2 setDefaultLanguage: the silent change", () => {
         )
         const state = await localeState(site.t, site.homeId, "fr")
         await site.t.run((ctx) =>
-          ctx.db.patch(state._id, { currentReleaseId: releaseId })
+          ctx.db.patch("pageLocalePublicationStates", state._id, { currentReleaseId: releaseId })
         )
       },
       "no home configured": async (site) => {
         const settings = await settingsRow(site.t)
         await site.t.run((ctx) =>
-          ctx.db.patch(settings._id, { homePageId: undefined })
+          ctx.db.patch("siteSettings", settings._id, { homePageId: undefined })
         )
       },
     }
@@ -854,7 +854,7 @@ describe("U2 setDefaultLanguage: the silent change", () => {
       ctx.db.query("siteLanguageTransitions").first()
     ))!
     await withdraw(site, aboutId, "fr").catch(() => undefined)
-    await t.run((ctx) => ctx.db.patch(transition._id, { targetLocale: "nl" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageTransitions", transition._id, { targetLocale: "nl" }))
     expect(await resolveAs(t, "fr", "/uber-uns")).toEqual({
       authority: "snapshot_active",
       disposition: "historical_unavailable",
@@ -912,7 +912,7 @@ describe("U2 setDefaultLanguage: the silent change", () => {
       disposition: "current",
     })
     expect(
-      (await t.run((ctx) => ctx.db.get(row)))!.retiredAt
+      (await t.run((ctx) => ctx.db.get("siteDefaultLanguageRoutes", row)))!.retiredAt
     ).toEqual(expect.any(Number))
     await withdraw(site, retireId, "fr")
     expect(await resolveAs(t, "fr", "/retire-me")).toEqual({
@@ -1015,8 +1015,8 @@ describe("U2 setDefaultLanguage: the silent change", () => {
     await t.run(async (ctx) => {
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
       const migrationId = authority.activeDefaultMigrationId!
-      await ctx.db.patch(authority._id, { activeDefaultMigrationId: undefined })
-      await ctx.db.delete(migrationId)
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { activeDefaultMigrationId: undefined })
+      await ctx.db.delete("siteDefaultLanguageMigrations", migrationId)
     })
     await drain(t)
 
@@ -1040,10 +1040,10 @@ describe("U2 setDefaultLanguage: lifecycle drain", () => {
       for (const row of await ctx.db
         .query("siteLanguageLifecycleIntents")
         .collect()) {
-        await ctx.db.delete(row._id)
+        await ctx.db.delete("siteLanguageLifecycleIntents", row._id)
       }
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, { siteUrl: ORIGIN })
+      await ctx.db.patch("siteSettings", settings._id, { siteUrl: ORIGIN })
     })
   }
   function okFetch() {

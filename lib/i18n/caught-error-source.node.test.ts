@@ -26,7 +26,6 @@ describe("caught error display consumer boundary", () => {
       "components/admin/trash-list.tsx",
       "components/admin/content-types/content-type-lifecycle-panel.tsx",
       "components/setup/setup-wizard.tsx",
-      "app/(core)/(auth)/sign-in/page.tsx",
     ]) {
       const source = read(path)
       expect(source, path).toContain("useCaughtError")
@@ -34,6 +33,13 @@ describe("caught error display consumer boundary", () => {
         /(?:err|error|cause|e) instanceof Error\s*\?\s*(?:err|error|cause|e)\.message\s*:\s*t/
       )
     }
+  })
+  it("sign-in maps Convex Auth result codes and never shows raw error text", () => {
+    // Convex Auth returns sign-in failures as result codes (ADR-0056); the page
+    // translates each one itself and never displays a caught error.
+    const source = read("app/(core)/(auth)/sign-in/page.tsx")
+    expect(source).toContain("t(\"errors.invalidCredentials\")")
+    expect(source).not.toMatch(/\b(?:err|error|cause|userError|e)\.message\b/)
   })
   it("media import preserves guard codes and image reasons", () => {
     const source = read("convex/cms/media.ts")

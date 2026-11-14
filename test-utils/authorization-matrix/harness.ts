@@ -2,17 +2,17 @@ import { ConvexError } from "convex/values"
 import { convexTest } from "convex-test"
 import { expect } from "vitest"
 import actionRetrierTest from "@convex-dev/action-retrier/test"
-import betterAuthTest from "@convex-dev/better-auth/test"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 import schema from "../../convex/schema"
+import { enableAuthSessions, prepareAuthSessions } from "../convexAuthFixtures"
 
 export type ModuleMap = Record<string, () => Promise<unknown>>
 export function makeSite(modules: ModuleMap) {
   const t = convexTest(schema, modules)
   actionRetrierTest.register(t)
-  betterAuthTest.register(t)
   rateLimiterTest.register(t)
-  return t
+  // Owner, unrelated and former-owner actors run as real Convex Auth sessions.
+  return enableAuthSessions(t)
 }
 export type Site = ReturnType<typeof makeSite>
 export type CallTarget = Pick<Site, "query" | "mutation" | "action">
@@ -21,15 +21,15 @@ export type FunctionKind = "query" | "mutation" | "action"
 
 export const FORMER = {
   subject: "matrix-former-owner",
-  tokenIdentifier: "https://convex.test|matrix-former-owner",
+  tokenIdentifier: "matrix-former-owner",
 }
 export const OWNER = {
   subject: "matrix-current-owner",
-  tokenIdentifier: "https://convex.test|matrix-current-owner",
+  tokenIdentifier: "matrix-current-owner",
 }
 export const UNRELATED = {
   subject: "matrix-unrelated",
-  tokenIdentifier: "https://convex.test|matrix-unrelated",
+  tokenIdentifier: "matrix-unrelated",
 }
 
 export type MatrixState = {
@@ -108,6 +108,8 @@ export async function setupSnapshotActiveS4(
 
 export type Outcome =
   | { error: string }
+  /** A ConvexError whose data is `{ code }`, as thrown by Convex Auth callbacks. */
+  | { errorCode: string }
   | { value: unknown }
   | { check: (value: unknown) => void }
 type IdentityOutcomes = {
@@ -180,7 +182,7 @@ async function assertOutcome(
   expected: Outcome,
   readOnly: boolean,
 ): Promise<void> {
-  const unchanged = "error" in expected || readOnly
+  const unchanged = "error" in expected || "errorCode" in expected || readOnly
   const before = unchanged ? await snapshotAllWritableTables(t) : null
   if ("error" in expected) {
     let thrown: unknown
@@ -191,6 +193,17 @@ async function assertOutcome(
     }
     expect(thrown).toBeInstanceOf(ConvexError)
     expect((thrown as ConvexError<string>).data).toBe(expected.error)
+  } else if ("errorCode" in expected) {
+    let thrown: unknown
+    try {
+      await run()
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(ConvexError)
+    expect((thrown as ConvexError<{ code: string }>).data).toMatchObject({
+      code: expected.errorCode,
+    })
   } else if ("value" in expected) {
     await expect(run()).resolves.toEqual(expected.value)
   } else {
@@ -245,6 +258,12 @@ export function defineRow<Fixture>(config: {
     run: async (modules) => {
       for (const scenario of config.scenarios) {
         const t = makeSite(modules)
+        await prepareAuthSessions(
+          t,
+          OWNER.subject,
+          UNRELATED.subject,
+          FORMER.subject
+        )
         await seedReplacedOwner(t)
         const actors: Actors = {
           owner: t.withIdentity(OWNER),
@@ -259,7 +278,7 @@ export function defineRow<Fixture>(config: {
             : scenario.outcomes
           for (const identity of ["signedOut", "unrelated", "former", "owner"] as const) {
             const outcome = outcomes[identity]
-            if (!outcome || !("error" in outcome || "value" in outcome || "check" in outcome)) {
+            if (!outcome || !("error" in outcome || "errorCode" in outcome || "value" in outcome || "check" in outcome)) {
               throw new Error(`Authorization outcome missing: ${config.name}/${scenario.label}/${identity}`)
             }
           }

@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { convexTest } from "convex-test"
+import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import { makeFunctionReference, type FunctionReference } from "convex/server"
 import { beforeEach, afterEach, describe, expect, test, vi } from "vitest"
 import { api, internal } from "./_generated/api"
@@ -24,7 +24,7 @@ afterEach(() => {
 const modules = import.meta.glob("./**/*.ts")
 const identity = {
   subject: "mg2-owner",
-  tokenIdentifier: "https://issuer.test|mg2-owner",
+  tokenIdentifier: "mg2-owner",
 }
 const changes = [
   { moduleId: "multilingual", enabled: false },

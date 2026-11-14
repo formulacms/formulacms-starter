@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   calls: [] as string[],
   rethrow: vi.fn(),
 }))
-vi.mock("@/lib/auth-server", () => ({
+vi.mock("@/lib/auth/server", () => ({
   safeIsAuthenticated: async () => true,
   fetchAuthQuery: async (query: unknown) => {
     const name = getFunctionName(query as never)

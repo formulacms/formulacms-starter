@@ -2,11 +2,13 @@ import type { Metadata } from "next"
 import type { ReactNode } from "react"
 import { fontClassName } from "@/lib/fonts"
 import { getLocaleDirection } from "@/lib/i18n/config"
+import { ConvexAuthNextjsServerProvider } from "@/lib/auth/convexAuth"
 import "../../../../../../globals.css"
 
 export const metadata: Metadata = { robots: { index: false, follow: false } }
 
-/** An independent document gives the preview its own real CSS viewport. */
+/** An independent document gives the preview its own real CSS viewport and
+ * its own signed-in Convex client. */
 export default async function LiveFrameLayout({
   children,
   params,
@@ -21,7 +23,9 @@ export default async function LiveFrameLayout({
       dir={getLocaleDirection(locale)}
       className={`${fontClassName} motion-safe:scroll-smooth`}
     >
-      <body>{children}</body>
+      <body>
+        <ConvexAuthNextjsServerProvider>{children}</ConvexAuthNextjsServerProvider>
+      </body>
     </html>
   )
 }

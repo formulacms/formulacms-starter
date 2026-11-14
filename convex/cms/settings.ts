@@ -2,6 +2,7 @@ import {
   checkPageAddress,
   refusePageAddress,
 } from "../lib/publishing/snapshots"
+import { getActor } from "../lib/access/actor"
 import { initializeEmptySliceOccurrenceCounts } from "../lib/publishing/staging"
 import {
   occurrenceUsageWrites,
@@ -127,8 +128,8 @@ export const getSettings = query({
   handler: async (ctx) => {
     // Return null silently when auth hasn't propagated yet (Convex auth is async
     // on the client; the Next.js route is already guarded by AuthGuard).
-    const identity = await ctx.auth.getUserIdentity()
-    if (!identity) return null
+    const actor = await getActor(ctx)
+    if (!actor) return null
     await requirePermission(ctx, "settings:view")
     return getSingleSettings(ctx)
   },
@@ -202,7 +203,7 @@ export const markOnboardingStep = mutation({
     if (existing) {
       // Idempotent — keep the original timestamp if already set.
       if (existing[field] != null) return null
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("siteSettings", existing._id, {
         [field]: now,
         updatedAt: now,
       })
@@ -272,7 +273,7 @@ export const bootstrapInstallation = mutation({
       ) {
         const [home, pageStates, sharedDrafts, localeStates, localeDrafts] =
           await Promise.all([
-            ctx.db.get(existing.homePageId),
+            ctx.db.get("pages", existing.homePageId),
             ctx.db
               .query("pagePublicationPageStates")
               .withIndex("by_pageId", (q) =>
@@ -357,7 +358,7 @@ export const bootstrapInstallation = mutation({
       createdBy: auth.tokenIdentifier,
       content: {},
     })
-    const home = await ctx.db.get(homePageId)
+    const home = await ctx.db.get("pages", homePageId)
     if (!home) throw new ConvexError("INSTALLATION_BOOTSTRAP_STATE_INVALID")
     await initializeSuccessorPage(ctx, home, auth, {
       [defaultLocale]: { title: siteName, slices: [] },
@@ -392,7 +393,7 @@ export const bootstrapInstallation = mutation({
       onboardingCompletedAt: now,
       updatedAt: now,
     }
-    if (existing) await ctx.db.patch(existing._id, fields)
+    if (existing) await ctx.db.patch("siteSettings", existing._id, fields)
     else await ctx.db.insert("siteSettings", fields)
     // F09: the site language is chosen here, before any public content exists.
     await insertInitialSiteLanguageAuthority(ctx, defaultLocale)
@@ -478,7 +479,7 @@ export const completeOnboarding = mutation({
     }
 
     const settingsId = existing
-      ? (await ctx.db.patch(existing._id, settingsFields), existing._id)
+      ? (await ctx.db.patch("siteSettings", existing._id, settingsFields), existing._id)
       : await ctx.db.insert("siteSettings", settingsFields)
 
     // Designate an existing configured home when present. Otherwise create a
@@ -503,7 +504,7 @@ export const completeOnboarding = mutation({
       })
     }
 
-    await ctx.db.patch(settingsId, { homePageId })
+    await ctx.db.patch("siteSettings", settingsId, { homePageId })
 
     return { onboardingCompletedAt: now }
   },
@@ -585,7 +586,7 @@ export const updateSettings = mutation({
           )
         : {}
 
-    await ctx.db.patch(existing._id, {
+    await ctx.db.patch("siteSettings", existing._id, {
       ...(args.siteName !== undefined && { siteName: args.siteName }),
       ...(args.siteUrl !== undefined && {
         siteUrl: args.siteUrl.replace(/\/$/, ""),
@@ -661,7 +662,7 @@ export const setBrandingImage = mutation({
     }
     let storageId: Id<"_storage"> | undefined
     if (mediaId) {
-      const media = await ctx.db.get(mediaId)
+      const media = await ctx.db.get("media", mediaId)
       if (!media || media.deletedAt !== undefined) {
         throw new ConvexError("Media not found.")
       }
@@ -679,7 +680,7 @@ export const setBrandingImage = mutation({
         : slot === "favicon"
           ? "faviconMediaId"
           : "defaultOgImageMediaId"
-    await ctx.db.patch(existing._id, {
+    await ctx.db.patch("siteSettings", existing._id, {
       [mediaField]: mediaId,
       [field]: storageId,
       updatedAt: Date.now(),
@@ -777,7 +778,7 @@ async function getMediaUrl(
   mediaId: Id<"media"> | undefined
 ): Promise<string | null> {
   if (!mediaId) return null
-  const media = await ctx.db.get(mediaId)
+  const media = await ctx.db.get("media", mediaId)
   if (!media || media.deletedAt !== undefined) return null
   return media.url
 }

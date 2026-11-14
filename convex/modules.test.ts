@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { convexTest } from "convex-test"
+import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import type { FunctionReference } from "convex/server"
 import { describe, expect, test, vi } from "vitest"
 import { MODULE_CATALOG } from "../lib/modules/catalog"
@@ -45,17 +45,17 @@ function makeTest() {
 
 const owner = {
   subject: "modules-owner",
-  tokenIdentifier: "https://issuer.test|modules-owner",
+  tokenIdentifier: "modules-owner",
   email: "owner@example.test",
 }
 const unrelated = {
   subject: "modules-unrelated",
-  tokenIdentifier: "https://issuer.test|modules-unrelated",
+  tokenIdentifier: "modules-unrelated",
   email: "unrelated@example.test",
 }
 const successor = {
   subject: "modules-successor",
-  tokenIdentifier: "https://issuer.test|modules-successor",
+  tokenIdentifier: "modules-successor",
   email: "successor@example.test",
 }
 
@@ -63,15 +63,12 @@ async function withResendApiKey<T>(
   apiKey: string | undefined,
   run: () => Promise<T>
 ): Promise<T> {
-  const previous = process.env.RESEND_API_KEY
-  if (apiKey === undefined) delete process.env.RESEND_API_KEY
-  else process.env.RESEND_API_KEY = apiKey
+  vi.stubEnv("RESEND_API_KEY", apiKey)
 
   try {
     return await run()
   } finally {
-    if (previous === undefined) delete process.env.RESEND_API_KEY
-    else process.env.RESEND_API_KEY = previous
+    vi.unstubAllEnvs()
   }
 }
 
@@ -173,7 +170,7 @@ describe("F07a persisted module state and effective resolver", () => {
       })
 
       await t.run((ctx) =>
-        ctx.db.patch(emailSettingsId, {
+        ctx.db.patch("emailSettings", emailSettingsId, {
           provider: "smtp",
           smtpHost: "smtp.example.test",
         })

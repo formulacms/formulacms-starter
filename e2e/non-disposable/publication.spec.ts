@@ -8,14 +8,13 @@ import {
   ownerPage,
   required,
   sitemap,
-  signIn,
 } from "../support"
 
 /**
  * V04 and public publication probes. Preconditions: a built local app with a
  * completed English owner setup; FR6_E2E_V04_EDITOR is an unpublished,
  * test-owned Page with a routable locale and FR6_E2E_V04_PATH is its public
- * URL. FR6_E2E_B_* names an unrelated account. Postcondition: the fixture is
+ * URL. Postcondition: the fixture is
  * withdrawn and absent from the sitemap. The operator owns the fixture's later
  * cleanup.
  * Server: Playwright starts built Next by default and the caller owns Convex;
@@ -51,12 +50,6 @@ test("V04 keeps drafts private, binds preview to the owner, and withdraws cleanl
       await signedOutPage.goto(previewUrl)
       await expect(signedOutPage.getByText(marker)).toHaveCount(0)
       await signedOut.close()
-      const other = await browser.newContext({ baseURL: localOrigin() })
-      const otherPage = await other.newPage()
-      await signIn(otherPage, required("FR6_E2E_B_EMAIL"), required("FR6_E2E_B_PASSWORD"))
-      await otherPage.goto(previewUrl)
-      await expect(otherPage.getByText(marker)).toHaveCount(0)
-      await other.close()
       await preview.close()
     })
 

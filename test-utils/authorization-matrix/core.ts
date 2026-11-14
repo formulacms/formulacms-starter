@@ -1,11 +1,8 @@
-import { makeFunctionReference } from "convex/server"
 import { expect, vi } from "vitest"
 import { api } from "../../convex/_generated/api"
 import type { Id } from "../../convex/_generated/dataModel"
-import { hashOwnerClaim } from "../../convex/lib/ownerClaim"
 import {
   defineRow,
-  FORMER,
   MATRIX_STATES,
   OWNER,
   setupModuleLanguageState,
@@ -293,78 +290,232 @@ const protectedReadDenials = {
   former: { error: "CMS_OWNER_REQUIRED" },
 } as const
 
-function ownerClaimRow(operation: "claimOwner" | "replaceOwner"): AuthorizationRow {
-  const ownerClaimMutation = {
-    claimOwner: api.cms.owner.claimOwner,
-    replaceOwner: api.cms.owner.replaceOwner,
-  }[operation]
-  type ClaimFixture = { ownerActor: CallTarget; valid: boolean }
-  return defineRow<ClaimFixture>({
-    name: `cms/owner:${operation}`,
+/**
+ * `createOwnerAccount` is a public function that authenticates the OWNER CODE,
+ * never the caller's session, so every actor (including signed-out) gets the
+ * same typed refusal for a wrong code.
+ */
+function createOwnerAccountRow(): AuthorizationRow {
+  const refused = { value: { status: "unavailable" } }
+  return defineRow<null>({
+    name: "cms/owner:createOwnerAccount",
     kind: "mutation",
-    scenarios: [
-      ...MATRIX_STATES.map((state) => ({
-        label: stateLabel(state),
-        setup: async (t: Site, actors: { owner: CallTarget }) => {
-          await setupModuleLanguageState(t, state)
-          return { ownerActor: actors.owner, valid: false }
-        },
-        call: (actor: CallTarget) => actor.mutation(ownerClaimMutation, { claim: "invalid-matrix-claim" }),
-        outcomes: {
-          owner: { value: { status: "unavailable" } },
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { value: { status: "unavailable" } },
-          former: { value: { status: "unavailable" } },
-        },
-      })),
-      {
-        label: "owner-valid-claim",
-        setup: async (t, actors) => {
-          await setupModuleLanguageState(t, { redirects: "off", language: "F09" })
-          if (operation === "claimOwner") {
-            await t.run(async (ctx) => {
-              const owner = await ctx.db.query("cmsOwner").unique()
-              await ctx.db.delete(owner!._id)
-            })
-          } else {
-            const previousHash = await hashOwnerClaim("matrix-previous-claim")
-            await t.run(async (ctx) => {
-              const owner = await ctx.db.query("cmsOwner").unique()
-              await ctx.db.patch(owner!._id, {
-                authId: FORMER.subject,
-                tokenIdentifier: FORMER.tokenIdentifier,
-              })
-              await ctx.db.insert("ownerClaimLedger", {
-                key: "owner",
-                secretHash: previousHash,
-                claimedBy: FORMER.subject,
-                claimedAt: 1,
-                recovery: false,
-              })
-            })
-          }
-          vi.stubEnv("FORMULACMS_OWNER_CLAIM", "matrix-valid-claim")
-          return { ownerActor: actors.owner, valid: true }
-        },
-        call: (actor, fixture) => actor.mutation(ownerClaimMutation, {
-          claim: actor === fixture.ownerActor ? "matrix-valid-claim" : "invalid-matrix-claim",
-        }),
-        outcomes: {
-          owner: { value: { status: "claimed" } },
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { value: { status: "unavailable" } },
-          former: { value: { status: "unavailable" } },
-        },
-        after: async (t) => {
-          const owner = await t.run((ctx) => ctx.db.query("cmsOwner").unique())
-          expect(owner).toMatchObject({ authId: OWNER.subject, tokenIdentifier: OWNER.tokenIdentifier })
-          const ledger = await t.run((ctx) => ctx.db.query("ownerClaimLedger").unique())
-          expect(ledger).toMatchObject({ claimedBy: OWNER.subject })
-        },
-        teardown: async () => { vi.unstubAllEnvs() },
+    scenarios: MATRIX_STATES.map((state) => ({
+      label: stateLabel(state),
+      setup: async (t: Site) => {
+        await setupModuleLanguageState(t, state)
+        vi.stubEnv("FORMULACMS_OWNER_CLAIM", "matrix-valid-claim")
+        return null
       },
-    ],
+      call: (actor: CallTarget) =>
+        actor.mutation(api.cms.owner.createOwnerAccount, {
+          code: "invalid-matrix-claim",
+          name: "Matrix",
+          username: "matrix-owner",
+          password: "matrix-password-123",
+        }),
+      outcomes: {
+        owner: refused,
+        signedOut: refused,
+        unrelated: refused,
+        former: refused,
+      },
+      teardown: async () => { vi.unstubAllEnvs() },
+    })),
   })
+}
+
+/**
+ * The Convex Auth functions the library exports (ADR-0056). They are public so
+ * the Next.js proxy can call them, and none of them depends on the caller's
+ * session for authorization: sign-up is closed to every actor, and the
+ * sign-in/out functions act on credentials or refresh tokens they are given.
+ */
+function authSurfaceRows(): AuthorizationRow[] {
+  const perState = (
+    call: (actor: CallTarget) => Promise<unknown>,
+    outcomes: Parameters<typeof defineRow>[0]["scenarios"][number]["outcomes"],
+    readOnly: boolean
+  ) =>
+    MATRIX_STATES.map((state) => ({
+      label: stateLabel(state),
+      setup: (t: Site) => setupModuleLanguageState(t, state),
+      call,
+      outcomes,
+      readOnly,
+    }))
+  const same = <T,>(outcome: T) => ({
+    owner: outcome,
+    signedOut: outcome,
+    unrelated: outcome,
+    former: outcome,
+  })
+  return [
+    defineRow({
+      name: "auth:isAuthenticated",
+      kind: "query",
+      scenarios: perState(
+        (actor) => actor.query(api.auth.isAuthenticated, {}),
+        {
+          owner: { value: true },
+          signedOut: { value: false },
+          unrelated: { value: true },
+          former: { value: true },
+        },
+        true
+      ),
+    }),
+    defineRow({
+      name: "auth:signUpWithUsernamePassword",
+      kind: "mutation",
+      scenarios: perState(
+        (actor) =>
+          actor.mutation(api.auth.signUpWithUsernamePassword, {
+            username: "matrix-intruder",
+            password: "matrix-password-123",
+          }),
+        same({ errorCode: "SIGNUP_CLOSED" }),
+        true
+      ),
+    }),
+    defineRow({
+      name: "auth:signInWithUsernamePassword",
+      kind: "mutation",
+      scenarios: perState(
+        (actor) =>
+          actor.mutation(api.auth.signInWithUsernamePassword, {
+            username: "matrix-nobody",
+            password: "matrix-password-123",
+          }),
+        same({
+          value: { status: "error", userError: { error: "USER_NOT_FOUND" } },
+        }),
+        true
+      ),
+    }),
+    defineRow({
+      name: "auth:signOut",
+      kind: "mutation",
+      scenarios: perState(
+        (actor) =>
+          actor.mutation(api.auth.signOut, { refreshToken: "matrix-unknown" }),
+        same({ check: (value: unknown) => expect(value).toBeNull() }),
+        true
+      ),
+    }),
+    defineRow({
+      name: "auth:refreshSession",
+      kind: "mutation",
+      scenarios: perState(
+        (actor) =>
+          actor.mutation(api.auth.refreshSession, {
+            refreshToken: "matrix-unknown",
+          }),
+        same({
+          check: (value: unknown) =>
+            expect(value).toMatchObject({ kind: "noSession" }),
+        }),
+        true
+      ),
+    }),
+    defineRow({
+      name: "auth:changePassword",
+      kind: "mutation",
+      scenarios: perState(
+        (actor) =>
+          actor.mutation(api.auth.changePassword, {
+            currentPassword: "matrix-password-123",
+            newPassword: "short",
+          }),
+        {
+          owner: { check: (value: unknown) => expect(value).toMatchObject({ success: false }) },
+          signedOut: { value: { success: false, userError: { error: "NOT_LOGGED_IN" } } },
+          unrelated: { check: (value: unknown) => expect(value).toMatchObject({ success: false }) },
+          former: { check: (value: unknown) => expect(value).toMatchObject({ success: false }) },
+        },
+        true
+      ),
+    }),
+    defineRow({
+      name: "account:changeMyPassword",
+      kind: "mutation",
+      scenarios: perState(
+        (actor) =>
+          actor.mutation(api.account.changeMyPassword, {
+            currentPassword: "matrix-password-123",
+            newPassword: "short",
+          }),
+        {
+          owner: { value: { status: "invalid_input", error: "PASSWORD_TOO_SHORT" } },
+          signedOut: { error: "UNAUTHENTICATED" },
+          unrelated: { value: { status: "invalid_input", error: "PASSWORD_TOO_SHORT" } },
+          former: { value: { status: "invalid_input", error: "PASSWORD_TOO_SHORT" } },
+        },
+        true
+      ),
+    }),
+    defineRow({
+      name: "cms/recovery:claimRecoveryLink",
+      kind: "mutation",
+      scenarios: perState(
+        (actor) =>
+          actor.mutation(api.cms.recovery.claimRecoveryLink, {
+            token: "matrix-unknown-token",
+            username: "matrix-new-owner",
+            password: "matrix-password-123",
+          }),
+        same({ value: { status: "RECOVERY_INVALID" } }),
+        true
+      ),
+    }),
+    defineRow({
+      name: "cms/recovery:recoveryLinkState",
+      kind: "query",
+      scenarios: perState(
+        (actor) =>
+          actor.query(api.cms.recovery.recoveryLinkState, {
+            token: "matrix-unknown-token",
+          }),
+        same({ value: { status: "closed" } }),
+        true
+      ),
+    }),
+    defineRow({
+      name: "users:getCurrentUserLabel",
+      kind: "query",
+      scenarios: perState(
+        (actor) => actor.query(api.users.getCurrentUserLabel, {}),
+        {
+          owner: { value: { name: null } },
+          signedOut: { value: null },
+          unrelated: { value: { name: null } },
+          former: { value: { name: null } },
+        },
+        true
+      ),
+    }),
+    defineRow({
+      name: "cms/owner:getNotificationEmail",
+      kind: "query",
+      scenarios: perState(
+        (actor) => actor.query(api.cms.owner.getNotificationEmail, {}),
+        { ...protectedReadDenials, owner: { value: null } },
+        true
+      ),
+    }),
+    defineRow({
+      name: "cms/owner:setNotificationEmail",
+      kind: "mutation",
+      scenarios: perState(
+        (actor) =>
+          actor.mutation(api.cms.owner.setNotificationEmail, {
+            email: "owner@example.test",
+          }),
+        { ...protectedReadDenials, owner: { value: { status: "saved" } } },
+        false
+      ),
+    }),
+  ]
 }
 
 export const coreRows: AuthorizationRow[] = [
@@ -494,32 +645,7 @@ export const coreRows: AuthorizationRow[] = [
       })),
     ],
   }),
-  defineRow({
-    name: "migrations:startCmsMembershipBackfill",
-    kind: "mutation",
-    scenarios: MATRIX_STATES.map((state) => ({
-      label: stateLabel(state),
-      setup: async (t: Site) => {
-        await setupModuleLanguageState(t, state)
-        await seedOwnerAdminMembership(t)
-        return null
-      },
-      // `convex/migrations.ts` is source-only, so this row names its function by
-      // string, like the private `cms/invites` and `cms/roles` rows; the matrix
-      // skips it where the module is absent.
-      call: (actor: CallTarget) => actor.mutation(makeFunctionReference<"mutation">("migrations:startCmsMembershipBackfill"), {}),
-      outcomes: {
-        signedOut: { error: "Unauthenticated: sign in to continue" },
-        unrelated: { error: "CMS_MEMBERSHIP_REQUIRED" },
-        former: { error: "CMS_MEMBERSHIP_REQUIRED" },
-        owner: { value: null },
-      },
-      after: async (t: Site) => {
-        const capacity = await t.run((ctx) => ctx.db.query("cmsCapacity").unique())
-        expect(capacity?.migrationState).toBe("ready")
-      },
-    })),
-  }),
+  ...authSurfaceRows(),
   defineRow({
     name: "cms/settings:bootstrapInstallation",
     kind: "mutation",
@@ -719,8 +845,7 @@ export const coreRows: AuthorizationRow[] = [
       })),
     ],
   }),
-  ownerClaimRow("claimOwner"),
-  ownerClaimRow("replaceOwner"),
+  createOwnerAccountRow(),
   defineRow({
     name: "cms/language:initializeSiteLanguageAuthority",
     kind: "mutation",
@@ -1261,7 +1386,7 @@ export const coreRows: AuthorizationRow[] = [
       },
       call: (actor: CallTarget) => actor.query(api.cms.owner.getOwnerSession, {}),
       outcomes: ({ ownerId }) => ({
-        owner: { value: { ownerId, authId: OWNER.subject, email: null, role: "admin" } },
+        owner: { value: { ownerId, authId: OWNER.subject, email: null, displayName: null, username: null, role: "admin" } },
         signedOut: { value: null },
         unrelated: { value: null },
         former: { value: null },

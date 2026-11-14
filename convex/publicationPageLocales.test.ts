@@ -10,7 +10,7 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "b2b1-owner",
-  tokenIdentifier: "https://convex.test|b2b1-owner",
+  tokenIdentifier: "b2b1-owner",
 }
 
 type Owner = ReturnType<ReturnType<typeof convexTest>["withIdentity"]>
@@ -147,7 +147,7 @@ describe("per-language page states", () => {
     )
     // Force the "no working draft row" shape: only the draft base remains.
     await t.run(async (ctx) => {
-      for (const d of drafts) await ctx.db.delete(d._id)
+      for (const d of drafts) await ctx.db.delete("pageLocaleDrafts", d._id)
     })
     const r = await row(owner, pageId)
     expect(byLocale(r.locales, "en")).toMatchObject({
@@ -187,7 +187,7 @@ describe("per-language page states", () => {
         .query("pageSharedDrafts")
         .withIndex("by_pageId", (q) => q.eq("pageId", childId))
         .unique()
-      await ctx.db.patch(shared!._id, { system: { parentId } })
+      await ctx.db.patch("pageSharedDrafts", shared!._id, { system: { parentId } })
     })
     await publish(owner, parentId, "en")
     const locales = (await row(owner, childId)).locales
@@ -209,7 +209,7 @@ describe("per-language page states", () => {
         .query("pageSharedDrafts")
         .withIndex("by_pageId", (q) => q.eq("pageId", childId))
         .unique()
-      await ctx.db.patch(shared!._id, { system: { parentId } })
+      await ctx.db.patch("pageSharedDrafts", shared!._id, { system: { parentId } })
     })
     await publish(owner, parentId, "en")
     expect(byLocale((await row(owner, childId)).locales, "en")?.path).toBe(
@@ -306,7 +306,7 @@ describe("home page lifecycle guard", () => {
           .query("pagePublicationPageStates")
           .withIndex("by_pageId", (q) => q.eq("pageId", homeId))
           .unique()
-        await ctx.db.patch(s!._id, {
+        await ctx.db.patch("pagePublicationPageStates", s!._id, {
           lifecycleState,
           restoreLifecycleState,
         })

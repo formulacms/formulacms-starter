@@ -1,5 +1,7 @@
 import { defineApp } from "convex/server"
-import betterAuth from "@convex-dev/better-auth/convex.config"
+import auth from "@convex-dev/auth/convex.config.js"
+import authPassword from "@convex-dev/auth/components/password/convex.config.js"
+import authUsername from "@convex-dev/auth/components/username/convex.config.js"
 import migrations from "@convex-dev/migrations/convex.config"
 import rateLimiter from "@convex-dev/rate-limiter/convex.config"
 import actionRetrier from "@convex-dev/action-retrier/convex.config"
@@ -20,7 +22,9 @@ const app = defineApp({
     NEXTCMS_OWNER_CLAIM: v.optional(v.string()),
   },
 })
-app.use(betterAuth)
+app.use(auth)
+app.use(authPassword)
+app.use(authUsername)
 app.use(migrations)
 app.use(rateLimiter)
 app.use(actionRetrier)

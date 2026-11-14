@@ -17,6 +17,7 @@ import { isHomeAliasPath } from "@/lib/pages/home-aliases"
 import { SUPPORTED_LOCALES } from "@/lib/i18n/config"
 import { SLICE_SIMULATOR_ROUTE } from "@/config/slice-simulator"
 import createMiddleware from "next-intl/middleware"
+import { convexAuthNextjsProxy } from "@/lib/auth/convexAuth"
 
 // Onboarding state has exactly one source of truth: the Convex deployment,
 // read through `getSiteConfigState`, which never serves a cached not-onboarded
@@ -60,8 +61,7 @@ const I18N_EXCLUDED = [
   "/admin",
   "/setup",
   "/sign-in",
-  "/forgot-password",
-  "/reset-password",
+  "/recover",
   ...(SLICE_SIMULATOR_ROUTE === null ? [] : [SLICE_SIMULATOR_ROUTE]),
 ]
 
@@ -150,8 +150,14 @@ function isExcluded(pathname: string): boolean {
   )
 }
 
+/** API routes get only the auth refresh: no setup gate and no locale routing. */
+function isApiPath(pathname: string): boolean {
+  return pathname === "/api" || pathname.startsWith("/api/")
+}
+
 async function handleProxy(request: NextRequest, mayRefreshVersion: boolean) {
   const { pathname } = request.nextUrl
+  if (isApiPath(pathname)) return NextResponse.next()
   const hasLegacyCookie = request.cookies.has(LEGACY_ONBOARDED_COOKIE)
   const siteConfigState = await getSiteConfigState()
   if (siteConfigState.status === "unavailable") {
@@ -160,9 +166,6 @@ async function handleProxy(request: NextRequest, mayRefreshVersion: boolean) {
 
   const config = siteConfigState.value
   const onboarded = config.onboardingCompletedAt != null
-  const ownerRecovery =
-    pathname === "/setup" &&
-    request.nextUrl.searchParams.get("recover-owner") === "1"
 
   // The slice simulator renders sample content through the public pipeline and
   // reads no site configuration, so first-run setup has nothing to say about
@@ -176,8 +179,12 @@ async function handleProxy(request: NextRequest, mayRefreshVersion: boolean) {
     (pathname === SLICE_SIMULATOR_ROUTE ||
       pathname.startsWith(`${SLICE_SIMULATOR_ROUTE}/`))
 
+  // The one-time owner recovery link (ADR-0056 rule 4) is never sent to
+  // /setup: the redirect would drop its token.
+  const isRecover = pathname === "/recover" || pathname.startsWith("/recover/")
+
   // First-run gate: until onboarding completes, funnel everything to /setup.
-  if (!onboarded && !isSimulator) {
+  if (!onboarded && !isSimulator && !isRecover) {
     if (pathname === "/setup" || pathname.startsWith("/setup/")) {
       return clearLegacyCookie(NextResponse.next(), hasLegacyCookie)
     }
@@ -188,10 +195,7 @@ async function handleProxy(request: NextRequest, mayRefreshVersion: boolean) {
   }
 
   // Onboarded: the wizard is one-way.
-  if (
-    (pathname === "/setup" || pathname.startsWith("/setup/")) &&
-    !ownerRecovery
-  ) {
+  if (pathname === "/setup" || pathname.startsWith("/setup/")) {
     const url = request.nextUrl.clone()
     url.pathname = "/admin"
     return NextResponse.redirect(url)
@@ -392,11 +396,19 @@ async function handleProxy(request: NextRequest, mayRefreshVersion: boolean) {
   return first
 }
 
-export async function proxy(request: NextRequest) {
-  return handleProxy(request, true)
-}
+// Convex Auth wraps the whole proxy (Convex Auth Next.js example, proxy.ts):
+// it refreshes a near-expiry session up front, so Server Components, route
+// handlers and server actions see a current token, and writes the rotated
+// cookies onto whatever response `handleProxy` returns. A request without auth
+// cookies makes no backend call. Signed-out admin requests are redirected by
+// AuthenticatedAdminShell, not here.
+export const proxy = convexAuthNextjsProxy((request) =>
+  handleProxy(request, true)
+)
 
 export const config = {
-  // Run on everything except API routes, Next internals, and static files.
-  matcher: ["/((?!api(?:/|$)|_next|.*\\..*).*)"],
+  // Run on everything except the /auth handlers (they own their own cookies),
+  // Next internals, and static files. API routes are included so their
+  // tokens are refreshed too; `handleProxy` passes them straight through.
+  matcher: ["/((?!auth(?:/|$)|_next|.*\\..*).*)"],
 }

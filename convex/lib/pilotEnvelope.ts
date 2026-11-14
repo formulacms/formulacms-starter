@@ -114,7 +114,7 @@ export async function initializeBoundedPilotEnvelope(
     publishedPageCount: measured.publishedPageCount,
     updatedAt: Date.now(),
   }
-  if (existing) await ctx.db.patch(existing._id, patch)
+  if (existing) await ctx.db.patch("pilotEnvelope", existing._id, patch)
   else await ctx.db.insert("pilotEnvelope", patch)
   return measured
 }
@@ -140,7 +140,7 @@ export async function assertBoundedPilotCanCreate(
   ) {
     throw new ConvexError(envelopeMessage("published"))
   }
-  await ctx.db.patch(envelope.id, {
+  await ctx.db.patch("pilotEnvelope", envelope.id, {
     totalPageCount: envelope.totalPageCount + 1,
     publishedPageCount:
       envelope.publishedPageCount + (willPublish ? 1 : 0),
@@ -168,7 +168,7 @@ export async function assertBoundedPilotCanPublish(
     throw new ConvexError(envelopeMessage("published"))
   }
   if (!currentlyPublished) {
-    await ctx.db.patch(envelope.id, {
+    await ctx.db.patch("pilotEnvelope", envelope.id, {
       publishedPageCount: envelope.publishedPageCount + 1,
       updatedAt: Date.now(),
     })
@@ -206,7 +206,7 @@ export async function releaseBoundedPilotPublishedSlot(
   // create its counter. The next guarded creation/promotion will measure it
   // and fail closed; an operator can reconcile after bringing it below cap.
   if (!envelope || envelope.publishedPageCount === 0) return
-  await ctx.db.patch(envelope._id, {
+  await ctx.db.patch("pilotEnvelope", envelope._id, {
     publishedPageCount: envelope.publishedPageCount - 1,
     updatedAt: Date.now(),
   })
@@ -219,7 +219,7 @@ export async function releaseBoundedPilotPageSlot(
 ): Promise<void> {
   const envelope = await ctx.db.query("pilotEnvelope").first()
   if (!envelope) return
-  await ctx.db.patch(envelope._id, {
+  await ctx.db.patch("pilotEnvelope", envelope._id, {
     totalPageCount: Math.max(0, envelope.totalPageCount - 1),
     publishedPageCount: wasPublished
       ? Math.max(0, envelope.publishedPageCount - 1)

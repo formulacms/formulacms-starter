@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values"
+import { getActor } from "../lib/access/actor"
 import { paginationOptsValidator } from "convex/server"
 import {
   action,
@@ -194,7 +195,7 @@ export const getById = query({
   returns: v.union(mediaDocValidator, v.null()),
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
-    const media = await ctx.db.get(id)
+    const media = await ctx.db.get("media", id)
     if (!media) return null
     return media
   },
@@ -312,7 +313,7 @@ export const usage = query({
   returns: mediaUsageValidator,
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
-    const media = await ctx.db.get(id)
+    const media = await ctx.db.get("media", id)
     if (!media) throw new ConvexError("Media not found")
     return getMediaUsage(ctx, media)
   },
@@ -416,7 +417,7 @@ export const applyImageDimensionBackfill = internalMutation({
     }
     const outcomes = await Promise.all(
       uniqueUpdates.map(async (update) => {
-        const media = await ctx.db.get(update.mediaId)
+        const media = await ctx.db.get("media", update.mediaId)
         if (
           !media ||
           media.storageId !== update.storageId ||
@@ -424,7 +425,7 @@ export const applyImageDimensionBackfill = internalMutation({
         ) {
           return "skipped" as const
         }
-        await ctx.db.patch(update.mediaId, {
+        await ctx.db.patch("media", update.mediaId, {
           width: update.width,
           height: update.height,
         })
@@ -622,7 +623,7 @@ export const update = mutation({
   returns: v.null(),
   handler: async (ctx, { id, ...updates }) => {
     await requireOperationAccess(ctx)
-    const media = await ctx.db.get(id)
+    const media = await ctx.db.get("media", id)
     if (!media) throw new ConvexError("Media not found")
     const patch: Partial<Doc<"media">> = { folder: updates.folder }
     if (updates.tags !== undefined) {
@@ -637,7 +638,7 @@ export const update = mutation({
     if (updates.cropSize !== undefined) {
       patch.cropSize = updates.cropSize ?? undefined
     }
-    await ctx.db.patch(id, patch)
+    await ctx.db.patch("media", id, patch)
     return null
   },
 })
@@ -659,10 +660,10 @@ export const importFromUrl = action({
     // Charge after the permission gate. Each call is an outbound fetch plus up
     // to 10 MB into file storage, so an authed `media:upload` holder could
     // otherwise loop this into the storage quota.
-    const identity = await ctx.auth.getUserIdentity()
-    if (!identity) throw new ConvexError("Unauthenticated")
+    const actor = await getActor(ctx)
+    if (!actor) throw new ConvexError("Unauthenticated")
     await rateLimiter.limit(ctx, "mediaImportPerUser", {
-      key: identity.tokenIdentifier,
+      key: actor.userId,
       throws: true,
     })
 
@@ -740,10 +741,10 @@ export const softDelete = mutation({
   returns: v.null(),
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
-    const media = await ctx.db.get(id)
+    const media = await ctx.db.get("media", id)
     if (!media) throw new ConvexError("Media not found")
     await assertMediaSoftDeleteAllowed(ctx, media)
-    await ctx.db.patch(id, { deletedAt: Date.now() })
+    await ctx.db.patch("media", id, { deletedAt: Date.now() })
     return null
   },
 })
@@ -753,9 +754,9 @@ export const restore = mutation({
   returns: v.null(),
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
-    const media = await ctx.db.get(id)
+    const media = await ctx.db.get("media", id)
     if (!media) throw new ConvexError("Media not found")
-    await ctx.db.patch(id, { deletedAt: undefined })
+    await ctx.db.patch("media", id, { deletedAt: undefined })
     return null
   },
 })
@@ -765,11 +766,11 @@ export const remove = mutation({
   returns: v.null(),
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
-    const media = await ctx.db.get(id)
+    const media = await ctx.db.get("media", id)
     if (media) {
       await assertMediaUnreferenced(ctx, media)
       await ctx.storage.delete(media.storageId)
-      await ctx.db.delete(id)
+      await ctx.db.delete("media", id)
     }
     return null
   },
@@ -817,15 +818,15 @@ export const deleteFolder = mutation({
       .withIndex("by_name", (q) => q.eq("name", name))
       .first()
 
-    if (folderDoc) await ctx.db.delete(folderDoc._id)
+    if (folderDoc) await ctx.db.delete("folders", folderDoc._id)
 
     const mediaInFolder = await ctx.db
       .query("media")
-      .withIndex("by_folder", (q) => q.eq("folder", name))
+      .withIndex("by_folder_and_uploadedAt", (q) => q.eq("folder", name))
       .collect()
 
     await Promise.all(
-      mediaInFolder.map((m) => ctx.db.patch(m._id, { folder: moveToFolder }))
+      mediaInFolder.map((m) => ctx.db.patch("media", m._id, { folder: moveToFolder }))
     )
 
     return { success: true, count: mediaInFolder.length }

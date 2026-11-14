@@ -17,7 +17,7 @@ vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidate }))
 vi.mock("@/lib/assert-local-dev", () => ({
   assertLocalDevelopment: mocks.assertLocalDevelopment,
 }))
-vi.mock("@/lib/auth-server", () => ({
+vi.mock("@/lib/auth/server", () => ({
   requireAuth: mocks.requireAuth,
   fetchAuthMutation: mocks.mutation,
   fetchAuthQuery: mocks.query,

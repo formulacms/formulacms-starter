@@ -1,8 +1,7 @@
 {
   "shippedFiles": [
-    "app/(core)/(auth)/forgot-password/page.tsx",
     "app/(core)/(auth)/layout.tsx",
-    "app/(core)/(auth)/reset-password/page.tsx",
+    "app/(core)/(auth)/recover/page.tsx",
     "app/(core)/(auth)/sign-in/page.tsx",
     "app/(core)/(auth)/sign-in/safe-next-path.ts",
     "app/(core)/admin/(authenticated)/archive/page.tsx",
@@ -179,6 +178,7 @@
     "components/admin/revalidation-diagnostics.tsx",
     "components/admin/rich-text-editor.tsx",
     "components/admin/settings/account-language-picker.tsx",
+    "components/admin/settings/change-password.tsx",
     "components/admin/sidebar.tsx",
     "components/admin/slice-builder.tsx",
     "components/admin/slice-editor-text.ts",
@@ -196,6 +196,7 @@
     "components/admin/tag-field.tsx",
     "components/admin/trash-list.tsx",
     "components/admin/visual-editing-types.ts",
+    "components/auth/password-field.tsx",
     "components/content-types/author.tsx",
     "components/content-types/byline.ts",
     "components/content-types/index.ts",

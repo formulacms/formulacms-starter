@@ -13,7 +13,7 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "destructive-refusal-owner",
-  tokenIdentifier: "https://convex.test|destructive-refusal-owner",
+  tokenIdentifier: "destructive-refusal-owner",
 }
 
 function app() {
@@ -140,7 +140,7 @@ describe("snapshot Page destructive refusals", () => {
         ],
         updatedAt: 1,
       })
-      const menu = await ctx.db.get(id)
+      const menu = await ctx.db.get("menus", id)
       if (!menu) throw new Error("Menu fixture missing")
       await refreshMenuReferences(ctx, menu)
       return id
@@ -159,7 +159,7 @@ describe("snapshot Page destructive refusals", () => {
         .query("pagePublicationPageStates")
         .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
         .unique(),
-      menu: await ctx.db.get(menuId),
+      menu: await ctx.db.get("menus", menuId),
       references: await ctx.db
         .query("menuReferences")
         .withIndex("by_target", (q) => q.eq("targetId", pageId))
@@ -190,7 +190,7 @@ describe("snapshot Page destructive refusals", () => {
         .query("pagePublicationPageStates")
         .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
         .unique(),
-      menu: await ctx.db.get(menuId),
+      menu: await ctx.db.get("menus", menuId),
       references: await ctx.db
         .query("menuReferences")
         .withIndex("by_target", (q) => q.eq("targetId", pageId))
@@ -243,7 +243,7 @@ describe("snapshot Page destructive refusals", () => {
         .unique(),
       references: await ctx.db
         .query("pagePublicationDocumentReferences")
-        .withIndex("by_targetId", (q) => q.eq("targetId", authorId))
+        .withIndex("by_targetId_and_sourceKind_and_locale", (q) => q.eq("targetId", authorId))
         .collect(),
       intents: await ctx.db
         .query("pagePublicationRevalidationIntents")
@@ -279,7 +279,7 @@ describe("snapshot Page destructive refusals", () => {
         .unique(),
       references: await ctx.db
         .query("pagePublicationDocumentReferences")
-        .withIndex("by_targetId", (q) => q.eq("targetId", authorId))
+        .withIndex("by_targetId_and_sourceKind_and_locale", (q) => q.eq("targetId", authorId))
         .collect(),
       intents: await ctx.db
         .query("pagePublicationRevalidationIntents")
@@ -333,10 +333,10 @@ describe("media soft-delete destructive refusals", () => {
       },
     })
     const before = await t.run(async (ctx) => ({
-      media: await ctx.db.get(media.mediaId),
+      media: await ctx.db.get("media", media.mediaId),
       references: await ctx.db
         .query("pagePublicationMediaReferences")
-        .withIndex("by_mediaId", (q) => q.eq("mediaId", media.mediaId))
+        .withIndex("by_mediaId_and_sourceKind", (q) => q.eq("mediaId", media.mediaId))
         .collect(),
     }))
 
@@ -360,10 +360,10 @@ describe("media soft-delete destructive refusals", () => {
     })
 
     const after = await t.run(async (ctx) => ({
-      media: await ctx.db.get(media.mediaId),
+      media: await ctx.db.get("media", media.mediaId),
       references: await ctx.db
         .query("pagePublicationMediaReferences")
-        .withIndex("by_mediaId", (q) => q.eq("mediaId", media.mediaId))
+        .withIndex("by_mediaId_and_sourceKind", (q) => q.eq("mediaId", media.mediaId))
         .collect(),
     }))
     expect(after).toEqual(before)
@@ -398,10 +398,10 @@ describe("media soft-delete destructive refusals", () => {
       expectedLifecycleGeneration: 1,
     })
     const before = await t.run(async (ctx) => ({
-      media: await ctx.db.get(media.mediaId),
+      media: await ctx.db.get("media", media.mediaId),
       references: await ctx.db
         .query("pagePublicationMediaReferences")
-        .withIndex("by_mediaId", (q) => q.eq("mediaId", media.mediaId))
+        .withIndex("by_mediaId_and_sourceKind", (q) => q.eq("mediaId", media.mediaId))
         .collect(),
     }))
 
@@ -424,10 +424,10 @@ describe("media soft-delete destructive refusals", () => {
       truncated: false,
     })
     const after = await t.run(async (ctx) => ({
-      media: await ctx.db.get(media.mediaId),
+      media: await ctx.db.get("media", media.mediaId),
       references: await ctx.db
         .query("pagePublicationMediaReferences")
-        .withIndex("by_mediaId", (q) => q.eq("mediaId", media.mediaId))
+        .withIndex("by_mediaId_and_sourceKind", (q) => q.eq("mediaId", media.mediaId))
         .collect(),
     }))
     expect(after).toEqual(before)
@@ -443,7 +443,7 @@ describe("media soft-delete destructive refusals", () => {
       await t.run((ctx) =>
         ctx.db
           .query("pagePublicationMediaReferences")
-          .withIndex("by_mediaId", (q) => q.eq("mediaId", media.mediaId))
+          .withIndex("by_mediaId_and_sourceKind", (q) => q.eq("mediaId", media.mediaId))
           .collect()
       )
     ).toEqual([
@@ -453,7 +453,7 @@ describe("media soft-delete destructive refusals", () => {
       }),
     ])
     await owner.mutation(api.cms.media.softDelete, { id: media.mediaId })
-    await expect(t.run((ctx) => ctx.db.get(media.mediaId))).resolves.toMatchObject({
+    await expect(t.run((ctx) => ctx.db.get("media", media.mediaId))).resolves.toMatchObject({
       deletedAt: expect.any(Number),
     })
   })

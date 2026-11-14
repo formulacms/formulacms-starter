@@ -233,7 +233,7 @@ export const purgeExpiredAttempts = internalMutation({
       .query("revalidationAttempts")
       .withIndex("by_timestamp", (q) => q.lt("timestamp", cutoff))
       .take(REVALIDATION_ATTEMPT_PURGE_BATCH_SIZE)
-    await Promise.all(expired.map((attempt) => ctx.db.delete(attempt._id)))
+    await Promise.all(expired.map((attempt) => ctx.db.delete("revalidationAttempts", attempt._id)))
     if (expired.length === REVALIDATION_ATTEMPT_PURGE_BATCH_SIZE) {
       await ctx.scheduler.runAfter(
         0,
@@ -677,14 +677,14 @@ export const claimPublicationRevalidationIntents = internalMutation({
         .take(2)
       if (sameOperation.length !== 1) {
         // A duplicate operation identity is corrupt state; never pick a row.
-        await ctx.db.patch(intent._id, {
+        await ctx.db.patch("pagePublicationRevalidationIntents", intent._id, {
           status: "failed",
           lastErrorCode: "REVALIDATION_INTENT_DUPLICATE",
           updatedAt: now,
         })
         continue
       }
-      await ctx.db.patch(intent._id, {
+      await ctx.db.patch("pagePublicationRevalidationIntents", intent._id, {
         status: "running",
         attempts: intent.attempts + 1,
         updatedAt: now,
@@ -713,7 +713,7 @@ export const planPublicationRevalidationStep = internalQuery({
     ctx,
     { intentId, attempts }
   ): Promise<RevalidationStep | null> => {
-    const intent = await ctx.db.get(intentId)
+    const intent = await ctx.db.get("pagePublicationRevalidationIntents", intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -810,7 +810,7 @@ export const advancePublicationRevalidationIntent = internalMutation({
   },
   returns: v.boolean(),
   handler: async (ctx, args): Promise<boolean> => {
-    const intent = await ctx.db.get(args.intentId)
+    const intent = await ctx.db.get("pagePublicationRevalidationIntents", args.intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -823,7 +823,7 @@ export const advancePublicationRevalidationIntent = internalMutation({
     // No configured target means there is no cache to purge; like the legacy
     // `unconfigured` attempt this is terminal, not retryable.
     const complete = args.unconfigured || args.nextPhase === "complete"
-    await ctx.db.patch(intent._id, {
+    await ctx.db.patch("pagePublicationRevalidationIntents", intent._id, {
       phase: complete ? "complete" : args.nextPhase,
       cursor: complete ? undefined : (args.nextCursor ?? undefined),
       status: complete ? "complete" : "running",
@@ -843,7 +843,7 @@ export const failPublicationRevalidationIntent = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const intent = await ctx.db.get(args.intentId)
+    const intent = await ctx.db.get("pagePublicationRevalidationIntents", args.intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -851,7 +851,7 @@ export const failPublicationRevalidationIntent = internalMutation({
     ) {
       return null
     }
-    await ctx.db.patch(intent._id, {
+    await ctx.db.patch("pagePublicationRevalidationIntents", intent._id, {
       status: "failed",
       lastErrorCode:
         args.errorCode === "http_error"
@@ -867,7 +867,7 @@ export const releasePublicationRevalidationIntent = internalMutation({
   args: revalidationClaimArgs,
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const intent = await ctx.db.get(args.intentId)
+    const intent = await ctx.db.get("pagePublicationRevalidationIntents", args.intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -875,7 +875,7 @@ export const releasePublicationRevalidationIntent = internalMutation({
     ) {
       return null
     }
-    await ctx.db.patch(intent._id, { status: "pending", updatedAt: Date.now() })
+    await ctx.db.patch("pagePublicationRevalidationIntents", intent._id, { status: "pending", updatedAt: Date.now() })
     return null
   },
 })

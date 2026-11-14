@@ -15,7 +15,7 @@ const modules = import.meta.glob("./**/*.ts")
 
 const OWNER = {
   subject: "m01a-owner",
-  tokenIdentifier: "https://convex.test|m01a-owner",
+  tokenIdentifier: "m01a-owner",
   name: "M01a Owner",
   email: "m01a-owner@example.com",
 }
@@ -55,7 +55,7 @@ describe("cms.redirects provenance", () => {
     ]
 
     const rows = await t.run((ctx) =>
-      Promise.all(ids.map((id) => ctx.db.get(id)))
+      Promise.all(ids.map((id) => ctx.db.get("redirects", id)))
     )
     for (const row of rows) {
       expect(row?.origin).toBe("manual")
@@ -108,7 +108,7 @@ describe("cms.redirects provenance", () => {
       ]
     })
     const before = await t.run((ctx) =>
-      Promise.all(legacyIds.map((id) => ctx.db.get(id)))
+      Promise.all(legacyIds.map((id) => ctx.db.get("redirects", id)))
     )
 
     await owner.mutation(api.cms.redirects.create, {
@@ -118,7 +118,7 @@ describe("cms.redirects provenance", () => {
     })
 
     const after = await t.run((ctx) =>
-      Promise.all(legacyIds.map((id) => ctx.db.get(id)))
+      Promise.all(legacyIds.map((id) => ctx.db.get("redirects", id)))
     )
     expect(after).toEqual(before)
     for (const row of after) {
@@ -188,11 +188,11 @@ describe("cms.redirects provenance", () => {
         statusCode: 302,
       })
     ).rejects.toThrow("A redirect from /retired already exists")
-    await expect(t.run((ctx) => ctx.db.get(legacyId))).resolves.toMatchObject({
+    await expect(t.run((ctx) => ctx.db.get("redirects", legacyId))).resolves.toMatchObject({
       toPath: "/current",
     })
 
     await owner.mutation(api.cms.redirects.remove, { id: legacyId })
-    await expect(t.run((ctx) => ctx.db.get(legacyId))).resolves.toBeNull()
+    await expect(t.run((ctx) => ctx.db.get("redirects", legacyId))).resolves.toBeNull()
   })
 })

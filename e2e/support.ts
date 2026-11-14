@@ -63,11 +63,12 @@ export function localPath(name: string): string {
   return path
 }
 
-export async function signIn(page: Page, email: string, password: string) {
+/** Signs in by username through the sign-in form (it posts to /auth/signin). */
+export async function signIn(page: Page, username: string, password: string) {
   await page.goto("/sign-in")
   const messages = adminMessages(await adminLocale(page))
   await expect(page.getByRole("heading", { name: messages.auth.signIn.form.title })).toBeVisible()
-  await page.getByLabel(messages.auth.signIn.form.emailLabel).fill(email)
+  await page.getByLabel(messages.auth.signIn.form.usernameLabel).fill(username)
   await page.getByLabel(messages.auth.signIn.form.passwordLabel).fill(password)
   await page.getByRole("button", { name: messages.auth.signIn.form.submit }).click()
   await expect(page).toHaveURL(/\/admin(?:\/|$)/)
@@ -76,7 +77,7 @@ export async function signIn(page: Page, email: string, password: string) {
 export async function ownerPage(browser: Browser): Promise<Page> {
   const context = await browser.newContext({ baseURL: localOrigin() })
   const page = await context.newPage()
-  await signIn(page, required("FR6_E2E_OWNER_EMAIL"), required("FR6_E2E_OWNER_PASSWORD"))
+  await signIn(page, required("FR6_E2E_OWNER_USERNAME"), required("FR6_E2E_OWNER_PASSWORD"))
   return page
 }
 
@@ -184,16 +185,46 @@ function localConvexClient() {
   return new ConvexHttpClient(url.origin)
 }
 
+// Convex Auth access tokens live 60 seconds (convex/auth.ts), shorter than
+// most specs. The client asks the sign-in refresh route for a new one when
+// the current one is half spent.
+const TOKEN_REFRESH_AFTER_MS = 30_000
+
+/**
+ * A Convex client signed in as the page's session. It refreshes through
+ * `/auth/refresh` with the page's own cookie jar, so the browser and the
+ * client keep one rotating refresh token. When the session has ended (signed
+ * out or revoked), later calls run signed out.
+ */
 export async function clientFor(page: Page): Promise<ConvexHttpClient> {
-  const response = await page.context().request.get(`${localOrigin()}/api/auth/convex/token`)
-  expect(response.ok()).toBe(true)
-  const data: unknown = await response.json()
-  if (!data || typeof data !== "object" || !("token" in data) || typeof data.token !== "string") {
-    throw new Error("The authenticated session did not receive a Convex token")
+  const request = page.context().request
+  let token: string | null = null
+  let mintedAt = 0
+  const refresh = async () => {
+    const response = await request.post(`${localOrigin()}/auth/refresh`, {
+      headers: { Origin: localOrigin(), "content-type": "application/json" },
+      data: {},
+      failOnStatusCode: false,
+    })
+    const body = (await response.json().catch(() => null)) as {
+      tokens?: { accessToken?: unknown } | null
+    } | null
+    const accessToken = body?.tokens?.accessToken
+    token = response.ok() && typeof accessToken === "string" ? accessToken : null
+    mintedAt = Date.now()
   }
-  const client = localConvexClient()
-  client.setAuth(data.token)
-  return client
+  await refresh()
+  if (token === null) throw new Error("The authenticated session did not receive a Convex token")
+  const url = localConvexClient().url
+  return new ConvexHttpClient(url, {
+    fetch: async (input, init) => {
+      if (token !== null && Date.now() - mintedAt > TOKEN_REFRESH_AFTER_MS) await refresh()
+      const headers = new Headers(init?.headers)
+      if (token === null) headers.delete("Authorization")
+      else headers.set("Authorization", `Bearer ${token}`)
+      return fetch(input, { ...init, headers })
+    },
+  })
 }
 
 export function anonymousClient(): ConvexHttpClient {

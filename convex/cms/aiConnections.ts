@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values"
+import { getActor } from "../lib/access/actor"
 import { action, env, internalQuery } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { validateApiConnection } from "../../lib/ai/connection-validation"
@@ -63,10 +64,10 @@ export const validateProductionConnection = action({
     // Charge AFTER the operation gate, so an unauthorized caller can't burn
     // someone else's budget. Every call hits a paid vendor endpoint; this was
     // the one paid path with no ceiling on it.
-    const identity = await ctx.auth.getUserIdentity()
-    if (!identity) throw new ConvexError("Unauthenticated")
+    const actor = await getActor(ctx)
+    if (!actor) throw new ConvexError("Unauthenticated")
     await rateLimiter.limit(ctx, "aiConnectionValidatePerUser", {
-      key: identity.tokenIdentifier,
+      key: actor.userId,
       throws: true,
     })
 

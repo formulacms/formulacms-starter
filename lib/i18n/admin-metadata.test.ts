@@ -133,7 +133,7 @@ test("development caption localization keeps synthetic host/deployment identitie
     describeDevelopmentInstance(
       {
         NODE_ENV: "development",
-        BETTER_AUTH_URL: "http://example.test:3333",
+        NEXT_PUBLIC_SITE_URL: "http://example.test:3333",
         CONVEX_DEPLOYMENT: "dev:owner-instance",
       },
       labels

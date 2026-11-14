@@ -34,11 +34,7 @@ const CONVEX_LINES = [
   "NEXT_PUBLIC_CONVEX_SITE_URL=http://127.0.0.1:3211",
   "",
 ].join("\n")
-const SECRET_KEYS = [
-  "BETTER_AUTH_SECRET",
-  "CONTACT_IP_PROOF_SECRET",
-  "REVALIDATE_SECRET",
-] as const
+const SECRET_KEYS = ["CONTACT_IP_PROOF_SECRET", "REVALIDATE_SECRET"] as const
 
 function counter(prefix = "generated") {
   let count = 0
@@ -277,29 +273,26 @@ describe("planLocalEnv", () => {
     const templateLines = TEMPLATE.split("\n")
     expect(lines).toHaveLength(templateLines.length)
     expect(lines.filter((line, i) => line !== templateLines[i])).toEqual([
-      expect.stringMatching(/^BETTER_AUTH_SECRET=generated-01-/),
-      expect.stringMatching(/^REVALIDATE_SECRET=generated-03-/),
-      expect.stringMatching(/^CONTACT_IP_PROOF_SECRET=generated-02-/),
+      expect.stringMatching(/^REVALIDATE_SECRET=generated-02-/),
+      expect.stringMatching(/^CONTACT_IP_PROOF_SECRET=generated-01-/),
     ])
   })
 
   test("appends the missing lines to Convex's own .env.local", () => {
     const result = plan(CONVEX_LINES)
-    expect(result.filled).toEqual([...SECRET_KEYS, "BETTER_AUTH_URL"])
+    expect(result.filled).toEqual(SECRET_KEYS)
     expect(result.text!.startsWith(CONVEX_LINES)).toBe(true)
-    expect(result.text!.endsWith("BETTER_AUTH_URL=http://localhost:3000\n")).toBe(true)
+    expect(result.text!.endsWith(`REVALIDATE_SECRET=${result.effective.REVALIDATE_SECRET}\n`)).toBe(true)
   })
 
   test("never overwrites a real value and keeps CRLF", () => {
-    const text = "BETTER_AUTH_SECRET=keep-this-secret-value\r\nREVALIDATE_SECRET=replace-with-x\r\n"
+    const text = "CONTACT_IP_PROOF_SECRET=keep-this-secret-value\r\nREVALIDATE_SECRET=replace-with-x\r\n"
     const result = plan(text)
-    expect(result.effective.BETTER_AUTH_SECRET).toBe("keep-this-secret-value")
+    expect(result.effective.CONTACT_IP_PROOF_SECRET).toBe("keep-this-secret-value")
     expect(result.text).toBe(
       [
-        "BETTER_AUTH_SECRET=keep-this-secret-value",
+        "CONTACT_IP_PROOF_SECRET=keep-this-secret-value",
         `REVALIDATE_SECRET=${result.effective.REVALIDATE_SECRET}`,
-        `CONTACT_IP_PROOF_SECRET=${result.effective.CONTACT_IP_PROOF_SECRET}`,
-        "BETTER_AUTH_URL=http://localhost:3000",
         "",
       ].join("\r\n")
     )
@@ -307,18 +300,16 @@ describe("planLocalEnv", () => {
 
   test("the process environment wins and is never written", () => {
     const result = plan(CONVEX_LINES, {
-      processEnv: { BETTER_AUTH_SECRET: "from-the-shell-123", BETTER_AUTH_URL: "http://localhost:3001" },
+      processEnv: { CONTACT_IP_PROOF_SECRET: "from-the-shell-123" },
     })
-    expect(result.effective.BETTER_AUTH_SECRET).toBe("from-the-shell-123")
-    expect(result.effective.BETTER_AUTH_URL).toBe("http://localhost:3001")
-    expect(result.filled).toEqual(["CONTACT_IP_PROOF_SECRET", "REVALIDATE_SECRET"])
+    expect(result.effective.CONTACT_IP_PROOF_SECRET).toBe("from-the-shell-123")
+    expect(result.filled).toEqual(["REVALIDATE_SECRET"])
     expect(result.text).not.toContain("from-the-shell-123")
-    expect(result.text).not.toContain("BETTER_AUTH_URL")
   })
 
   test("keeps a shell secret byte for byte, spaces included", () => {
-    const result = plan(CONVEX_LINES, { processEnv: { BETTER_AUTH_SECRET: " from-the-shell-123 " } })
-    expect(result.effective.BETTER_AUTH_SECRET).toBe(" from-the-shell-123 ")
+    const result = plan(CONVEX_LINES, { processEnv: { CONTACT_IP_PROOF_SECRET: " from-the-shell-123 " } })
+    expect(result.effective.CONTACT_IP_PROOF_SECRET).toBe(" from-the-shell-123 ")
   })
 
   test("copies a Convex value when the local one is missing", () => {
@@ -337,50 +328,21 @@ describe("planLocalEnv", () => {
 
 describe("planConvexSync", () => {
   const effective = {
-    BETTER_AUTH_SECRET: "aaaaaaaaaa",
     CONTACT_IP_PROOF_SECRET: "bbbbbbbbbb",
     REVALIDATE_SECRET: "cccccccccc",
-    BETTER_AUTH_URL: "http://localhost:3000",
   }
 
   test("sets only the missing or different keys", () => {
     const sync = planConvexSync({
       effective,
-      convexValues: new Map([
-        ["BETTER_AUTH_SECRET", "aaaaaaaaaa"],
-        ["CONTACT_IP_PROOF_SECRET", "different"],
-        ["BETTER_AUTH_URL", "http://localhost:3000"],
-      ]),
+      convexValues: new Map([["CONTACT_IP_PROOF_SECRET", "different"]]),
     })
     expect(sync.set.map(({ key }) => key)).toEqual(["CONTACT_IP_PROOF_SECRET", "REVALIDATE_SECRET"])
-    expect(sync.notes).toEqual([])
   })
 
-  test("sets BETTER_AUTH_URL only when Convex has none", () => {
-    const sync = planConvexSync({ effective, convexValues: new Map() })
-    expect(sync.set).toContainEqual({ key: "BETTER_AUTH_URL", value: "http://localhost:3000" })
-  })
-
-  test("never changes an existing BETTER_AUTH_URL in Convex and says so", () => {
-    const sync = planConvexSync({
-      effective,
-      convexValues: new Map([["BETTER_AUTH_URL", "http://localhost:3001"]]),
-    })
-    expect(sync.set.map(({ key }) => key)).not.toContain("BETTER_AUTH_URL")
-    expect(sync.notes).toEqual([
-      "[formulacms] BETTER_AUTH_URL in the Convex backend differs from .env.local. The automatic setup leaves it as it is; run pnpm check:preflight for details.",
-    ])
-  })
-
-  test("leaves a non-local BETTER_AUTH_URL alone and says so", () => {
-    const sync = planConvexSync({
-      effective: { ...effective, BETTER_AUTH_URL: "https://mysite.org" },
-      convexValues: new Map(),
-    })
-    expect(sync.set.map(({ key }) => key)).not.toContain("BETTER_AUTH_URL")
-    expect(sync.notes).toEqual([
-      "[formulacms] BETTER_AUTH_URL is not a localhost address, so the automatic setup did not copy it to Convex.",
-    ])
+  test("sets nothing when Convex already matches", () => {
+    const sync = planConvexSync({ effective, convexValues: new Map(Object.entries(effective)) })
+    expect(sync.set).toEqual([])
   })
 })
 
@@ -431,20 +393,18 @@ describe("runLocalSetup", () => {
     const result = await run(fs, convex, processEnv)
 
     expect(result.status).toBe("ready")
-    expect(result.wroteKeys).toEqual([...SECRET_KEYS, "BETTER_AUTH_URL"])
+    expect(result.wroteKeys).toEqual(SECRET_KEYS)
     const file = parseEnvText(fs.envLocal()!)
     for (const key of SECRET_KEYS) {
       expect(convex.store.get(key)).toBe(file.get(key))
       expect(processEnv[key]).toBe(file.get(key))
     }
-    expect(convex.store.get("BETTER_AUTH_URL")).toBe("http://localhost:3000")
-    expect(processEnv.BETTER_AUTH_URL).toBe("http://localhost:3000")
     const code = convex.store.get("FORMULACMS_OWNER_CLAIM")!
-    expect(code).toMatch(/^generated-04-/)
+    expect(code).toMatch(/^generated-03-/)
     expect(result.box).toContain(`    ${code}`)
     expect(result.lines).toEqual([
-      "[formulacms] Local setup: added BETTER_AUTH_SECRET, CONTACT_IP_PROOF_SECRET, REVALIDATE_SECRET, BETTER_AUTH_URL to .env.local.",
-      "[formulacms] Local setup: set BETTER_AUTH_SECRET, CONTACT_IP_PROOF_SECRET, REVALIDATE_SECRET, BETTER_AUTH_URL, FORMULACMS_OWNER_CLAIM in the Convex backend.",
+      "[formulacms] Local setup: added CONTACT_IP_PROOF_SECRET, REVALIDATE_SECRET to .env.local.",
+      "[formulacms] Local setup: set CONTACT_IP_PROOF_SECRET, REVALIDATE_SECRET, FORMULACMS_OWNER_CLAIM in the Convex backend.",
     ])
     expect(result.lines.join("\n")).not.toContain(code)
     expect(fs.envLocal()).not.toContain(code)
@@ -469,13 +429,13 @@ describe("runLocalSetup", () => {
     const convex = fakeConvex()
     const result = await run(fs, convex, { CONVEX_DEPLOYMENT: "dev:happy-animal-123" })
     expect(result.status).toBe("ready")
-    expect(fs.envLocal()!.startsWith(TEMPLATE.split("BETTER_AUTH_SECRET=")[0])).toBe(true)
+    expect(fs.envLocal()!.startsWith(TEMPLATE.split("REVALIDATE_SECRET=")[0])).toBe(true)
     expect(result.wroteKeys).toEqual(SECRET_KEYS)
     expect(convex.calls[0].args).toEqual(["env", "list", "--include-values", "--deployment", "happy-animal-123"])
   })
 
   test("placeholders in .env.local: replaced in place", async () => {
-    const text = `${CONVEX_LINES}BETTER_AUTH_URL=http://localhost:3000\nBETTER_AUTH_SECRET=replace-with-openssl-rand-hex-32\nREVALIDATE_SECRET=\nCONTACT_IP_PROOF_SECRET=replace-with-x\n`
+    const text = `${CONVEX_LINES}REVALIDATE_SECRET=\nCONTACT_IP_PROOF_SECRET=replace-with-x\n`
     const fs = fakeFiles({ ".env.local": text })
     // `convex dev` loaded the same placeholders into the process before this step.
     const processEnv: Record<string, string | undefined> = Object.fromEntries(parseEnvText(text))
@@ -488,13 +448,11 @@ describe("runLocalSetup", () => {
   })
 
   test("finished setup with an owner: silent, no write, no env set, no box", async () => {
-    const complete = `${CONVEX_LINES}BETTER_AUTH_URL=http://localhost:3000\nBETTER_AUTH_SECRET=aaaaaaaaaaaa\nCONTACT_IP_PROOF_SECRET=bbbbbbbbbbbb\nREVALIDATE_SECRET=cccccccccccc\n`
+    const complete = `${CONVEX_LINES}CONTACT_IP_PROOF_SECRET=bbbbbbbbbbbb\nREVALIDATE_SECRET=cccccccccccc\n`
     const fs = fakeFiles({ ".env.local": complete })
     const convex = fakeConvex({
       established: true,
       values: {
-        BETTER_AUTH_URL: "http://localhost:3000",
-        BETTER_AUTH_SECRET: "aaaaaaaaaaaa",
         CONTACT_IP_PROOF_SECRET: "bbbbbbbbbbbb",
         REVALIDATE_SECRET: "cccccccccccc",
         FORMULACMS_OWNER_CLAIM: "old-code-value",
@@ -508,10 +466,10 @@ describe("runLocalSetup", () => {
 
   test("copies Convex's secret into .env.local instead of making a new one", async () => {
     const fs = fakeFiles({ ".env.local": CONVEX_LINES })
-    const convex = fakeConvex({ values: { BETTER_AUTH_SECRET: "already-in-convex-1" } })
+    const convex = fakeConvex({ values: { CONTACT_IP_PROOF_SECRET: "already-in-convex-1" } })
     await run(fs, convex)
-    expect(parseEnvText(fs.envLocal()!).get("BETTER_AUTH_SECRET")).toBe("already-in-convex-1")
-    expect(setCalls(convex)).not.toContain("BETTER_AUTH_SECRET")
+    expect(parseEnvText(fs.envLocal()!).get("CONTACT_IP_PROOF_SECRET")).toBe("already-in-convex-1")
+    expect(setCalls(convex)).not.toContain("CONTACT_IP_PROOF_SECRET")
   })
 
   test("secrets travel on stdin only, never as arguments", async () => {
@@ -519,7 +477,7 @@ describe("runLocalSetup", () => {
     const convex = fakeConvex()
     await run(fs, convex)
     const secrets = [...convex.store.values()].filter((value) => value.startsWith("generated"))
-    expect(secrets).toHaveLength(4)
+    expect(secrets).toHaveLength(3)
     for (const call of convex.calls) {
       for (const secret of secrets) expect(call.args.join(" ")).not.toContain(secret)
     }
@@ -556,15 +514,19 @@ describe("runLocalSetup", () => {
     )
   })
 
-  test("the box uses the BETTER_AUTH_URL origin", async () => {
+  test("the box uses the pnpm dev origin from NEXT_PUBLIC_SITE_URL", async () => {
     const fs = fakeFiles({ ".env.local": CONVEX_LINES })
-    const result = await run(fs, fakeConvex(), { BETTER_AUTH_URL: "http://127.0.0.1:3005" })
+    const result = await run(fs, fakeConvex(), { NEXT_PUBLIC_SITE_URL: "http://127.0.0.1:3005" })
     expect(result.box).toContain("Open http://127.0.0.1:3005/setup and paste this code")
+    const fromFile = fakeFiles({ ".env.local": `${CONVEX_LINES}NEXT_PUBLIC_SITE_URL=http://localhost:3006\n` })
+    expect((await run(fromFile, fakeConvex())).box).toContain("Open http://localhost:3006/setup")
+    const deployed = fakeFiles({ ".env.local": `${CONVEX_LINES}NEXT_PUBLIC_SITE_URL=https://mysite.org\n` })
+    expect((await run(deployed, fakeConvex())).box).toContain("Open http://localhost:3000/setup")
   })
 
   test("env list output never reaches the lines", async () => {
     const fs = fakeFiles({ ".env.local": CONVEX_LINES })
-    const convex = fakeConvex({ values: { RESEND_API_KEY: "re_secret_resend_key", BETTER_AUTH_SECRET: "convex-secret-value" } })
+    const convex = fakeConvex({ values: { RESEND_API_KEY: "re_secret_resend_key", CONTACT_IP_PROOF_SECRET: "convex-secret-value" } })
     const result = await run(fs, convex)
     const printed = [...result.lines, result.box ?? ""].join("\n")
     expect(printed).not.toContain("re_secret_resend_key")
@@ -572,16 +534,14 @@ describe("runLocalSetup", () => {
   })
 
   describe("failure policy", () => {
-    // Locally complete: Next.js can start (auth secret and both Convex URLs
-    // are real). Locally incomplete: Convex has not written its URLs.
-    const COMPLETE = `${CONVEX_LINES}BETTER_AUTH_URL=http://localhost:3000\nBETTER_AUTH_SECRET=local-secret-aaaa\nCONTACT_IP_PROOF_SECRET=local-secret-bbbb\nREVALIDATE_SECRET=local-secret-cccc\n`
+    // Locally complete: Next.js can start (the Convex URL is real). Locally
+    // incomplete: Convex has not written its URLs.
+    const COMPLETE = `${CONVEX_LINES}CONTACT_IP_PROOF_SECRET=local-secret-bbbb\nREVALIDATE_SECRET=local-secret-cccc\n`
     const INCOMPLETE = "CONVEX_DEPLOYMENT=anonymous:anonymous-agent\n"
     const cases = [
       { call: "env list", how: "fails", line: /^\[formulacms\] Automatic local setup could not read the Convex backend's settings, so it changed nothing: ✖ Cannot reach backend/ },
-      { call: "env set BETTER_AUTH_SECRET", how: "fails", line: /^\[formulacms\] Automatic local setup could not set BETTER_AUTH_SECRET in the Convex backend: ✖ Failed to set BETTER_AUTH_SECRET to \[hidden\]$/ },
-      { call: "env set CONTACT_IP_PROOF_SECRET", how: "fails", line: /could not set CONTACT_IP_PROOF_SECRET in the Convex backend: ✖ Failed to set CONTACT_IP_PROOF_SECRET to \[hidden\]$/ },
+      { call: "env set CONTACT_IP_PROOF_SECRET", how: "fails", line: /^\[formulacms\] Automatic local setup could not set CONTACT_IP_PROOF_SECRET in the Convex backend: ✖ Failed to set CONTACT_IP_PROOF_SECRET to \[hidden\]$/ },
       { call: "env set REVALIDATE_SECRET", how: "fails", line: /could not set REVALIDATE_SECRET in the Convex backend: ✖ Failed to set REVALIDATE_SECRET to \[hidden\]$/ },
-      { call: "env set BETTER_AUTH_URL", how: "fails", line: /could not set BETTER_AUTH_URL in the Convex backend: ✖ Failed to set BETTER_AUTH_URL to \[hidden\]$/ },
       { call: "env set FORMULACMS_OWNER_CLAIM", how: "fails", line: /could not set FORMULACMS_OWNER_CLAIM in the Convex backend: ✖ Failed to set FORMULACMS_OWNER_CLAIM to \[hidden\]$/ },
       { call: "env set CONTACT_IP_PROOF_SECRET", how: "throws", line: /^\[formulacms\] Automatic local setup failed: boom( \[hidden\])+$/ },
     ]
@@ -631,14 +591,12 @@ describe("runLocalSetup", () => {
 
   // Typed over NEXT_START_KEYS, so a new key needs a placeholder here.
   const START_PLACEHOLDERS: Record<(typeof NEXT_START_KEYS)[number], string> = {
-    BETTER_AUTH_SECRET: "replace-with-openssl-rand-hex-32",
     NEXT_PUBLIC_CONVEX_URL: "https://your-deployment.convex.cloud",
-    NEXT_PUBLIC_CONVEX_SITE_URL: "https://your-deployment.convex.site",
   }
   test.each(NEXT_START_KEYS.map((key) => ({ key, placeholder: START_PLACEHOLDERS[key] })))(
     "a placeholder $key in the process is replaced from .env.local before env list fails, so Next.js can start",
     async ({ key, placeholder }) => {
-      const fs = fakeFiles({ ".env.local": `${CONVEX_LINES}BETTER_AUTH_SECRET=local-secret-aaaa\n` })
+      const fs = fakeFiles({ ".env.local": `${CONVEX_LINES}CONTACT_IP_PROOF_SECRET=local-secret-aaaa\n` })
       const processEnv: Record<string, string | undefined> = { [key]: placeholder }
       const result = await run(fs, fakeConvex({ fail: "env list" }), processEnv)
       expect(result.status).toBe("ready")
@@ -654,13 +612,13 @@ describe("runLocalSetup", () => {
       ["a value printed in double quotes", "it's#secret-12"],
     ])("%s: Convex → .env.local → parse gives the Convex value", async (_label, value) => {
       const fs = fakeFiles({ ".env.local": CONVEX_LINES })
-      const convex = fakeConvex({ values: { BETTER_AUTH_SECRET: value } })
+      const convex = fakeConvex({ values: { CONTACT_IP_PROOF_SECRET: value } })
       const processEnv: Record<string, string | undefined> = {}
       const result = await run(fs, convex, processEnv)
-      expect(parseEnvText(fs.envLocal()!).get("BETTER_AUTH_SECRET")).toBe(value)
-      expect(processEnv.BETTER_AUTH_SECRET).toBe(value)
-      expect(setCalls(convex)).not.toContain("BETTER_AUTH_SECRET")
-      expect(result.wroteKeys).toContain("BETTER_AUTH_SECRET")
+      expect(parseEnvText(fs.envLocal()!).get("CONTACT_IP_PROOF_SECRET")).toBe(value)
+      expect(processEnv.CONTACT_IP_PROOF_SECRET).toBe(value)
+      expect(setCalls(convex)).not.toContain("CONTACT_IP_PROOF_SECRET")
+      expect(result.wroteKeys).toContain("CONTACT_IP_PROOF_SECRET")
     })
 
     test("an owner code with # is shown without the CLI's quotes", async () => {
@@ -672,16 +630,16 @@ describe("runLocalSetup", () => {
     test("a value with no safe .env.local form is not copied; the person is told", async () => {
       const value = `it's"both-12345`
       const fs = fakeFiles({ ".env.local": CONVEX_LINES })
-      const convex = fakeConvex({ values: { BETTER_AUTH_SECRET: value } })
+      const convex = fakeConvex({ values: { CONTACT_IP_PROOF_SECRET: value } })
       const processEnv: Record<string, string | undefined> = {}
       const result = await run(fs, convex, processEnv)
       expect(result.status).toBe("ready")
-      expect(parseEnvText(fs.envLocal()!).has("BETTER_AUTH_SECRET")).toBe(false)
-      expect(processEnv.BETTER_AUTH_SECRET).toBe(value)
-      expect(setCalls(convex)).not.toContain("BETTER_AUTH_SECRET")
-      expect(result.wroteKeys).not.toContain("BETTER_AUTH_SECRET")
+      expect(parseEnvText(fs.envLocal()!).has("CONTACT_IP_PROOF_SECRET")).toBe(false)
+      expect(processEnv.CONTACT_IP_PROOF_SECRET).toBe(value)
+      expect(setCalls(convex)).not.toContain("CONTACT_IP_PROOF_SECRET")
+      expect(result.wroteKeys).not.toContain("CONTACT_IP_PROOF_SECRET")
       expect(result.lines).toContain(
-        "[formulacms] Automatic local setup could not copy BETTER_AUTH_SECRET from the Convex backend into .env.local, because of the characters it holds. Add it to .env.local by hand, with the same value as in Convex."
+        "[formulacms] Automatic local setup could not copy CONTACT_IP_PROOF_SECRET from the Convex backend into .env.local, because of the characters it holds. Add it to .env.local by hand, with the same value as in Convex."
       )
     })
   })
@@ -706,7 +664,7 @@ describe("runLocalSetup", () => {
 
     test("silent when the local values are all there", async () => {
       const fs = fakeFiles({
-        ".env.local": "CONVEX_DEPLOYMENT=prod:happy-animal-123\nBETTER_AUTH_URL=https://mysite.org\nBETTER_AUTH_SECRET=aaaaaaaaaa\nCONTACT_IP_PROOF_SECRET=bbbbbbbbbb\nREVALIDATE_SECRET=cccccccccc\n",
+        ".env.local": "CONVEX_DEPLOYMENT=prod:happy-animal-123\nCONTACT_IP_PROOF_SECRET=bbbbbbbbbb\nREVALIDATE_SECRET=cccccccccc\n",
       })
       const result = await run(fs, fakeConvex())
       expect(result).toEqual({ status: "skipped", lines: [], box: null, wroteKeys: [] })

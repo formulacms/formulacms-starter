@@ -19,6 +19,7 @@ import { api, internal } from "../_generated/api"
 import type { QueryCtx, MutationCtx } from "../_generated/server"
 import type { Id, Doc } from "../_generated/dataModel"
 import { requireOperationAccess } from "../lib/access/policy"
+import { ownerDisplayName } from "../lib/access/owner"
 import type { OwnerPrincipal } from "../lib/access/owner"
 import type { PageType } from "../lib/pages/types"
 import { homeSlugsForLocale } from "../../lib/pages/home-aliases"
@@ -714,7 +715,7 @@ async function autoUnsetOtherPromoteToFront(
     holders
       .filter((holder) => holder._id !== excludePageId)
       .map((holder) =>
-        occurrenceUsageWrites(ctx).patch(holder._id, { promoteToFront: false })
+        occurrenceUsageWrites(ctx).patch("pages", holder._id, { promoteToFront: false })
       )
   )
 }
@@ -852,7 +853,7 @@ async function getMenuSlugsReferencingPage(
   }
 
   const menus = await Promise.all(
-    [...menuIds].map((menuId) => ctx.db.get(menuId))
+    [...menuIds].map((menuId) => ctx.db.get("menus", menuId))
   )
   const slugs = new Set<string>()
   for (const menu of menus) {
@@ -1024,7 +1025,7 @@ async function resolvePageRelation(
   allowedPageTypes: readonly string[]
 ): Promise<{ pageId: Id<"pages"> } | undefined> {
   if (!targetPageId) return undefined
-  const target = await ctx.db.get(targetPageId)
+  const target = await ctx.db.get("pages", targetPageId)
   if (!target || target.deletedAt !== undefined) {
     throw new ConvexError("Selected relation target no longer exists")
   }
@@ -1146,7 +1147,7 @@ async function resolveHomePageIdForLocale(
   }
 
   if (!cfg.homePageId) return null
-  const explicitHome = await ctx.db.get(cfg.homePageId)
+  const explicitHome = await ctx.db.get("pages", cfg.homePageId)
   if (
     explicitHome &&
     explicitHome.deletedAt === undefined &&
@@ -1292,7 +1293,7 @@ async function snapshotCardImageUrl(
   )
   if (cardRefs.length !== 1) return undefined
   const ref = cardRefs[0]!
-  const media = await ctx.db.get(ref.mediaId)
+  const media = await ctx.db.get("media", ref.mediaId)
   if (!media || media.storageId !== ref.storageId) return undefined
   return (await ctx.storage.getUrl(ref.storageId)) ?? undefined
 }
@@ -1366,7 +1367,7 @@ async function buildAncestryPath(
   let depth = 0
 
   while (currentId && depth < 10) {
-    const parent: Doc<"pages"> | null = await ctx.db.get(currentId)
+    const parent: Doc<"pages"> | null = await ctx.db.get("pages", currentId)
     if (!parent) break
     baseSegments.unshift(parent.slug)
     for (const l of nonDefaultLocales) {
@@ -1410,7 +1411,7 @@ async function rebuildDescendantAncestry(
     await buildAncestryPath(ctx, parentId, cfg)
   for (const child of children) {
     if (child.deletedAt !== undefined) continue
-    await occurrenceUsageWrites(ctx).patch(child._id, {
+    await occurrenceUsageWrites(ctx).patch("pages", child._id, {
       ancestryPath,
       hierarchyDepth,
       localizedAncestryPaths,
@@ -1432,7 +1433,7 @@ export const getById = query({
     // snapshot authority is active. Returning it here would let callers
     // observe mutable fields alongside the immutable public boundary.
     if ((await readPublicationAuthority(ctx)) !== "legacy") return null
-    const page = await ctx.db.get(id)
+    const page = await ctx.db.get("pages", id)
     if (!page) return null
     if (
       await canReadPrivate(ctx, page.pageType, `pages.${page.pageType}:list`)
@@ -1453,7 +1454,7 @@ export const getPublishedById = query({
   },
   returns: v.union(pageDocValidator, v.null()),
   handler: async (ctx, { id }) => {
-    const page = await ctx.db.get(id)
+    const page = await ctx.db.get("pages", id)
     if (
       !page ||
       !isPubliclyReadablePage(page) ||
@@ -1486,7 +1487,7 @@ export const getPublicPageById = query({
       return (projection?.publicPage ?? null) as never
     }
     if (authority === "invalid") return null
-    const page = await ctx.db.get(id)
+    const page = await ctx.db.get("pages", id)
     if (!page || !isPubliclyReadablePage(page)) return null
     const cfg = await getLocaleConfig(ctx)
     if (!cfg.enabledLocales.includes(locale)) return null
@@ -1527,7 +1528,7 @@ export const getStagedPreviewById = query({
     stagingUpdatedAt?: number
   } | null> => {
     await requireOperationAccess(ctx)
-    const page = await ctx.db.get(id)
+    const page = await ctx.db.get("pages", id)
     if (!page) return null
     if (!isActiveContentType(page.pageType)) return null
     await requirePagePermission(ctx, page.pageType, "update", {
@@ -1612,7 +1613,7 @@ export const getForEdit = query({
     v.null()
   ),
   handler: async (ctx, { id }) => {
-    const page = await ctx.db.get(id)
+    const page = await ctx.db.get("pages", id)
     if (!page) return null
     if (!isActiveContentType(page.pageType)) return null
     if (
@@ -1817,7 +1818,7 @@ export const getPublicByline = query({
             : undefined) ?? null,
       }
     }
-    const page = await ctx.db.get(authorPageId)
+    const page = await ctx.db.get("pages", authorPageId)
     const cfg = await getLocaleConfig(ctx)
     if (
       !page ||
@@ -1832,7 +1833,7 @@ export const getPublicByline = query({
 
     let avatarUrl: string | null = null
     if (card.imageMediaId) {
-      const media = await ctx.db.get(card.imageMediaId)
+      const media = await ctx.db.get("media", card.imageMediaId)
       if (media && media.deletedAt === undefined) {
         avatarUrl = media.url
       }
@@ -1851,7 +1852,7 @@ export const getPrePublishChecklist = query({
   returns: prePublishChecklistValidator,
   handler: async (ctx, { pageId, locale }) => {
     await requireOperationAccess(ctx)
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
     await requirePagePermission(ctx, page.pageType, "update", {
@@ -1948,7 +1949,7 @@ export const listActiveEditors = query({
   returns: v.array(pagePresenceDocValidator),
   handler: async (ctx, { pageId, now }) => {
     await requireOperationAccess(ctx)
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
     await requirePagePermission(ctx, page.pageType, "update", {
@@ -1966,7 +1967,7 @@ export const getPageEditorLock = query({
   returns: pageEditorLockStateValidator,
   handler: async (ctx, { pageId, now }) => {
     await requireOperationAccess(ctx)
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
     const auth = await requirePagePermission(ctx, page.pageType, "update", {
@@ -2769,7 +2770,7 @@ export const deleteImpact = query({
     if (authority === "invalid") {
       throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
     }
-    const page = await ctx.db.get(id)
+    const page = await ctx.db.get("pages", id)
     if (!page) throw new ConvexError("Page not found")
     await requirePagePermission(ctx, page.pageType, "delete", {
       ownerId: page.createdBy,
@@ -2904,7 +2905,7 @@ export const getByIds = query({
   args: { ids: v.array(v.id("pages")) },
   returns: v.array(pageDocValidator),
   handler: async (ctx, { ids }) => {
-    const pages = await Promise.all(ids.map((id) => ctx.db.get(id)))
+    const pages = await Promise.all(ids.map((id) => ctx.db.get("pages", id)))
     const allowedPrivateTypes = await privateReadablePageTypes(ctx)
     return pages.filter(
       (p): p is Doc<"pages"> =>
@@ -2951,7 +2952,7 @@ export const getLocalizedPathsByIds = query({
     const enabledLocaleSet = new Set(enabledLocales)
     const localePrefix = locale === defaultLocale ? "" : `/${locale}`
     const result: Record<string, string> = {}
-    const pages = await Promise.all(ids.map((id) => ctx.db.get(id)))
+    const pages = await Promise.all(ids.map((id) => ctx.db.get("pages", id)))
     for (const page of pages) {
       if (!page || page.deletedAt !== undefined) continue
       // A selected starter's route space contains only active routable types.
@@ -3032,7 +3033,7 @@ export const getPublicRelationCardsByIds = query({
       return result
     }
 
-    const pages = await Promise.all(uniqueIds.map((id) => ctx.db.get(id)))
+    const pages = await Promise.all(uniqueIds.map((id) => ctx.db.get("pages", id)))
     const cards = pages.map((page) =>
       page && isActiveContentType(page.pageType)
         ? projectPublicReferenceCard(page, locale)
@@ -3045,7 +3046,7 @@ export const getPublicRelationCardsByIds = query({
           .filter((id): id is Id<"media"> => id !== undefined)
       ),
     ]
-    const mediaRows = await Promise.all(mediaIds.map((id) => ctx.db.get(id)))
+    const mediaRows = await Promise.all(mediaIds.map((id) => ctx.db.get("media", id)))
     const mediaUrlById = new Map<string, string>()
     for (const media of mediaRows) {
       if (media && media.deletedAt === undefined) {
@@ -3134,7 +3135,7 @@ export const listRecentPublicRelationCards = query({
           .filter((id): id is Id<"media"> => id !== undefined)
       ),
     ]
-    const mediaRows = await Promise.all(mediaIds.map((id) => ctx.db.get(id)))
+    const mediaRows = await Promise.all(mediaIds.map((id) => ctx.db.get("media", id)))
     const mediaUrlById = new Map<string, string>()
     for (const media of mediaRows) {
       if (media && media.deletedAt === undefined) {
@@ -3189,7 +3190,7 @@ export const getRelationCardsByIds = query({
       ? await privateReadablePageTypes(ctx)
       : new Set<PageType>()
     const fetched = await Promise.all(
-      ids.map(async (id) => ({ id, page: await ctx.db.get(id) }))
+      ids.map(async (id) => ({ id, page: await ctx.db.get("pages", id) }))
     )
     const kept: Id<"pages">[] = []
     for (const { id, page } of fetched) {
@@ -3227,7 +3228,7 @@ export const getBreadcrumb = query({
   args: { pageId: v.id("pages") },
   returns: v.array(breadcrumbItemValidator),
   handler: async (ctx, { pageId }) => {
-    const rootPage = await ctx.db.get(pageId)
+    const rootPage = await ctx.db.get("pages", pageId)
     if (
       !rootPage ||
       !isActiveContentType(rootPage.pageType) ||
@@ -3243,7 +3244,7 @@ export const getBreadcrumb = query({
     let currentId: Id<"pages"> | undefined = pageId
 
     while (currentId) {
-      const page: Doc<"pages"> | null = await ctx.db.get(currentId)
+      const page: Doc<"pages"> | null = await ctx.db.get("pages", currentId)
       if (!page) break
       // Gate each ancestor by per-type private read grants — this full-document
       // helper is never an anonymous metadata surface.
@@ -3360,7 +3361,7 @@ export const getLocalizedBreadcrumb = query({
       crumbs.push({ name: leafName, url: leafUrl })
       return crumbs
     }
-    const rootPage = await ctx.db.get(pageId)
+    const rootPage = await ctx.db.get("pages", pageId)
     if (
       !rootPage ||
       !isPubliclyReadablePage(rootPage) ||
@@ -3378,7 +3379,7 @@ export const getLocalizedBreadcrumb = query({
     let isLeaf = true
 
     while (currentId && depth < 10) {
-      const page: Doc<"pages"> | null = await ctx.db.get(currentId)
+      const page: Doc<"pages"> | null = await ctx.db.get("pages", currentId)
       if (!page) break
       // Public JSON-LD must not borrow a title or path from another locale.
       // Missing localized ancestry is a missing public breadcrumb, not a
@@ -3440,7 +3441,7 @@ export const getLocalizedPageUrls = query({
   },
   returns: v.union(v.record(v.string(), v.string()), v.null()),
   handler: async (ctx, { pageId }) => {
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (!page || !isActiveContentType(page.pageType)) return null
     if (
       !(await canReadPrivate(ctx, page.pageType, `pages.${page.pageType}:list`))
@@ -3507,7 +3508,7 @@ async function readPublicLocaleAlternates(
       indexable: !noIndex,
     }))
   }
-  const page = await ctx.db.get(pageId)
+  const page = await ctx.db.get("pages", pageId)
   if (!page || !isPubliclyReadablePage(page)) return []
   if (!isRoutableContentType(page.pageType)) return []
   const urls = localizedUrlsForPage(page, cfg)
@@ -3993,7 +3994,7 @@ export const resolveHistoricalPublishedPath = query({
           // transition's target language (a silent default change can move
           // the default away from it). Locale, path, snapshot and generation
           // all come from the same selection.
-          const transition = await ctx.db.get(transitionId)
+          const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
           const candidates = [
             locale,
             ...(transition && transition.targetLocale !== locale
@@ -4544,7 +4545,7 @@ export const create = mutation({
       pageType: args.pageType,
     } as Parameters<typeof ctx.db.insert<"pages">>[1])
     if (publicationAuthority === "snapshot_active") {
-      const created = await ctx.db.get(pageId)
+      const created = await ctx.db.get("pages", pageId)
       if (!created) throw new ConvexError("PAGE_NOT_FOUND")
       await initializeSuccessorPage(
         ctx,
@@ -4572,7 +4573,7 @@ export const create = mutation({
         ...(effectiveTitles !== undefined ? { effectiveTitles } : {}),
       } as Parameters<typeof ctx.db.insert<"pageStaging">>[1])
     }
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (page) {
       await refreshPageReferences(ctx, page)
       await syncPageSearch(ctx, page)
@@ -4599,7 +4600,7 @@ export const duplicate = mutation({
     if (!confirmedTitle) {
       throw new ConvexError("Title is required")
     }
-    const rawSrc = await ctx.db.get(id)
+    const rawSrc = await ctx.db.get("pages", id)
     if (!rawSrc || rawSrc.deletedAt !== undefined) {
       throw new ConvexError("Page not found")
     }
@@ -4773,7 +4774,7 @@ export const duplicate = mutation({
       ...(effectiveTitles !== undefined ? { effectiveTitles } : {}),
     } as Parameters<typeof ctx.db.insert<"pageStaging">>[1])
     void auth
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (page) {
       await refreshPageReferences(ctx, page)
       await syncPageSearch(ctx, page)
@@ -4876,7 +4877,7 @@ export const update = mutation({
     await requireOperationAccess(ctx)
     await assertLegacyPublicationWriterBlocked(ctx, "pages.update")
     validateContentSliceIds(updates.content)
-    const existing = await ctx.db.get(id)
+    const existing = await ctx.db.get("pages", id)
     if (!existing) throw new ConvexError("Page not found")
     updates.content = writePageContent(
       existing.pageType,
@@ -5141,7 +5142,7 @@ export const update = mutation({
           }
           if (seen.has(cursor)) break
           seen.add(cursor)
-          const node: Doc<"pages"> | null = await ctx.db.get(cursor)
+          const node: Doc<"pages"> | null = await ctx.db.get("pages", cursor)
           cursor = node?.parentId
         }
       }
@@ -5201,7 +5202,7 @@ export const update = mutation({
     if (existing.status === "published" && updates.status !== undefined) {
       await releaseBoundedPilotPublishedSlot(ctx)
     }
-    await occurrenceUsageWrites(ctx).patch(id, patch)
+    await occurrenceUsageWrites(ctx).patch("pages", id, patch)
     // Refresh the C2 `documentReferences` fan-out unconditionally — matching
     // every other refresh call site. C5 wired an early attempt at a
     // field-name-coupled guard, but the next sharedField `relation()` would
@@ -5281,12 +5282,12 @@ export const processScheduledTransitions = internalMutation({
 
     for (const storedStaging of dueStaging) {
       const staging = withRepairedStagingSliceIds(storedStaging)
-      const page = await ctx.db.get(staging.pageId)
+      const page = await ctx.db.get("pages", staging.pageId)
       // Orphaned staging (page hard-deleted between queue and here) — drop
       // the row so the abandoned sweep doesn't have to chase it and the
       // cron doesn't rediscover it next tick.
       if (!page) {
-        await occurrenceUsageWrites(ctx).delete(staging._id)
+        await occurrenceUsageWrites(ctx).delete("pageStaging", staging._id)
         continue
       }
       // Preserve the pre-PR-B draft-only semantics. A future feature can
@@ -5308,14 +5309,14 @@ export const processScheduledTransitions = internalMutation({
         page.status !== "draft" ||
         !isActiveContentType(page.pageType)
       ) {
-        await occurrenceUsageWrites(ctx).patch(staging._id, {
+        await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
           scheduledAt: undefined,
           updatedAt: now,
         })
         continue
       }
       if (!(await canBoundedPilotPublish(ctx, false))) {
-        await occurrenceUsageWrites(ctx).patch(staging._id, {
+        await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
           scheduledAt: undefined,
           updatedAt: now,
         })
@@ -5364,7 +5365,7 @@ export const processScheduledTransitions = internalMutation({
         // permanently unpublishable row every minute. The staging row
         // itself lives — the editor can still fix the blockers and
         // reschedule.
-        await occurrenceUsageWrites(ctx).patch(staging._id, {
+        await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
           scheduledAt: undefined,
           updatedAt: now,
         })
@@ -5376,7 +5377,7 @@ export const processScheduledTransitions = internalMutation({
         staging,
       })
       if (!workflowCheck.ok) {
-        await occurrenceUsageWrites(ctx).patch(staging._id, {
+        await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
           scheduledAt: undefined,
           updatedAt: now,
         })
@@ -5413,7 +5414,7 @@ export const processScheduledTransitions = internalMutation({
         "Archived automatically from expiry time",
       ])
       await releaseBoundedPilotPublishedSlot(ctx)
-      await occurrenceUsageWrites(ctx).patch(page._id, patch)
+      await occurrenceUsageWrites(ctx).patch("pages", page._id, patch)
       await syncPageSearch(ctx, { ...page, ...patch })
       await ctx.scheduler.runAfter(0, internal.cms.revalidate.revalidatePage, {
         pageId: page._id,
@@ -5443,7 +5444,7 @@ export const softDelete = mutation({
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
     await assertLegacyPublicationWriterBlocked(ctx, "pages.softDelete")
-    const page = await ctx.db.get(id)
+    const page = await ctx.db.get("pages", id)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "delete")
     await requirePagePermission(ctx, page.pageType, "delete", {
@@ -5457,7 +5458,7 @@ export const softDelete = mutation({
         "Only archived pages can be moved to trash. Archive it first."
       )
     }
-    await occurrenceUsageWrites(ctx).patch(id, { deletedAt: Date.now() })
+    await occurrenceUsageWrites(ctx).patch("pages", id, { deletedAt: Date.now() })
     // Plan 028 C5 — a trashed row must not hold live fan-out; otherwise
     // `pages.remove` on a still-referenced target refuses to delete because
     // of a source the operator can no longer reach through the UI.
@@ -5473,14 +5474,14 @@ export const restore = mutation({
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
     await assertLegacyPublicationWriterBlocked(ctx, "pages.restore")
-    const page = await ctx.db.get(id)
+    const page = await ctx.db.get("pages", id)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
     await requirePagePermission(ctx, page.pageType, "update", {
       ownerId: page.createdBy,
     })
     // Patch using db.patch with explicit undefined — removes the field
-    await occurrenceUsageWrites(ctx).patch(id, { deletedAt: undefined })
+    await occurrenceUsageWrites(ctx).patch("pages", id, { deletedAt: undefined })
     // Restore the row's fan-out mirror to softDelete's clear above.
     await refreshPageReferences(ctx, { ...page, deletedAt: undefined })
     await syncPageSearch(ctx, { ...page, deletedAt: undefined })
@@ -5501,7 +5502,7 @@ export const remove = mutation({
       throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
     }
     await assertLegacyPublicationWriterBlocked(ctx, "pages.remove")
-    const page = await ctx.db.get(id)
+    const page = await ctx.db.get("pages", id)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "delete")
     await requirePagePermission(ctx, page.pageType, "delete", {
@@ -5545,7 +5546,7 @@ export const remove = mutation({
       )
     }
     const redirects = await getRedirectsToPage(ctx, id)
-    await Promise.all(redirects.map((redirect) => ctx.db.delete(redirect._id)))
+    await Promise.all(redirects.map((redirect) => ctx.db.delete("redirects", redirect._id)))
     await clearPageReferences(ctx, id)
     // Cascade the page's revision history (F6) — otherwise revisions are
     // orphaned forever and, once they hold a retired slice type, become
@@ -5554,11 +5555,11 @@ export const remove = mutation({
       .query("pageRevisions")
       .withIndex("by_pageId_and_revisionNumber", (q) => q.eq("pageId", id))
       .collect()
-    await Promise.all(revisions.map((revision) => ctx.db.delete(revision._id)))
+    await Promise.all(revisions.map((revision) => ctx.db.delete("pageRevisions", revision._id)))
     await deleteStagingByPageId(ctx, id)
     await deletePageSearch(ctx, id)
     await releaseBoundedPilotPageSlot(ctx, page.status === "published")
-    await occurrenceUsageWrites(ctx).delete(id)
+    await occurrenceUsageWrites(ctx).delete("pages", id)
     return null
   },
 })
@@ -5652,21 +5653,29 @@ export const backfillMediaReferencesBatch = internalMutation({
   },
 })
 
+/** Presence and lock identity: the user ID and the display name (never an email or username). */
+async function editorIdentity(
+  ctx: MutationCtx,
+  auth: Pick<OwnerPrincipal, "tokenIdentifier" | "authId">
+) {
+  return {
+    userId: auth.tokenIdentifier,
+    name: await ownerDisplayName(ctx, auth.authId),
+  }
+}
+
 export const touchPagePresence = mutation({
   args: { pageId: v.id("pages") },
   returns: v.null(),
   handler: async (ctx, { pageId }) => {
     await requireOperationAccess(ctx)
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
     const auth = await requirePagePermission(ctx, page.pageType, "update", {
       ownerId: page.createdBy,
     })
-    await touchPagePresenceRow(ctx, pageId, {
-      userId: auth.tokenIdentifier,
-      email: auth.email,
-    })
+    await touchPagePresenceRow(ctx, pageId, await editorIdentity(ctx, auth))
     return null
   },
 })
@@ -5676,16 +5685,13 @@ export const leavePagePresence = mutation({
   returns: v.null(),
   handler: async (ctx, { pageId }) => {
     await requireOperationAccess(ctx)
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
     const auth = await requirePagePermission(ctx, page.pageType, "update", {
       ownerId: page.createdBy,
     })
-    await leavePagePresenceRow(ctx, pageId, {
-      userId: auth.tokenIdentifier,
-      email: auth.email,
-    })
+    await leavePagePresenceRow(ctx, pageId, await editorIdentity(ctx, auth))
     return null
   },
 })
@@ -5698,7 +5704,7 @@ export const acquirePageEditorLock = mutation({
   returns: acquirePageEditorLockResultValidator,
   handler: async (ctx, { pageId, force }) => {
     await requireOperationAccess(ctx)
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
     const auth = await requirePagePermission(ctx, page.pageType, "update", {
@@ -5707,7 +5713,7 @@ export const acquirePageEditorLock = mutation({
     return await acquirePageEditorLockRow(
       ctx,
       pageId,
-      { userId: auth.tokenIdentifier, email: auth.email },
+      await editorIdentity(ctx, auth),
       force ?? false
     )
   },
@@ -5718,16 +5724,13 @@ export const releasePageEditorLock = mutation({
   returns: v.null(),
   handler: async (ctx, { pageId }) => {
     await requireOperationAccess(ctx)
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
     const auth = await requirePagePermission(ctx, page.pageType, "update", {
       ownerId: page.createdBy,
     })
-    await releasePageEditorLockRow(ctx, pageId, {
-      userId: auth.tokenIdentifier,
-      email: auth.email,
-    })
+    await releasePageEditorLockRow(ctx, pageId, await editorIdentity(ctx, auth))
     return null
   },
 })
@@ -5751,13 +5754,13 @@ export const heartbeatPageEditor = mutation({
   returns: acquirePageEditorLockResultValidator,
   handler: async (ctx, { pageId }) => {
     await requireOperationAccess(ctx)
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
     const auth = await requirePagePermission(ctx, page.pageType, "update", {
       ownerId: page.createdBy,
     })
-    const identity = { userId: auth.tokenIdentifier, email: auth.email }
+    const identity = await editorIdentity(ctx, auth)
 
     await touchPagePresenceRow(ctx, pageId, identity)
     // `force: false` — a heartbeat must never displace another editor's lock.
@@ -5909,7 +5912,7 @@ export const updateDraft = mutation({
     const writeOptions: WriteOptions = {}
     await assertLegacyPublicationWriterBlocked(ctx, "pages.updateDraft")
     await requireOperationAccess(ctx)
-    const page = await ctx.db.get(args.pageId)
+    const page = await ctx.db.get("pages", args.pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
     const auth = await requirePagePermission(ctx, page.pageType, "update", {
@@ -6290,7 +6293,7 @@ export const updateDraft = mutation({
     }
 
     if (staging) {
-      await occurrenceUsageWrites(ctx).patch(staging._id, stagingPatch)
+      await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, stagingPatch)
     } else {
       // Lazy-create: seed the row with the page's arm + createdBy, then
       // apply the patch on top. The `pageType` literal locks the arm at
@@ -6515,7 +6518,7 @@ async function performPublish(
     snapshotPrePublishChecklist(checklist)
   )
 
-  await occurrenceUsageWrites(ctx).patch(pageId, patch as Partial<Doc<"pages">>)
+  await occurrenceUsageWrites(ctx).patch("pages", pageId, patch as Partial<Doc<"pages">>)
   const finalPage = { ...page, ...patch } as Doc<"pages">
   await refreshPageReferences(ctx, finalPage)
   await syncPageSearch(ctx, finalPage)
@@ -6549,7 +6552,7 @@ async function performPublish(
 
   // Clear the staging row — atomic per §9 (publish is one of the three
   // deterministic deletion paths).
-  await occurrenceUsageWrites(ctx).delete(staging._id)
+  await occurrenceUsageWrites(ctx).delete("pageStaging", staging._id)
 
   return { updatedAt: now }
 }
@@ -6575,7 +6578,7 @@ export const publish = mutation({
     const writeOptions: WriteOptions = {}
     await requireOperationAccess(ctx)
     await assertLegacyPublicationWriterBlocked(ctx, "pages.publish")
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "publish")
     const auth = await requirePagePermission(ctx, page.pageType, "publish", {
@@ -6630,7 +6633,7 @@ export const discardDraft = mutation({
   handler: async (ctx, { pageId }) => {
     await requireOperationAccess(ctx)
     await assertLegacyPublicationWriterBlocked(ctx, "pages.discardDraft")
-    const page = await ctx.db.get(pageId)
+    const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
     const auth = await requirePagePermission(ctx, page.pageType, "update", {
@@ -6716,7 +6719,7 @@ export const sweepAbandonedStaging = internalMutation({
       // (a page whose status was archived after being published still
       // has publishedAt set, so this catches only the never-published
       // case per ADR §9 ⚑2).
-      const page = await ctx.db.get(staging.pageId)
+      const page = await ctx.db.get("pages", staging.pageId)
       if (!(await canEditionSweepStaging(ctx, staging.pageId))) {
         continue
       }
@@ -6727,7 +6730,7 @@ export const sweepAbandonedStaging = internalMutation({
       ) {
         continue
       }
-      await occurrenceUsageWrites(ctx).delete(staging._id)
+      await occurrenceUsageWrites(ctx).delete("pageStaging", staging._id)
       deleted += 1
     }
     const hasMore = !result.isDone

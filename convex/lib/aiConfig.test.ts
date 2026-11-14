@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, test } from "vitest"
+import { describe, expect, test, vi } from "vitest"
 import {
   DEFAULT_AI_MODEL,
   isRuntimeReady,
@@ -17,34 +17,29 @@ const none: RuntimeProviderAvailability = {
 
 describe("Production AI runtime selection precedence", () => {
   test("observes runtime model changes and falls back after empty or absent values", () => {
-    const previous = process.env.CMS_AI_MODEL
     try {
       for (const [value, expected] of [
         ["openrouter:runtime/model", "runtime/model"],
         ["", DEFAULT_AI_MODEL],
         [undefined, DEFAULT_AI_MODEL],
       ] as const) {
-        if (value === undefined) delete process.env.CMS_AI_MODEL
-        else process.env.CMS_AI_MODEL = value
+        vi.stubEnv("CMS_AI_MODEL", value)
         expect(resolveOpenRouterModelId()).toBe(expected)
       }
     } finally {
-      if (previous === undefined) delete process.env.CMS_AI_MODEL
-      else process.env.CMS_AI_MODEL = previous
+      vi.unstubAllEnvs()
     }
   })
 
   test("keeps legacy caller model ahead of CMS_AI_MODEL and normalizes the prefix", () => {
-    const previous = process.env.CMS_AI_MODEL
-    process.env.CMS_AI_MODEL = "openrouter:environment/model"
+    vi.stubEnv("CMS_AI_MODEL", "openrouter:environment/model")
     try {
       expect(resolveOpenRouterModelId("openrouter:agent-or-site/model")).toBe(
         "agent-or-site/model"
       )
       expect(resolveOpenRouterModelId(undefined)).toBe("environment/model")
     } finally {
-      if (previous === undefined) delete process.env.CMS_AI_MODEL
-      else process.env.CMS_AI_MODEL = previous
+      vi.unstubAllEnvs()
     }
   })
 

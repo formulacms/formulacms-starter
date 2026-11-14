@@ -1,6 +1,6 @@
 import { connection } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { fetchAuthQuery } from "@/lib/auth-server";
+import { fetchAuthQuery } from "@/lib/auth/server";
 import Link from "next/link";
 import { FileText, Image, PlusCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

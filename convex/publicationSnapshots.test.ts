@@ -30,7 +30,7 @@ const canonicalBody = (text: string) =>
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "f08a-owner",
-  tokenIdentifier: "https://convex.test|f08a-owner",
+  tokenIdentifier: "f08a-owner",
 }
 
 function app() {
@@ -139,9 +139,9 @@ describe("F08a Published Snapshots", () => {
     const afterFr = await publicationState(t, pageId, "fr")
     expect(afterFr).toEqual(beforeFr)
 
-    const firstSnapshot = await t.run((ctx) => ctx.db.get(published.snapshotId))
+    const firstSnapshot = await t.run((ctx) => ctx.db.get("pagePublishedSnapshots", published.snapshotId))
     const firstCandidate = await t.run((ctx) =>
-      ctx.db.get(published.candidateId)
+      ctx.db.get("pageLocalePublicationCandidates", published.candidateId)
     )
     expect(
       await t.run((ctx) =>
@@ -182,9 +182,9 @@ describe("F08a Published Snapshots", () => {
       }),
     ])
     await t.run(async (ctx) => {
-      const page = await ctx.db.get(pageId)
+      const page = await ctx.db.get("pages", pageId)
       if (!page) throw new Error("page fixture missing")
-      await ctx.db.patch(pageId, {
+      await ctx.db.patch("pages", pageId, {
         content: { en: { title: "MUTATED LEGACY PAGE", slices: [] } },
         slug: "mutated-legacy-slug",
       } as never)
@@ -278,10 +278,10 @@ describe("F08a Published Snapshots", () => {
         locale: "fr",
       })
     ).toBeNull()
-    expect(await t.run((ctx) => ctx.db.get(published.snapshotId))).toEqual(
+    expect(await t.run((ctx) => ctx.db.get("pagePublishedSnapshots", published.snapshotId))).toEqual(
       firstSnapshot
     )
-    expect(await t.run((ctx) => ctx.db.get(published.candidateId))).toEqual(
+    expect(await t.run((ctx) => ctx.db.get("pageLocalePublicationCandidates", published.candidateId))).toEqual(
       firstCandidate
     )
   })
@@ -328,7 +328,7 @@ describe("F08a Published Snapshots", () => {
         createdAt: now,
         updatedAt: now,
       })
-      await ctx.db.patch(state._id, { draftGeneration: 2, updatedAt: now })
+      await ctx.db.patch("pageLocalePublicationStates", state._id, { draftGeneration: 2, updatedAt: now })
     })
     const second = await owner.mutation(api.cms.publication.publishLocale, {
       pageId,
@@ -344,7 +344,7 @@ describe("F08a Published Snapshots", () => {
     expect(
       (await publicationState(t, pageId, "en"))?.currentReleaseId
     ).toBeUndefined()
-    expect(await t.run((ctx) => ctx.db.get(first.snapshotId))).not.toBeNull()
+    expect(await t.run((ctx) => ctx.db.get("pagePublishedSnapshots", first.snapshotId))).not.toBeNull()
     expect(
       publishedTitle(
         await t.query(api.cms.pages.getPublicPageById, {
@@ -412,7 +412,7 @@ describe("F08a Published Snapshots", () => {
         locale: "en",
       })
     ).toBeNull()
-    expect(await t.run((ctx) => ctx.db.get(second.snapshotId))).not.toBeNull()
+    expect(await t.run((ctx) => ctx.db.get("pagePublishedSnapshots", second.snapshotId))).not.toBeNull()
     expect(
       await t.query(api.cms.pages.resolveHistoricalPublishedPath, {
         languageVersion: 0,
@@ -457,7 +457,7 @@ describe("F08a Published Snapshots", () => {
         .withIndex("by_pageId", (q) => q.eq("pageId", childId))
         .unique()
       if (!shared) throw new Error("child shared draft missing")
-      await ctx.db.patch(shared._id, { system: { parentId } })
+      await ctx.db.patch("pageSharedDrafts", shared._id, { system: { parentId } })
     })
     await owner.mutation(api.cms.publication.publishLocale, {
       pageId: childId,
@@ -468,7 +468,7 @@ describe("F08a Published Snapshots", () => {
       expectedLifecycleGeneration: 1,
       expectedReleaseGeneration: 0,
     })
-    await t.run((ctx) => ctx.db.patch(childId, { parentId: undefined }))
+    await t.run((ctx) => ctx.db.patch("pages", childId, { parentId: undefined }))
     expect(
       await t.query(api.cms.pages.resolveLocalizedPathQuery, {
         languageVersion: 0,
@@ -542,9 +542,9 @@ describe("F08a Published Snapshots", () => {
       expectedReleaseGeneration: 0,
     })
     const linked = await t.run(async (ctx) => {
-      const snapshot = await ctx.db.get(published.snapshotId)
-      const candidate = snapshot ? await ctx.db.get(snapshot.candidateId) : null
-      const release = snapshot ? await ctx.db.get(snapshot.releaseId) : null
+      const snapshot = await ctx.db.get("pagePublishedSnapshots", published.snapshotId)
+      const candidate = snapshot ? await ctx.db.get("pageLocalePublicationCandidates", snapshot.candidateId) : null
+      const release = snapshot ? await ctx.db.get("pageLocalePublicationReleases", snapshot.releaseId) : null
       const state = await ctx.db
         .query("pageLocalePublicationStates")
         .withIndex("by_pageId_and_locale", (q) =>
@@ -557,7 +557,7 @@ describe("F08a Published Snapshots", () => {
       return { snapshot, candidate, release, state }
     })
     await t.run((ctx) =>
-      ctx.db.patch(linked.candidate._id, { digest: "sha256:invalid" })
+      ctx.db.patch("pageLocalePublicationCandidates", linked.candidate._id, { digest: "sha256:invalid" })
     )
     expect(
       await t.query(api.cms.pages.getPublicPageById, {
@@ -567,10 +567,10 @@ describe("F08a Published Snapshots", () => {
       })
     ).toBeNull()
     await t.run((ctx) =>
-      ctx.db.patch(linked.candidate._id, { digest: linked.candidate.digest })
+      ctx.db.patch("pageLocalePublicationCandidates", linked.candidate._id, { digest: linked.candidate.digest })
     )
     await t.run((ctx) =>
-      ctx.db.patch(linked.release._id, { expectedPublicGeneration: 99 })
+      ctx.db.patch("pageLocalePublicationReleases", linked.release._id, { expectedPublicGeneration: 99 })
     )
     expect(
       await t.query(api.cms.pages.getPublicPageById, {
@@ -580,12 +580,12 @@ describe("F08a Published Snapshots", () => {
       })
     ).toBeNull()
     await t.run((ctx) =>
-      ctx.db.patch(linked.release._id, {
+      ctx.db.patch("pageLocalePublicationReleases", linked.release._id, {
         expectedPublicGeneration: linked.release.expectedPublicGeneration,
       })
     )
     await t.run((ctx) =>
-      ctx.db.patch(linked.state._id, {
+      ctx.db.patch("pageLocalePublicationStates", linked.state._id, {
         currentPublishedAt: linked.state.currentPublishedAt! + 1,
       })
     )
@@ -597,12 +597,12 @@ describe("F08a Published Snapshots", () => {
       })
     ).toBeNull()
     await t.run((ctx) =>
-      ctx.db.patch(linked.state._id, {
+      ctx.db.patch("pageLocalePublicationStates", linked.state._id, {
         currentPublishedAt: linked.state.currentPublishedAt,
       })
     )
     await t.run((ctx) =>
-      ctx.db.patch(published.snapshotId, {
+      ctx.db.patch("pagePublishedSnapshots", published.snapshotId, {
         sourceLifecycleGeneration: 99,
       })
     )
@@ -638,7 +638,7 @@ describe("F08a Published Snapshots", () => {
       expectedLifecycleGeneration: 1,
       expectedReleaseGeneration: 0,
     })
-    await missingPageApp.run((ctx) => ctx.db.delete(missingPageId))
+    await missingPageApp.run((ctx) => ctx.db.delete("pages", missingPageId))
     expect(
       await missingPageApp.query(api.cms.pages.getPublicPageById, {
         languageVersion: 0,
@@ -663,7 +663,7 @@ describe("F08a Published Snapshots", () => {
       expectedReleaseGeneration: 0,
     })
     await wrongTypeApp.run((ctx) =>
-      ctx.db.patch(wrongTypePageId, { pageType: "page" } as never)
+      ctx.db.patch("pages", wrongTypePageId, { pageType: "page" } as never)
     )
     expect(
       await wrongTypeApp.query(api.cms.pages.getPublicPageById, {
@@ -688,8 +688,8 @@ describe("F08a Published Snapshots", () => {
       expectedReleaseGeneration: 0,
     })
     const linked = await t.run(async (ctx) => {
-      const snapshot = await ctx.db.get(published.snapshotId)
-      const release = snapshot ? await ctx.db.get(snapshot.releaseId) : null
+      const snapshot = await ctx.db.get("pagePublishedSnapshots", published.snapshotId)
+      const release = snapshot ? await ctx.db.get("pageLocalePublicationReleases", snapshot.releaseId) : null
       const state = await ctx.db
         .query("pageLocalePublicationStates")
         .withIndex("by_pageId_and_locale", (q) =>
@@ -705,8 +705,8 @@ describe("F08a Published Snapshots", () => {
     // Keep the pointer/header agreement intact while breaking only the
     // snapshotGeneration === sourcePublicGeneration + 1 invariant.
     await t.run(async (ctx) => {
-      await ctx.db.patch(linked.snapshot._id, { generation: 2 })
-      await ctx.db.patch(linked.state._id, { publicGeneration: 2 })
+      await ctx.db.patch("pagePublishedSnapshots", linked.snapshot._id, { generation: 2 })
+      await ctx.db.patch("pageLocalePublicationStates", linked.state._id, { publicGeneration: 2 })
     })
     expect(
       await t.query(api.cms.pages.getPublicPageById, {
@@ -718,12 +718,12 @@ describe("F08a Published Snapshots", () => {
 
     await t.run(async (ctx) => {
       const historyAt = linked.release.createdAt - 2
-      await ctx.db.patch(linked.snapshot._id, { generation: 1 })
-      await ctx.db.patch(linked.state._id, {
+      await ctx.db.patch("pagePublishedSnapshots", linked.snapshot._id, { generation: 1 })
+      await ctx.db.patch("pageLocalePublicationStates", linked.state._id, {
         publicGeneration: 1,
         releaseGeneration: 3,
       })
-      await ctx.db.patch(linked.release._id, { generation: 3 })
+      await ctx.db.patch("pageLocalePublicationReleases", linked.release._id, { generation: 3 })
       await ctx.db.insert("pageLocalePublicationReleases", {
         pageId,
         locale: "en",
@@ -785,7 +785,7 @@ describe("F08a Published Snapshots", () => {
       const now = Date.now()
       const settings = await ctx.db.query("siteSettings").unique()
       if (!settings) throw new Error("settings fixture missing")
-      await ctx.db.patch(settings._id, { updatedAt: now })
+      await ctx.db.patch("siteSettings", settings._id, { updatedAt: now })
       await ctx.db.insert("menus", {
         slug: "primary",
         updatedAt: now,
@@ -806,7 +806,7 @@ describe("F08a Published Snapshots", () => {
         updatedAt: now,
       })
       // Legacy data would otherwise synthesize a home and a different URL.
-      await ctx.db.patch(pageId, {
+      await ctx.db.patch("pages", pageId, {
         status: "published",
         slug: "legacy-mutated",
       })
@@ -854,7 +854,7 @@ describe("F08a Published Snapshots", () => {
           q.eq("pageId", pageId).eq("locale", "fr")
         )
         .unique()
-      if (frDraft) await ctx.db.delete(frDraft._id)
+      if (frDraft) await ctx.db.delete("pageLocaleDrafts", frDraft._id)
     })
     const fallbackSession = await owner.mutation(
       api.cms.preview.createPreviewSession,
@@ -1160,8 +1160,8 @@ describe("historical Published Snapshot restoration", () => {
       publishFirst
     )
     const immutable = await t.run(async (ctx) => {
-      const snapshot = (await ctx.db.get(first.snapshotId))!
-      return { snapshot, candidate: await ctx.db.get(snapshot.candidateId) }
+      const snapshot = (await ctx.db.get("pagePublishedSnapshots", first.snapshotId))!
+      return { snapshot, candidate: await ctx.db.get("pageLocalePublicationCandidates", snapshot.candidateId) }
     })
     const originalPublic = await readPublic("en")
     expect(originalPublic).toMatchObject({
@@ -1209,8 +1209,8 @@ describe("historical Published Snapshot restoration", () => {
     expect((await readPublic("en"))?.content).toEqual(originalPublic?.content)
     expect(
       await t.run(async (ctx) => ({
-        snapshot: await ctx.db.get(first.snapshotId),
-        candidate: await ctx.db.get(immutable.snapshot.candidateId),
+        snapshot: await ctx.db.get("pagePublishedSnapshots", first.snapshotId),
+        candidate: await ctx.db.get("pageLocalePublicationCandidates", immutable.snapshot.candidateId),
       }))
     ).toEqual(immutable)
     expect({
@@ -1324,7 +1324,7 @@ describe("historical Published Snapshot restoration", () => {
       const { t, owner, args } = await fixture()
       await t.run(async (ctx) => {
         const settings = (await ctx.db.query("siteSettings").unique())!
-        await ctx.db.patch(settings._id, {
+        await ctx.db.patch("siteSettings", settings._id, {
           defaultLocale,
           enabledLocales: [...enabledLocales],
         })
@@ -1342,7 +1342,7 @@ describe("historical Published Snapshot restoration", () => {
       t
         .withIdentity({
           subject: "stranger",
-          tokenIdentifier: "https://convex.test|stranger",
+          tokenIdentifier: "stranger",
         })
         .mutation(api.cms.publication.restoreSnapshotAsDraft, args)
     ).rejects.toThrow()
@@ -1369,7 +1369,7 @@ describe("historical Published Snapshot restoration", () => {
     const before = await persisted(t)
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").first())!
-      await ctx.db.patch(settings._id, { archivedSliceTypes: ["hero-agency"] })
+      await ctx.db.patch("siteSettings", settings._id, { archivedSliceTypes: ["hero-agency"] })
     })
     await expect(
       owner.mutation(api.cms.publication.restoreSnapshotAsDraft, removalArgs)
@@ -1379,15 +1379,15 @@ describe("historical Published Snapshot restoration", () => {
   test("mixed supported/absent-Type history remains inspectable and whole restore refuses before writes", sliceProfile(["hero-agency"]), async () => {
     const { t, owner, args, old } = await fixture()
     await t.run(async (ctx) => {
-      const candidate = (await ctx.db.get(old.candidateId))!
+      const candidate = (await ctx.db.get("pageLocalePublicationCandidates", old.candidateId))!
       const payload = JSON.parse(candidate.payloadJson)
       payload.localized.content.slices[1].type = "absent-profile-type"
       const serialized = serializeLocalePublicationCandidate(payload)
       const digest = await digestLocalePublicationCandidate(
         serialized.payloadJson
       )
-      await ctx.db.patch(candidate._id, { ...serialized, digest })
-      await ctx.db.patch(old.snapshotId, { candidateDigest: digest })
+      await ctx.db.patch("pageLocalePublicationCandidates", candidate._id, { ...serialized, digest })
+      await ctx.db.patch("pagePublishedSnapshots", old.snapshotId, { candidateDigest: digest })
     })
     const before = await persisted(t)
     const history = await owner.query(api.cms.publication.listSnapshotHistory, {
@@ -1521,7 +1521,7 @@ describe("historical Published Snapshot restoration", () => {
         storageId: media.storageId,
       }),
     ])
-    await t.run((ctx) => ctx.db.delete(media.mediaId))
+    await t.run((ctx) => ctx.db.delete("media", media.mediaId))
     const before = await persisted(t)
     await expect(
       owner.mutation(
@@ -1597,7 +1597,7 @@ describe("historical Published Snapshot restoration", () => {
         .collect()
     )
     expect(refs).toEqual([expect.objectContaining({ targetId: authorId })])
-    await t.run((ctx) => ctx.db.delete(authorId))
+    await t.run((ctx) => ctx.db.delete("pages", authorId))
     const before = await persisted(t)
     await expect(
       owner.mutation(
@@ -1681,7 +1681,7 @@ describe("archived-Type Working Draft admission", () => {
   async function archive(t: T) {
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, {
+      await ctx.db.patch("siteSettings", settings._id, {
         archivedSliceTypes: ["hero-with-image"],
       })
     })
@@ -1724,7 +1724,7 @@ describe("archived-Type Working Draft admission", () => {
     t: T,
     candidateId: Id<"pageLocalePublicationCandidates">
   ) {
-    const candidate = (await t.run((ctx) => ctx.db.get(candidateId)))!
+    const candidate = (await t.run((ctx) => ctx.db.get("pageLocalePublicationCandidates", candidateId)))!
     return JSON.parse(candidate.payloadJson).localized.content.slices
   }
 

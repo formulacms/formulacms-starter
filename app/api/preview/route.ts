@@ -2,7 +2,7 @@ import { cookies, draftMode } from "next/headers";
 import { redirect } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { fetchAuthMutation, safeIsAuthenticated } from "@/lib/auth-server";
+import { fetchAuthMutation, safeIsAuthenticated } from "@/lib/auth/server";
 import { PREVIEW_SESSION_COOKIE } from "@/lib/preview-session";
 import { safeNextPath } from "@/app/(core)/(auth)/sign-in/safe-next-path";
 

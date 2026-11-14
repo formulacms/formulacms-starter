@@ -60,7 +60,7 @@ vi.mock("./lib/publishing/publicationContributions", async (importOriginal) => {
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "f08b-owner",
-  tokenIdentifier: "https://convex.test|f08b-owner",
+  tokenIdentifier: "f08b-owner",
 }
 
 function app() {
@@ -501,7 +501,7 @@ describe("F08b publication contribution transaction boundary", () => {
     const second = await publishEn(t, owner, pageId)
 
     expect(seen).toHaveLength(2)
-    const candidate = await t.run((ctx) => ctx.db.get(first.candidateId))
+    const candidate = await t.run((ctx) => ctx.db.get("pageLocalePublicationCandidates", first.candidateId))
     expect(seen[0]!.event).toEqual({
       kind: "publish",
       pageId,

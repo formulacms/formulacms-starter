@@ -2,11 +2,9 @@ type EnvSource = Record<string, string | undefined>
 
 const PLACEHOLDER_PARTS = ["replace-with", "your-deployment"]
 
-const REQUIRED_NEXT_RUNTIME_ENV = [
-  "NEXT_PUBLIC_CONVEX_URL",
-  "NEXT_PUBLIC_CONVEX_SITE_URL",
-  "BETTER_AUTH_SECRET",
-] as const
+// Convex Auth on Next.js needs only the deployment URL (ADR-0056); its
+// signing keys live in the Convex deployment, never in the Next.js app.
+const REQUIRED_NEXT_RUNTIME_ENV = ["NEXT_PUBLIC_CONVEX_URL"] as const
 
 type RequiredNextRuntimeEnv = (typeof REQUIRED_NEXT_RUNTIME_ENV)[number]
 
@@ -23,16 +21,12 @@ function readRequiredEnv(name: RequiredNextRuntimeEnv, env: EnvSource): string {
 }
 
 function missingEnvMessage(name: RequiredNextRuntimeEnv): string {
-  if (name === "BETTER_AUTH_SECRET") {
-    return `Missing required environment variable ${name}. On your computer, run pnpm dev in a terminal and answer Convex's question; it finishes the local setup. On a hosted site, set ${name} in your host's environment.`
-  }
   return `Missing required environment variable ${name}. On your computer, run pnpm dev in a terminal and answer Convex's question; Convex writes it to .env.local. On a hosted site, set ${name} in your host's environment.`
 }
 
 export function getNextAuthEnv(env: EnvSource = process.env) {
   return {
     convexUrl: readRequiredEnv("NEXT_PUBLIC_CONVEX_URL", env),
-    convexSiteUrl: readRequiredEnv("NEXT_PUBLIC_CONVEX_SITE_URL", env),
   }
 }
 

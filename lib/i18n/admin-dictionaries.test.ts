@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   getCachedSiteConfig: vi.fn(),
 }))
 
-vi.mock("@/lib/auth-server", () => ({ fetchAuthQuery: mocks.fetchAuthQuery }))
+vi.mock("@/lib/auth/server", () => ({ fetchAuthQuery: mocks.fetchAuthQuery }))
 vi.mock("./site-config", () => ({
   getCachedSiteConfig: mocks.getCachedSiteConfig,
 }))

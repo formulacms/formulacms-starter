@@ -20,7 +20,7 @@ const state = vi.hoisted(() => ({
   media: [] as unknown[],
 }))
 vi.mock("next/server", () => ({ connection: async () => {} }))
-vi.mock("@/lib/auth-server", () => ({
+vi.mock("@/lib/auth/server", () => ({
   fetchAuthQuery: async (ref: unknown) => {
     const { getFunctionName } = await import("convex/server")
     return getFunctionName(ref as never).includes("media")

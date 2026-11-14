@@ -1,6 +1,6 @@
 import { redirect, unstable_rethrow } from "next/navigation"
 import { api } from "@/convex/_generated/api"
-import { fetchAuthQuery, safeIsAuthenticated } from "@/lib/auth-server"
+import { fetchAuthQuery, safeIsAuthenticated } from "@/lib/auth/server"
 import { AdminShell } from "@/components/admin/admin-shell"
 import { INSTALLED_ADMIN_CONTRIBUTIONS } from "./admin-contributions"
 import { reportContainedModuleFailure } from "@/lib/modules/containment"
@@ -12,7 +12,7 @@ export async function AuthenticatedAdminShell({
   children: React.ReactNode
 }) {
   // The authenticated route group is also the direct-route boundary. A
-  // Better Auth session alone is insufficient: only the exact durable owner
+  // Convex Auth session alone is insufficient: only the exact durable owner
   // binding may render the admin tree.
   if (!(await safeIsAuthenticated())) redirect("/sign-in")
   const owner = await fetchAuthQuery(api.cms.owner.getOwnerSession, {})

@@ -11,12 +11,12 @@ import rateLimiterTest from "@convex-dev/rate-limiter/test"
 const modules = import.meta.glob("./**/*.ts")
 const owner = {
   subject: "f03c-owner",
-  tokenIdentifier: "https://issuer.test|f03c-owner",
+  tokenIdentifier: "f03c-owner",
   email: "owner@example.test",
 }
 const unrelated = {
   subject: "f03c-unrelated",
-  tokenIdentifier: "https://issuer.test|f03c-unrelated",
+  tokenIdentifier: "f03c-unrelated",
   email: "unrelated@example.test",
 }
 
@@ -114,19 +114,18 @@ describe("F03c Community optional and agent boundaries", () => {
     const id = await asOwner.mutation(api.cms.menus.createCanonical, {
       slug: "f03c-main",
     })
-    const created = await t.run((ctx) => ctx.db.get(id))
+    const created = await t.run((ctx) => ctx.db.get("menus", id))
     // F01 invariant 8: attribution is the authenticated `tokenIdentifier`.
-    // `owner.subject` (the Better Auth account id) is a different string, so
-    // this assertion actually discriminates the two.
+    // Under Convex Auth (ADR-0056 rule 2) it holds the user ID, which is
+    // stable across sessions; the session ID (the token subject) is never stored.
     expect(created?.updatedBy).toBe(owner.tokenIdentifier)
-    expect(created?.updatedBy).not.toBe(owner.subject)
 
     await asOwner.mutation(api.cms.menus.saveCanonical, {
       slug: "f03c-main",
       locale: "en",
       nav: [],
     })
-    const saved = await t.run((ctx) => ctx.db.get(id))
+    const saved = await t.run((ctx) => ctx.db.get("menus", id))
     expect(saved?.updatedBy).toBe(owner.tokenIdentifier)
   })
 

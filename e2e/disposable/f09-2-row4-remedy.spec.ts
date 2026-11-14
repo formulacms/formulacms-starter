@@ -11,12 +11,10 @@ import {
   controlSnapshot,
   expectConvexDenialWithoutChange,
   getLocaleDisplayName,
-  localOrigin,
   ownerPage,
   pageTranslator,
   requireDisposableStage,
   required,
-  signIn,
 } from "../support"
 
 async function startReplacement(page: Page, source: string, target: string) {
@@ -71,21 +69,21 @@ async function waitForPreparing(client: ConvexHttpClient) {
   throw new Error("F09 row 4 did not reach preparation")
 }
 
-async function denyBoth(
+// There is no second account (ADR-0056: one owner, no public sign-up), so
+// the non-owner case runs signed out.
+async function denySignedOut(
   readControl: () => Promise<unknown>,
-  unrelatedAction: () => Promise<unknown>,
   signedOutAction: () => Promise<unknown>
 ) {
-  await expectConvexDenialWithoutChange(readControl, unrelatedAction, "CMS_OWNER_REQUIRED")
   await expectConvexDenialWithoutChange(readControl, signedOutAction, "UNAUTHENTICATED")
 }
 
 /**
  * F09 stage 2 — row 4 plus F01/R2 remedy. Preconditions: stage 1 left current
- * French with no open operation; the owner and unrelated B have real sessions;
+ * French with no open operation; the owner has a real session;
  * a French Home is now publishable and the English target editor is test-owned.
  * Row 4 checks start, prepare, confirm, activate and cancel through signed
- * clients: B and signed-out are refused with exact codes, every denial leaves
+ * clients: signed-out calls are refused with exact codes, every denial leaves
  * the owner-visible control rows byte-equivalent, and the owner positive action
  * succeeds. The resulting retained French target draft is then deleted only by
  * the guarded post-cancel editor remedy; restart is unblocked and is cancelled.
@@ -99,8 +97,6 @@ async function denyBoth(
 test("F09 row 4 denies non-owners and the retained-target remedy unblocks restart", async ({ browser }) => {
   requireDisposableStage("f09", "f09-2-row4-remedy")
   const owner = await ownerPage(browser)
-  const unrelatedContext = await browser.newContext({ baseURL: localOrigin() })
-  const unrelatedPage = await unrelatedContext.newPage()
   try {
     const ownerClient = await clientFor(owner)
     expect(await ownerClient.query(api.cms.language.getLanguageState, {})).toMatchObject({
@@ -109,8 +105,6 @@ test("F09 row 4 denies non-owners and the retained-target remedy unblocks restar
       enabledLocales: ["fr"],
       transition: null,
     })
-    await signIn(unrelatedPage, required("FR6_E2E_B_EMAIL"), required("FR6_E2E_B_PASSWORD"))
-    const unrelated = await clientFor(unrelatedPage)
     const signedOut = anonymousClient()
     const homeId = required("FR6_E2E_F09_HOME_ID") as Id<"pages">
 
@@ -135,9 +129,8 @@ test("F09 row 4 denies non-owners and the retained-target remedy unblocks restar
       state: await ownerClient.query(api.cms.language.getLanguageState, {}),
       page: await ownerClient.query(api.cms.pages.getForEdit, { id: homeId }),
     })
-    await denyBoth(
+    await denySignedOut(
       readPreStart,
-      () => unrelated.mutation(api.cms.language.startLanguageTransition, startArgs),
       () => signedOut.mutation(api.cms.language.startLanguageTransition, startArgs)
     )
     await startReplacement(owner, "fr", "en")
@@ -151,9 +144,8 @@ test("F09 row 4 denies non-owners and the retained-target remedy unblocks restar
       disposition: "target" as const,
       expectedPageGeneration: row.generation,
     }
-    await denyBoth(
+    await denySignedOut(
       () => control(ownerClient),
-      () => unrelated.mutation(api.cms.language.setPageDisposition, dispositionArgs),
       () => signedOut.mutation(api.cms.language.setPageDisposition, dispositionArgs)
     )
     await ownerClient.mutation(api.cms.language.setPageDisposition, dispositionArgs)
@@ -174,9 +166,8 @@ test("F09 row 4 denies non-owners and the retained-target remedy unblocks restar
       expectedSharedDraftGeneration: row.sharedDraftGeneration,
       expectedPageGeneration: row.generation,
     }
-    await denyBoth(
+    await denySignedOut(
       () => control(ownerClient),
-      () => unrelated.mutation(api.cms.language.confirmTargetContent, confirmArgs),
       () => signedOut.mutation(api.cms.language.confirmTargetContent, confirmArgs)
     )
     await ownerClient.mutation(api.cms.language.confirmTargetContent, confirmArgs)
@@ -187,9 +178,8 @@ test("F09 row 4 denies non-owners and the retained-target remedy unblocks restar
       pageId: homeId,
       expectedPageGeneration: row.generation,
     }
-    await denyBoth(
+    await denySignedOut(
       () => control(ownerClient),
-      () => unrelated.mutation(api.cms.language.prepareTargetPage, prepareArgs),
       () => signedOut.mutation(api.cms.language.prepareTargetPage, prepareArgs)
     )
     await ownerClient.mutation(api.cms.language.prepareTargetPage, prepareArgs)
@@ -209,9 +199,8 @@ test("F09 row 4 denies non-owners and the retained-target remedy unblocks restar
       expectedPreparedSetVersion: state.transition!.preparedSetVersion,
       expectedCarryDecisionDigest: state.transition!.carryDecisionDigest ?? undefined,
     }
-    await denyBoth(
+    await denySignedOut(
       () => control(ownerClient),
-      () => unrelated.mutation(api.cms.language.confirmTransitionPreview, previewArgs),
       () => signedOut.mutation(api.cms.language.confirmTransitionPreview, previewArgs)
     )
     await ownerClient.mutation(api.cms.language.confirmTransitionPreview, previewArgs)
@@ -240,9 +229,8 @@ test("F09 row 4 denies non-owners and the retained-target remedy unblocks restar
       expectedSettingsUpdatedAt: readySettings.updatedAt,
       expectedReadinessVersion: state.transition.readinessVersion,
     }
-    await denyBoth(
+    await denySignedOut(
       () => control(ownerClient),
-      () => unrelated.mutation(api.cms.language.activateLanguageTransition, activateArgs),
       () => signedOut.mutation(api.cms.language.activateLanguageTransition, activateArgs)
     )
     await ownerClient.mutation(api.cms.language.activateLanguageTransition, activateArgs)
@@ -263,9 +251,8 @@ test("F09 row 4 denies non-owners and the retained-target remedy unblocks restar
       expectedGeneration: state.transition.generation,
       discardTargetDrafts: false,
     }
-    await denyBoth(
+    await denySignedOut(
       () => control(ownerClient),
-      () => unrelated.mutation(api.cms.language.cancelLanguageTransition, cancelArgs),
       () => signedOut.mutation(api.cms.language.cancelLanguageTransition, cancelArgs)
     )
     await ownerClient.mutation(api.cms.language.cancelLanguageTransition, cancelArgs)
@@ -320,6 +307,5 @@ test("F09 row 4 denies non-owners and the retained-target remedy unblocks restar
     })
   } finally {
     await owner.context().close()
-    await unrelatedContext.close()
   }
 })

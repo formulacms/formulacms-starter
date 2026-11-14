@@ -33,7 +33,7 @@ export async function buildSliceRenderContext(opts: {
   const relationIds = collectRelationIds(slices)
   const fetchPreviewQuery =
     isPreview && (pageIds.length > 0 || relationIds.length > 0)
-      ? (await import("@/lib/auth-server")).fetchAuthQuery
+      ? (await import("@/lib/auth/server")).fetchAuthQuery
       : null
   const pagePaths =
     pageIds.length > 0

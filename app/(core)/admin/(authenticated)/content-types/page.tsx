@@ -2,7 +2,7 @@ import { connection } from "next/server"
 import { notFound } from "next/navigation"
 import { getTranslations } from "next-intl/server"
 import { api } from "@/convex/_generated/api"
-import { fetchAuthQuery } from "@/lib/auth-server"
+import { fetchAuthQuery } from "@/lib/auth/server"
 import { ContentTypeCatalog } from "@/components/admin/content-types/content-type-catalog"
 import { getStarterCurationState } from "@/lib/content-types/starter-curation"
 

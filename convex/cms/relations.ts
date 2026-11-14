@@ -244,7 +244,7 @@ export const getReferenceCard = query({
   returns: v.union(referenceCardValidator, v.null()),
   handler: async (ctx, args) => {
     await requireOperationAccess(ctx)
-    const doc: Doc<"pages"> | null = await ctx.db.get(args.id)
+    const doc: Doc<"pages"> | null = await ctx.db.get("pages", args.id)
     if (!doc) return null
     if (doc.deletedAt !== undefined) return null
     if (!isActiveContentType(doc.pageType)) return null

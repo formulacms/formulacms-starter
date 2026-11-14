@@ -19,7 +19,7 @@ const canonicalBody = (text: string) =>
 
 
 const modules = import.meta.glob("./**/*.ts")
-const owner = { subject: "checklist-owner", tokenIdentifier: "https://convex.test|checklist-owner" }
+const owner = { subject: "checklist-owner", tokenIdentifier: "checklist-owner" }
 function setup() {
   const t = convexTest({ schema, modules, ownerIdentity: owner })
   return { t, actor: t.withIdentity(owner) }

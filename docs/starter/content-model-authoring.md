@@ -68,9 +68,18 @@ Read the command interface without authentication or writes:
 node --import tsx scripts/author-slices.ts --help
 ```
 
-Run authoring commands only in a separately created local application. Supply
-its app root, local app and backend URLs, and protected owner-session cookie
-file explicitly. Review model or renderer changes first; apply them with the
+Run authoring commands in your own site (the clone you made), on a local
+backend. They never run in production or in the formulacms source repository.
+Sign the CLI in once with the owner's username and password:
+
+```sh
+pnpm slices:author login --app-root <app> --backend-url http://127.0.0.1:3210
+```
+
+The CLI keeps its own session in `<app>/.slice-authoring-session.json`
+(git-ignored, readable only by you) and renews it by itself, so it does not
+sign the browser out. `logout` with the same options ends it. Each command
+then takes the app root and the local app and backend URLs. Review model or renderer changes first; apply them with the
 exact reviewed revision. `review-create` and `create` use a developer-authored
 specification and the current catalog revision. Writes check owner access,
 retained content compatibility, current source and installed gates, with

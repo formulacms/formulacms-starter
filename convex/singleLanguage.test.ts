@@ -23,11 +23,11 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "f09a-owner",
-  tokenIdentifier: "https://convex.test|f09a-owner",
+  tokenIdentifier: "f09a-owner",
 }
 const STRANGER = {
   subject: "f09a-stranger",
-  tokenIdentifier: "https://convex.test|f09a-stranger",
+  tokenIdentifier: "f09a-stranger",
 }
 
 type T = ReturnType<typeof convexTest>
@@ -199,7 +199,7 @@ async function startTransition(
 }
 
 async function transitionOf(t: T, id: Id<"siteLanguageTransitions">) {
-  const transition = await t.run((ctx) => ctx.db.get(id))
+  const transition = await t.run((ctx) => ctx.db.get("siteLanguageTransitions", id))
   if (!transition) throw new Error("transition missing")
   return transition
 }
@@ -257,7 +257,7 @@ async function activationArgs(
   id: Id<"siteLanguageTransitions">
 ): Promise<ActivationArgs> {
   const { transition, settings, authority } = await t.run(async (ctx) => ({
-    transition: await ctx.db.get(id),
+    transition: await ctx.db.get("siteLanguageTransitions", id),
     settings: await ctx.db.query("siteSettings").unique(),
     authority: await ctx.db.query("siteLanguageAuthority").unique(),
   }))
@@ -365,7 +365,7 @@ async function seedPointedContinuity(
         createdAt: 10 + index,
       })
     }
-    await ctx.db.patch(authority._id, {
+    await ctx.db.patch("siteLanguageAuthority", authority._id, {
       continuityPointer: { migrationId, generation: 1 },
     })
     return routeIds
@@ -451,9 +451,9 @@ async function freshCarryCoverageFixture() {
         q.eq("transitionId", transitionId).eq("pageId", ids.carry!)
       )
       .unique()
-    const transition = await ctx.db.get(transitionId)
-    await ctx.db.patch(row!._id, { disposition: "target", status: "ready" })
-    await ctx.db.patch(transitionId, {
+    const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
+    await ctx.db.patch("siteLanguageTransitionPages", row!._id, { disposition: "target", status: "ready" })
+    await ctx.db.patch("siteLanguageTransitions", transitionId, {
       targetCount: transition!.targetCount + 1,
       unresolvedCount: transition!.unresolvedCount - 1,
     })
@@ -605,7 +605,7 @@ describe("M05 P24 carry conversion and reconciliation (C3e.2)", () => {
       },
     ])
     await t.run(async (ctx) => {
-      const pointed = await ctx.db.get(routeIds.carry!)
+      const pointed = await ctx.db.get("siteDefaultLanguageRoutes", routeIds.carry!)
       await ctx.db.insert("siteDefaultLanguageRoutes", {
         migrationId: pointed!.migrationId,
         generation: 2,
@@ -636,7 +636,7 @@ describe("M05 P24 carry conversion and reconciliation (C3e.2)", () => {
         .collect()
       for (const row of rows) {
         if (row.pageId === ids.disposition!) continue
-        await ctx.db.patch(row._id, { disposition: "target", status: "ready" })
+        await ctx.db.patch("siteLanguageTransitionPages", row._id, { disposition: "target", status: "ready" })
       }
       await ctx.db.insert("siteLanguageTransitionRoutes", {
         transitionId,
@@ -759,9 +759,9 @@ describe("M05 P24 carry conversion and reconciliation (C3e.2)", () => {
           q.eq("transitionId", transitionId).eq("pageId", ids.carry!)
         )
         .unique()
-      const transition = await ctx.db.get(transitionId)
-      await ctx.db.patch(row!._id, { disposition: "target", status: "ready" })
-      await ctx.db.patch(transitionId, {
+      const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
+      await ctx.db.patch("siteLanguageTransitionPages", row!._id, { disposition: "target", status: "ready" })
+      await ctx.db.patch("siteLanguageTransitions", transitionId, {
         targetCount: transition!.targetCount + 1,
         unresolvedCount: transition!.unresolvedCount - 1,
       })
@@ -973,14 +973,14 @@ describe("M05 P24 carry conversion and reconciliation (C3e.2)", () => {
             .unique()
         )
       )
-      const transition = await ctx.db.get(transitionId)
+      const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
       for (const row of rows) {
-        await ctx.db.patch(row!._id, {
+        await ctx.db.patch("siteLanguageTransitionPages", row!._id, {
           disposition: "target",
           status: "ready",
         })
       }
-      await ctx.db.patch(transitionId, {
+      await ctx.db.patch("siteLanguageTransitions", transitionId, {
         targetCount: transition!.targetCount + 2,
         unresolvedCount: transition!.unresolvedCount - 2,
       })
@@ -1012,7 +1012,7 @@ describe("M05 P24 carry conversion and reconciliation (C3e.2)", () => {
           q.eq("transitionId", transitionId).eq("routeId", routeIds.carry!)
         )
         .unique(),
-      pointed: await ctx.db.get(routeIds.carry!),
+      pointed: await ctx.db.get("siteDefaultLanguageRoutes", routeIds.carry!),
       owned: await ctx.db
         .query("siteLanguageTransitionRoutes")
         .withIndex("by_transitionId_and_fromPath", (q) =>
@@ -1174,7 +1174,7 @@ describe("M05 P24 carry conversion and reconciliation (C3e.2)", () => {
       generation: carrying.generation,
     })
     const stored = await t.run(async (ctx) => ({
-      transition: await ctx.db.get(second),
+      transition: await ctx.db.get("siteLanguageTransitions", second),
       authority: await ctx.db.query("siteLanguageAuthority").unique(),
       page: await ctx.db
         .query("siteLanguageTransitionPages")
@@ -1253,9 +1253,9 @@ describe("M05 P24 carry coverage (C3e.3a)", () => {
           q.eq("transitionId", transitionId).eq("pageId", ids.carry!)
         )
         .unique()
-      const transition = await ctx.db.get(transitionId)
-      await ctx.db.patch(row!._id, { disposition: "target", status: "ready" })
-      await ctx.db.patch(transitionId, {
+      const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
+      await ctx.db.patch("siteLanguageTransitionPages", row!._id, { disposition: "target", status: "ready" })
+      await ctx.db.patch("siteLanguageTransitions", transitionId, {
         targetCount: transition!.targetCount + 1,
         unresolvedCount: transition!.unresolvedCount - 1,
       })
@@ -1328,22 +1328,22 @@ describe("M05 P24 carry coverage (C3e.3a)", () => {
           .unique()
         if (!decision) throw new Error("decision missing")
         if (corruption === "missing") {
-          await ctx.db.delete(decision._id)
+          await ctx.db.delete("siteLanguageCarryDecisions", decision._id)
         } else if (corruption === "duplicate") {
           const { _id, _creationTime, ...fields } = decision
           void _id
           void _creationTime
           await ctx.db.insert("siteLanguageCarryDecisions", fields)
         } else if (corruption === "stale_source") {
-          await ctx.db.patch(transitionId, {
+          await ctx.db.patch("siteLanguageTransitions", transitionId, {
             sourcePublicSetVersion: before.sourcePublicSetVersion + 1,
           })
         } else if (corruption === "stale_input") {
-          await ctx.db.patch(transitionId, {
+          await ctx.db.patch("siteLanguageTransitions", transitionId, {
             carryInputVersion: (before.carryInputVersion ?? 0) + 1,
           })
         } else if (corruption === "stale_generation") {
-          await ctx.db.patch(transitionId, {
+          await ctx.db.patch("siteLanguageTransitions", transitionId, {
             carryDecisionGeneration: (before.carryDecisionGeneration ?? 0) + 1,
           })
         } else if (corruption === "live_drop_retired") {
@@ -1353,10 +1353,10 @@ describe("M05 P24 carry coverage (C3e.3a)", () => {
               q.eq("transitionId", transitionId).eq("fromPath", "/legacy-carry")
             )
             .unique()
-          await ctx.db.patch(decision._id, { outcome: "drop_retired" })
-          await ctx.db.delete(route!._id)
+          await ctx.db.patch("siteLanguageCarryDecisions", decision._id, { outcome: "drop_retired" })
+          await ctx.db.delete("siteLanguageTransitionRoutes", route!._id)
         } else if (corruption === "wrong_transition") {
-          const transition = await ctx.db.get(transitionId)
+          const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
           if (!transition) throw new Error("transition missing")
           const { _id, _creationTime, ...fields } = transition
           void _id
@@ -1368,9 +1368,9 @@ describe("M05 P24 carry coverage (C3e.3a)", () => {
             cursor: undefined,
             cancelledAt: Date.now(),
           })
-          await ctx.db.patch(decision._id, { transitionId: otherId })
+          await ctx.db.patch("siteLanguageCarryDecisions", decision._id, { transitionId: otherId })
         } else {
-          await ctx.db.patch(decision._id, { fromPath: "/wrong-path" })
+          await ctx.db.patch("siteLanguageCarryDecisions", decision._id, { fromPath: "/wrong-path" })
         }
       })
 
@@ -1410,7 +1410,7 @@ describe("M05 P24 carry coverage (C3e.3a)", () => {
           .unique()
         if (!route) throw new Error("owned route missing")
         if (corruption === "missing") {
-          await ctx.db.delete(route._id)
+          await ctx.db.delete("siteLanguageTransitionRoutes", route._id)
         } else if (corruption === "duplicate") {
           const { _id, _creationTime, ...fields } = route
           void _id
@@ -1425,9 +1425,9 @@ describe("M05 P24 carry coverage (C3e.3a)", () => {
             createdAt: Date.now(),
           })
         } else if (corruption === "wrong_page") {
-          await ctx.db.patch(route._id, { pageId: ids.other! })
+          await ctx.db.patch("siteLanguageTransitionRoutes", route._id, { pageId: ids.other! })
         } else if (corruption === "wrong_origin") {
-          await ctx.db.patch(route._id, { origin: "source_current" })
+          await ctx.db.patch("siteLanguageTransitionRoutes", route._id, { origin: "source_current" })
         } else if (corruption === "drop_has_owned") {
           const decision = await ctx.db
             .query("siteLanguageCarryDecisions")
@@ -1435,7 +1435,7 @@ describe("M05 P24 carry coverage (C3e.3a)", () => {
               q.eq("transitionId", transitionId).eq("routeId", routeId)
             )
             .unique()
-          await ctx.db.patch(decision!._id, { outcome: "drop_disposition" })
+          await ctx.db.patch("siteLanguageCarryDecisions", decision!._id, { outcome: "drop_disposition" })
         } else {
           const decision = await ctx.db
             .query("siteLanguageCarryDecisions")
@@ -1443,8 +1443,8 @@ describe("M05 P24 carry coverage (C3e.3a)", () => {
               q.eq("transitionId", transitionId).eq("routeId", routeId)
             )
             .unique()
-          await ctx.db.patch(decision!._id, { outcome: "drop_duplicate" })
-          await ctx.db.delete(route._id)
+          await ctx.db.patch("siteLanguageCarryDecisions", decision!._id, { outcome: "drop_duplicate" })
+          await ctx.db.delete("siteLanguageTransitionRoutes", route._id)
           for (const origin of [
             "source_current",
             "source_historical",
@@ -1504,11 +1504,11 @@ describe("M05 P24 carry coverage (C3e.3a)", () => {
           q.eq("transitionId", transitionId)
         )
         .collect()
-      const transition = await ctx.db.get(transitionId)
+      const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
       for (const row of rows) {
-        await ctx.db.patch(row._id, { disposition: "target", status: "ready" })
+        await ctx.db.patch("siteLanguageTransitionPages", row._id, { disposition: "target", status: "ready" })
       }
-      await ctx.db.patch(transitionId, {
+      await ctx.db.patch("siteLanguageTransitions", transitionId, {
         targetCount: transition!.targetCount + rows.length,
         unresolvedCount: transition!.unresolvedCount - rows.length,
       })
@@ -1533,12 +1533,12 @@ describe("M05 P24 carry coverage (C3e.3a)", () => {
           q.eq("transitionId", transitionId).eq("fromPath", "/path-16")
         )
         .unique()
-      await ctx.db.patch(routeIds["route-16"]!, { fromPath: "/path-15" })
-      await ctx.db.patch(decision!._id, {
+      await ctx.db.patch("siteDefaultLanguageRoutes", routeIds["route-16"]!, { fromPath: "/path-15" })
+      await ctx.db.patch("siteLanguageCarryDecisions", decision!._id, {
         fromPath: "/path-15",
         outcome: "drop_duplicate",
       })
-      await ctx.db.delete(route!._id)
+      await ctx.db.delete("siteLanguageTransitionRoutes", route!._id)
     })
     await runCoverageStep(t, transitionId)
     await driveTransitionUntil(t, transitionId, (transition) => {
@@ -1572,21 +1572,21 @@ describe("M05 P24 carry coverage (C3e.3a)", () => {
             q.eq("transitionId", transitionId).eq("fromPath", "/legacy-carry")
           )
           .unique()
-        await ctx.db.patch(routeId, {
+        await ctx.db.patch("siteDefaultLanguageRoutes", routeId, {
           retiredAt: Date.now(),
           retiredReason: "to_current",
         })
         if (state === "valid_terminal") {
-          await ctx.db.patch(decision!._id, { outcome: "drop_retired" })
-          await ctx.db.delete(owned!._id)
-          const transition = await ctx.db.get(transitionId)
-          await ctx.db.patch(transitionId, {
+          await ctx.db.patch("siteLanguageCarryDecisions", decision!._id, { outcome: "drop_retired" })
+          await ctx.db.delete("siteLanguageTransitionRoutes", owned!._id)
+          const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
+          await ctx.db.patch("siteLanguageTransitions", transitionId, {
             sourcePublicSetVersion: transition!.sourcePublicSetVersion + 1,
           })
         } else if (state === "wrong_outcome") {
-          await ctx.db.delete(owned!._id)
+          await ctx.db.delete("siteLanguageTransitionRoutes", owned!._id)
         } else {
-          await ctx.db.delete(decision!._id)
+          await ctx.db.delete("siteLanguageCarryDecisions", decision!._id)
         }
       })
 
@@ -1684,10 +1684,10 @@ describe("M05 P24 carry readiness gate (C3e.3b)", () => {
         expectedCarryDecisionDigest: covered.carryDecisionDigest,
       })
       await t.run(async (ctx) => {
-        const confirmed = await ctx.db.get(transitionId)
+        const confirmed = await ctx.db.get("siteLanguageTransitions", transitionId)
         if (!confirmed) throw new Error("transition missing")
         await ctx.db.patch(
-          transitionId,
+          "siteLanguageTransitions", transitionId,
           corruption === "missing_prepared"
             ? { previewConfirmedPreparedSetVersion: undefined }
             : corruption === "mismatched_prepared"
@@ -1810,7 +1810,7 @@ describe("M05 P24 carry readiness gate (C3e.3b)", () => {
         )
         .first()
       if (!decision) throw new Error("decision missing")
-      await ctx.db.delete(decision._id)
+      await ctx.db.delete("siteLanguageCarryDecisions", decision._id)
     })
 
     expect(
@@ -1846,7 +1846,7 @@ describe("M05 P24 carry readiness gate (C3e.3b)", () => {
       const armed = await transitionOf(t, transitionId)
       await t.run((ctx) =>
         ctx.db.patch(
-          transitionId,
+          "siteLanguageTransitions", transitionId,
           receipt === "prepared"
             ? { previewConfirmedPreparedSetVersion: undefined }
             : { previewConfirmedCarryDecisionDigest: undefined }
@@ -1894,7 +1894,7 @@ describe("M05 P24 carry readiness gate (C3e.3b)", () => {
         transition.cursorPhase === "validation"
     )
     await t.run((ctx) =>
-      ctx.db.patch(transitionId, {
+      ctx.db.patch("siteLanguageTransitions", transitionId, {
         previewConfirmedCarryDecisionDigest: undefined,
       })
     )
@@ -2000,9 +2000,9 @@ describe("M05 P11c bounded carry workers (C3e.2/C3e.3a/C3e.3b cells)", () => {
           q.eq("transitionId", transitionId).eq("pageId", ids.carry!)
         )
         .unique()
-      const transition = await ctx.db.get(transitionId)
-      await ctx.db.patch(row!._id, { disposition: "target", status: "ready" })
-      await ctx.db.patch(transitionId, {
+      const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
+      await ctx.db.patch("siteLanguageTransitionPages", row!._id, { disposition: "target", status: "ready" })
+      await ctx.db.patch("siteLanguageTransitions", transitionId, {
         targetCount: transition!.targetCount + 1,
         unresolvedCount: transition!.unresolvedCount - 1,
       })
@@ -2132,7 +2132,7 @@ describe("M05 P11c bounded carry workers (C3e.2/C3e.3a/C3e.3b cells)", () => {
     for (const injected of ["split", "reserve"] as const) {
       const { t, transitionId } = await freshCarryCoverageFixture()
       const before = await t.run(async (ctx) => ({
-        transition: await ctx.db.get(transitionId),
+        transition: await ctx.db.get("siteLanguageTransitions", transitionId),
         decisions: await ctx.db
           .query("siteLanguageCarryDecisions")
           .withIndex("by_transitionId_and_routeId", (q) =>
@@ -2171,7 +2171,7 @@ describe("M05 P11c bounded carry workers (C3e.2/C3e.3a/C3e.3b cells)", () => {
         metrics.mockRestore()
       }
       const after = await t.run(async (ctx) => ({
-        transition: await ctx.db.get(transitionId),
+        transition: await ctx.db.get("siteLanguageTransitions", transitionId),
         decisions: await ctx.db
           .query("siteLanguageCarryDecisions")
           .withIndex("by_transitionId_and_routeId", (q) =>
@@ -2203,7 +2203,7 @@ describe("M05 P11c bounded carry workers (C3e.2/C3e.3a/C3e.3b cells)", () => {
       const { t, transitionId } = await freshCarryCoverageFixture()
       const before = await transitionOf(t, transitionId)
       await t.run((ctx) =>
-        ctx.db.patch(transitionId, {
+        ctx.db.patch("siteLanguageTransitions", transitionId, {
           cursor: JSON.stringify({ ...JSON.parse(before.cursor!), size: 1 }),
         })
       )
@@ -2269,12 +2269,12 @@ describe("M05 P11c bounded carry workers (C3e.2/C3e.3a/C3e.3b cells)", () => {
             q.eq("transitionId", transitionId).eq("pageId", ids.carry!)
           )
           .unique()
-        const transition = await ctx.db.get(transitionId)
-        await ctx.db.patch(row!._id, {
+        const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
+        await ctx.db.patch("siteLanguageTransitionPages", row!._id, {
           disposition: "target",
           status: "ready",
         })
-        await ctx.db.patch(transitionId, {
+        await ctx.db.patch("siteLanguageTransitions", transitionId, {
           targetCount: transition!.targetCount + 1,
           unresolvedCount: transition!.unresolvedCount - 1,
         })
@@ -2332,7 +2332,7 @@ describe("M05 P11c bounded carry workers (C3e.2/C3e.3a/C3e.3b cells)", () => {
 
     const { t, transitionId } = await fixture()
     await t.run((ctx) =>
-      ctx.db.patch(transitionId, {
+      ctx.db.patch("siteLanguageTransitions", transitionId, {
         cursor: JSON.stringify({
           part: "decide",
           page: null,
@@ -2381,7 +2381,7 @@ describe("M05 C3e.1 carry foundation", () => {
     expect(legacy.carryInputVersion).toBeUndefined()
     expect(legacy.carryDecisionGeneration).toBeUndefined()
     await t.run((ctx) =>
-      ctx.db.patch(id, {
+      ctx.db.patch("siteLanguageTransitions", id, {
         carryInputVersion: 4,
         carryDecisionGeneration: 2,
         carryDecisionDigest: "carry-digest-a",
@@ -2424,7 +2424,7 @@ describe("M05 C3e.1 carry foundation", () => {
     const id = await startTransition(t, owner, "replace_content", "fr")
     await drain(t)
     await t.run((ctx) =>
-      ctx.db.patch(id, {
+      ctx.db.patch("siteLanguageTransitions", id, {
         carryInputVersion: 3,
         carryDecisionGeneration: 7,
         carryDecisionDigest: "carry-digest-live",
@@ -2454,9 +2454,9 @@ describe("M05 C3e.1 carry foundation", () => {
     expect(legacy.carryInputVersion).toBeUndefined()
     expect(legacy.carryDecisionGeneration).toBeUndefined()
 
-    await t.run((ctx) => ctx.db.patch(id, { cursorPhase: "carry_reconcile" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageTransitions", id, { cursorPhase: "carry_reconcile" }))
     expect((await transitionOf(t, id)).cursorPhase).toBe("carry_reconcile")
-    await t.run((ctx) => ctx.db.patch(id, { cursorPhase: "carry_coverage" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageTransitions", id, { cursorPhase: "carry_coverage" }))
     expect((await transitionOf(t, id)).cursorPhase).toBe("carry_coverage")
   })
 
@@ -2920,7 +2920,7 @@ describe("F09a refusals and authority", () => {
     const owner = t.withIdentity(OWNER)
     const { ids } = await englishSite(t, owner)
     const state = (await generations(t, ids.about!, "en")).state!
-    const snapshot = await t.run((ctx) => ctx.db.get(state.currentSnapshotId!))
+    const snapshot = await t.run((ctx) => ctx.db.get("pagePublishedSnapshots", state.currentSnapshotId!))
     for (const status of ["pending", "held"] as const) {
       const releaseId = await t.run((ctx) =>
         ctx.db.insert("pageLocalePublicationReleases", {
@@ -2941,7 +2941,7 @@ describe("F09a refusals and authority", () => {
         await codeOf(startTransition(t, owner, "correct_label", "fr"))
       ).toBe("LANGUAGE_TRANSITION_PENDING_PUBLICATION_OBLIGATIONS")
       expect((await languageTables(t)).transitions).toEqual([])
-      await t.run((ctx) => ctx.db.delete(releaseId))
+      await t.run((ctx) => ctx.db.delete("pageLocalePublicationReleases", releaseId))
     }
   })
 
@@ -2977,15 +2977,15 @@ describe("F09a refusals and authority", () => {
       })
     )
     await assertClosed()
-    await t.run((ctx) => ctx.db.delete(duplicateId))
+    await t.run((ctx) => ctx.db.delete("siteLanguageAuthority", duplicateId))
 
     // Disagreement with settings.
-    await t.run((ctx) => ctx.db.patch(authority!._id, { currentLocale: "fr" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageAuthority", authority!._id, { currentLocale: "fr" }))
     await assertClosed()
 
     // Missing on a single-language install: version 0, readers still serve,
     // no transition may start until initialization.
-    await t.run((ctx) => ctx.db.delete(authority!._id))
+    await t.run((ctx) => ctx.db.delete("siteLanguageAuthority", authority!._id))
     expect(await publicProjection(t, ids.about!, "en")).not.toBeNull()
     expect(await codeOf(startTransition(t, owner, "correct_label", "fr"))).toBe(
       "SITE_LANGUAGE_AUTHORITY_INVALID"
@@ -3096,7 +3096,7 @@ describe("F09a preparation", () => {
     const en = (await generations(u, page, "en")).state!
     await u.run(async (ctx) => {
       const settings = await ctx.db.query("siteSettings").unique()
-      await ctx.db.delete(settings!._id)
+      await ctx.db.delete("siteSettings", settings!._id)
     })
     const enDraft = {
       pageType: "landing-page",
@@ -3169,12 +3169,12 @@ describe("F09a preparation", () => {
           q.eq("pageId", about).eq("locale", "en")
         )
         .unique()
-      const snapshot = await ctx.db.get(state!.currentSnapshotId!)
+      const snapshot = await ctx.db.get("pagePublishedSnapshots", state!.currentSnapshotId!)
       return {
         state,
         snapshot,
-        candidate: await ctx.db.get(snapshot!.candidateId),
-        page: await ctx.db.get(about),
+        candidate: await ctx.db.get("pageLocalePublicationCandidates", snapshot!.candidateId),
+        page: await ctx.db.get("pages", about),
       }
     })
 
@@ -3189,16 +3189,16 @@ describe("F09a preparation", () => {
         )
         .unique()
       const frSnapshot = fr?.currentSnapshotId
-        ? await ctx.db.get(fr.currentSnapshotId)
+        ? await ctx.db.get("pagePublishedSnapshots", fr.currentSnapshotId)
         : null
       return {
-        enSnapshot: await ctx.db.get(before.snapshot!._id),
-        enCandidate: await ctx.db.get(before.candidate!._id),
-        page: await ctx.db.get(about),
+        enSnapshot: await ctx.db.get("pagePublishedSnapshots", before.snapshot!._id),
+        enCandidate: await ctx.db.get("pageLocalePublicationCandidates", before.candidate!._id),
+        page: await ctx.db.get("pages", about),
         fr,
         frSnapshot,
         frCandidate: frSnapshot
-          ? await ctx.db.get(frSnapshot.candidateId)
+          ? await ctx.db.get("pageLocalePublicationCandidates", frSnapshot.candidateId)
           : null,
         frDraft: await ctx.db
           .query("pageLocaleDrafts")
@@ -3273,7 +3273,7 @@ describe("F09a preparation", () => {
         .query("pageSharedDrafts")
         .withIndex("by_pageId", (q) => q.eq("pageId", child))
         .unique()
-      await ctx.db.patch(shared!._id, { system: { parentId: parent } })
+      await ctx.db.patch("pageSharedDrafts", shared!._id, { system: { parentId: parent } })
     })
     await publish(t, owner, child)
     // A post created before the author it references: correction prepares the
@@ -3323,8 +3323,8 @@ describe("F09a preparation", () => {
           q.eq("pageId", child).eq("locale", "fr")
         )
         .unique()
-      const snapshot = await ctx.db.get(state!.currentSnapshotId!)
-      return JSON.parse((await ctx.db.get(snapshot!.candidateId))!.payloadJson)
+      const snapshot = await ctx.db.get("pagePublishedSnapshots", state!.currentSnapshotId!)
+      return JSON.parse((await ctx.db.get("pageLocalePublicationCandidates", snapshot!.candidateId))!.payloadJson)
     })
     expect(childCandidate.route).toMatchObject({
       kind: "routable",
@@ -3371,9 +3371,9 @@ describe("F09a preparation", () => {
     // Seed: the first transition is recorded as cancelled with its prepared
     // alpha selection and transition-created draft still retained.
     await t.run(async (ctx) => {
-      await ctx.db.patch(first, { phase: "cancelled", cancelledAt: Date.now() })
+      await ctx.db.patch("siteLanguageTransitions", first, { phase: "cancelled", cancelledAt: Date.now() })
       const authority = await ctx.db.query("siteLanguageAuthority").unique()
-      await ctx.db.patch(authority!._id, { activeTransitionId: undefined })
+      await ctx.db.patch("siteLanguageAuthority", authority!._id, { activeTransitionId: undefined })
     })
     // Alpha leaves the source site, so only its retained fr artifacts remain.
     const alphaEn = (await generations(t, alpha, "en")).state!
@@ -3387,7 +3387,7 @@ describe("F09a preparation", () => {
     // Fault injection: product mutations cannot create an unattributed target
     // draft, so insert the impossible storage state to prove fail-closed.
     const snapshotAttribution = (await t.run((ctx) =>
-      ctx.db.get(alphaEn.currentSnapshotId!)
+      ctx.db.get("pagePublishedSnapshots", alphaEn.currentSnapshotId!)
     ))!.attribution
     await t.run(async (ctx) => {
       const now = Date.now()
@@ -3435,9 +3435,9 @@ describe("F09a preparation", () => {
     })
     const frAfter = await t.run(async (ctx) => ({
       snapshots: await Promise.all(
-        frBefore.snapshots.map((id) => ctx.db.get(id))
+        frBefore.snapshots.map((id) => ctx.db.get("pagePublishedSnapshots", id))
       ),
-      drafts: await Promise.all(frBefore.drafts.map((id) => ctx.db.get(id))),
+      drafts: await Promise.all(frBefore.drafts.map((id) => ctx.db.get("pageLocaleDrafts", id))),
     }))
     expect(frAfter.snapshots.every((snapshot) => snapshot !== null)).toBe(true)
     expect(frAfter.drafts.every((draft) => draft !== null)).toBe(true)
@@ -3468,13 +3468,13 @@ describe("F09a preparation", () => {
           q.eq("transitionId", predecessor).eq("pageId", pageId)
         )
         .unique()
-      await ctx.db.delete(row!._id)
-      await ctx.db.patch(predecessor, {
+      await ctx.db.delete("siteLanguageTransitionPages", row!._id)
+      await ctx.db.patch("siteLanguageTransitions", predecessor, {
         phase: "cancelled",
         cancelledAt: Date.now(),
       })
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, { activeTransitionId: undefined })
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { activeTransitionId: undefined })
     })
 
     const transitionId = await startTransition(
@@ -3520,7 +3520,7 @@ describe("F09a preparation", () => {
         .unique()
     )
     await t.run((ctx) =>
-      ctx.db.patch(targetBefore!._id, { updatedAt: targetBefore!.updatedAt + 1 })
+      ctx.db.patch("pageLocalePublicationStates", targetBefore!._id, { updatedAt: targetBefore!.updatedAt + 1 })
     )
     expect(
       await codeOf(
@@ -3542,7 +3542,7 @@ describe("F09a preparation", () => {
     })
 
     await t.run((ctx) =>
-      ctx.db.patch(targetBefore!._id, { updatedAt: targetBefore!.updatedAt })
+      ctx.db.patch("pageLocalePublicationStates", targetBefore!._id, { updatedAt: targetBefore!.updatedAt })
     )
     report = await owner.query(api.cms.language.listLanguageTransitionPages, {
       transitionId,
@@ -3584,7 +3584,7 @@ describe("F09a preparation", () => {
 
     const preparedTransition = await transitionOf(t, transitionId)
     await t.run((ctx) =>
-      ctx.db.patch(targetBefore!._id, {
+      ctx.db.patch("pageLocalePublicationStates", targetBefore!._id, {
         publicGeneration: retainedState.publicGeneration + 1,
       })
     )
@@ -3974,10 +3974,10 @@ describe("M05 P24 activation handoff (C3e.3c-1)", () => {
     ] as const) {
       const { t, owner, transitionId } = await readyPointedReplacementFixture()
       await t.run(async (ctx) => {
-        const transition = await ctx.db.get(transitionId)
+        const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
         if (!transition) throw new Error("transition missing")
         await ctx.db.patch(
-          transitionId,
+          "siteLanguageTransitions", transitionId,
           corruption === "missing_prepared"
             ? { previewConfirmedPreparedSetVersion: undefined }
             : corruption === "mismatched_prepared"
@@ -4021,7 +4021,7 @@ describe("M05 P24 activation handoff (C3e.3c-1)", () => {
 
     const committed = await t.run(async (ctx) => ({
       authority: await ctx.db.query("siteLanguageAuthority").unique(),
-      transition: await ctx.db.get(transitionId),
+      transition: await ctx.db.get("siteLanguageTransitions", transitionId),
       decisions: await ctx.db
         .query("siteLanguageCarryDecisions")
         .withIndex("by_transitionId_and_routeId", (q) =>
@@ -4045,10 +4045,10 @@ describe("M05 P24 activation handoff (C3e.3c-1)", () => {
         if (corruption === "missing_pointer") {
           const authority = await ctx.db.query("siteLanguageAuthority").unique()
           if (!authority) throw new Error("authority missing")
-          await ctx.db.patch(authority._id, { continuityPointer: undefined })
+          await ctx.db.patch("siteLanguageAuthority", authority._id, { continuityPointer: undefined })
           return
         }
-        await ctx.db.patch(transitionId, {
+        await ctx.db.patch("siteLanguageTransitions", transitionId, {
           carryDecisionDigest: undefined,
           previewConfirmedCarryDecisionDigest: undefined,
         })
@@ -4172,7 +4172,7 @@ describe("M05 P24 cancellation cleanup (C3e.3c-2)", () => {
       )
     const cancellationState = () =>
       t.run(async (ctx) => ({
-        transition: await ctx.db.get(transitionId),
+        transition: await ctx.db.get("siteLanguageTransitions", transitionId),
         authority: await ctx.db.query("siteLanguageAuthority").unique(),
         decisions: await ctx.db
           .query("siteLanguageCarryDecisions")
@@ -4242,7 +4242,7 @@ describe("M05 P24 cancellation cleanup (C3e.3c-2)", () => {
     const { t, owner, homeId, transitionId } =
       await preparedPointedReplacementFixture(2)
     const otherTransitionId = await t.run(async (ctx) => {
-      const transition = await ctx.db.get(transitionId)
+      const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
       const decision = await ctx.db
         .query("siteLanguageCarryDecisions")
         .withIndex("by_transitionId_and_routeId", (q) =>
@@ -4368,7 +4368,7 @@ describe("M05 P24 cancellation cleanup (C3e.3c-2)", () => {
       await drain(t)
 
       const stored = await t.run(async (ctx) => ({
-        transition: await ctx.db.get(transitionId),
+        transition: await ctx.db.get("siteLanguageTransitions", transitionId),
         authority: await ctx.db.query("siteLanguageAuthority").unique(),
         decisions: await ctx.db
           .query("siteLanguageCarryDecisions")
@@ -4414,7 +4414,7 @@ describe("M05 P24 cancellation cleanup (C3e.3c-2)", () => {
           q.eq("pageId", about).eq("locale", "en")
         )
         .unique()
-      return (await ctx.db.get(state!.currentSnapshotId!))!.attribution
+      return (await ctx.db.get("pagePublishedSnapshots", state!.currentSnapshotId!))!.attribution
     })
     await t.run(async (ctx) => {
       const now = Date.now()
@@ -4646,7 +4646,7 @@ describe("F09c F1 readiness and bounded activation", () => {
     const committed = await t.run(async (ctx) => ({
       settings: await ctx.db.query("siteSettings").unique(),
       authority: await ctx.db.query("siteLanguageAuthority").unique(),
-      transition: await ctx.db.get(id),
+      transition: await ctx.db.get("siteLanguageTransitions", id),
       preferences: await ctx.db.query("userPreferences").collect(),
       sourceState: await ctx.db
         .query("pageLocalePublicationStates")
@@ -5067,8 +5067,8 @@ describe("F09c F1 readiness and bounded activation", () => {
     const { id } = await readyCorrection(t, owner)
     const args = await activationArgs(t, id)
     await t.run(async (ctx) => {
-      const transition = await ctx.db.get(id)
-      await ctx.db.patch(id, {
+      const transition = await ctx.db.get("siteLanguageTransitions", id)
+      await ctx.db.patch("siteLanguageTransitions", id, {
         sourcePublicSetVersion: transition!.sourcePublicSetVersion + 1,
       })
     })
@@ -5191,7 +5191,7 @@ describe("F09c F1 readiness and bounded activation", () => {
         .query("pageSharedDrafts")
         .withIndex("by_pageId", (q) => q.eq("pageId", child))
         .unique()
-      await ctx.db.patch(shared!._id, { system: { parentId: parent } })
+      await ctx.db.patch("pageSharedDrafts", shared!._id, { system: { parentId: parent } })
     })
     await publish(ancestryCase, ancestryOwner, child)
     const ancestryTransition = await startTransition(
@@ -5206,12 +5206,12 @@ describe("F09c F1 readiness and bounded activation", () => {
     // the child holds an ancestry reference. Inject the impossible manifest
     // shape to prove validation itself still fails closed if storage drifts.
     await ancestryCase.run(async (ctx) => {
-      const transition = await ctx.db.get(ancestryTransition)
-      await ctx.db.patch(parentRow._id, {
+      const transition = await ctx.db.get("siteLanguageTransitions", ancestryTransition)
+      await ctx.db.patch("siteLanguageTransitionPages", parentRow._id, {
         disposition: "withdraw",
         generation: parentRow.generation + 1,
       })
-      await ctx.db.patch(ancestryTransition, {
+      await ctx.db.patch("siteLanguageTransitions", ancestryTransition, {
         phase: "preparing",
         generation: transition!.generation + 1,
         preparedSetVersion: transition!.preparedSetVersion + 1,
@@ -5233,7 +5233,7 @@ describe("F09c F1 readiness and bounded activation", () => {
     const about = ids.about!
     const args = await activationArgs(t, id)
     const state = (await generations(t, about, "en")).state!
-    const snapshot = await t.run((ctx) => ctx.db.get(state.currentSnapshotId!))
+    const snapshot = await t.run((ctx) => ctx.db.get("pagePublishedSnapshots", state.currentSnapshotId!))
 
     for (const status of ["pending", "held"] as const) {
       const releaseId = await t.run((ctx) =>
@@ -5258,7 +5258,7 @@ describe("F09c F1 readiness and bounded activation", () => {
         )
       ).toBe("LANGUAGE_TRANSITION_PENDING_PUBLICATION_OBLIGATIONS")
       expect(await languageTables(t)).toEqual(before)
-      await t.run((ctx) => ctx.db.delete(releaseId))
+      await t.run((ctx) => ctx.db.delete("pageLocalePublicationReleases", releaseId))
     }
     await owner.mutation(api.cms.language.activateLanguageTransition, args)
     expect((await transitionOf(t, id)).phase).toBe("committed")
@@ -5306,8 +5306,8 @@ describe("F09c F1 readiness and bounded activation", () => {
     expect(measured.metrics.functionsScheduled.used).toBe(1)
     expect(
       await t.run(async (ctx) => ({
-        first: await ctx.db.get(sentinels.first),
-        last: await ctx.db.get(sentinels.last),
+        first: await ctx.db.get("pages", sentinels.first),
+        last: await ctx.db.get("pages", sentinels.last),
       }))
     ).toMatchObject({
       first: { slug: "private-0" },
@@ -5438,7 +5438,7 @@ describe("F09c F1 readiness and bounded activation", () => {
     const row = (await rowOf(t, id, about))!
     const targetState = (await generations(t, about, "fr")).state!
     const recordedSnapshot = await t.run((ctx) =>
-      ctx.db.get(targetState.currentSnapshotId!)
+      ctx.db.get("pagePublishedSnapshots", targetState.currentSnapshotId!)
     )
     const replacementSnapshotId = await t.run(async (ctx) => {
       const {
@@ -5452,7 +5452,7 @@ describe("F09c F1 readiness and bounded activation", () => {
         ...snapshot,
         generation: snapshot.generation + 1,
       })
-      await ctx.db.patch(targetState._id, {
+      await ctx.db.patch("pageLocalePublicationStates", targetState._id, {
         currentSnapshotId: replacement,
         publicGeneration: targetState.publicGeneration + 1,
       })
@@ -5502,7 +5502,7 @@ async function seedDescriptions(
 ) {
   await t.run(async (ctx) => {
     const settings = (await ctx.db.query("siteSettings").unique())!
-    await ctx.db.patch(settings._id, fields)
+    await ctx.db.patch("siteSettings", settings._id, fields)
   })
 }
 
@@ -5530,11 +5530,11 @@ async function removeAllPages(t: T) {
       "pages",
     ] as const) {
       for (const row of await ctx.db.query(table).collect()) {
-        await ctx.db.delete(row._id)
+        await ctx.db.delete(table, row._id)
       }
     }
     const settings = (await ctx.db.query("siteSettings").unique())!
-    await ctx.db.patch(settings._id, { homePageId: undefined })
+    await ctx.db.patch("siteSettings", settings._id, { homePageId: undefined })
   })
 }
 
@@ -5767,7 +5767,7 @@ describe("M05 A5 site description across an F09 language change", () => {
 
     // A correct_label committed before the flag existed carries none.
     const first = await runShortTransition(t, owner, "correct_label", "fr")
-    await t.run((ctx) => ctx.db.patch(first, { descriptionSwapped: undefined }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageTransitions", first, { descriptionSwapped: undefined }))
     const afterRelabel = (await storedDescriptions(t)).siteDescriptions
 
     const rollback = await rollbackOf(t, owner, first)

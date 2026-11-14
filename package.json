@@ -1,6 +1,6 @@
 {
   "name": "formulacms-starter",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "private": true,
   "repository": {
@@ -32,7 +32,7 @@
     "typecheck:gate": "tsc --noEmit",
     "doctor": "react-doctor --no-telemetry",
     "mcp:catalog": "tsx scripts/mcp-catalog-server.ts",
-    "admin:reset-password": "tsx scripts/reset-admin-password.ts",
+    "owner:recover": "tsx scripts/owner-recover.ts",
     "content-types:sync": "tsx scripts/sync-content-type-registration.ts",
     "slices:sync": "node --import tsx scripts/sync-slice-registration.ts",
     "slices:author": "node --import tsx scripts/author-slices.ts",
@@ -51,7 +51,7 @@
     "check:e2e:specs": "playwright test --config=playwright.config.ts --project=non-disposable",
     "check:e2e:specs:disposable": "playwright test --config=playwright.config.ts --project=disposable",
     "build:local": "NEXT_PUBLIC_SITE_URL=http://localhost:3000 pnpm build",
-    "start:local": "convex dev --tail-logs disable --start \"BETTER_AUTH_URL=http://localhost:3000 NEXT_PUBLIC_SITE_URL=http://localhost:3000 FORMULACMS_ALLOW_LOCAL_IMAGE_IPS=1 pnpm exec next start -p 3000\"",
+    "start:local": "convex dev --tail-logs disable --start \"NEXT_PUBLIC_SITE_URL=http://localhost:3000 FORMULACMS_ALLOW_LOCAL_IMAGE_IPS=1 pnpm exec next start -p 3000\"",
     "start:deploy": "pnpm exec next start",
     "check:preflight": "tsx scripts/check-starter-preflight.ts",
     "check:preflight:strict": "tsx scripts/check-starter-preflight.ts --strict",
@@ -66,7 +66,7 @@
     "@ai-sdk/anthropic": "^4.0.97",
     "@ai-sdk/openai": "^4.0.109",
     "@convex-dev/action-retrier": "^0.3.1",
-    "@convex-dev/better-auth": "^0.13.0",
+    "@convex-dev/auth": "2.0.0",
     "@convex-dev/migrations": "^0.3.7",
     "@convex-dev/rate-limiter": "^0.4.3",
     "@convex-dev/workpool": "0.4.15",
@@ -110,7 +110,6 @@
     "@tiptap/react": "3.32.0",
     "@tiptap/static-renderer": "3.32.0",
     "ai": "^7.0.163",
-    "better-auth": "~1.7.17",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "^1.49.0",
@@ -132,6 +131,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@convex-dev/eslint-plugin": "^5.0.1",
     "@edge-runtime/vm": "^5.0.0",
     "@modelcontextprotocol/client": "2.4.0",
     "@next/env": "16.4.5",
@@ -165,6 +165,7 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5",
+    "vite-plugin-wasm-module": "0.0.0",
     "vitest": "^4.1.12"
   }
 }

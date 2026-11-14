@@ -119,12 +119,12 @@ describe("legacy Page crons across publication cutover phases", () => {
     await expect(
       t.mutation(internal.cms.pages.processScheduledTransitions, {})
     ).resolves.toEqual({ published: 0, expired: 1, hasMore: true })
-    const expiredPage = await t.run((ctx) => ctx.db.get(pageId))
+    const expiredPage = await t.run((ctx) => ctx.db.get("pages", pageId))
     expect(expiredPage?.status).toBe("archived")
     expect(expiredPage?.expiresAt).toBeUndefined()
     await expect(
       t.mutation(internal.cms.pages.sweepAbandonedStaging, {})
     ).resolves.toEqual({ scanned: 1, deleted: 1, hasMore: false })
-    await expect(t.run((ctx) => ctx.db.get(stagingId))).resolves.toBeNull()
+    await expect(t.run((ctx) => ctx.db.get("pageStaging", stagingId))).resolves.toBeNull()
   })
 })

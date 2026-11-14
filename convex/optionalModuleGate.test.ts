@@ -21,12 +21,12 @@ const modules = import.meta.glob("./**/*.ts")
 
 const OWNER = {
   subject: "gate-owner",
-  tokenIdentifier: "https://convex.test|gate-owner",
+  tokenIdentifier: "gate-owner",
   email: "gate-owner@example.com",
 }
 const STRANGER = {
   subject: "gate-stranger",
-  tokenIdentifier: "https://convex.test|gate-stranger",
+  tokenIdentifier: "gate-stranger",
   email: "gate-stranger@example.com",
 }
 

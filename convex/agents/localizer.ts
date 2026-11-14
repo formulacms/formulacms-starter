@@ -78,7 +78,7 @@ export interface TranslationConfig {
   userPromptTemplate: string
   semaphore: Semaphore
   profile: "mechanical-translation" | "brand-translation"
-  /** Better Auth `_id` of the caller, threaded through so the action can
+  /** Convex Auth user id of the caller, threaded through so the action can
    *  attribute an aiAuditLog row without a second auth round-trip. */
   authId: string
   /** Per-run audit accumulator: every model call pushes its usage here; the

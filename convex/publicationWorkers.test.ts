@@ -19,7 +19,7 @@ import publicationSource from "./cms/publication.ts?raw"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "f08c-worker-owner",
-  tokenIdentifier: "https://convex.test|f08c-worker-owner",
+  tokenIdentifier: "f08c-worker-owner",
 }
 const PAGE_TAGS = ["cms:pages", "cms:menus"]
 
@@ -248,7 +248,7 @@ describe("F08c required revalidation worker", () => {
         .withIndex("by_pageId", (q) => q.eq("pageId", childId))
         .unique()
       if (!shared) throw new Error("child shared draft missing")
-      await ctx.db.patch(shared._id, { system: { parentId } })
+      await ctx.db.patch("pageSharedDrafts", shared._id, { system: { parentId } })
     })
     await owner.mutation(
       api.cms.publication.publishLocale,
@@ -289,7 +289,7 @@ describe("F08c required revalidation worker", () => {
       { paths: [child.currentPath, `/en${child.currentPath}`], tags: [] },
       { paths: [child.currentPath, `/en${child.currentPath}`], tags: [] },
     ])
-    expect(await t.run((ctx) => ctx.db.get(intentId))).toMatchObject({
+    expect(await t.run((ctx) => ctx.db.get("pagePublicationRevalidationIntents", intentId))).toMatchObject({
       status: "complete",
       phase: "complete",
     })
@@ -342,7 +342,7 @@ describe("F08c required revalidation worker", () => {
     ).toBe(false)
 
     await t.run((ctx) =>
-      ctx.db.patch(failed!._id, {
+      ctx.db.patch("pagePublicationRevalidationIntents", failed!._id, {
         updatedAt: Date.now() - PUBLICATION_REVALIDATION_RETRY_DELAY_MS - 1,
       })
     )
@@ -354,7 +354,7 @@ describe("F08c required revalidation worker", () => {
     expect(postedBodies(fetchMock)).toEqual([
       { paths: [state.currentPath, `/en${state.currentPath}`], tags: PAGE_TAGS },
     ])
-    expect(await t.run((ctx) => ctx.db.get(failed!._id))).toMatchObject({
+    expect(await t.run((ctx) => ctx.db.get("pagePublicationRevalidationIntents", failed!._id))).toMatchObject({
       status: "complete",
       attempts: 2,
     })
@@ -380,7 +380,7 @@ describe("F08c required revalidation worker", () => {
         }
       )
     ).toBe(false)
-    expect(await t.run((ctx) => ctx.db.get(abandoned))).toMatchObject({
+    expect(await t.run((ctx) => ctx.db.get("pagePublicationRevalidationIntents", abandoned))).toMatchObject({
       status: "running",
       phase: "referrers",
       attempts: 5,
@@ -388,7 +388,7 @@ describe("F08c required revalidation worker", () => {
     fetchMock.mockClear()
     await drain(t)
     expect(fetchMock).not.toHaveBeenCalled()
-    expect(await t.run((ctx) => ctx.db.get(abandoned))).toMatchObject({
+    expect(await t.run((ctx) => ctx.db.get("pagePublicationRevalidationIntents", abandoned))).toMatchObject({
       status: "complete",
       phase: "complete",
       attempts: 6,

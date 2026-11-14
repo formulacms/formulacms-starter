@@ -255,7 +255,7 @@ async function f09TransitionSuperseded(
   ) {
     return false
   }
-  const transition = await ctx.db.get(authority.lastCommittedTransitionId)
+  const transition = await ctx.db.get("siteLanguageTransitions", authority.lastCommittedTransitionId)
   return transition !== null && transition.targetLocale !== state.locale
 }
 
@@ -332,7 +332,7 @@ export async function startDefaultMigrationInTransaction(
     createdAt: now,
     updatedAt: now,
   })
-  await ctx.db.patch(state.authority._id, {
+  await ctx.db.patch("siteLanguageAuthority", state.authority._id, {
     activeDefaultMigrationId: migrationId,
     updatedAt: now,
   })
@@ -472,7 +472,7 @@ async function restart(
   tokens: DefaultMigrationTokens
 ): Promise<DefaultMigrationStepResult> {
   const generation = migration.generation + 1
-  await ctx.db.patch(migration._id, {
+  await ctx.db.patch("siteDefaultLanguageMigrations", migration._id, {
     phase: "enumerating",
     generation,
     cursorPhase: "old_default_current",
@@ -536,7 +536,7 @@ export async function stepDefaultMigrationInTransaction(
   migrationId: Id<"siteDefaultLanguageMigrations">,
   generation: number
 ): Promise<DefaultMigrationStepResult> {
-  const migration = await ctx.db.get(migrationId)
+  const migration = await ctx.db.get("siteDefaultLanguageMigrations", migrationId)
   if (
     !migration ||
     !STEPPABLE_PHASES.has(migration.phase) ||
@@ -605,11 +605,11 @@ export async function stepDefaultMigrationInTransaction(
     const transitionId = multilingual.authority.lastCommittedTransitionId
     if (!pointer && transitionId && !cursor.f09) {
       // A separate step keeps the transition read out of a full route batch.
-      const transition = await ctx.db.get(transitionId)
+      const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
       if (!transition || transition.targetLocale !== migration.fromLocale) {
         fail("SITE_LANGUAGE_AUTHORITY_INVALID")
       }
-      await ctx.db.patch(migration._id, {
+      await ctx.db.patch("siteDefaultLanguageMigrations", migration._id, {
         cursor: encodeCursor({ ...cursor, f09: true } as MigrationCursor),
         updatedAt: Date.now(),
       })
@@ -633,7 +633,7 @@ export async function stepDefaultMigrationInTransaction(
   const now = Date.now()
   if (batch.kind === "halve") {
     if (size <= 1) return restart(ctx, migration, tokens)
-    await ctx.db.patch(migration._id, {
+    await ctx.db.patch("siteDefaultLanguageMigrations", migration._id, {
       cursor: encodeCursor({ ...cursor, size: Math.floor(size / 2) }),
       updatedAt: now,
     })
@@ -687,7 +687,7 @@ export async function stepDefaultMigrationInTransaction(
       : phase
   if (following === "validation") {
     // The caller schedules validation (step 4) like any other step.
-    await ctx.db.patch(migration._id, {
+    await ctx.db.patch("siteDefaultLanguageMigrations", migration._id, {
       phase: "validating",
       cursorPhase: "validation",
       cursor: undefined,
@@ -698,7 +698,7 @@ export async function stepDefaultMigrationInTransaction(
     })
     return { kind: "continue", generation }
   }
-  await ctx.db.patch(migration._id, {
+  await ctx.db.patch("siteDefaultLanguageMigrations", migration._id, {
     cursorPhase: following,
     cursor:
       batch.cursor === "phase_done" ? undefined : encodeCursor(batch.cursor),
@@ -795,7 +795,7 @@ async function validateStep(
 
   const halve = async (): Promise<DefaultMigrationStepResult> => {
     if (size <= 1) return restart(ctx, migration, tokens)
-    await ctx.db.patch(migration._id, {
+    await ctx.db.patch("siteDefaultLanguageMigrations", migration._id, {
       cursor: JSON.stringify({ ...cursor, size: Math.floor(size / 2) }),
       updatedAt: Date.now(),
     })
@@ -846,7 +846,7 @@ async function validateStep(
       ...(last === undefined ? {} : { last }),
       tally,
     }
-    await ctx.db.patch(migration._id, {
+    await ctx.db.patch("siteDefaultLanguageMigrations", migration._id, {
       cursor: JSON.stringify(next),
       updatedAt: now,
     })
@@ -860,7 +860,7 @@ async function validateStep(
     return { kind: "blocked", code: "DEFAULT_MIGRATION_TARGET_HOME_MISSING" }
   }
   const readinessVersion = (migration.manifest?.readinessVersion ?? 0) + 1
-  await ctx.db.patch(migration._id, {
+  await ctx.db.patch("siteDefaultLanguageMigrations", migration._id, {
     phase: "ready",
     cursor: undefined,
     manifest: {
@@ -887,7 +887,7 @@ export async function cancelDefaultMigrationInTransaction(
   migrationId: Id<"siteDefaultLanguageMigrations">,
   expectedGeneration: number
 ): Promise<void> {
-  const migration = await ctx.db.get(migrationId)
+  const migration = await ctx.db.get("siteDefaultLanguageMigrations", migrationId)
   if (!migration) fail("LANGUAGE_PREVIEW_MISMATCH")
   const state = await readSiteLanguageState(ctx)
   if (state.kind === "invalid") fail("SITE_LANGUAGE_AUTHORITY_INVALID")
@@ -900,13 +900,13 @@ export async function cancelDefaultMigrationInTransaction(
     fail("LANGUAGE_OPERATION_STALE")
   }
   const now = Date.now()
-  await ctx.db.patch(migration._id, {
+  await ctx.db.patch("siteDefaultLanguageMigrations", migration._id, {
     phase: "cancelled",
     cursor: undefined,
     cancelledAt: now,
     updatedAt: now,
   })
-  await ctx.db.patch(state.authority._id, {
+  await ctx.db.patch("siteLanguageAuthority", state.authority._id, {
     activeDefaultMigrationId: undefined,
     updatedAt: now,
   })
@@ -933,7 +933,7 @@ export async function activateDefaultMigrationInTransaction(
   if ((await readPublicationAuthority(ctx)) !== "snapshot_active") {
     fail("LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY")
   }
-  const migration = await ctx.db.get(args.migrationId)
+  const migration = await ctx.db.get("siteDefaultLanguageMigrations", args.migrationId)
   if (!migration) {
     // State refusals still come first; only the migration names the target.
     const current = await readSiteLanguageState(ctx)
@@ -994,7 +994,7 @@ export async function activateDefaultMigrationInTransaction(
 
   const now = Date.now()
   const version = state.version + 1
-  await ctx.db.patch(state.authority._id, {
+  await ctx.db.patch("siteLanguageAuthority", state.authority._id, {
     currentLocale: migration.toLocale,
     version,
     continuityPointer: {
@@ -1004,14 +1004,14 @@ export async function activateDefaultMigrationInTransaction(
     activeDefaultMigrationId: undefined,
     updatedAt: now,
   })
-  await ctx.db.patch(state.settings._id, {
+  await ctx.db.patch("siteSettings", state.settings._id, {
     defaultLocale: migration.toLocale,
     // M05 A5: the legacy single description is stored under the outgoing
     // default language in this same commit, so the change never relabels it.
     ...storeLegacySiteDescription(state.settings, migration.fromLocale),
     updatedAt: now,
   })
-  await ctx.db.patch(migration._id, {
+  await ctx.db.patch("siteDefaultLanguageMigrations", migration._id, {
     phase: "committed",
     committedAt: now,
     committedAuthorityVersion: version,
@@ -1657,7 +1657,7 @@ async function resumeMenu(
   size: number
 ): Promise<Batch> {
   const position = cursor.menu!
-  const menu = await ctx.db.get(position.menuId)
+  const menu = await ctx.db.get("menus", position.menuId)
   // A menu write advances a captured counter, so a missing menu here means the
   // walk no longer resumes.
   if (!menu || menu.deletedAt !== undefined) return { kind: "restart" }
@@ -1756,7 +1756,7 @@ export async function listDefaultMigrationDisclosurePage(
   generation: number,
   ordinal: number
 ): Promise<DefaultMigrationDisclosureListing> {
-  const migration = await ctx.db.get(migrationId)
+  const migration = await ctx.db.get("siteDefaultLanguageMigrations", migrationId)
   if (!migration) fail("LANGUAGE_PREVIEW_MISMATCH")
   if (!(await isCurrentCorpus(ctx, migration, generation))) {
     return { stale: true }
@@ -1796,7 +1796,7 @@ export async function recordDefaultMigrationReviewInTransaction(
   ordinal: number,
   pageDigest: string
 ): Promise<DefaultMigrationReceipt> {
-  const migration = await ctx.db.get(migrationId)
+  const migration = await ctx.db.get("siteDefaultLanguageMigrations", migrationId)
   if (!migration) fail("LANGUAGE_PREVIEW_MISMATCH")
   if (!(await isCurrentCorpus(ctx, migration, expectedGeneration))) {
     return { stale: true }
@@ -1809,7 +1809,7 @@ export async function recordDefaultMigrationReviewInTransaction(
   }
   const page = await readDisclosurePage(ctx, migration, ordinal)
   if (page.digest !== pageDigest) fail("LANGUAGE_PREVIEW_MISMATCH")
-  await ctx.db.patch(migrationId, {
+  await ctx.db.patch("siteDefaultLanguageMigrations", migrationId, {
     reviewedThroughOrdinal: ordinal,
     updatedAt: Date.now(),
   })
@@ -1872,12 +1872,12 @@ export async function setDefaultLanguageInTransaction(
   const now = Date.now()
   const version = state.version + 1
   const fromLocale = state.locale
-  await ctx.db.patch(state.authority._id, {
+  await ctx.db.patch("siteLanguageAuthority", state.authority._id, {
     currentLocale: toLocale,
     version,
     updatedAt: now,
   })
-  await ctx.db.patch(state.settings._id, {
+  await ctx.db.patch("siteSettings", state.settings._id, {
     defaultLocale: toLocale,
     // M05 A5: the legacy single description is stored under the outgoing
     // default language in this same commit, so the change never relabels it.

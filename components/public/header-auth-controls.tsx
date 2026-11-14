@@ -2,12 +2,28 @@
 
 import { getPublicMessages } from "@/lib/i18n/public-messages";
 import { usePresentationLocale } from "@/components/public/presentation-locale";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LogOut, UserCircle } from "lucide-react";
-import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
+
+type SessionLabel = { name: string | null } | null;
+
+// Public pages are static, so they never read the auth cookie on the server.
+// The browser asks this private route for the signed-in label instead
+// (ADR-0056 rule 8: the display name only, never the username).
+const SESSION_LABEL_ROUTE = "/api/session-label";
+const SIGN_OUT_ROUTE = "/auth/signout";
+
+async function readSessionLabel(): Promise<SessionLabel> {
+  try {
+    const response = await fetch(SESSION_LABEL_ROUTE, { cache: "no-store" });
+    return response.ok ? ((await response.json()) as SessionLabel) : null;
+  } catch {
+    return null;
+  }
+}
 
 interface HeaderAuthControlsProps {
   variant?: "desktop" | "mobile";
@@ -22,24 +38,40 @@ export function HeaderAuthControls({
   const messages = getPublicMessages(locale).chrome;
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
-  const { data: session, isPending } = authClient.useSession();
-  const user = session?.user;
+  // `undefined` while the label loads; `null` when signed out.
+  const [user, setUser] = useState<SessionLabel | undefined>(undefined);
   const isMobile = variant === "mobile";
+
+  useEffect(() => {
+    let active = true;
+    void readSessionLabel().then((label) => {
+      if (active) setUser(label);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function handleSignOut() {
     setSigningOut(true);
-    void authClient
-      .signOut()
+    // The Convex Auth sign-out route ends the session and clears its cookies.
+    void fetch(SIGN_OUT_ROUTE, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    })
       .then(() => {
+        setUser(null);
         onNavigate?.();
         router.refresh();
       })
+      .catch(() => {})
       .finally(() => {
         setSigningOut(false);
       });
   }
 
-  if (isPending) {
+  if (user === undefined) {
     return (
       <output
         aria-label={messages.checkingSession}
@@ -67,7 +99,7 @@ export function HeaderAuthControls({
     );
   }
 
-  const displayName = user.name?.trim() || user.email?.trim() || messages.loggedIn;
+  const displayName = user.name?.trim() || messages.loggedIn;
 
   if (isMobile) {
     return (

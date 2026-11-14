@@ -108,6 +108,7 @@ async function deleteBatch(
     if (limit <= 1) return { kind: "stopped", reason: "reserve" }
     return { kind: "continue", next: retry(Math.floor(limit / 2)) }
   }
+  // eslint-disable-next-line @convex-dev/explicit-table-ids -- id is a union of tables; the rule cannot pick one table
   for (const id of ids) await ctx.db.delete(id)
   return null
 }
@@ -121,7 +122,7 @@ export async function collectStepInTransaction(
   args: CollectionArgs
 ): Promise<CollectionStepResult> {
   if ("previewId" in args) {
-    const preview = await ctx.db.get(args.previewId)
+    const preview = await ctx.db.get("siteLanguageImpactPreviews", args.previewId)
     if (!preview || !isCollectablePreview(preview)) return { kind: "noop" }
     const limit = args.limit ?? COLLECTION_PAGE_BATCH
     const pages = await previewPageRange(ctx, preview._id).take(limit)
@@ -137,7 +138,7 @@ export async function collectStepInTransaction(
       : { kind: "done", deleted: pages.length }
   }
 
-  const migration = await ctx.db.get(args.migrationId)
+  const migration = await ctx.db.get("siteDefaultLanguageMigrations", args.migrationId)
   if (!migration) return { kind: "noop" }
   const authorities = await readAuthorityRows(ctx)
   if (authorities.length !== 1) {

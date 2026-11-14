@@ -16,12 +16,12 @@ const modules = import.meta.glob("./**/*.ts")
 
 const OWNER = {
   subject: "m01b-owner",
-  tokenIdentifier: "https://convex.test|m01b-owner",
+  tokenIdentifier: "m01b-owner",
   email: "m01b-owner@example.com",
 }
 const UNRELATED = {
   subject: "m01b-unrelated",
-  tokenIdentifier: "https://convex.test|m01b-unrelated",
+  tokenIdentifier: "m01b-unrelated",
   email: "m01b-unrelated@example.com",
 }
 
@@ -255,7 +255,7 @@ describe("M01b Redirects public entries", () => {
       corrupt: async (t: App) => {
         await t.run(async (ctx) => {
           const row = await ctx.db.query("cmsModuleState").unique()
-          await ctx.db.patch(row!._id, {
+          await ctx.db.patch("cmsModuleState", row!._id, {
             enabledModules: [{ moduleId: "redirects", configVersion: 999 }],
           })
         })
@@ -266,7 +266,7 @@ describe("M01b Redirects public entries", () => {
       corrupt: async (t: App) => {
         await t.run(async (ctx) => {
           const row = await ctx.db.query("cmsModuleState").unique()
-          await ctx.db.patch(row!._id, {
+          await ctx.db.patch("cmsModuleState", row!._id, {
             enabledModules: [
               { moduleId: "redirects", configVersion: 1 },
               { moduleId: "not-a-module", configVersion: 1 },
@@ -441,7 +441,7 @@ async function installHistoricalFixture(t: App, owner: Caller) {
       createdAt: now,
       updatedAt: now,
     })
-    await ctx.db.patch(state._id, { draftGeneration: 2, updatedAt: now })
+    await ctx.db.patch("pageLocalePublicationStates", state._id, { draftGeneration: 2, updatedAt: now })
   })
   return pageId
 }

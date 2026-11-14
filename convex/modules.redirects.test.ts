@@ -46,7 +46,7 @@ beforeEach(() => {
 
 const OWNER = {
   subject: "m01d-owner",
-  tokenIdentifier: "https://convex.test|m01d-owner",
+  tokenIdentifier: "m01d-owner",
   email: "m01d-owner@example.com",
 }
 
@@ -455,7 +455,7 @@ async function installHistoricalFixture(t: App, owner: Caller) {
       createdAt: now,
       updatedAt: now,
     })
-    await ctx.db.patch(state._id, { draftGeneration: 2, updatedAt: now })
+    await ctx.db.patch("pageLocalePublicationStates", state._id, { draftGeneration: 2, updatedAt: now })
   })
   const second = await owner.mutation(api.cms.publication.publishLocale, {
     pageId,

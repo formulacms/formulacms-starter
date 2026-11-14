@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { assertLocalDevelopment } from "@/lib/assert-local-dev"
-import { requireAuth } from "@/lib/auth-server"
+import { requireAuth } from "@/lib/auth/server"
 import { requireInstallationOwner } from "@/lib/owner-server"
 import type { PersistedSlice } from "@/lib/slices/authoring/persist"
 import type { SliceReferenceVariant } from "@/lib/slices/authoring/reference"

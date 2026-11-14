@@ -18,11 +18,11 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "p19a-owner",
-  tokenIdentifier: "https://convex.test|p19a-owner",
+  tokenIdentifier: "p19a-owner",
 }
 const STRANGER = {
   subject: "p19a-stranger",
-  tokenIdentifier: "https://convex.test|p19a-stranger",
+  tokenIdentifier: "p19a-stranger",
 }
 const ORIGIN = "https://site.example.com"
 const LAYOUT = "/(public)/[locale]"
@@ -78,7 +78,7 @@ async function site(siteUrl = ORIGIN) {
   })
   await t.run(async (ctx) => {
     const settings = (await ctx.db.query("siteSettings").unique())!
-    await ctx.db.patch(settings._id, { siteUrl })
+    await ctx.db.patch("siteSettings", settings._id, { siteUrl })
   })
   await t.finishAllScheduledFunctions(vi.runAllTimers)
   return { t, owner }
@@ -187,7 +187,7 @@ describe("M05 P19a lifecycle intents", () => {
           q.eq("operationId", "module_toggle:c2")
         )
         .unique())!
-      await ctx.db.delete(seeded._id)
+      await ctx.db.delete("siteLanguageLifecycleIntents", seeded._id)
     })
     await owner.mutation(api.cms.modules.commit, {
       expectedConfigurationVersion: 1,
@@ -413,7 +413,7 @@ describe("M05 P19a lifecycle intents", () => {
     const { t } = await site()
     const intentId = await insertIntent(t, "adopt:v2")
     await t.run((ctx) =>
-      ctx.db.patch(intentId, {
+      ctx.db.patch("siteLanguageLifecycleIntents", intentId, {
         phase: "roots",
         origin: "https://old.example.com",
       })
@@ -466,7 +466,7 @@ describe("M05 P19a lifecycle intents", () => {
     await drain(other)
     await other.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, { siteUrl: ORIGIN })
+      await ctx.db.patch("siteSettings", settings._id, { siteUrl: ORIGIN })
     })
     // Move the clock without firing the re-arm the first drain scheduled
     // (A1 would otherwise return the older intent to `pending`).
@@ -516,7 +516,7 @@ describe("M05 P19a lifecycle intents", () => {
 
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, { siteUrl: ORIGIN })
+      await ctx.db.patch("siteSettings", settings._id, { siteUrl: ORIGIN })
     })
     expect(await requeue()).toEqual({ requeued: 32, moreRemain: true })
     const afterFirst = await intents(t)
@@ -557,7 +557,7 @@ describe("M05 P19a lifecycle intents", () => {
   const setSiteUrl = (t: T, siteUrl: string) =>
     t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, { siteUrl })
+      await ctx.db.patch("siteSettings", settings._id, { siteUrl })
     })
   async function undeliveredSite(count: number, siteUrl = "") {
     const made = await site(siteUrl)
@@ -665,7 +665,7 @@ describe("M05 P19a lifecycle intents", () => {
     // A later language change makes version 2 current.
     await t.run(async (ctx) => {
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, { version: 2 })
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { version: 2 })
     })
     expect(await lifecycleStatus(owner)).toMatchObject({
       notDelivered: false,
@@ -696,7 +696,7 @@ describe("M05 P19a lifecycle intents", () => {
     const intentId = await insertIntent(t, "adopt:v2")
     const fail = (attempts: number, capturedAuthorityVersion = 1) =>
       t.run((ctx) =>
-        ctx.db.patch(intentId, {
+        ctx.db.patch("siteLanguageLifecycleIntents", intentId, {
           status: "failed",
           attempts,
           capturedAuthorityVersion,
@@ -870,7 +870,7 @@ describe("M05 P19a lifecycle intents", () => {
       // A stale cursor must not survive a re-arm.
       await t.run(async (ctx) => {
         const [row] = await ctx.db.query("siteLanguageLifecycleIntents").take(1)
-        await ctx.db.patch(row!._id, { cursor: "stale-cursor" })
+        await ctx.db.patch("siteLanguageLifecycleIntents", row!._id, { cursor: "stale-cursor" })
       })
       return { t, owner }
     }
@@ -945,7 +945,7 @@ describe("M05 P19a lifecycle intents", () => {
     // A quiet local intent, as a failed local delivery leaves it.
     await t.run(async (ctx) => {
       const [first] = await ctx.db.query("siteLanguageLifecycleIntents").take(1)
-      await ctx.db.patch(first!._id, {
+      await ctx.db.patch("siteLanguageLifecycleIntents", first!._id, {
         status: "local_unreachable",
         origin: "http://localhost:3000",
       })
@@ -984,7 +984,7 @@ describe("M05 P19a lifecycle intents", () => {
           .query("siteLanguageLifecycleIntents")
           .withIndex("by_operationId", (q) => q.eq("operationId", operationId))
           .unique())!
-        await ctx.db.patch(row._id, { status: "local_unreachable", origin })
+        await ctx.db.patch("siteLanguageLifecycleIntents", row._id, { status: "local_unreachable", origin })
       }
     })
     await setSiteUrl(t, ORIGIN)
@@ -1039,13 +1039,13 @@ describe("M05 P19a lifecycle intents", () => {
     await insertIntent(t, "module_toggle:c2")
     const [failedId, runningId, pendingId] = (await intents(t)).map((i) => i._id)
     await t.run(async (ctx) => {
-      await ctx.db.patch(failedId!, {
+      await ctx.db.patch("siteLanguageLifecycleIntents", failedId!, {
         status: "failed",
         attempts: 3,
         phase: "roots",
         lastErrorCode: "REVALIDATION_HTTP_ERROR",
       })
-      await ctx.db.patch(runningId!, { status: "running", attempts: 1 })
+      await ctx.db.patch("siteLanguageLifecycleIntents", runningId!, { status: "running", attempts: 1 })
     })
     const runningBefore = (await intents(t)).find((i) => i._id === runningId)
 
@@ -1066,9 +1066,9 @@ describe("M05 P19a lifecycle intents", () => {
 
     // One status per call: unconfigured, then failed, then local_unreachable.
     await t.run(async (ctx) => {
-      await ctx.db.patch(failedId!, { status: "failed" })
-      await ctx.db.patch(pendingId!, { status: "unconfigured" })
-      await ctx.db.patch(runningId!, {
+      await ctx.db.patch("siteLanguageLifecycleIntents", failedId!, { status: "failed" })
+      await ctx.db.patch("siteLanguageLifecycleIntents", pendingId!, { status: "unconfigured" })
+      await ctx.db.patch("siteLanguageLifecycleIntents", runningId!, {
         status: "local_unreachable",
         origin: "http://localhost:3000",
       })
@@ -1087,7 +1087,7 @@ describe("M05 P19a lifecycle intents", () => {
       for (const row of await ctx.db
         .query("siteLanguageLifecycleIntents")
         .take(40)) {
-        await ctx.db.patch(row._id, { status: "failed", attempts: 3 })
+        await ctx.db.patch("siteLanguageLifecycleIntents", row._id, { status: "failed", attempts: 3 })
       }
     })
     const push = () =>

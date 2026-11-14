@@ -7,7 +7,7 @@ import {
   fetchAuthMutation,
   fetchAuthQuery,
   requireAuth,
-} from "@/lib/auth-server"
+} from "@/lib/auth/server"
 import { requireInstallationOwner } from "@/lib/owner-server"
 import { REGISTERED_SLICE_TYPES } from "@/convex/lib/slices"
 import type { SlicePresentationCatalog } from "@/convex/lib/slices/presentationResolution"

@@ -3,13 +3,13 @@
 import { Suspense, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useQuery } from "convex/react"
+import { ConvexError } from "convex/values"
 import { Loader2 } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useTranslations } from "next-intl"
-import { useCaughtError } from "@/lib/i18n/use-caught-error"
 import { z } from "zod"
-import { authClient } from "@/lib/auth-client"
+import { useUsernamePasswordSignIn } from "@/lib/auth/client"
 import { api } from "@/convex/_generated/api"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -32,25 +32,21 @@ import {
 import { safeNextPath } from "./safe-next-path"
 
 type SignInValues = {
-  email: string
+  username: string
   password: string
 }
 
 function SignInForm() {
-  const displayError = useCaughtError()
   const t = useTranslations("auth.signIn")
   const router = useRouter()
   const searchParams = useSearchParams()
-  const justReset = searchParams.get("reset") === "ok"
+  // Username and password is the only sign-in method (ADR-0056). The call goes
+  // through /auth/signin, which keeps the refresh token in an httpOnly cookie.
+  const { signIn } = useUsernamePasswordSignIn()
 
-  // Optional providers: render Google only when the deployment env is fully
-  // configured. `undefined` while loading → hide; `false` → hide.
-  const providers = useQuery(api.auth.getProvidersAvailable, {})
-  const googleEnabled = providers?.google === true
-
-  // No account can exist yet on a deployment nobody has claimed. Better Auth
-  // answers "Invalid email or password" there, which is false in substance and
-  // sends people hunting for a typo instead of finishing setup.
+  // No account can exist yet on a deployment nobody has claimed. A sign-in
+  // there answers "wrong username or password", which is false in substance
+  // and sends people hunting for a typo instead of finishing setup.
   const owner = useQuery(api.cms.owner.getOwnerEstablished, {})
   // Never let this panel be a dead end: whatever the signal says, one click
   // still reaches the credential form. Hiding the only way in on a single
@@ -58,71 +54,50 @@ function SignInForm() {
   const [forceForm, setForceForm] = useState(false)
   const noOwnerYet = owner?.established === false && !forceForm
 
-  // Google is a second, non-form path to the same page, so it keeps its own
-  // pending flag; the credential form's is `formState.isSubmitting`.
-  const [googlePending, setGooglePending] = useState(false)
-
   const signInSchema = z.object({
-    email: z
-      .string()
-      .trim()
-      .min(1, t("validation.emailRequired"))
-      .pipe(z.email(t("validation.emailInvalid"))),
+    username: z.string().trim().min(1, t("validation.usernameRequired")),
     password: z.string().min(1, t("validation.passwordRequired")),
   })
 
   const form = useForm<SignInValues>({
     resolver: zodResolver(signInSchema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { username: "", password: "" },
   })
   // Anything the sign-in service says back is a form-level failure, not a
   // per-field one — `root` is where react-hook-form keeps those.
   const formError = form.formState.errors.root?.message
-  const busy = form.formState.isSubmitting || googlePending
+  const busy = form.formState.isSubmitting
 
   const handleSubmit = form.handleSubmit(async (values) => {
-    try {
-      const { error: signInError } = await authClient.signIn.email({
-        email: values.email,
-        password: values.password,
-      })
-      if (signInError) {
-        form.setError("root", {
-          message: displayError(signInError, t("errors.default")),
-        })
-        return
-      }
+    const result = await signIn({
+      username: values.username,
+      password: values.password,
+    })
+    if (result.status === "complete") {
       router.replace(
         safeNextPath(searchParams.get("next"), window.location.origin)
       )
       router.refresh()
-    } catch {
-      form.setError("root", {
-        message: t("errors.unreachable"),
-      })
+      return
     }
+    // Never say whether the username exists: every credential failure gets
+    // the same message.
+    const { userError } = result
+    form.setError("root", {
+      message:
+        userError.error === "RATE_LIMITED"
+          ? t("errors.rateLimited", {
+              seconds: Math.ceil(userError.retryAfterMs / 1000),
+            })
+          : userError.error !== "OTHER_ERROR"
+            ? t("errors.invalidCredentials")
+            : // A refusal from the deployment (for example a disabled account)
+              // arrives as a ConvexError; anything else never reached it.
+              userError.cause instanceof ConvexError
+              ? t("errors.default")
+              : t("errors.unreachable"),
+    })
   })
-
-  async function handleGoogle() {
-    setGooglePending(true)
-    form.clearErrors("root")
-    try {
-      const { error: signInError } = await authClient.signIn.social({
-        provider: "google",
-        callbackURL: "/",
-      })
-      if (signInError) {
-        form.setError("root", {
-          message: displayError(signInError, t("errors.googleDefault")),
-        })
-      }
-    } catch {
-      form.setError("root", {
-        message: t("errors.googleUnreachable"),
-      })
-    }
-    setGooglePending(false)
-  }
 
   if (owner === undefined) {
     return (
@@ -180,14 +155,6 @@ function SignInForm() {
             className="flex flex-col gap-4"
             noValidate
           >
-            {justReset && (
-              <p
-                className="rounded-md border border-green-600/40 bg-green-50 px-3 py-2 text-sm text-green-900 dark:bg-green-950/30 dark:text-green-200"
-                role="status"
-              >
-                {t("form.resetSuccess")}
-              </p>
-            )}
             {formError && (
               <p
                 className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
@@ -198,15 +165,15 @@ function SignInForm() {
             )}
             <FormField
               control={form.control}
-              name="email"
+              name="username"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("form.emailLabel")}</FormLabel>
+                  <FormLabel>{t("form.usernameLabel")}</FormLabel>
                   <FormControl>
                     <Input
-                      type="email"
-                      autoComplete="email"
-                      inputMode="email"
+                      type="text"
+                      autoComplete="username"
+                      autoCapitalize="none"
                       spellCheck={false}
                       disabled={busy}
                       {...field}
@@ -234,14 +201,6 @@ function SignInForm() {
                 </FormItem>
               )}
             />
-            <div className="flex justify-end">
-              <Link
-                href="/forgot-password"
-                className="text-xs text-muted-foreground underline underline-offset-4"
-              >
-                {t("form.forgotPassword")}
-              </Link>
-            </div>
             <Button type="submit" disabled={busy}>
               {form.formState.isSubmitting && (
                 <Loader2 className="animate-spin" />
@@ -250,26 +209,6 @@ function SignInForm() {
                 ? t("form.signingIn")
                 : t("form.submit")}
             </Button>
-            {googleEnabled && (
-              <>
-                <div className="my-1 flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="h-px flex-1 bg-border" />
-                  <span>{t("form.divider")}</span>
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => void handleGoogle()}
-                >
-                  {googlePending && <Loader2 className="animate-spin" />}
-                  {googlePending
-                    ? t("form.googleConnecting")
-                    : t("form.googleContinue")}
-                </Button>
-              </>
-            )}
           </form>
         </Form>
       </CardContent>

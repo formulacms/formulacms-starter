@@ -40,7 +40,7 @@ describe("documentReferences scanner", () => {
         createdAt: now,
         updatedAt: now,
       })
-      const doc = await ctx.db.get(pageId)
+      const doc = await ctx.db.get("pages", pageId)
       expect(doc).not.toBeNull()
       await refreshDocumentReferencesForPage(ctx, doc!)
 
@@ -76,7 +76,7 @@ describe("documentReferences scanner", () => {
         createdAt: now,
         updatedAt: now,
       })
-      const doc = await ctx.db.get(postId)
+      const doc = await ctx.db.get("pages", postId)
       expect(doc).not.toBeNull()
       await refreshDocumentReferencesForPage(ctx, doc!)
 
@@ -127,7 +127,7 @@ describe("documentReferences scanner", () => {
         createdAt: now,
         updatedAt: now,
       })
-      const doc = await ctx.db.get(postId)
+      const doc = await ctx.db.get("pages", postId)
       expect(doc).not.toBeNull()
       await refreshDocumentReferencesForPage(ctx, doc!)
 
@@ -218,7 +218,7 @@ describe("documentReferences scanner", () => {
         createdAt: now,
         updatedAt: now,
       })
-      const doc = await ctx.db.get(pageId)
+      const doc = await ctx.db.get("pages", pageId)
       expect(doc).not.toBeNull()
 
       await refreshDocumentReferencesForPage(ctx, doc!)

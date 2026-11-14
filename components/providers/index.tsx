@@ -1,17 +1,16 @@
-"use client";
+"use client"
 
-import { ConvexReactClient } from "convex/react";
-import { ConvexBetterAuthProvider } from "@convex-dev/better-auth/react";
-import type { AuthClient } from "@convex-dev/better-auth/react";
-import { authClient } from "@/lib/auth-client";
+import { ConvexProvider, ConvexReactClient } from "convex/react"
 
-const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
-const convexAuthClient = authClient as unknown as AuthClient;
+const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!)
 
+/**
+ * The anonymous Convex client for the static public site. It never carries a
+ * session: the public tree must not read auth cookies, so signed-in state
+ * comes from /api/session-label instead. Request-time trees (admin, setup,
+ * sign-in, live preview) use ConvexAuthNextjsServerProvider from
+ * lib/auth/convexAuth.tsx.
+ */
 export function Providers({ children }: { children: React.ReactNode }) {
-  return (
-    <ConvexBetterAuthProvider client={convex} authClient={convexAuthClient}>
-      {children}
-    </ConvexBetterAuthProvider>
-  );
+  return <ConvexProvider client={convex}>{children}</ConvexProvider>
 }

@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { readFile } from "node:fs/promises"
-import { convexTest } from "convex-test"
+import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import { describe, expect, test } from "vitest"
 import { api, internal } from "./_generated/api"
 import type { QueryCtx } from "./_generated/server"
@@ -12,13 +12,13 @@ const modules = import.meta.glob("./**/*.ts")
 
 const ownerIdentity = {
   subject: "owner-auth-id",
-  tokenIdentifier: "https://issuer.test|owner-auth-id",
+  tokenIdentifier: "owner-auth-id",
   email: "owner@example.test",
 }
 
 const successorIdentity = {
   subject: "successor-auth-id",
-  tokenIdentifier: "https://issuer.test|successor-auth-id",
+  tokenIdentifier: "successor-auth-id",
   email: "successor@example.test",
 }
 
@@ -128,7 +128,7 @@ describe("durable Community owner access", () => {
 
     const legacyAdmin = {
       subject: "legacy-admin",
-      tokenIdentifier: "https://issuer.test|legacy-admin",
+      tokenIdentifier: "legacy-admin",
     }
     await expect(
       t.withIdentity(legacyAdmin).query(api.cms.owner.getOwnerSession, {})
@@ -151,10 +151,14 @@ describe("durable Community owner access", () => {
       t.query(api.cms.owner.getOwnerEstablished, {})
     ).resolves.toEqual({ established: true })
     const session = await owner.query(api.cms.owner.getOwnerSession, {})
+    // Convex Auth tokens carry no email (ADR-0056); B1b adds the stored
+    // notification email. The fixture user has no name or username yet.
     expect(session).toEqual({
       ownerId,
       authId: ownerIdentity.subject,
-      email: ownerIdentity.email,
+      email: null,
+      displayName: null,
+      username: null,
       role: "admin",
     })
     expect(session).not.toHaveProperty("permissions")
@@ -169,7 +173,7 @@ describe("durable Community owner access", () => {
         ownerId,
         authId: ownerIdentity.subject,
         tokenIdentifier: ownerIdentity.tokenIdentifier,
-        email: ownerIdentity.email,
+        email: null,
         role: "admin",
       })
       expect(principal).not.toHaveProperty("permissions")
@@ -180,7 +184,7 @@ describe("durable Community owner access", () => {
 
     const unrelated = {
       subject: "unrelated-auth-id",
-      tokenIdentifier: "https://issuer.test|unrelated-auth-id",
+      tokenIdentifier: "unrelated-auth-id",
     }
     await expect(
       t.withIdentity(unrelated).query(api.cms.owner.getOwnerSession, {})
@@ -193,7 +197,7 @@ describe("durable Community owner access", () => {
     const missingMedia = await insertHistoricalMedia(missing)
     const unrelated = {
       subject: "unrelated-auth-id",
-      tokenIdentifier: "https://issuer.test|unrelated-auth-id",
+      tokenIdentifier: "unrelated-auth-id",
     }
     await expect(
       missing.query(api.cms.owner.getOwnerEstablished, {})
@@ -230,25 +234,25 @@ describe("durable Community owner access", () => {
       "CMS_OWNER_STATE_INVALID"
     )
 
-    for (const partialIdentity of [
-      {
-        ...ownerIdentity,
-        tokenIdentifier: "https://issuer.test|changed-token",
-      },
-      { ...ownerIdentity, subject: "changed-owner-auth-id" },
+    // One user ID fills both fields, so a half match can only come from a
+    // corrupt owner row: the owner's authId with a foreign token, and the
+    // owner's token with a foreign authId.
+    for (const corrupt of [
+      { tokenIdentifier: "changed-token" },
+      { authId: "changed-owner-auth-id" },
     ]) {
       const partial = makeTest()
       const partialMedia = await insertHistoricalMedia(partial)
-      await insertOwner(partial)
+      await insertOwner(partial, corrupt)
       await expect(
         partial
-          .withIdentity(partialIdentity)
+          .withIdentity(ownerIdentity)
           .query(api.cms.owner.getOwnerSession, {})
       ).rejects.toThrow("CMS_OWNER_UNAVAILABLE")
       await expectProtectedDenial(
         partial,
         partialMedia,
-        partialIdentity,
+        ownerIdentity,
         "CMS_OWNER_BINDING_INVALID"
       )
     }
@@ -261,11 +265,11 @@ describe("durable Community owner access", () => {
       t,
       ownerIdentity.tokenIdentifier
     )
-    const before = await t.run((ctx) => ctx.db.get(ownerId))
+    const before = await t.run((ctx) => ctx.db.get("cmsOwner", ownerId))
     expect(before).not.toBeNull()
 
     await t.run(async (ctx) => {
-      const currentOwner = await ctx.db.get(ownerId)
+      const currentOwner = await ctx.db.get("cmsOwner", ownerId)
       expect(currentOwner).not.toBeNull()
       const replacement = await replaceOwnerBinding(ctx, currentOwner!, {
         authId: successorIdentity.subject,
@@ -280,7 +284,7 @@ describe("durable Community owner access", () => {
       })
     })
 
-    const after = await t.run((ctx) => ctx.db.get(ownerId))
+    const after = await t.run((ctx) => ctx.db.get("cmsOwner", ownerId))
     expect(after).toMatchObject({
       _id: ownerId,
       establishedAt: before!.establishedAt,
@@ -306,7 +310,7 @@ describe("durable Community owner access", () => {
       })
     ).resolves.toBeNull()
 
-    await expect(t.run((ctx) => ctx.db.get(mediaId))).resolves.toMatchObject({
+    await expect(t.run((ctx) => ctx.db.get("media", mediaId))).resolves.toMatchObject({
       filename: "legacy.png",
       url: "https://example.test/legacy.png",
       uploadedBy: ownerIdentity.tokenIdentifier,
@@ -320,7 +324,7 @@ describe("durable Community owner access", () => {
       establishedAt: 123,
     })
     const sameAccountBefore = await sameAccount.run((ctx) =>
-      ctx.db.get(sameAccountOwnerId)
+      ctx.db.get("cmsOwner", sameAccountOwnerId)
     )
     expect(sameAccountBefore).not.toBeNull()
 
@@ -334,22 +338,22 @@ describe("durable Community owner access", () => {
       )
     ).rejects.toThrow("CMS_OWNER_REPLACEMENT_INVALID")
     await expect(
-      sameAccount.run((ctx) => ctx.db.get(sameAccountOwnerId))
+      sameAccount.run((ctx) => ctx.db.get("cmsOwner", sameAccountOwnerId))
     ).resolves.toEqual(sameAccountBefore)
 
     const stale = makeTest()
     const staleOwnerId = await insertOwner(stale, { establishedAt: 456 })
-    const staleSnapshot = await stale.run((ctx) => ctx.db.get(staleOwnerId))
+    const staleSnapshot = await stale.run((ctx) => ctx.db.get("cmsOwner", staleOwnerId))
     expect(staleSnapshot).not.toBeNull()
     await stale.run((ctx) =>
-      ctx.db.patch(staleOwnerId, {
+      ctx.db.patch("cmsOwner", staleOwnerId, {
         authId: successorIdentity.subject,
         tokenIdentifier: successorIdentity.tokenIdentifier,
         updatedAt: 2,
       })
     )
     const currentBeforeAttempt = await stale.run((ctx) =>
-      ctx.db.get(staleOwnerId)
+      ctx.db.get("cmsOwner", staleOwnerId)
     )
 
     await expect(
@@ -361,7 +365,7 @@ describe("durable Community owner access", () => {
         })
       )
     ).rejects.toThrow("CMS_OWNER_STATE_STALE")
-    await expect(stale.run((ctx) => ctx.db.get(staleOwnerId))).resolves.toEqual(
+    await expect(stale.run((ctx) => ctx.db.get("cmsOwner", staleOwnerId))).resolves.toEqual(
       currentBeforeAttempt
     )
   })
@@ -370,7 +374,7 @@ describe("durable Community owner access", () => {
     const t = makeTest()
     await insertOwner(t)
     const deletedMediaId = await insertHistoricalMedia(t)
-    await t.run((ctx) => ctx.db.delete(deletedMediaId))
+    await t.run((ctx) => ctx.db.delete("media", deletedMediaId))
 
     await expect(
       t.mutation(api.cms.media.update, {

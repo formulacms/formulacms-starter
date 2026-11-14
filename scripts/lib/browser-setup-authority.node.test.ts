@@ -24,7 +24,7 @@ describe("browser verification setup authority", () => {
   test("accepts a route reached after authoritative setup", () => {
     expect(() =>
       assertAuthoritativeSetupComplete(
-        "http://localhost:3000/forgot-password",
+        "http://localhost:3000/recover",
         "check:e2e"
       )
     ).not.toThrow()

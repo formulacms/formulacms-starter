@@ -123,20 +123,6 @@ function isLocalUrl(url: URL) {
   return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname)
 }
 
-function checkLocalUrl(value: string, label: string) {
-  const url = parseUrl(value, label)
-  if (!url) return
-  if (!allowRemote && !isLocalUrl(url)) {
-    addCheck(
-      label,
-      "failed",
-      `${label} points at ${url.origin}; local app-creation checks expect localhost. Set STARTER_PREFLIGHT_ALLOW_REMOTE=1 only when intentionally checking a deployed origin.`
-    )
-    return
-  }
-  addCheck(label, "passed", `${label} is ${url.origin}.`)
-}
-
 function warnIfDifferentOrigin(value: string, label: string) {
   const url = parseUrl(value, label)
   if (!url) return
@@ -159,7 +145,7 @@ function checkRequiredEnv(env: Map<string, string>, key: string) {
 }
 
 // Half of this app's configuration lives in the *Convex deployment* env, which
-// `.env.local` never reaches: Better Auth, contact-form IP proofs, publish-time
+// `.env.local` never reaches: contact-form IP proofs, publish-time
 // revalidation, and the one-time owner claim all read `process.env` inside the
 // Convex runtime. Checking only `.env.local` therefore passes a deployment that
 // cannot sign anyone in. Read the deployment side once and compare by name.
@@ -211,12 +197,6 @@ type PairedSecret = {
 }
 
 const PAIRED_SECRETS: PairedSecret[] = [
-  {
-    key: "BETTER_AUTH_SECRET",
-    localRequired: true,
-    consequence:
-      "Better Auth runs inside Convex and silently falls back to its built-in default secret, so every session it issues is forgeable.",
-  },
   {
     key: "CONTACT_IP_PROOF_SECRET",
     localRequired: true,
@@ -277,65 +257,6 @@ function checkPairedSecret(
   }
 
   addCheck(key, "passed", `${key} matches the active Convex deployment.`)
-}
-
-function originOf(value: string) {
-  try {
-    return new URL(value).origin
-  } catch {
-    return null
-  }
-}
-
-function checkConvexBetterAuthUrl(
-  env: Map<string, string>,
-  convex: ConvexEnvSnapshot
-) {
-  const label = "BETTER_AUTH_URL (Convex deployment)"
-  const localValue = env.get("BETTER_AUTH_URL") ?? ""
-  // A missing or malformed local value is already reported by the local checks.
-  if (isPlaceholder(localValue)) return
-  const localOrigin = originOf(localValue)
-  if (!localOrigin) return
-
-  if (!convex.available) {
-    addCheck(
-      label,
-      "warning",
-      `BETTER_AUTH_URL could not be checked against the active Convex deployment: ${convex.reason}.`
-    )
-    return
-  }
-
-  const convexValue = convex.values.get("BETTER_AUTH_URL") ?? ""
-  if (!convexValue) {
-    addCheck(
-      label,
-      "failed",
-      "BETTER_AUTH_URL is missing from the active Convex deployment. The deployment lacks a stable canonical auth origin, and request/proxy-derived fallback can make auth, callbacks, or cookie-bearing requests inconsistent."
-    )
-    return
-  }
-
-  const convexOrigin = originOf(convexValue)
-  if (!convexOrigin) {
-    addCheck(
-      label,
-      "failed",
-      "BETTER_AUTH_URL in the active Convex deployment is not a valid URL."
-    )
-    return
-  }
-  if (convexOrigin !== localOrigin) {
-    addCheck(
-      label,
-      "failed",
-      `BETTER_AUTH_URL is ${convexOrigin} in the active Convex deployment but ${localOrigin} in .env.local. The deployment and local configuration name different origins, so auth/callback behavior may fail until they match.`
-    )
-    return
-  }
-
-  addCheck(label, "passed", `BETTER_AUTH_URL is ${convexOrigin} on both sides.`)
 }
 
 function checkConvexOwnerClaim(
@@ -442,17 +363,11 @@ function main() {
     const commentedConvexExamples = new Set(
       [
         ...readFileSync(".env.local.example", "utf8").matchAll(
-          /^\s*#\s*(CONVEX_DEPLOYMENT|NEXT_PUBLIC_CONVEX_URL|NEXT_PUBLIC_CONVEX_SITE_URL)\s*=/gm
+          /^\s*#\s*(CONVEX_DEPLOYMENT|NEXT_PUBLIC_CONVEX_URL)\s*=/gm
         ),
       ].map((match) => match[1])
     )
-    for (const key of [
-      "CONVEX_DEPLOYMENT",
-      "NEXT_PUBLIC_CONVEX_URL",
-      "NEXT_PUBLIC_CONVEX_SITE_URL",
-      "BETTER_AUTH_URL",
-      "BETTER_AUTH_SECRET",
-    ]) {
+    for (const key of ["CONVEX_DEPLOYMENT", "NEXT_PUBLIC_CONVEX_URL"]) {
       if (!example.has(key) && !commentedConvexExamples.has(key)) {
         addCheck(
           ".env.local.example",
@@ -472,21 +387,8 @@ function main() {
   } else {
     addCheck(".env.local", "passed", ".env.local exists.")
     const env = readEnvFile(".env.local")
-    // BETTER_AUTH_SECRET is required too, but PAIRED_SECRETS below reports it
-    // with the same message — listing it here would print the failure twice.
-    for (const key of [
-      "CONVEX_DEPLOYMENT",
-      "NEXT_PUBLIC_CONVEX_URL",
-      "NEXT_PUBLIC_CONVEX_SITE_URL",
-      "BETTER_AUTH_URL",
-    ]) {
+    for (const key of ["CONVEX_DEPLOYMENT", "NEXT_PUBLIC_CONVEX_URL"]) {
       checkRequiredEnv(env, key)
-    }
-
-    const betterAuthUrl = env.get("BETTER_AUTH_URL")
-    if (betterAuthUrl && !isPlaceholder(betterAuthUrl)) {
-      checkLocalUrl(betterAuthUrl, "BETTER_AUTH_URL")
-      warnIfDifferentOrigin(betterAuthUrl, "BETTER_AUTH_URL")
     }
 
     const nextPublicSiteUrl = env.get("NEXT_PUBLIC_SITE_URL")
@@ -498,6 +400,8 @@ function main() {
           "warning",
           "NEXT_PUBLIC_SITE_URL points at a remote origin; use localhost and a fresh local deployment for app-creation verification."
         )
+      } else if (url) {
+        warnIfDifferentOrigin(nextPublicSiteUrl, "NEXT_PUBLIC_SITE_URL")
       }
     }
 
@@ -514,7 +418,6 @@ function main() {
     for (const pairing of PAIRED_SECRETS) {
       checkPairedSecret(env, convex, pairing)
     }
-    checkConvexBetterAuthUrl(env, convex)
     checkConvexOwnerClaim(env, convex)
   }
 

@@ -5,33 +5,41 @@ export type DevServerOrigin = {
 }
 
 // Callers hand this whole env bags (`process.env`, test fixtures); only
-// BETTER_AUTH_URL is read, but the others are legitimately present.
+// NEXT_PUBLIC_SITE_URL is read, but the others are legitimately present.
 type DevServerEnvironment = {
-  BETTER_AUTH_URL?: string
+  NEXT_PUBLIC_SITE_URL?: string
   [key: string]: string | undefined
 }
 
 const DEFAULT_DEV_ORIGIN = "http://localhost:3000"
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"])
 
+function defaultOrigin(): DevServerOrigin {
+  return { hostname: "localhost", origin: DEFAULT_DEV_ORIGIN, port: 3000 }
+}
+
+/**
+ * The address `pnpm dev` binds. A local NEXT_PUBLIC_SITE_URL moves the port.
+ * Any other value (empty, schemeless, or the deployed site's address, which
+ * the variable legitimately holds) leaves the default, localhost:3000.
+ */
 export function resolveDevServerOrigin(
   environment: DevServerEnvironment
 ): DevServerOrigin {
-  const configured = environment.BETTER_AUTH_URL?.trim()
-  const value = configured || DEFAULT_DEV_ORIGIN
+  const configured = environment.NEXT_PUBLIC_SITE_URL?.trim()
+  if (!configured) return defaultOrigin()
 
   let url: URL
   try {
-    url = new URL(value)
+    url = new URL(configured)
   } catch {
-    throw new Error(
-      `BETTER_AUTH_URL must be a valid local origin; received ${JSON.stringify(value)}.`
-    )
+    return defaultOrigin()
   }
+  if (!LOCAL_HOSTNAMES.has(url.hostname)) return defaultOrigin()
 
-  if (url.protocol !== "http:" || !LOCAL_HOSTNAMES.has(url.hostname)) {
+  if (url.protocol !== "http:") {
     throw new Error(
-      `BETTER_AUTH_URL must be a local HTTP origin for pnpm dev; received ${url.origin}.`
+      `NEXT_PUBLIC_SITE_URL must use http for pnpm dev; received ${url.origin}.`
     )
   }
   if (
@@ -42,7 +50,7 @@ export function resolveDevServerOrigin(
     url.hash
   ) {
     throw new Error(
-      "BETTER_AUTH_URL must not include a path, credentials, query, or hash."
+      "NEXT_PUBLIC_SITE_URL must not include a path, credentials, query, or hash."
     )
   }
 
@@ -53,8 +61,8 @@ export function resolveDevServerOrigin(
 export function occupiedDevPortMessage(config: DevServerOrigin): string {
   return [
     `Port ${config.port} is already in use.`,
-    `formulacms will not silently move because setup and sign-in are bound to ${config.origin}.`,
-    "Stop the other app, or update BETTER_AUTH_URL locally and in Convex before trying again.",
+    `formulacms will not silently move because the setup address it printed is ${config.origin}.`,
+    "Stop the other app, or set another local port in NEXT_PUBLIC_SITE_URL in .env.local before trying again.",
   ].join(" ")
 }
 

@@ -270,7 +270,7 @@ const contextQueries = vi.hoisted(() => ({
   fetchAuthQuery: vi.fn(),
   cachedCmsRead: vi.fn(),
 }))
-vi.mock("@/lib/auth-server", () => ({
+vi.mock("@/lib/auth/server", () => ({
   fetchAuthQuery: contextQueries.fetchAuthQuery,
 }))
 vi.mock("convex/nextjs", () => ({ fetchQuery: contextQueries.fetchQuery }))

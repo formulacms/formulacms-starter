@@ -487,7 +487,7 @@ async function readSettingsAfter(
   ctx: MutationCtx,
   entry: Awaited<ReturnType<typeof readCommandEntry>>
 ) {
-  const settings = await ctx.db.get(entry.state.settings._id)
+  const settings = await ctx.db.get("siteSettings", entry.state.settings._id)
   if (!settings) failWith("SITE_LANGUAGE_AUTHORITY_INVALID")
   return {
     settingsUpdatedAt: settings.updatedAt,
@@ -1086,7 +1086,7 @@ export const listDefaultLanguageRoutes = query({
   handler: async (ctx, args) => {
     await requireInstallationOwner(ctx)
     await requireOwnerAndOptionalModule(ctx, "multilingual")
-    const migration = await ctx.db.get(args.migrationId)
+    const migration = await ctx.db.get("siteDefaultLanguageMigrations", args.migrationId)
     if (!migration) throw new ConvexError("LANGUAGE_PREVIEW_MISMATCH")
     const range = ctx.db
       .query("siteDefaultLanguageRoutes")

@@ -23,7 +23,7 @@ import manifest from "../lib/slices/slices.manifest.json"
 const modules = import.meta.glob("./**/*.ts")
 const ownerIdentity = {
   subject: "strict-profile-owner",
-  tokenIdentifier: "https://convex.test|strict-profile-owner",
+  tokenIdentifier: "strict-profile-owner",
 }
 
 function makeTest(publicationAuthority: "legacy" | "missing" = "legacy") {

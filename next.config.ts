@@ -32,6 +32,11 @@ const nextConfig: NextConfig = {
   // over five admin routes, 23% smaller server output in `pnpm dev`, and more
   // routes compiled before Next's dev memory-threshold restart.
   serverExternalPackages: ["@typescript/typescript6"],
+  // In `next dev`, Next serves its dev resources (`/_next/*`, hot reload) only
+  // to localhost and the hostname the server was started with. These are the
+  // other loopback names that scripts/lib/dev-server-origin.ts and
+  // convex/auth.ts already accept. Development only; `next build` ignores it.
+  allowedDevOrigins: ["127.0.0.1", "[::1]"],
   async headers() {
     return [
       {

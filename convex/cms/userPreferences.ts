@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values"
+import { getActor } from "../lib/access/actor"
 import { mutation, query } from "../_generated/server"
 import { requireOperationAccess } from "../lib/access/policy"
 import { resolveOwnerPrincipal } from "../lib/access/owner"
@@ -13,8 +14,8 @@ export const getAdminLocale = query({
   args: {},
   returns: v.union(v.string(), v.null()),
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity()
-    if (!identity) return null
+    const actor = await getActor(ctx)
+    if (!actor) return null
     try {
       const owner = await resolveOwnerPrincipal(ctx)
       if (!owner) return null
@@ -23,7 +24,7 @@ export const getAdminLocale = query({
     }
     const row = await ctx.db
       .query("userPreferences")
-      .withIndex("by_authId", (q) => q.eq("authId", identity.subject))
+      .withIndex("by_authId", (q) => q.eq("authId", actor.userId))
       .unique()
     return row?.adminLocale ?? null
   },
@@ -47,7 +48,7 @@ export const setAdminLocale = mutation({
       .withIndex("by_authId", (q) => q.eq("authId", owner.authId))
       .unique()
     if (row) {
-      await ctx.db.patch(row._id, { adminLocale: locale })
+      await ctx.db.patch("userPreferences", row._id, { adminLocale: locale })
     } else {
       await ctx.db.insert("userPreferences", {
         authId: owner.authId,

@@ -21,7 +21,7 @@ import actionRetrierTest from "@convex-dev/action-retrier/test"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "facts-owner",
-  tokenIdentifier: "https://convex.test|facts-owner",
+  tokenIdentifier: "facts-owner",
 }
 const KEY = "fake-provider-secret-sentinel"
 beforeEach(() => {
@@ -336,21 +336,9 @@ test("a throwing AI provider cannot break Redirects or Multilingual guards", asy
   })
   for (const id of ["redirects", "multilingual"])
     await expect(
-      t.run((ctx) =>
-        gate.requireOwnerAndOptionalModule(
-          {
-            ...ctx,
-            auth: {
-              ...ctx.auth,
-              getUserIdentity: async () => ({
-                ...OWNER,
-                issuer: "https://convex.test",
-              }),
-            },
-          },
-          id
-        )
-      )
+      t
+        .withIdentity(OWNER)
+        .run((ctx) => gate.requireOwnerAndOptionalModule(ctx, id))
     ).resolves.toBeDefined()
   expect(ai).not.toHaveBeenCalled()
 })

@@ -9,7 +9,7 @@ import { convexTest } from "../convexTestWithExplicitAdmin"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "slice-state-owner",
-  tokenIdentifier: "https://convex.test|slice-state-owner",
+  tokenIdentifier: "slice-state-owner",
 }
 
 function fixture() {
@@ -24,7 +24,7 @@ describe("app-local Slice authoring state", () => {
     ).rejects.toThrow()
     const outsider = t.withIdentity({
       subject: "slice-state-outsider",
-      tokenIdentifier: "https://convex.test|slice-state-outsider",
+      tokenIdentifier: "slice-state-outsider",
     })
     await expect(
       outsider.query(api.cms.slices.getSliceAuthoringState, {})

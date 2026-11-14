@@ -10,12 +10,12 @@ const modules = import.meta.glob("./**/*.ts")
 
 const owner = {
   subject: "f03d-owner",
-  tokenIdentifier: "https://issuer.test|f03d-owner",
+  tokenIdentifier: "f03d-owner",
   email: "owner@example.test",
 }
 const editor = {
   subject: "f03d-editor",
-  tokenIdentifier: "https://issuer.test|f03d-editor",
+  tokenIdentifier: "f03d-editor",
   email: "editor@example.test",
 }
 
@@ -86,32 +86,30 @@ describe("F03d fixture and generated-reference reconciliation", () => {
     ).resolves.toBeNull()
     // Both half-match directions are rejected, not just the first one: the
     // owner authId with a foreign token, and the owner token with a foreign
-    // authId. `getOwnerSession` sanitizes both to CMS_OWNER_UNAVAILABLE.
-    await expect(
-      t
-        .withIdentity({
-          ...owner,
-          tokenIdentifier: "https://issuer.test|wrong-token",
-        })
-        .query(api.cms.owner.getOwnerSession, {})
-    ).rejects.toThrow("CMS_OWNER_UNAVAILABLE")
-    await expect(
-      t
-        .withIdentity({ ...owner, subject: "f03d-wrong-auth-id" })
-        .query(api.cms.owner.getOwnerSession, {})
-    ).rejects.toThrow("CMS_OWNER_UNAVAILABLE")
-
-    // The ordinary operation seam surfaces the unsanitized binding error for
-    // the same two directions.
-    for (const halfMatch of [
-      { ...owner, tokenIdentifier: "https://issuer.test|wrong-token" },
-      { ...owner, subject: "f03d-wrong-auth-id" },
+    // authId. One user ID fills both fields, so the half match can only come
+    // from a corrupt owner row, which this test writes directly.
+    // `getOwnerSession` sanitizes both to CMS_OWNER_UNAVAILABLE, and the
+    // ordinary operation seam surfaces the unsanitized binding error.
+    const ownerRow = rows[0]!
+    for (const corrupt of [
+      { tokenIdentifier: "wrong-token" },
+      { authId: "f03d-wrong-auth-id" },
     ]) {
+      await t.run((ctx) => ctx.db.patch("cmsOwner", ownerRow._id, corrupt))
       await expect(
-        t.withIdentity(halfMatch).query(api.cms.pages.listPaginated, {
+        t.withIdentity(owner).query(api.cms.owner.getOwnerSession, {})
+      ).rejects.toThrow("CMS_OWNER_UNAVAILABLE")
+      await expect(
+        t.withIdentity(owner).query(api.cms.pages.listPaginated, {
           paginationOpts: { numItems: 1, cursor: null },
         })
       ).rejects.toThrow("CMS_OWNER_BINDING_INVALID")
+      await t.run((ctx) =>
+        ctx.db.patch("cmsOwner", ownerRow._id, {
+          authId: owner.subject,
+          tokenIdentifier: owner.subject,
+        })
+      )
     }
   })
 

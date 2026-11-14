@@ -3,7 +3,7 @@
 import "server-only"
 
 import { issueContactIpProofPairing } from "@/lib/auth/contact-ip-proof-pairing"
-import { requireAuth } from "@/lib/auth-server"
+import { requireAuth } from "@/lib/auth/server"
 import { requireInstallationOwner } from "@/lib/owner-server"
 
 /**

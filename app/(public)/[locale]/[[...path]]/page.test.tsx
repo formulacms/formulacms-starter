@@ -41,7 +41,7 @@ vi.mock("next/headers", () => ({
 }))
 
 vi.mock("convex/nextjs", () => ({ fetchQuery: mocks.fetchQuery }))
-vi.mock("@/lib/auth-server", () => ({
+vi.mock("@/lib/auth/server", () => ({
   fetchAuthMutation: mocks.fetchAuthMutation,
   fetchAuthQuery: mocks.fetchAuthQuery,
 }))

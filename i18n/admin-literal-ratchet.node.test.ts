@@ -13,8 +13,7 @@ const SETUP_SURFACE_PATHS = new Set([
 ])
 
 const AUTH_SURFACE_PATHS = new Set([
-  "app/(core)/(auth)/forgot-password/page.tsx",
-  "app/(core)/(auth)/reset-password/page.tsx",
+  "app/(core)/(auth)/recover/page.tsx",
   "app/(core)/(auth)/sign-in/page.tsx",
 ])
 
@@ -200,9 +199,11 @@ const OTHER_INVENTORY_ROUTES_PATHS = new Set([
   "components/admin/public-site-updates-row.tsx",
   "components/admin/revalidation-diagnostics.tsx",
   "components/admin/settings/account-language-picker.tsx",
+  "components/admin/settings/change-password.tsx",
   "components/admin/slice-editor-text.ts",
   "components/admin/trash-list.tsx",
   "components/admin/visual-editing-types.ts",
+  "components/auth/password-field.tsx",
   "components/edition/page-workflow.tsx",
   "components/edition/roles-manager.tsx",
   "components/edition/workflow-principal.tsx",
@@ -302,7 +303,7 @@ describe("admin literal ratchet", () => {
   test("R1 shipped UI has no unallowlisted literals", () => {
     const inventory = scanR1LiteralInventory(process.cwd())
     expect(inventory.files.length).toBeGreaterThan(0)
-    expect(inventory.files).toHaveLength(235)
+    expect(inventory.files).toHaveLength(236)
     if (inventory.findings.length > 0) {
       throw new Error(formatR1LiteralInventory(inventory))
     }
@@ -328,7 +329,7 @@ describe("admin literal ratchet", () => {
     }
   })
 
-  test("sign-in, forgot, and reset have no unallowlisted literals", () => {
+  test("sign-in and owner recovery have no unallowlisted literals", () => {
     const inventory = scanR1LiteralInventory(process.cwd())
     const authInventory = {
       ...inventory,
@@ -342,7 +343,7 @@ describe("admin literal ratchet", () => {
         AUTH_SURFACE_PATHS.has(finding.path)
       ),
     }
-    expect(authInventory.files).toHaveLength(3)
+    expect(authInventory.files).toHaveLength(2)
     if (authInventory.findings.length > 0) {
       throw new Error(formatR1LiteralInventory(authInventory))
     }
@@ -496,7 +497,7 @@ describe("admin literal ratchet", () => {
         OTHER_INVENTORY_ROUTES_PATHS.has(finding.path)
       ),
     }
-    expect(otherInventoryRoutes.files).toHaveLength(150)
+    expect(otherInventoryRoutes.files).toHaveLength(152)
     if (otherInventoryRoutes.findings.length > 0) {
       throw new Error(formatR1LiteralInventory(otherInventoryRoutes))
     }

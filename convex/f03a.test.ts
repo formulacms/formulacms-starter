@@ -14,12 +14,12 @@ import { readSlicePresentationCatalog } from "./lib/slices/presentations"
 const modules = import.meta.glob("./**/*.ts")
 const owner = {
   subject: "f03a-owner",
-  tokenIdentifier: "https://issuer.test|f03a-owner",
+  tokenIdentifier: "f03a-owner",
   email: "owner@example.test",
 }
 const unrelated = {
   subject: "f03a-unrelated",
-  tokenIdentifier: "https://issuer.test|f03a-unrelated",
+  tokenIdentifier: "f03a-unrelated",
   email: "unrelated@example.test",
 }
 
@@ -169,7 +169,7 @@ describe("F03a owner operation access", () => {
         locale: "en",
       })
     ).resolves.toEqual([expect.objectContaining({ id: pageId })])
-    await t.run((ctx) => ctx.db.patch(pageId, { deletedAt: Date.now() }))
+    await t.run((ctx) => ctx.db.patch("pages", pageId, { deletedAt: Date.now() }))
     await expect(
       t.query(api.cms.relations.getReferenceCard, {
         id: pageId,
@@ -237,7 +237,7 @@ describe("F03a owner operation access", () => {
       size: 5,
       mimeType: "image/png",
     })
-    await t.run((ctx) => ctx.db.delete(mediaId))
+    await t.run((ctx) => ctx.db.delete("media", mediaId))
 
     await expect(
       t.query(api.cms.media.getById, { id: mediaId })
@@ -263,7 +263,7 @@ describe("F03a owner operation access", () => {
         updatedAt: now,
         content: { en: { title: "Deleted page", slices: [] } },
       })
-      await ctx.db.delete(id)
+      await ctx.db.delete("pages", id)
       return id
     })
 
@@ -340,7 +340,7 @@ describe("F03a owner operation access", () => {
     await t.run(async (ctx) => {
       const settings = await ctx.db.query("siteSettings").first()
       if (!settings) throw new Error("settings fixture missing")
-      await ctx.db.patch(settings._id, {
+      await ctx.db.patch("siteSettings", settings._id, {
         archivedSliceTypes: ["hero-agency"],
       })
     })

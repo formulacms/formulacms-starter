@@ -28,7 +28,7 @@ This read-only rule applies only to an unmodified release checkout used as a
 blueprint. In an application the owner created from the starter, such as their
 own clone, agents may edit files, commit and run Git commands.
 
-To upgrade this site to a newer formulacms release, fetch the release tag and follow its upgrade file for your version, for example `git show v0.1.1:upgrades/v0.1.0-to-v0.1.1.md`. The file lists the steps and when to stop and ask the site owner.
+To upgrade this site to a newer formulacms release, fetch the release tag and follow its upgrade file for your version, for example `git show v0.2.0:upgrades/v0.1.1-to-v0.2.0.md`. Read the upgrade file before any `git pull` or merge of a release. The file lists the steps and when to stop and ask the site owner.
 
 To operate or customize a site, the owner must explicitly name a separate,
 non-starter application directory and authorize cloning the pure blueprint into
@@ -135,8 +135,9 @@ slice-sim, slice authoring, or slice renderers.
 - Do not use `.env` for normal starter setup.
 - Convex runtime values that backend functions read must be set with
   `pnpm exec convex env set`.
-- `BETTER_AUTH_URL` belongs in both `.env.local` and Convex env. Use
-  `http://localhost:3000` locally and the deployed site origin in production.
+- Sign-in uses Convex Auth with a username and password (`convex/auth.ts`).
+  It needs no auth secret and no auth URL. An owner who is locked out runs
+  `pnpm owner:recover`; there is no email reset.
 
 ## Next.js
 

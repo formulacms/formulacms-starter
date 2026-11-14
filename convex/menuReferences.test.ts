@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { convexTest } from "convex-test"
+import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { api, internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
@@ -13,7 +13,7 @@ const modules = import.meta.glob("./**/*.ts")
 /** The one durable Community owner; both identity fields are explicit. */
 const OWNER = {
   subject: "menu-reference-owner",
-  tokenIdentifier: "https://convex.test|menu-reference-owner",
+  tokenIdentifier: "menu-reference-owner",
   email: "owner@example.test",
 }
 
@@ -101,7 +101,7 @@ describe("Plan 035 C3 canonical target references", () => {
         ],
         updatedAt: 1,
       })
-      const menu = await ctx.db.get(menuId)
+      const menu = await ctx.db.get("menus", menuId)
       if (!menu) throw new Error("Missing menu")
       await refreshMenuReferences(ctx, menu)
       return await ctx.db
@@ -130,14 +130,14 @@ describe("refreshMenuReferences", () => {
         createdAt: 1,
         updatedAt: 1,
       })
-      await ctx.db.delete(targetId)
+      await ctx.db.delete("pages", targetId)
       const menuId = await ctx.db.insert("menus", {
         slug: "primary",
         nav: [canonicalNavItem("dead-link", targetId)],
         updatedAt: 1,
       })
 
-      const menu = await ctx.db.get(menuId)
+      const menu = await ctx.db.get("menus", menuId)
       await refreshMenuReferences(ctx, menu!)
 
       const rows = await ctx.db.query("menuReferences").take(10)
@@ -182,12 +182,12 @@ describe("refreshMenuReferences", () => {
         nav: initialNav,
         updatedAt: 1,
       })
-      const initialMenu = await ctx.db.get(menuId)
+      const initialMenu = await ctx.db.get("menus", menuId)
       await refreshMenuReferences(ctx, initialMenu!)
 
       const changedNav = [canonicalNavItem("kept-path", targetB)]
-      await ctx.db.patch(menuId, { nav: changedNav })
-      const changedMenu = await ctx.db.get(menuId)
+      await ctx.db.patch("menus", menuId, { nav: changedNav })
+      const changedMenu = await ctx.db.get("menus", menuId)
       await refreshMenuReferences(ctx, changedMenu!)
 
       const rows = await ctx.db
@@ -250,7 +250,7 @@ describe("refreshMenuReferences", () => {
     )[0]!
 
     await t.run(async (ctx) => {
-      const menu = await ctx.db.get(menuId)
+      const menu = await ctx.db.get("menus", menuId)
       await refreshMenuReferences(ctx, menu!)
     })
 
@@ -282,7 +282,7 @@ describe("refreshMenuReferences", () => {
         nav: [canonicalNavItem("stable", targetId)],
         updatedAt: 1,
       })
-      const menu = await ctx.db.get(menuId)
+      const menu = await ctx.db.get("menus", menuId)
       await refreshMenuReferences(ctx, menu!)
       return menuId
     })
@@ -294,7 +294,7 @@ describe("refreshMenuReferences", () => {
     )
 
     await t.run(async (ctx) => {
-      const menu = await ctx.db.get(menuId)
+      const menu = await ctx.db.get("menus", menuId)
       await refreshMenuReferences(ctx, menu!)
     })
 
@@ -326,11 +326,11 @@ describe("refreshMenuReferences", () => {
         nav: [canonicalNavItem("deleted", targetId)],
         updatedAt: 1,
       })
-      const liveMenu = await ctx.db.get(menuId)
+      const liveMenu = await ctx.db.get("menus", menuId)
       await refreshMenuReferences(ctx, liveMenu!)
 
-      await ctx.db.patch(menuId, { deletedAt: 2 })
-      const deletedMenu = await ctx.db.get(menuId)
+      await ctx.db.patch("menus", menuId, { deletedAt: 2 })
+      const deletedMenu = await ctx.db.get("menus", menuId)
       await refreshMenuReferences(ctx, deletedMenu!)
 
       expect(
@@ -448,7 +448,7 @@ describe("canonical menu mutation reference integration", () => {
     await asOwner.mutation(api.cms.menus.softDelete, { id: menuId })
     expect(await referencesForMenu()).toEqual([])
 
-    await t.run((ctx) => ctx.db.delete(changedTargetId))
+    await t.run((ctx) => ctx.db.delete("pages", changedTargetId))
     await asOwner.mutation(api.cms.menus.restore, { id: menuId })
     expect(await referencesForMenu()).toMatchObject([
       { menuId, targetId: changedTargetId },
@@ -554,7 +554,7 @@ describe("exact menu-reference verification", () => {
     })
 
     await t.run(async (ctx) => {
-      const menu = await ctx.db.get(menuId)
+      const menu = await ctx.db.get("menus", menuId)
       await refreshMenuReferences(ctx, menu!)
     })
 

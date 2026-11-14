@@ -251,7 +251,6 @@
     "errors": {
       "connectAccount": "Votre compte est connecté, mais la configuration n’a pas encore pu le relier à l’administration. Réessayez.",
       "tooManyAttempts": "Trop de tentatives. Attendez une minute, puis réessayez.",
-      "accountAlreadyExists": "Un compte utilise déjà cette adresse e-mail sur ce site. Utilisez une autre adresse ou saisissez le mot de passe de ce compte pour vous y connecter.",
       "ownerCodeUnavailable": "Ce site ne peut pas encore utiliser de code de configuration du propriétaire. Le code est absent ou déjà utilisé, et un code utilisé ne peut être ni réutilisé ni consulté. Si une autre personne a configuré ce site, demandez-lui un nouveau code — ou créez-en un vous-même ci-dessous.",
       "createOwner": "Impossible de créer le compte propriétaire. Vérifiez les renseignements ci-dessus et réessayez.",
       "ownerCodeMismatch": "Ce code de configuration ne correspond pas à celui attendu par le site. Vérifiez les fautes de frappe et les espaces superflus — le code doit être exact. Si vous avez configuré ce site, vous pouvez créer un nouveau code ci-dessous.",
@@ -261,10 +260,7 @@
       "saveSite": "Impossible d’enregistrer le site."
     },
     "notices": {
-      "ownerMoved": "L’accès propriétaire a été transféré à {email}. Le compte précédent n’est plus propriétaire du site.",
-      "ownerCreated": "Le compte propriétaire de {email} a été créé. Vous êtes connecté et ce site vous appartient maintenant. Le code de configuration a été utilisé — vous n’en aurez plus besoin.",
-      "thisAccount": "ce compte",
-      "you": "vous"
+      "ownerCreated": "Le compte propriétaire de {username} a été créé. Vous êtes connecté et ce site vous appartient maintenant. Le code de configuration a été utilisé — vous n’en aurez plus besoin."
     },
     "status": {
       "checkingTitle": "Vérification de la configuration",
@@ -285,7 +281,7 @@
       "checkingAccessDescription": "La configuration reprendra après la confirmation de votre session propriétaire.",
       "checkingAccessLabel": "Vérification de l’accès",
       "wrongAccountTitle": "Ce compte ne peut pas reprendre la configuration",
-      "wrongAccountDescription": "{email} est connecté, mais seule la personne propriétaire du site peut poursuivre la configuration."
+      "wrongAccountDescription": "Un autre compte est connecté, mais seule la personne propriétaire du site peut poursuivre la configuration."
     },
     "wizard": {
       "title": "Bienvenue dans formulacms",
@@ -297,16 +293,14 @@
       "description": "Choisissez d’abord la langue du site et votre fuseau horaire. Le reste de la configuration et votre administration les utilisent."
     },
     "account": {
-      "signedInAs": "Connecté avec {email}.",
-      "replaceDescription": "Créez le compte propriétaire de remplacement à l’aide du nouveau code de configuration. Le compte précédent perdra immédiatement son accès à l’administration.",
+      "signedInAs": "Connecté en tant que {name}.",
       "createDescription": "Créez le compte propriétaire de ce site à l’aide du code de configuration à usage unique fourni par la personne qui l’a déployé."
     },
     "fields": {
       "name": "Votre nom",
-      "email": "E-mail",
       "accountPassword": "Mot de passe du compte",
-      "newPassword": "Mot de passe du compte (8 caractères minimum)",
-      "newPasswordHint": "Utilisez ce mot de passe avec votre adresse e-mail pour vous connecter après la configuration.",
+      "newPassword": "Mot de passe du compte (10 caractères minimum)",
+      "newPasswordHint": "Utilisez ce mot de passe avec votre nom d’utilisateur pour vous connecter après la configuration.",
       "ownerCode": "Code de configuration du propriétaire",
       "siteName": "Nom du site",
       "siteUrl": "Adresse du site",
@@ -320,22 +314,20 @@
       "siteLanguageEnglishOnly": "La configuration et votre administration restent en anglais pour cette langue. Votre site l’utilisera quand même.",
       "timezoneNow": "{timezone} · {time}",
       "timezoneDetected": "Détecté depuis votre navigateur.",
-      "signInEmail": "E-mail de connexion",
-      "signInEmailHint": "Vous l’utiliserez pour vous connecter. Les e-mails de réinitialisation du mot de passe seront envoyés ici une fois l’envoi d’e-mails configuré. Jamais affiché sur votre site.",
       "confirmPassword": "Confirmer le mot de passe",
       "passwordsMismatch": "Les mots de passe ne correspondent pas.",
       "showPassword": "Afficher le mot de passe",
-      "hidePassword": "Masquer le mot de passe"
+      "hidePassword": "Masquer le mot de passe",
+      "username": "Nom d’utilisateur",
+      "usernameHint": "Vous l’utiliserez pour vous connecter. Jamais affiché sur votre site.",
+      "notificationEmail": "E-mail de notification (facultatif)",
+      "notificationEmailHint": "Les messages du formulaire de contact arrivent ici. Jamais utilisé pour se connecter."
     },
     "actions": {
       "openAdmin": "Ouvrir l’administration",
-      "replaceOwnerAccount": "Remplacer le compte propriétaire",
       "signInAndResume": "Se connecter et reprendre",
       "signOutAndRetry": "Se déconnecter et essayer un autre compte",
-      "cancel": "Annuler",
       "back": "Retour",
-      "replaceOwner": "Remplacer la personne propriétaire",
-      "createReplacementAccount": "Créer le compte de remplacement",
       "continue": "Continuer",
       "createAccount": "Créer le compte",
       "finishSetup": "Terminer la configuration"
@@ -347,15 +339,14 @@
   "auth": {
     "signIn": {
       "validation": {
-        "emailRequired": "Saisissez l’adresse e-mail utilisée lors de votre inscription.",
-        "emailInvalid": "Cette adresse e-mail ne semble pas valide.",
+        "usernameRequired": "Saisissez votre nom d’utilisateur.",
         "passwordRequired": "Saisissez votre mot de passe."
       },
       "errors": {
+        "invalidCredentials": "Vérifiez votre nom d’utilisateur et votre mot de passe.",
+        "rateLimited": "Trop de tentatives. Réessayez dans {seconds} secondes.",
         "default": "Échec de la connexion. Réessayez.",
-        "unreachable": "Impossible de joindre le service de connexion. Vérifiez votre connexion réseau et réessayez.",
-        "googleDefault": "Échec de la connexion avec Google. Réessayez.",
-        "googleUnreachable": "Impossible de joindre la connexion avec Google. Vérifiez votre connexion réseau et réessayez."
+        "unreachable": "Impossible de joindre le service de connexion. Vérifiez votre connexion réseau et réessayez."
       },
       "checking": {
         "title": "Vérification de ce site",
@@ -371,16 +362,10 @@
       "form": {
         "title": "Connexion",
         "description": "Utilisez votre compte formulacms pour ouvrir l’espace d’administration.",
-        "resetSuccess": "Mot de passe mis à jour — connectez-vous pour continuer.",
-        "emailLabel": "E-mail",
         "passwordLabel": "Mot de passe",
-        "forgotPassword": "Mot de passe oublié ?",
         "signingIn": "Connexion…",
         "submit": "Se connecter",
-        "divider": "ou",
-        "googleConnecting": "Connexion à Google…",
-        "googleContinue": "Continuer avec Google",
-        "invitation": "Besoin d’un accès ? Demandez-le à la personne propriétaire du site."
+        "usernameLabel": "Nom d’utilisateur"
       },
       "loading": {
         "title": "Chargement de la connexion",
@@ -388,44 +373,18 @@
         "label": "Chargement de la connexion"
       }
     },
-    "forgotPassword": {
-      "validation": {
-        "emailRequired": "Saisissez votre adresse e-mail.",
-        "emailInvalid": "Cette adresse e-mail ne semble pas valide."
-      },
-      "title": "Réinitialiser votre mot de passe",
-      "confirmation": "Si un compte existe et que l’envoi d’e-mails est disponible, vous recevrez un lien de réinitialisation. S’il n’arrive pas, demandez de l’aide à la personne propriétaire du site.",
+    "recover": {
+      "title": "Récupérer l’accès propriétaire",
+      "usernameLabel": "Nouveau nom d’utilisateur",
+      "passwordLabel": "Nouveau mot de passe",
+      "confirmLabel": "Confirmer le mot de passe",
+      "submit": "Reprendre la propriété du site",
+      "success": "L’accès propriétaire a été transféré à {username}. Le compte précédent n’est plus propriétaire du site.",
+      "expired": "Ce lien de récupération a expiré ou a déjà été utilisé. Exécutez de nouveau la commande de récupération pour obtenir un nouveau lien.",
       "backToSignIn": "Retour à la connexion",
-      "instructions": "Saisissez l’adresse e-mail de votre compte. Si l’envoi d’e-mails est disponible, vous recevrez un lien pour choisir un nouveau mot de passe.",
-      "emailLabel": "E-mail",
-      "emailPlaceholder": "E-mail",
-      "sending": "Envoi…",
-      "sendResetLink": "Envoyer le lien de réinitialisation",
-      "remembered": "Vous vous en souvenez ?",
-      "signIn": "Se connecter"
-    },
-    "resetPassword": {
       "validation": {
-        "passwordLength": "Utilisez au moins 8 caractères.",
-        "confirmRequired": "Saisissez le nouveau mot de passe une deuxième fois.",
-        "passwordMismatch": "Ce mot de passe ne correspond pas au nouveau mot de passe ci-dessus."
-      },
-      "errors": {
-        "expired": "Le lien a expiré ou a déjà été utilisé. Demandez-en un nouveau pour continuer."
-      },
-      "invalid": {
-        "title": "Lien invalide ou expiré",
-        "description": "Ce lien de réinitialisation du mot de passe est invalide, expiré ou a déjà été utilisé."
-      },
-      "requestNewLink": "Demander un nouveau lien de réinitialisation",
-      "form": {
-        "title": "Choisir un nouveau mot de passe",
-        "passwordLabel": "Nouveau mot de passe",
-        "passwordPlaceholder": "8 caractères minimum",
-        "confirmLabel": "Confirmer le nouveau mot de passe",
-        "confirmPlaceholder": "Saisissez-le de nouveau",
-        "updating": "Modification…",
-        "updatePassword": "Modifier le mot de passe"
+        "passwordLength": "Utilisez au moins 10 caractères.",
+        "confirmRequired": "Saisissez le nouveau mot de passe une deuxième fois."
       }
     }
   },
@@ -653,7 +612,7 @@
         },
         "email": {
           "name": "E-mail",
-          "summary": "Configurez les e-mails de récupération de compte et de messages de contact."
+          "summary": "Configurez les e-mails des messages de contact."
         },
         "redirects": {
           "name": "Redirections",
@@ -1082,7 +1041,12 @@
       "adminLanguageDescription": "La langue utilisée dans cette interface. Changez et la page se recharge dans la langue choisie.",
       "save": "Enregistrer les préférences",
       "ok": "OK",
-      "updateFailed": "Impossible de modifier la langue de l’interface."
+      "updateFailed": "Impossible de modifier la langue de l’interface.",
+      "changePassword": "Changer le mot de passe",
+      "currentPassword": "Mot de passe actuel",
+      "newPassword": "Nouveau mot de passe (10 caractères minimum)",
+      "confirmPassword": "Confirmer le mot de passe",
+      "passwordChanged": "Mot de passe modifié."
     },
     "ai": {
       "title": "IA",
@@ -1476,7 +1440,7 @@
       },
       "sender": {
         "heading": "Expéditeur",
-        "description": "Cette identité apparaît dans le champ d’expédition. Les notifications de contact sont toujours envoyées au compte du propriétaire du site.",
+        "description": "Cette identité apparaît dans le champ d’expédition. Les notifications de contact sont envoyées à l’e-mail de notification.",
         "address": "Adresse d'envoi",
         "addressPlaceholder": "noreply@exemple.com",
         "name": "Nom d'envoi",
@@ -1497,7 +1461,7 @@
         "blocked": {
           "not_configured": "Enregistrez le fournisseur et l’expéditeur avant le test.",
           "needs_setup": "Terminez la configuration du serveur avant le test.",
-          "owner_email_missing": "Le compte du propriétaire du site n’a pas d’adresse e-mail.",
+          "owner_email_missing": "Ajoutez une adresse e-mail de notification ci-dessus pour envoyer un test.",
           "rate_limited": "Trop de tests ont été demandés. Réessayez plus tard."
         }
       },
@@ -1522,6 +1486,13 @@
         "failedActivate": "Resend n’a pas été activé. Envoyez un nouveau test réussi, puis réessayez.",
         "deactivated": "{provider} est désactivé",
         "failedDeactivate": "{provider} n’a pas été désactivé. Réessayez."
+      },
+      "notifications": {
+        "heading": "Notifications",
+        "label": "E-mail de notification (facultatif)",
+        "hint": "Les messages du formulaire de contact arrivent ici. Jamais utilisé pour se connecter.",
+        "save": "Enregistrer",
+        "saved": "Enregistré"
       }
     },
     "aiScreen": {
@@ -3409,7 +3380,7 @@
     "pilotPageLimit": "Ce site a atteint sa limite de 499 pages et autres contenus, y compris ce qui est archivé ou dans la corbeille.",
     "revalidationUnconfigured": "Ajoutez l’adresse du site et le code privé correspondant, puis sélectionnez Réessayer maintenant.",
     "siteDescriptionLocaleNotEnabled": "Une description a été saisie pour une langue qui n’est plus activée. Rechargez la page et réessayez.",
-    "invalidCredentials": "Vérifiez votre adresse e-mail et votre mot de passe.",
+    "invalidCredentials": "Vérifiez votre nom d’utilisateur et votre mot de passe.",
     "invalidPassword": "Vérifiez votre mot de passe.",
     "passwordTooShort": "Choisissez un mot de passe plus long.",
     "passwordTooLong": "Choisissez un mot de passe plus court.",
@@ -3430,7 +3401,10 @@
     "imageDimensionsMissing": "Impossible de lire les dimensions de l’image.",
     "imageDimensionsInvalid": "L’image doit avoir des dimensions positives valides.",
     "imageScanLimit": "Les métadonnées de l’image sont trop volumineuses.",
-    "invalidEmail": "Saisissez une adresse e-mail valide."
+    "invalidEmail": "Saisissez une adresse e-mail valide.",
+    "usernameTaken": "Ce nom d’utilisateur est déjà pris. Choisissez-en un autre.",
+    "passwordTooCommon": "Ce mot de passe est trop courant. Choisissez-en un autre.",
+    "passwordSurroundingSpaces": "Retirez les espaces au début ou à la fin du mot de passe."
   },
   "contentDefaults": {
     "button": "Bouton",

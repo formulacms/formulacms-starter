@@ -57,11 +57,11 @@ vi.mock("./lib/slices/presentationRendererInventory", async (original) => {
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "presentation-lifecycle-owner",
-  tokenIdentifier: "https://convex.test|presentation-lifecycle-owner",
+  tokenIdentifier: "presentation-lifecycle-owner",
 }
 const STRANGER = {
   subject: "presentation-lifecycle-stranger",
-  tokenIdentifier: "https://convex.test|presentation-lifecycle-stranger",
+  tokenIdentifier: "presentation-lifecycle-stranger",
 }
 const TARGET = { type: "hero-with-image", presentationId: "centered" }
 type T = ReturnType<typeof convexTest>
@@ -184,7 +184,7 @@ describe("owner presentation lifecycle", () => {
     })
     await owner.mutation(api.cms.publication.publishLocale, publicationTokens)
     await t.run((ctx) =>
-      ctx.db.patch(row._id, {
+      ctx.db.patch("siteSettings", row._id, {
         siteDescription: "Preserved metadata",
         brandVoice: "Preserved voice",
         archivedSliceTypes: ["unrelated-retired-type"],
@@ -374,7 +374,7 @@ describe("owner presentation lifecycle", () => {
       const { t, owner } = await fixture()
       const row = (await settings(t))!
       await t.run((ctx) =>
-        ctx.db.patch(row._id, {
+        ctx.db.patch("siteSettings", row._id, {
           archivedSlicePresentationsV1:
             kind === "unknown"
               ? [{ type: TARGET.type, presentationId: "removed-choice" }]
@@ -395,7 +395,7 @@ describe("owner presentation lifecycle", () => {
     const { t, owner } = await fixture()
     const row = (await settings(t))!
     await t.run((ctx) =>
-      ctx.db.patch(row._id, {
+      ctx.db.patch("siteSettings", row._id, {
         archivedSlicePresentationsV1: [
           TARGET,
           { type: TARGET.type, presentationId: "removed-choice" },
@@ -442,7 +442,7 @@ describe("owner presentation lifecycle", () => {
 
     // Restoring a saved membership cannot override source availability.
     await t.run((ctx) =>
-      ctx.db.patch(row._id, { archivedSlicePresentationsV1: [TARGET] })
+      ctx.db.patch("siteSettings", row._id, { archivedSlicePresentationsV1: [TARGET] })
     )
     const current = await owner.query(api.cms.slices.getPresentationCatalog, {})
     await refusesWithoutWrites(t, () =>

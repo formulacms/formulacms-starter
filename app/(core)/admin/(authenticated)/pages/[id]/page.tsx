@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation"
 import { fetchQuery } from "convex/nextjs"
 import { api } from "@/convex/_generated/api"
-import { fetchAuthQuery } from "@/lib/auth-server"
+import { fetchAuthQuery } from "@/lib/auth/server"
 import { PageEditor } from "@/components/admin/page-editor"
 import { resolveRequestedEditorLocale } from "@/components/admin/page-editor/lib/requested-locale"
 import { ADMIN_AI_TRANSLATION_SERVER_BINDING } from "@/components/admin/contributions/ai-translation.server"

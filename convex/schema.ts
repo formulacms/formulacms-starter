@@ -1209,12 +1209,14 @@ export default defineSchema({
   // ==========================================
   pages: defineTable(pagesTableValidator)
     .index("by_slug", ["slug"])
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- Kept beside by_pageType_and_status_and_publishedAt: take/order desc client lists depend on status order.
     .index("by_pageType_status", ["pageType", "status"])
     .index("by_pageType_and_status_and_publishedAt", [
       "pageType",
       "status",
       "publishedAt",
     ])
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- Kept beside by_status_and_expiresAt: take(n) and paginate by creation time.
     .index("by_status", ["status"])
     // `by_status_and_scheduledAt` was dropped in ADR-0041 Deploy 2 PR B —
     // scheduling moved to `pageStaging.by_scheduledAt`. The equivalent
@@ -1326,6 +1328,7 @@ export default defineSchema({
     lastActiveAt: v.number(),
     updatedAt: v.number(),
   })
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- Kept beside by_pageId_and_lastActiveAt: first-match lock returned to the client.
     .index("by_pageId", ["pageId"])
     .index("by_pageId_and_lastActiveAt", ["pageId", "lastActiveAt"]),
 
@@ -1513,8 +1516,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_pageId_and_locale", ["pageId", "locale"])
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- Kept beside by_pageId_and_locale: localeStates[0] fallback depends on creation order.
     .index("by_pageId", ["pageId"])
     .index("by_locale_and_currentPath", ["locale", "currentPath"])
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- Kept beside by_hasCurrentSnapshot_and_locale_and_pageType_and_publicSince: _creationTime range and stored paginate cursor.
     .index("by_hasCurrentSnapshot_and_locale", ["hasCurrentSnapshot", "locale"])
     .index("by_currentSnapshotId", ["currentSnapshotId"])
     .index("by_hasCurrentSnapshot_and_locale_and_pageType_and_publicSince", [
@@ -1575,6 +1580,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- Kept beside by_pageId_and_locale_and_status: tests rely on .first() order.
     .index("by_pageId_and_locale", ["pageId", "locale"])
     .index("by_pageId_and_locale_and_status", ["pageId", "locale", "status"])
     // Contract-named due-release index; its scheduling worker is later F08 work.
@@ -1624,7 +1630,6 @@ export default defineSchema({
       "sourceKind",
     ])
     .index("by_sourceKind_and_sourceId", ["sourceKind", "sourceId"])
-    .index("by_targetId", ["targetId"])
     .index("by_targetId_and_sourceKind_and_locale", [
       "targetId",
       "sourceKind",
@@ -1641,7 +1646,6 @@ export default defineSchema({
       "sourceKind",
     ])
     .index("by_sourceKind_and_sourceId", ["sourceKind", "sourceId"])
-    .index("by_mediaId", ["mediaId"])
     .index("by_mediaId_and_sourceKind", ["mediaId", "sourceKind"])
     .index("by_storageId", ["storageId"]),
 
@@ -1867,8 +1871,7 @@ export default defineSchema({
     digest: v.string(),
     createdAt: v.number(),
   })
-    .index("by_pageId", ["pageId"])
-    .index("by_pageId_and_createdAt", ["pageId", "createdAt"]),
+    .index("by_pageId", ["pageId"]),
 
   // One durable command identity for every immediate or scheduled promotion.
   // The candidate is immutable; replacement creates a new release row rather
@@ -1897,7 +1900,6 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_pageId", ["pageId"])
-    .index("by_pageId_and_status", ["pageId", "status"])
     .index("by_status_and_executeAt", ["status", "executeAt"])
     .index("by_candidateId", ["candidateId"])
     .index("by_roundId", ["roundId"]),
@@ -1925,7 +1927,6 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_pageId", ["pageId"])
-    .index("by_pageId_and_status", ["pageId", "status"])
     .index("by_status_and_executeAt", ["status", "executeAt"]),
 
   pageCandidateMediaReferences: defineTable({
@@ -2008,7 +2009,6 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_pageId", ["pageId"])
     .index("by_pageId_and_status", ["pageId", "status"])
     .index("by_candidateId", ["candidateId"])
     .index("by_status", ["status"]),
@@ -2027,7 +2027,6 @@ export default defineSchema({
     assignedAt: v.number(),
     assignedByPrincipal: v.string(),
   })
-    .index("by_roundId", ["roundId"])
     .index("by_reviewerPrincipal_and_assignedAt", [
       "reviewerPrincipal",
       "assignedAt",
@@ -2053,7 +2052,6 @@ export default defineSchema({
     roundCommandVersion: v.number(),
     createdAt: v.number(),
   })
-    .index("by_roundId", ["roundId"])
     .index("by_assignmentId", ["assignmentId"])
     .index("by_roundId_and_reviewerPrincipal", [
       "roundId",
@@ -2063,7 +2061,7 @@ export default defineSchema({
   // ==========================================
   // Author/member identity links
   //
-  // Private system-owned association state. Better Auth user ids deliberately
+  // Private system-owned association state. Convex Auth user ids deliberately
   // do not live on the public Author descriptor/page arm, staging snapshots,
   // revisions, search rows, or webhook payloads.
   // ==========================================
@@ -2101,7 +2099,6 @@ export default defineSchema({
   media: defineTable(mediaFields)
     .index("by_filename", ["filename"])
     .index("by_storageId", ["storageId"])
-    .index("by_folder", ["folder"])
     .index("by_folder_and_uploadedAt", ["folder", "uploadedAt"])
     .searchIndex("search_filename", {
       searchField: "filename",
@@ -2127,8 +2124,7 @@ export default defineSchema({
   })
     .index("by_mediaId", ["mediaId"])
     .index("by_storageId", ["storageId"])
-    .index("by_pageId", ["pageId"])
-    .index("by_mediaId_and_pageId", ["mediaId", "pageId"]),
+    .index("by_pageId", ["pageId"]),
 
   // ==========================================
   // CMS: Document references — cross-page relations recorded by ADR-0037 / plan
@@ -2160,8 +2156,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_target", ["targetId"])
-    .index("by_source", ["sourceId"])
-    .index("by_target_and_source", ["targetId", "sourceId"]),
+    .index("by_source", ["sourceId"]),
 
   // ==========================================
   // CMS: Media Folders
@@ -2373,9 +2368,9 @@ export default defineSchema({
   // Privacy contract: stores SHA-256 of the brief, never the brief text or
   // the generated output. 90-day retention enforced by the nightly cron in
   // `convex/crons.ts`. Per-user erasure via the admin-only
-  // `deleteAuditLogForUser` mutation. `authId` matches the `roles`-table key
-  // (Better Auth `_id` == identity.subject) so erasure-by-user is targetable
-  // using the value the Members UI already surfaces.
+  // `deleteAuditLogForUser` mutation. `authId` matches the `roles`-table key:
+  // the Convex Auth user id from `getAuthUserId` (ADR-0056 rule 2), never
+  // identity.subject, which is the session id. Erasure-by-user targets it.
   // ==========================================
   aiJobs: defineTable({
     authId: v.string(),
@@ -2706,14 +2701,67 @@ export default defineSchema({
   }).index("by_key", ["key"]),
 
   // ==========================================
+  // App users (ADR-0056). Convex Auth stores credentials and sessions in its
+  // own components and keeps only this table's document ID as the user ID.
+  // `name` is the label the owner typed at setup. `disabled` marks a replaced
+  // owner account: sign-in refuses it.
+  // ==========================================
+  users: defineTable({
+    name: v.optional(v.string()),
+    disabled: v.optional(v.boolean()),
+  }),
+
+  // ==========================================
+  // Sign-up grants (ADR-0056 rule 1). A row exists only INSIDE the transaction
+  // of the public function that checks a grant (`cms.owner.createOwnerAccount`):
+  // the function inserts it, the library sign-up calls `users.createUser`,
+  // which consumes it. Every failure path deletes it before returning, so no
+  // committed state holds a grant. `createUser` refuses with SIGNUP_CLOSED when
+  // no row exists. Two kinds: the owner-code grant and the recovery grant.
+  // ==========================================
+  signupGrants: defineTable(
+    v.union(
+      v.object({
+        kind: v.literal("owner"),
+        claimHash: v.string(),
+        name: v.string(),
+        notificationEmail: v.optional(v.string()),
+      }),
+      v.object({
+        kind: v.literal("recovery"),
+        recoveryGrantId: v.id("recoveryGrants"),
+      })
+    )
+  ),
+
+  // ==========================================
+  // Owner recovery links (ADR-0056 rule 4). `cms/recovery:createRecoveryLink`
+  // stores only the SHA-256 of the token. One open link at a time; a link is
+  // valid until `expiresAt` and works once (`consumed`). The claim function
+  // checks it, then `users.createUser` consumes it in the same transaction.
+  // ==========================================
+  recoveryGrants: defineTable({
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+    state: v.union(v.literal("open"), v.literal("consumed")),
+    consumedBy: v.optional(v.string()),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_state", ["state"]),
+
+  // ==========================================
   // Durable Community owner — the one installation authority. Its Convex
-  // document ID is the stable owner identity; the Better Auth binding may be
+  // document ID is the stable owner identity; the Convex Auth binding may be
   // replaced without changing that ID or historical content attribution.
   // ==========================================
   cmsOwner: defineTable({
     key: v.literal("owner"),
     authId: v.string(),
     tokenIdentifier: v.string(),
+    // Contact-form and test-email recipient (ADR-0056 rule 5). Never used for
+    // sign-in. It lives on the owner row, not on `emailSettings`, because that
+    // legacy table counts as migration input for ADR-0054.
+    notificationEmail: v.optional(v.string()),
     establishedAt: v.number(),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
@@ -2737,7 +2785,8 @@ export default defineSchema({
 
   // ==========================================
   // CMS membership + capacity — Phase 3 authoritative authorization state.
-  // `authId` is the Better Auth user id carried in identity.subject. The
+  // `authId` is the Convex Auth user id from `getAuthUserId` (ADR-0056 rule
+  // 2); identity.subject is the session id. The
   // singleton capacity key is only a local OCC serialization scope; it is not
   // the future licensed "production project" identity from ADR-0049.
   // ==========================================
@@ -2990,9 +3039,9 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"]),
 
   // ==========================================
-  // Roles — one row per user, keyed by Better Auth user id (`authId`).
-  // Users live in the Better Auth component; we attach a role here rather than
-  // via the admin plugin (broken with the Convex component — better-auth#7635).
+  // Roles — one row per user, keyed by the Convex Auth user id (`authId`,
+  // ADR-0056 rule 2). Users live in the Convex Auth component; the role is
+  // attached here.
   // Missing or dangling assignments grant no CMS authority. Only the
   // owner-claim mutation grants initial admin.
   // ==========================================
@@ -3308,6 +3357,7 @@ export default defineSchema({
       "generation",
       "fromPath",
     ])
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- Kept beside by_migrationId_and_generation_and_fromPath: stored paginate cursors.
     .index("by_migrationId_and_generation", ["migrationId", "generation"]),
 
   // M05 F09 carry decisions (contract `siteLanguageCarryDecisions`). One per
@@ -3603,7 +3653,7 @@ export default defineSchema({
     .index("by_transitionId_and_pageId", ["transitionId", "pageId"]),
 
   // ==========================================
-  // User preferences — per-user UI settings, keyed by Better Auth user id.
+  // User preferences — per-user UI settings, keyed by Convex Auth user id.
   // Distinct from `roles` (authorization) so toggles don't churn an auth-critical
   // row. `adminLocale` drives the admin UI language; null/missing → falls back
   // to siteSettings.defaultLocale.

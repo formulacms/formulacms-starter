@@ -5,6 +5,7 @@ import {
   waitFor,
 } from "@testing-library/react"
 import { getFunctionName } from "convex/server"
+import { ConvexError } from "convex/values"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 import en from "@/messages/admin/en.json"
@@ -13,12 +14,10 @@ import SignInPage from "./page"
 
 const mocks = vi.hoisted(() => ({
   owner: undefined as { established: boolean } | undefined,
-  providers: { google: false } as { google: boolean } | undefined,
   search: "",
   replace: vi.fn(),
   refresh: vi.fn(),
-  signInEmail: vi.fn(),
-  signInSocial: vi.fn(),
+  signIn: vi.fn(),
   useQuery: vi.fn(),
 }))
 
@@ -46,14 +45,13 @@ vi.mock("convex/react", () => ({
   useQuery: mocks.useQuery,
 }))
 
-vi.mock("@/lib/auth-client", () => ({
-  authClient: {
-    signIn: {
-      email: mocks.signInEmail,
-      social: mocks.signInSocial,
-    },
-  },
+vi.mock("@/lib/auth/client", () => ({
+  useUsernamePasswordSignIn: () => ({ signIn: mocks.signIn, pending: false }),
 }))
+
+function failed(userError: Record<string, unknown>) {
+  return { status: "error", userError }
+}
 
 function renderPage(locale: "en" | "fr" = "en") {
   return renderWithTestingLibrary(
@@ -70,14 +68,11 @@ describe("sign-in experience", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.owner = { established: true }
-    mocks.providers = { google: false }
     mocks.search = ""
-    mocks.signInEmail.mockResolvedValue({ error: null })
-    mocks.signInSocial.mockResolvedValue({ error: null })
+    mocks.signIn.mockResolvedValue({ status: "complete" })
     mocks.useQuery.mockImplementation((reference) => {
       const name = getFunctionName(reference)
       if (name === "cms/owner:getOwnerEstablished") return mocks.owner
-      if (name === "auth:getProvidersAvailable") return mocks.providers
       return undefined
     })
   })
@@ -90,7 +85,7 @@ describe("sign-in experience", () => {
     expect(
       screen.getByRole("heading", { name: "Checking this site" })
     ).toBeInTheDocument()
-    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Username")).not.toBeInTheDocument()
   })
 
   test("uses the sanitized owner-presence reader", () => {
@@ -102,12 +97,14 @@ describe("sign-in experience", () => {
   })
 
   test("recovers after the sign-in service cannot be reached", async () => {
-    mocks.signInEmail.mockRejectedValue(new Error("network unavailable"))
+    mocks.signIn.mockResolvedValue(
+      failed({ error: "OTHER_ERROR", cause: new Error("network unavailable") })
+    )
 
     renderPage()
 
-    fireEvent.change(screen.getByLabelText("Email"), {
-      target: { value: "owner@example.com" },
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "owner" },
     })
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "password123" },
@@ -136,18 +133,44 @@ describe("sign-in experience", () => {
         name: "I already have an account — let me sign in",
       })
     )
-    expect(screen.getByLabelText("Email")).toBeInTheDocument()
+    expect(screen.getByLabelText("Username")).toBeInTheDocument()
   })
 
-  test("shows the authentication service error and allows another attempt", async () => {
-    mocks.signInEmail.mockResolvedValue({
-      error: { message: "Invalid email or password" },
-    })
+  test.each(["USER_NOT_FOUND", "INVALID_CREDENTIALS", "PASSWORD_TOO_SHORT"])(
+    "answers %s with one message that never says whether the username exists",
+    async (error) => {
+      mocks.signIn.mockResolvedValue(failed({ error, minimumLength: 10 }))
+
+      renderPage()
+
+      fireEvent.change(screen.getByLabelText("Username"), {
+        target: { value: "owner" },
+      })
+      fireEvent.change(screen.getByLabelText("Password"), {
+        target: { value: "incorrect-password" },
+      })
+      fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Check your username and password."
+      )
+      expect(mocks.signIn).toHaveBeenCalledWith({
+        username: "owner",
+        password: "incorrect-password",
+      })
+      expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled()
+    }
+  )
+
+  test("says how long to wait after too many attempts", async () => {
+    mocks.signIn.mockResolvedValue(
+      failed({ error: "RATE_LIMITED", retryAfterMs: 59_001 })
+    )
 
     renderPage()
 
-    fireEvent.change(screen.getByLabelText("Email"), {
-      target: { value: "owner@example.com" },
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "owner" },
     })
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "incorrect-password" },
@@ -155,64 +178,58 @@ describe("sign-in experience", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Sign in failed. Try again."
+      "Too many attempts. Try again in 60 seconds."
     )
-    expect(
-      screen.queryByText("Invalid email or password")
-    ).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled()
   })
 
   test.each([
     [
-      "INVALID_EMAIL_OR_PASSWORD",
-      "Vérifiez votre adresse e-mail et votre mot de passe.",
+      "INVALID_CREDENTIALS",
+      undefined,
+      "Vérifiez votre nom d’utilisateur et votre mot de passe.",
     ],
-    ["UNRECOGNIZED_PROVIDER_FAILURE", "Échec de la connexion. Réessayez."],
+    [
+      "OTHER_ERROR",
+      new ConvexError("English deployment diagnostic with internal details"),
+      "Échec de la connexion. Réessayez.",
+    ],
   ])(
-    "French sign-in maps %s without leaking provider prose and permits retry",
-    async (code, expected) => {
-      const providerMessage =
-        "English provider diagnostic with internal details"
-      mocks.signInEmail.mockResolvedValueOnce({
-        error: { code, message: providerMessage },
-      })
+    "French sign-in maps %s without leaking deployment prose and permits retry",
+    async (error, cause, expected) => {
+      mocks.signIn.mockResolvedValueOnce(failed({ error, cause }))
       renderPage("fr")
-      fireEvent.change(screen.getByLabelText("E-mail"), {
-        target: { value: "owner@example.com" },
+      fireEvent.change(screen.getByLabelText("Nom d’utilisateur"), {
+        target: { value: "owner" },
       })
       fireEvent.change(screen.getByLabelText("Mot de passe"), {
         target: { value: "incorrect-password" },
       })
       fireEvent.click(screen.getByRole("button", { name: "Se connecter" }))
       expect(await screen.findByRole("alert")).toHaveTextContent(expected)
-      expect(screen.queryByText(providerMessage)).not.toBeInTheDocument()
+      expect(
+        screen.queryByText(/English deployment diagnostic/)
+      ).not.toBeInTheDocument()
       expect(screen.getByRole("button", { name: "Se connecter" })).toBeEnabled()
       fireEvent.click(screen.getByRole("button", { name: "Se connecter" }))
       await waitFor(() => {
-        expect(mocks.signInEmail).toHaveBeenCalledTimes(2)
+        expect(mocks.signIn).toHaveBeenCalledTimes(2)
         expect(mocks.replace).toHaveBeenCalledWith("/admin")
         expect(mocks.refresh).toHaveBeenCalledOnce()
       })
     }
   )
 
-  test("recovers after Google sign-in cannot be reached", async () => {
-    mocks.providers = { google: true }
-    mocks.signInSocial.mockRejectedValue(new Error("network unavailable"))
-
+  test("offers no Google sign-in, no password reset by email and no invitation line (ADR-0056)", () => {
     renderPage()
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue with Google" })
-    )
+    expect(screen.queryByText(/Need access\?/)).not.toBeInTheDocument()
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Couldn’t reach Google sign-in. Check your connection and try again."
-    )
     expect(
-      screen.getByRole("button", { name: "Continue with Google" })
-    ).toBeEnabled()
+      screen.queryByRole("button", { name: /Google/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: /Forgot password/ })
+    ).not.toBeInTheDocument()
   })
 
   test("uses a safe next path and refreshes the authenticated app", async () => {
@@ -220,8 +237,8 @@ describe("sign-in experience", () => {
 
     renderPage()
 
-    fireEvent.change(screen.getByLabelText("Email"), {
-      target: { value: "owner@example.com" },
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "owner" },
     })
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "password123" },
@@ -240,7 +257,7 @@ describe("sign-in experience", () => {
     expect(
       screen.getByRole("heading", { name: "Connexion" })
     ).toBeInTheDocument()
-    expect(screen.getByLabelText("E-mail")).toBeInTheDocument()
+    expect(screen.getByLabelText("Nom d’utilisateur")).toBeInTheDocument()
     expect(screen.getByLabelText("Mot de passe")).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Se connecter" })

@@ -4,6 +4,14 @@ const transport = vi.hoisted(() => ({ fetchQuery: vi.fn() }))
 
 // Only the transport is synthetic: generated references, cache generations,
 // refresh, version classification and Next request/response handling stay real.
+// Convex Auth's proxy wrapper refreshes cookies against the deployment; this
+// test covers the routing it wraps, so it passes straight through.
+vi.mock("@/lib/auth/convexAuth", () => ({
+  convexAuthNextjsProxy:
+    (handler: (request: unknown, ctx: unknown) => unknown) =>
+    (request: unknown) =>
+      handler(request, {}),
+}))
 vi.mock("convex/nextjs", () => ({ fetchQuery: transport.fetchQuery }))
 
 const STALE = {

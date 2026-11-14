@@ -35,7 +35,7 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "c5a-owner",
-  tokenIdentifier: "https://convex.test|c5a-owner",
+  tokenIdentifier: "c5a-owner",
 }
 const FIXED_NOW = Date.UTC(2026, 8, 23, 12, 0, 0)
 const LOCALES = [...SUPPORTED_LOCALES] as string[]
@@ -201,7 +201,7 @@ async function cloneVerifiedPages(
       void _creationTime
       return rest
     }
-    const page = (await ctx.db.get(templateId))!
+    const page = (await ctx.db.get("pages", templateId))!
     const pageState = (await ctx.db
       .query("pagePublicationPageStates")
       .withIndex("by_pageId", (q) => q.eq("pageId", templateId))
@@ -219,12 +219,12 @@ async function cloneVerifiedPages(
           q.eq("pageId", templateId).eq("locale", locale)
         )
         .unique())!
-      const snapshot = (await ctx.db.get(state.currentSnapshotId!))!
+      const snapshot = (await ctx.db.get("pagePublishedSnapshots", state.currentSnapshotId!))!
       templates.push({
         state,
         snapshot,
-        candidate: (await ctx.db.get(snapshot.candidateId))!,
-        release: (await ctx.db.get(snapshot.releaseId))!,
+        candidate: (await ctx.db.get("pageLocalePublicationCandidates", snapshot.candidateId))!,
+        release: (await ctx.db.get("pageLocalePublicationReleases", snapshot.releaseId))!,
       })
     }
     const ids: Id<"pages">[] = []
@@ -270,7 +270,7 @@ async function cloneVerifiedPages(
           releaseId,
           candidateDigest: digest,
         })
-        await ctx.db.patch(releaseId, { publishedSnapshotId: snapshotId })
+        await ctx.db.patch("pageLocalePublicationReleases", releaseId, { publishedSnapshotId: snapshotId })
         await ctx.db.insert("pageLocalePublicationStates", {
           ...strip(state),
           pageId,
@@ -326,7 +326,7 @@ describe("M05 C5a seam: sitemapPartitionReaders.after", () => {
         const stateId = await insertBareState(ctx, pageId, "en")
         // A row in another locale must never be returned for `en`.
         await insertBareState(ctx, pageId, "fr")
-        created.push((await ctx.db.get(stateId))!._creationTime)
+        created.push((await ctx.db.get("pageLocalePublicationStates", stateId))!._creationTime)
       }
       return created
     })
@@ -355,16 +355,16 @@ async function publishNoIndex(site: Site, pageId: Id<"pages">, locale: string) {
         q.eq("pageId", pageId).eq("locale", locale)
       )
       .unique())!
-    const snapshot = (await ctx.db.get(state.currentSnapshotId!))!
-    const candidate = (await ctx.db.get(snapshot.candidateId))!
+    const snapshot = (await ctx.db.get("pagePublishedSnapshots", state.currentSnapshotId!))!
+    const candidate = (await ctx.db.get("pageLocalePublicationCandidates", snapshot.candidateId))!
     const payload = (await reconstructLocalePublicationCandidate(candidate))!
     const system = payload.shared.system as { seo?: Record<string, unknown> }
     system.seo = { ...(system.seo ?? {}), noIndex: true }
     const { payloadJson, payloadBytes } =
       serializeLocalePublicationCandidate(payload)
     const digest = await digestLocalePublicationCandidate(payloadJson)
-    await ctx.db.patch(candidate._id, { payloadJson, payloadBytes, digest })
-    await ctx.db.patch(snapshot._id, { candidateDigest: digest })
+    await ctx.db.patch("pageLocalePublicationCandidates", candidate._id, { payloadJson, payloadBytes, digest })
+    await ctx.db.patch("pagePublishedSnapshots", snapshot._id, { candidateDigest: digest })
   })
 }
 
@@ -397,7 +397,7 @@ async function bootstrappedSite(extraLocales: readonly string[] = []) {
   if (extraLocales.length > 0) {
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, {
+      await ctx.db.patch("siteSettings", settings._id, {
         enabledLocales: ["en", ...extraLocales],
       })
     })
@@ -765,11 +765,11 @@ describe("M05 P22 sitemap partitions: build, publication and children", () => {
     await drain(t)
     const before = await coverage(t, 1, "en")
     await t.run(async (ctx) => {
-      await ctx.db.patch(ids[1]!, { hasCurrentSnapshot: false })
+      await ctx.db.patch("pageLocalePublicationStates", ids[1]!, { hasCurrentSnapshot: false })
     })
     await insertBareRows(t, "en", 2)
     await t.run(async (ctx) => {
-      await ctx.db.patch(ids[1]!, { hasCurrentSnapshot: true })
+      await ctx.db.patch("pageLocalePublicationStates", ids[1]!, { hasCurrentSnapshot: true })
     })
     const after = await coverage(t, 1, "en")
     expect(after.ordinals).toEqual(before.ordinals)
@@ -942,7 +942,7 @@ describe("M05 P22 sitemap partitions: build, publication and children", () => {
     await requestBuild(t)
     await t.run(async (ctx) => {
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, { version: version + 1 })
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { version: version + 1 })
     })
     await drain(t)
     expect((await manifests(t))[0]).toMatchObject({
@@ -1010,7 +1010,7 @@ describe("M05 P22 sitemap partitions: build, publication and children", () => {
       for (const partition of await ctx.db
         .query("siteSitemapPartitions")
         .collect()) {
-        await ctx.db.delete(partition._id)
+        await ctx.db.delete("siteSitemapPartitions", partition._id)
       }
     })
     await expect(
@@ -1073,7 +1073,7 @@ describe("M05 P19d lifecycle intents: sitemap", () => {
       const intent = (await ctx.db
         .query("siteLanguageLifecycleIntents")
         .unique())!
-      await ctx.db.patch(intent._id, {
+      await ctx.db.patch("siteLanguageLifecycleIntents", intent._id, {
         status: "running",
         attempts: 1,
         phase: "sitemap_manifest",
@@ -1176,7 +1176,7 @@ describe("M05 P19d lifecycle intents: sitemap", () => {
     // A later language version gets its own single build.
     await t.run(async (ctx) => {
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, { version: version + 1 })
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { version: version + 1 })
       await insertLanguageLifecycleIntent(ctx, {
         operationId: `add:v${version + 1}`,
         operationKind: "add",
@@ -1365,7 +1365,7 @@ describe("M05 C5 reachable sitemap alternates", () => {
           q.eq("pageId", parentId).eq("locale", "fr")
         )
         .unique())!
-      await ctx.db.patch(parent._id, {
+      await ctx.db.patch("pageLocalePublicationStates", parent._id, {
         hasCurrentSnapshot: false,
         currentSnapshotId: undefined,
         currentPath: undefined,
@@ -1530,7 +1530,7 @@ describe("M05 P22 transaction metrics", () => {
     // Publication: supersede the ready manifest and publish in one step.
     await t.run(async (ctx) => {
       const manifest = (await ctx.db.query("siteSitemapManifests").unique())!
-      await ctx.db.patch(manifest._id, {
+      await ctx.db.patch("siteSitemapManifests", manifest._id, {
         buildLocale: undefined,
         buildLowCreationTime: undefined,
         buildOrdinal: undefined,

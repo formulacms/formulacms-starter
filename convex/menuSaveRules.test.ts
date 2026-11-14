@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { expectLegacyPanel as legacyPanel } from "@/test-utils/menu-panel"
-import { convexTest } from "convex-test"
+import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { api } from "./_generated/api"
 import schema from "./schema"
@@ -24,7 +24,7 @@ import {
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "menu-d1-owner",
-  tokenIdentifier: "https://convex.test|menu-d1-owner",
+  tokenIdentifier: "menu-d1-owner",
 }
 const target = { type: "external" as const, url: "https://example.com/path" }
 

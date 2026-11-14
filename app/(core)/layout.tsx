@@ -3,7 +3,7 @@ import "react-image-crop/dist/ReactCrop.css"
 import { NextIntlClientProvider } from "next-intl"
 import { getLocale, getMessages, getTranslations } from "next-intl/server"
 import { ThemeProvider } from "@/components/theme-provider"
-import { Providers } from "@/components/providers"
+import { ConvexAuthNextjsServerProvider } from "@/lib/auth/convexAuth"
 import { ConfirmProvider } from "@/components/providers/confirm-provider"
 import { Toaster } from "sonner"
 import { fontClassName } from "@/lib/fonts"
@@ -37,7 +37,7 @@ export default async function CoreLayout({
       <body suppressHydrationWarning data-admin-ui="">
         <HydrationExtensionAttributeCleanup />
         <NextIntlClientProvider locale={locale} messages={messages}>
-          <Providers>
+          <ConvexAuthNextjsServerProvider>
             <ConfirmProvider>
               <ThemeProvider>{children}</ThemeProvider>
               <Toaster
@@ -49,7 +49,7 @@ export default async function CoreLayout({
               />
               <DevelopmentInstanceBadge />
             </ConfirmProvider>
-          </Providers>
+          </ConvexAuthNextjsServerProvider>
         </NextIntlClientProvider>
       </body>
     </html>

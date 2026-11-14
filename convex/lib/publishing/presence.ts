@@ -15,7 +15,8 @@ export const PAGE_PRESENCE_ACTIVE_MS = 45_000
 /** Client identity fields the caller has already resolved (email + userId). */
 export type PresenceAuth = {
   userId: string
-  email?: string | null
+  /** Display name (never an email or username). */
+  name?: string | null
 }
 
 /** Refresh (or insert) the caller's presence row for this page, then sweep. */
@@ -33,13 +34,12 @@ export async function touchPagePresence(
     .unique()
 
   const patch = {
-    name: auth.email?.split("@")[0] ?? undefined,
-    email: auth.email ?? undefined,
+    name: auth.name ?? undefined,
     lastActiveAt: now,
     updatedAt: now,
   }
   if (existing) {
-    await ctx.db.patch(existing._id, patch)
+    await ctx.db.patch("pagePresence", existing._id, patch)
   } else {
     await ctx.db.insert("pagePresence", {
       pageId,
@@ -55,7 +55,7 @@ export async function touchPagePresence(
       q.eq("pageId", pageId).lt("lastActiveAt", staleBefore)
     )
     .take(20)
-  await Promise.all(staleRows.map((row) => ctx.db.delete(row._id)))
+  await Promise.all(staleRows.map((row) => ctx.db.delete("pagePresence", row._id)))
 }
 
 /** Delete the caller's presence row for this page, if any. */
@@ -70,7 +70,7 @@ export async function leavePagePresence(
       q.eq("pageId", pageId).eq("userId", auth.userId)
     )
     .unique()
-  if (existing) await ctx.db.delete(existing._id)
+  if (existing) await ctx.db.delete("pagePresence", existing._id)
 }
 
 /** List active (non-stale) presence rows for a page, newest-touch first. */

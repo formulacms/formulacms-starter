@@ -11,7 +11,7 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "m05-retained-adoption-owner",
-  tokenIdentifier: "https://convex.test|m05-retained-adoption-owner",
+  tokenIdentifier: "m05-retained-adoption-owner",
 }
 const NOW = Date.UTC(2026, 8, 28, 18, 0, 0)
 
@@ -220,7 +220,7 @@ async function completeImpactPreview(
     { kind, locale }
   )
   for (let guard = 0; guard < 200; guard += 1) {
-    const preview = await t.run((ctx) => ctx.db.get(previewId))
+    const preview = await t.run((ctx) => ctx.db.get("siteLanguageImpactPreviews", previewId))
     if (!preview) throw new Error("impact preview missing")
     if (preview.phase !== "scanning") break
     await t.mutation(internal.cms.multilingual.stepLanguageImpactPreview, {
@@ -228,7 +228,7 @@ async function completeImpactPreview(
       generation: preview.generation,
     })
   }
-  const preview = (await t.run((ctx) => ctx.db.get(previewId)))!
+  const preview = (await t.run((ctx) => ctx.db.get("siteLanguageImpactPreviews", previewId)))!
   expect(preview.phase).toBe("complete")
   for (let ordinal = 0; ordinal < preview.pageCount; ordinal += 1) {
     const listed = await owner.query(api.cms.multilingual.listLanguageImpact, {
@@ -243,7 +243,7 @@ async function completeImpactPreview(
       pageDigest: listed.digest,
     })
   }
-  const reviewed = (await t.run((ctx) => ctx.db.get(previewId)))!
+  const reviewed = (await t.run((ctx) => ctx.db.get("siteLanguageImpactPreviews", previewId)))!
   return {
     previewId,
     expectedDigest: reviewed.digest,
@@ -347,7 +347,7 @@ async function activateReplacement(
   owner: Caller,
   transitionId: Id<"siteLanguageTransitions">
 ) {
-  let transition = (await t.run((ctx) => ctx.db.get(transitionId)))!
+  let transition = (await t.run((ctx) => ctx.db.get("siteLanguageTransitions", transitionId)))!
   await owner.mutation(api.cms.language.confirmTransitionPreview, {
     transitionId,
     expectedPreparedSetVersion: transition.preparedSetVersion,
@@ -355,13 +355,13 @@ async function activateReplacement(
       ? { expectedCarryDecisionDigest: transition.carryDecisionDigest }
       : {}),
   })
-  transition = (await t.run((ctx) => ctx.db.get(transitionId)))!
+  transition = (await t.run((ctx) => ctx.db.get("siteLanguageTransitions", transitionId)))!
   await owner.mutation(api.cms.language.validateLanguageTransition, {
     transitionId,
     expectedGeneration: transition.generation,
   })
   await drain(t)
-  transition = (await t.run((ctx) => ctx.db.get(transitionId)))!
+  transition = (await t.run((ctx) => ctx.db.get("siteLanguageTransitions", transitionId)))!
   expect(transition.phase).toBe("ready")
   const [settings, authority] = await t.run(async (ctx) => [
     (await ctx.db.query("siteSettings").unique())!,
@@ -507,14 +507,14 @@ test(
     expect(
       await adoptRetainedSnapshot(owner, cancelledId, homeId)
     ).toMatchObject({ snapshotId: retainedSnapshotId })
-    let cancelled = (await t.run((ctx) => ctx.db.get(cancelledId)))!
+    let cancelled = (await t.run((ctx) => ctx.db.get("siteLanguageTransitions", cancelledId)))!
     await owner.mutation(api.cms.language.cancelLanguageTransition, {
       transitionId: cancelledId,
       expectedGeneration: cancelled.generation,
       discardTargetDrafts: true,
     })
     await drain(t)
-    cancelled = (await t.run((ctx) => ctx.db.get(cancelledId)))!
+    cancelled = (await t.run((ctx) => ctx.db.get("siteLanguageTransitions", cancelledId)))!
     expect(cancelled.phase).toBe("cancelled")
     const afterCancel = await generations(t, homeId, "fr")
     expect(afterCancel.state).toMatchObject({
@@ -592,14 +592,14 @@ test(
     await toggleMultilingual(t, owner, false)
 
     const undecidedId = await startReplacement(t, owner, "fr")
-    const undecided = (await t.run((ctx) => ctx.db.get(undecidedId)))!
+    const undecided = (await t.run((ctx) => ctx.db.get("siteLanguageTransitions", undecidedId)))!
     await owner.mutation(api.cms.language.cancelLanguageTransition, {
       transitionId: undecidedId,
       expectedGeneration: undecided.generation,
       discardTargetDrafts: true,
     })
     await drain(t)
-    expect((await t.run((ctx) => ctx.db.get(undecidedId)))!.phase).toBe(
+    expect((await t.run((ctx) => ctx.db.get("siteLanguageTransitions", undecidedId)))!.phase).toBe(
       "cancelled"
     )
     expect(
@@ -680,7 +680,7 @@ test(
       selectionProvenance: "transition_prepared",
     })
 
-    const open = (await t.run((ctx) => ctx.db.get(transitionId)))!
+    const open = (await t.run((ctx) => ctx.db.get("siteLanguageTransitions", transitionId)))!
     await owner.mutation(api.cms.language.cancelLanguageTransition, {
       transitionId,
       expectedGeneration: open.generation,
@@ -1013,7 +1013,7 @@ test(
     )
     expect.soft(row?.target.selectionProvenance).toBe("transition_prepared")
 
-    const transition = (await t.run((ctx) => ctx.db.get(transitionId)))!
+    const transition = (await t.run((ctx) => ctx.db.get("siteLanguageTransitions", transitionId)))!
     await owner.mutation(api.cms.language.cancelLanguageTransition, {
       transitionId,
       expectedGeneration: transition.generation,

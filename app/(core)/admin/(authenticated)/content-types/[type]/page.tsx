@@ -1,7 +1,7 @@
 import { connection } from "next/server"
 import { notFound } from "next/navigation"
 import { api } from "@/convex/_generated/api"
-import { fetchAuthQuery } from "@/lib/auth-server"
+import { fetchAuthQuery } from "@/lib/auth/server"
 import { adminContentTypeDetail } from "@/lib/admin/content-types"
 import { ContentTypeDetail } from "@/components/admin/content-types/content-type-detail"
 import { ArchivedContentTypesErrorBoundary } from "@/components/admin/content-types/use-archived-content-types"

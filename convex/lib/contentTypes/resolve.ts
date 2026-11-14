@@ -39,7 +39,7 @@ export async function resolveReferenceCardById(
   docId: Id<"pages">,
   locale: string,
 ): Promise<ReferenceCard | null> {
-  const doc = await ctx.db.get(docId)
+  const doc = await ctx.db.get("pages", docId)
   return doc ? resolveReferenceCardForDoc(doc, locale) : null
 }
 

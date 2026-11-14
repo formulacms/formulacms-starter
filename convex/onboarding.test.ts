@@ -9,7 +9,7 @@ const modules = import.meta.glob("./**/*.ts")
 /** The one durable Community owner; both identity fields are explicit. */
 const ownerIdentity = {
   subject: "owner-1",
-  tokenIdentifier: "https://convex.test|owner-1",
+  tokenIdentifier: "owner-1",
   name: "Owner",
   email: "owner@example.com",
 }

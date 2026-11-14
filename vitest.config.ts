@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config"
 import { fileURLToPath } from "node:url"
+import wasmModule from "vite-plugin-wasm-module"
 
 // Mirror the `@/*` -> project-root path alias from tsconfig so tests can import
 // shared modules the same way app code does. Vitest projects each carry their
@@ -13,7 +14,13 @@ const alias = {
 
 // Establish an offline revalidation baseline before application modules load,
 // regardless of the environment inherited from the invoking shell or CI.
-const revalidationEnv = { REVALIDATE_SECRET: "", SITE_URL: "" }
+// Convex Auth reads CONVEX_CLOUD_URL when it mints and checks tokens; this is
+// the default origin convex-test signs tokens for.
+const revalidationEnv = {
+  REVALIDATE_SECRET: "",
+  SITE_URL: "",
+  CONVEX_CLOUD_URL: "https://some-deployment.convex.cloud",
+}
 
 export default defineConfig({
   test: {
@@ -23,6 +30,7 @@ export default defineConfig({
     // `.test.tsx` (React component tests) runs under jsdom with jest-dom.
     projects: [
       {
+        plugins: [wasmModule()],
         resolve: { alias },
         test: {
           env: revalidationEnv,
@@ -30,7 +38,14 @@ export default defineConfig({
           environment: "edge-runtime",
           // next-intl's middleware imports `next/server` without an extension,
           // which Node's ESM resolver rejects; Vite resolves it when inlined.
-          server: { deps: { inline: ["next-intl"] } },
+          // convex-test loads function modules dynamically; the Convex Auth
+          // password hash is a .wasm import that `wasmModule` loads as a
+          // WebAssembly.Module, as the Convex bundler does.
+          server: {
+            deps: {
+              inline: ["next-intl", "convex-test", "password-hash-wasm"],
+            },
+          },
           include: ["**/*.test.ts"],
           exclude: [
             "**/node_modules/**",
@@ -45,6 +60,7 @@ export default defineConfig({
         },
       },
       {
+        plugins: [wasmModule()],
         resolve: { alias },
         test: {
           env: revalidationEnv,

@@ -171,7 +171,7 @@ export async function clearDocumentReferencesForPage(
     .query("documentReferences")
     .withIndex("by_source", (q) => q.eq("sourceId", pageId))
     .take(1000)
-  await Promise.all(existing.map((row) => ctx.db.delete(row._id)))
+  await Promise.all(existing.map((row) => ctx.db.delete("documentReferences", row._id)))
 }
 
 export async function refreshDocumentReferencesForPage(
@@ -187,7 +187,7 @@ export async function refreshDocumentReferencesForPage(
   // the same author across 20 items in 5 locales, and we want one db.get per
   // unique target, not 100.
   const uniqueTargetIds = Array.from(new Set(collected.map((r) => r.targetId)))
-  const fetched = await Promise.all(uniqueTargetIds.map((id) => ctx.db.get(id)))
+  const fetched = await Promise.all(uniqueTargetIds.map((id) => ctx.db.get("pages", id)))
   const targetsById = new Map(
     uniqueTargetIds.map((id, i) => [id, fetched[i]] as const)
   )

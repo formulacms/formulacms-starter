@@ -4,8 +4,8 @@ formulacms is a self-hosted, fair-source, full-stack CMS for Next.js. The admin,
 
 - A public site with a home page, navigation, SEO and responsive blocks.
 - An admin for pages, media, menus and settings.
-- Convex as the backend and Better Auth for admin sign-in.
-- Email for password reset and contact messages.
+- Convex as the backend and Convex Auth for admin sign-in with a username and password.
+- Email for contact messages.
 
 ## Quickstart
 
@@ -38,7 +38,7 @@ You need Node.js 22 or newer, pnpm 11 and git. You do not need a Convex account.
 
 3. Open `http://localhost:3000/setup` and complete the three steps:
    1. Choose the "Site language" and the "Timezone". Select "Continue".
-   2. Create your account: your name, email, a password of at least 8 characters (twice) and the "Owner setup code" from the terminal. Select "Create account".
+   2. Create your account: your name, a username, a password of at least 10 characters (twice), an optional notification email and the "Owner setup code" from the terminal. Select "Create account". You sign in with the username and the password.
    3. Enter the "Site name". The "Site address" is filled in. Select "Finish setup".
 
    Until you publish a page in step 4, `http://localhost:3000` shows "Page not found".
@@ -91,7 +91,7 @@ The Block creator (Settings -> AI -> Block creator) runs on your computer during
 
 A published formulacms release is identified only by its immutable, annotated SemVer Git tag. Package, engine, schema and release-recipe versions are component versions, separate from release identity.
 
-This starter becomes your own fork. Regeneration creates a fresh starter for a new project; it never updates or overwrites an existing fork. To adopt a compatible release, use the [manual fork-upgrade playbook](./docs/starter/operations.md#fork-upgrade-playbook) and review every change in your own upgrade branch. Before you merge, validate the exact declared pair in `starter.transitions.json`:
+This starter becomes your own fork. Regeneration creates a fresh starter for a new project; it never updates or overwrites an existing fork. To adopt a compatible release, use the [manual fork-upgrade playbook](./docs/starter/operations.md#fork-upgrade-playbook) and review every change in your own upgrade branch. Read the upgrade file for your version before any `git pull` or merge of a release, for example `git show v0.2.0:upgrades/v0.1.1-to-v0.2.0.md`. Before you merge, validate the exact declared pair in `starter.transitions.json`:
 
 ```bash
 node --import tsx scripts/check-release-transition.ts \
@@ -109,15 +109,12 @@ After an email provider is active, Settings -> Email provides an owner-restricte
 
 ## Where each value goes
 
-Use `.env.local` for local development, not `.env`. The table lists names only. The three secrets must be equal in `.env.local` and the development deployment, and equal on Vercel and the production deployment. The Next.js app does not read `BETTER_AUTH_URL`.
+Use `.env.local` for local development, not `.env`. The table lists names only. The two secrets must be equal in `.env.local` and the development deployment, and equal on Vercel and the production deployment. Sign-in needs no auth secret: Convex Auth signs its own tokens in the deployment (`convex/auth.ts`).
 
 | Value                                                       | Local (`.env.local`)                     | Convex                                            | Vercel   |
 | ----------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------- | -------- |
 | `CONVEX_DEPLOYMENT`                                         | Written by `convex dev`                  | —                                                 | —        |
 | `NEXT_PUBLIC_CONVEX_URL`                                    | Written by `convex dev`                  | —                                                 | Required |
-| `NEXT_PUBLIC_CONVEX_SITE_URL`                               | Written by `convex dev`                  | —                                                 | Required |
-| `BETTER_AUTH_URL`                                           | Written by `pnpm dev` on the first start | Required                                          | —        |
-| `BETTER_AUTH_SECRET`                                        | Written by `pnpm dev` on the first start | Required                                          | Required |
 | `CONTACT_IP_PROOF_SECRET`                                   | Written by `pnpm dev` on the first start | Required                                          | Required |
 | `REVALIDATE_SECRET`                                         | Written by `pnpm dev` on the first start | Required                                          | Required |
 | `NEXT_PUBLIC_SITE_URL`                                      | Optional                                 | —                                                 | Required |
@@ -128,7 +125,9 @@ Use `.env.local` for local development, not `.env`. The table lists names only. 
 | `FORMULACMS_DEV_OPENROUTER_API_KEY` and the other two       | Optional, for the Block creator          | —                                                 | —        |
 | `FORMULACMS_ALLOW_LOCAL_IMAGE_IPS`                          | Local production-build check only        | —                                                 | Never    |
 
-The installation owner is the only CMS user. A Better Auth account on its own has no admin access. The starter has one fixed admin role and no other users, invitations or roles; see `docs/starter/community-roles.md`. See `docs/starter/operations.md` for the operator contract.
+The installation owner is the only CMS user. A sign-in account on its own has no admin access. The starter has one fixed admin role and no other users, invitations or roles; see `docs/starter/community-roles.md`. See `docs/starter/operations.md` for the operator contract.
+
+If you forget your password, or wrong guesses lock your account, run `pnpm owner:recover` in the site's folder. It prints a one-time link that works once and expires after 15 minutes. Open it, choose a new username and password, and the site moves to that account. There is no password reset by email. See "Owner recovery" in `docs/starter/operations.md`.
 
 ## Development
 
@@ -136,7 +135,7 @@ The main commands are `pnpm dev`, `pnpm typecheck`, `pnpm lint`, `pnpm test:run`
 
 Cookies belong to the host name, not the port, so `localhost:3000` and `localhost:3001` share sign-in cookies. If one local app sends you to `/sign-in` unexpectedly, stop the other app, use separate browser profiles or host names, or clear the local session. This affects local browsers only.
 
-`pnpm check:preflight` finds common local setup problems: a missing `.env.local`, placeholder values, old Node.js or pnpm versions, a production deployment and non-local addresses. It also compares `BETTER_AUTH_URL` and the three secrets in `.env.local` with the Convex deployment and checks that `FORMULACMS_OWNER_CLAIM` is set. It reports variable names only and never prints a value. When the Convex CLI is signed out or has no deployment, these checks warn instead of fail.
+`pnpm check:preflight` finds common local setup problems: a missing `.env.local`, placeholder values, old Node.js or pnpm versions, a production deployment and non-local addresses. It also compares the two secrets in `.env.local` with the Convex deployment and checks that `FORMULACMS_OWNER_CLAIM` is set. It reports variable names only and never prints a value. When the Convex CLI is signed out or has no deployment, these checks warn instead of fail.
 
 ### Browser checks
 

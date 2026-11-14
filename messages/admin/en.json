@@ -251,7 +251,6 @@
     "errors": {
       "connectAccount": "Your account is signed in, but setup couldn't connect it to the CMS yet. Try again.",
       "tooManyAttempts": "Too many attempts. Wait a minute, then try again.",
-      "accountAlreadyExists": "An account with that email already exists here. Use a different email address, or enter that account's password to sign in with it.",
       "ownerCodeUnavailable": "This site can't use an owner setup code yet. Its code is either missing or already used, and used codes can't be reused or looked up. If someone else set this site up, ask them for a new one — or make one yourself below.",
       "createOwner": "Could not create the owner account. Check the details above and try again.",
       "ownerCodeMismatch": "That setup code doesn't match the one this site is expecting. Check it for typos or extra spaces — codes are exact. If you set this site up, you can make a new one below.",
@@ -261,10 +260,7 @@
       "saveSite": "Could not save site."
     },
     "notices": {
-      "ownerMoved": "Owner access moved to {email}. The previous account is no longer the site owner.",
-      "ownerCreated": "Owner account created for {email}. You're signed in and this site now belongs to you. The setup code is used up — you won't need it again.",
-      "thisAccount": "this account",
-      "you": "you"
+      "ownerCreated": "Owner account created for {username}. You’re signed in and this site now belongs to you. The setup code is used up — you won’t need it again."
     },
     "status": {
       "checkingTitle": "Checking setup status",
@@ -285,7 +281,7 @@
       "checkingAccessDescription": "Setup will resume after your owner session is confirmed.",
       "checkingAccessLabel": "Checking access",
       "wrongAccountTitle": "This account can't resume setup",
-      "wrongAccountDescription": "{email} is signed in, but only the site owner can continue setup."
+      "wrongAccountDescription": "Another account is signed in, but only the site owner can continue setup."
     },
     "wizard": {
       "title": "Welcome to formulacms",
@@ -297,16 +293,14 @@
       "description": "Choose the site’s language and your time zone first. The rest of setup and your admin use them."
     },
     "account": {
-      "signedInAs": "Signed in as {email}.",
-      "replaceDescription": "Create the replacement owner account using the newly rotated setup code. The previous account will lose CMS access immediately.",
+      "signedInAs": "Signed in as {name}.",
       "createDescription": "Create the owner account for this site using the one-time setup code from the person who deployed it."
     },
     "fields": {
       "name": "Your name",
-      "email": "Email",
       "accountPassword": "Account password",
-      "newPassword": "Account password (min 8 chars)",
-      "newPasswordHint": "Use this password with your email to sign in after setup.",
+      "newPassword": "Account password (min 10 chars)",
+      "newPasswordHint": "Use this password with your username to sign in after setup.",
       "ownerCode": "Owner setup code",
       "siteName": "Site name",
       "siteUrl": "Site address",
@@ -320,22 +314,20 @@
       "siteLanguageEnglishOnly": "Setup and your admin stay in English for this language. Your site will still use it.",
       "timezoneNow": "{timezone} · {time}",
       "timezoneDetected": "Detected from your browser.",
-      "signInEmail": "Sign-in email",
-      "signInEmailHint": "You’ll use it to sign in. Password reset emails go here once email delivery is set up. Never shown on your site.",
       "confirmPassword": "Confirm password",
       "passwordsMismatch": "Passwords don’t match.",
       "showPassword": "Show password",
-      "hidePassword": "Hide password"
+      "hidePassword": "Hide password",
+      "username": "Username",
+      "usernameHint": "You’ll use it to sign in. Never shown on your site.",
+      "notificationEmail": "Notification email (optional)",
+      "notificationEmailHint": "Contact form messages go here. Never used to sign in."
     },
     "actions": {
       "openAdmin": "Open admin",
-      "replaceOwnerAccount": "Replace owner account",
       "signInAndResume": "Sign in and resume",
       "signOutAndRetry": "Sign out and try another account",
-      "cancel": "Cancel",
       "back": "Back",
-      "replaceOwner": "Replace owner",
-      "createReplacementAccount": "Create replacement account",
       "continue": "Continue",
       "createAccount": "Create account",
       "finishSetup": "Finish setup"
@@ -347,15 +339,14 @@
   "auth": {
     "signIn": {
       "validation": {
-        "emailRequired": "Enter the email address you signed up with.",
-        "emailInvalid": "That doesn’t look like an email address.",
+        "usernameRequired": "Enter your username.",
         "passwordRequired": "Enter your password."
       },
       "errors": {
+        "invalidCredentials": "Check your username and password.",
+        "rateLimited": "Too many attempts. Try again in {seconds} seconds.",
         "default": "Sign in failed. Try again.",
-        "unreachable": "Couldn’t reach the sign-in service. Check your connection and try again.",
-        "googleDefault": "Google sign-in failed. Try again.",
-        "googleUnreachable": "Couldn’t reach Google sign-in. Check your connection and try again."
+        "unreachable": "Couldn’t reach the sign-in service. Check your connection and try again."
       },
       "checking": {
         "title": "Checking this site",
@@ -371,16 +362,10 @@
       "form": {
         "title": "Sign in",
         "description": "Use your formulacms account to open the admin area.",
-        "resetSuccess": "Password updated — sign in to continue.",
-        "emailLabel": "Email",
         "passwordLabel": "Password",
-        "forgotPassword": "Forgot password?",
         "signingIn": "Signing in…",
         "submit": "Sign in",
-        "divider": "or",
-        "googleConnecting": "Connecting to Google…",
-        "googleContinue": "Continue with Google",
-        "invitation": "Need access? Ask an administrator for an invitation."
+        "usernameLabel": "Username"
       },
       "loading": {
         "title": "Loading sign-in",
@@ -388,44 +373,18 @@
         "label": "Loading sign-in"
       }
     },
-    "forgotPassword": {
-      "validation": {
-        "emailRequired": "Enter your email address.",
-        "emailInvalid": "That doesn’t look like an email address."
-      },
-      "title": "Reset your password",
-      "confirmation": "If an account exists and email delivery is available, you'll receive a reset link. If it doesn't arrive, ask the site owner for help.",
+    "recover": {
+      "title": "Recover owner access",
+      "usernameLabel": "New username",
+      "passwordLabel": "New password",
+      "confirmLabel": "Confirm password",
+      "submit": "Take over ownership",
+      "success": "Owner access moved to {username}. The previous account is no longer the site owner.",
+      "expired": "This recovery link has expired or was already used. Run the recovery command again to get a new link.",
       "backToSignIn": "Back to sign in",
-      "instructions": "Enter the email address on your account. If email delivery is available, you'll receive a link to choose a new password.",
-      "emailLabel": "Email",
-      "emailPlaceholder": "Email",
-      "sending": "Sending…",
-      "sendResetLink": "Send reset link",
-      "remembered": "Remembered it?",
-      "signIn": "Sign in"
-    },
-    "resetPassword": {
       "validation": {
-        "passwordLength": "Use at least 8 characters.",
-        "confirmRequired": "Type the new password a second time.",
-        "passwordMismatch": "This doesn’t match the new password above."
-      },
-      "errors": {
-        "expired": "Link expired or already used. Request a new one to continue."
-      },
-      "invalid": {
-        "title": "Invalid or expired link",
-        "description": "This password reset link is invalid, expired, or already used."
-      },
-      "requestNewLink": "Request a new reset link",
-      "form": {
-        "title": "Choose a new password",
-        "passwordLabel": "New password",
-        "passwordPlaceholder": "At least 8 characters",
-        "confirmLabel": "Confirm new password",
-        "confirmPlaceholder": "Type it again",
-        "updating": "Updating…",
-        "updatePassword": "Update password"
+        "passwordLength": "Use at least 10 characters.",
+        "confirmRequired": "Type the new password a second time."
       }
     }
   },
@@ -653,7 +612,7 @@
         },
         "email": {
           "name": "Email",
-          "summary": "Set up email for account recovery and contact messages."
+          "summary": "Set up email for contact messages."
         },
         "redirects": {
           "name": "Redirects",
@@ -1082,7 +1041,12 @@
       "adminLanguageDescription": "The language used in this interface. Switch and the page reloads in your chosen language.",
       "save": "Save preferences",
       "ok": "OK",
-      "updateFailed": "Failed to update language preference."
+      "updateFailed": "Failed to update language preference.",
+      "changePassword": "Change password",
+      "currentPassword": "Current password",
+      "newPassword": "New password (min 10 chars)",
+      "confirmPassword": "Confirm password",
+      "passwordChanged": "Password changed."
     },
     "ai": {
       "title": "AI",
@@ -1476,7 +1440,7 @@
       },
       "sender": {
         "heading": "Sender",
-        "description": "This identity appears in the From field. Contact notifications still go to the site owner's account.",
+        "description": "This identity appears in the From field. Contact notifications go to the notification email.",
         "address": "From address",
         "addressPlaceholder": "noreply@example.com",
         "name": "From name",
@@ -1497,7 +1461,7 @@
         "blocked": {
           "not_configured": "Save the provider and sender before testing.",
           "needs_setup": "Finish the server setup before testing.",
-          "owner_email_missing": "The site owner's account has no email address.",
+          "owner_email_missing": "Add a notification email above to send a test.",
           "rate_limited": "Too many tests were requested. Try again later."
         }
       },
@@ -1522,6 +1486,13 @@
         "failedActivate": "Resend was not activated. Send a new successful test and try again.",
         "deactivated": "{provider} is off",
         "failedDeactivate": "{provider} was not turned off. Try again."
+      },
+      "notifications": {
+        "heading": "Notifications",
+        "label": "Notification email (optional)",
+        "hint": "Contact form messages go here. Never used to sign in.",
+        "save": "Save",
+        "saved": "Saved"
       }
     },
     "aiScreen": {
@@ -3409,7 +3380,7 @@
     "pilotPageLimit": "This site has reached its limit of 499 pages and other content, including what is archived or in the trash.",
     "revalidationUnconfigured": "Add the site address and matching private code, then select Retry now.",
     "siteDescriptionLocaleNotEnabled": "A site description was set for a language that is no longer on. Reload the page and try again.",
-    "invalidCredentials": "Check your email and password.",
+    "invalidCredentials": "Check your username and password.",
     "invalidPassword": "Check your password.",
     "passwordTooShort": "Choose a longer password.",
     "passwordTooLong": "Choose a shorter password.",
@@ -3430,7 +3401,10 @@
     "imageDimensionsMissing": "The image dimensions could not be read.",
     "imageDimensionsInvalid": "The image must have valid positive dimensions.",
     "imageScanLimit": "The image metadata is too large to read safely.",
-    "invalidEmail": "Enter a valid email address."
+    "invalidEmail": "Enter a valid email address.",
+    "usernameTaken": "That username is taken. Choose a new one.",
+    "passwordTooCommon": "This password is too common. Choose another.",
+    "passwordSurroundingSpaces": "Remove spaces at the start or end of the password."
   },
   "contentDefaults": {
     "button": "Button",

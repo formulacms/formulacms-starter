@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { convexTest } from "convex-test"
+import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import { describe, expect, test } from "vitest"
 import { api } from "./_generated/api"
 import schema from "./schema"
@@ -9,7 +9,7 @@ const modules = import.meta.glob("./**/*.ts")
 /** The one durable Community owner; both identity fields are explicit. */
 const OWNER = {
   subject: "u-1",
-  tokenIdentifier: "https://convex.test|u-1",
+  tokenIdentifier: "u-1",
   name: "Owner",
   email: "a@x.com",
 }

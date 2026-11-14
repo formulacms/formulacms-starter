@@ -10,7 +10,7 @@ import { convexTest } from "@/convexTestWithExplicitAdmin"
 const modules = import.meta.glob("../../../../convex/**/*.ts")
 const OWNER = {
   subject: "conflict-copy-owner",
-  tokenIdentifier: "https://convex.test|conflict-copy-owner",
+  tokenIdentifier: "conflict-copy-owner",
 }
 
 test.each(["en", "fr"])(

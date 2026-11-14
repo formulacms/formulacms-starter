@@ -60,8 +60,6 @@ jobs:
         run: |
           pnpm exec convex dev --once
           pnpm exec convex env set CONTACT_IP_PROOF_SECRET "$CONTACT_IP_PROOF_SECRET"
-          printf '%s' 'http://localhost:3000' | pnpm exec convex env set BETTER_AUTH_URL
-          printf '%s' 'ci-better-auth-secret-ci-better-auth-secret' | pnpm exec convex env set BETTER_AUTH_SECRET
           printf '%s' 'ci-revalidate-secret' | pnpm exec convex env set REVALIDATE_SECRET
         env:
           CONTACT_IP_PROOF_SECRET: ci-contact-ip-proof-secret
@@ -72,12 +70,11 @@ jobs:
       - name: Build production app
         run: pnpm build
         env:
-          BETTER_AUTH_SECRET: ci-better-auth-secret-ci-better-auth-secret
           CONTACT_IP_PROOF_SECRET: ci-contact-ip-proof-secret
           NEXT_PUBLIC_SITE_URL: http://localhost:3000
           FORMULACMS_ALLOW_LOCAL_IMAGE_IPS: "1"
 
-      - name: Fresh setup and password-recovery e2e
+      - name: Fresh setup and owner sign-in e2e
         run: |
           pnpm exec convex dev --tail-logs disable --start "pnpm exec next start -p 3000" &
           DEV_PID=$!
@@ -101,7 +98,6 @@ jobs:
             STARTER_E2E_OWNER_CLAIM="$OWNER_CLAIM" \
             pnpm check:e2e
         env:
-          BETTER_AUTH_SECRET: ci-better-auth-secret-ci-better-auth-secret
           CONTACT_IP_PROOF_SECRET: ci-contact-ip-proof-secret
           NEXT_PUBLIC_SITE_URL: http://localhost:3000
           FORMULACMS_ALLOW_LOCAL_IMAGE_IPS: "1"

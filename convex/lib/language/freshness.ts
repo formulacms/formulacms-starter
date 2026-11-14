@@ -163,7 +163,7 @@ export async function recordPublicChange(
       updatedAt: now,
     }
     if (row) {
-      await ctx.db.patch(row._id, next)
+      await ctx.db.patch("siteLanguageFreshness", row._id, next)
     } else {
       await ctx.db.insert("siteLanguageFreshness", {
         scope: locale === undefined ? "site" : "locale",

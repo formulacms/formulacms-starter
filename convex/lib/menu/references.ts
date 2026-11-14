@@ -31,7 +31,7 @@ async function reconcileMenuReferences(
   for (const row of stableExisting) {
     const key = referenceKey(row.targetId, row.path)
     if (!expectedKeys.has(key) || existingKeys.has(key)) {
-      await ctx.db.delete(row._id)
+      await ctx.db.delete("menuReferences", row._id)
       deleted += 1
       continue
     }

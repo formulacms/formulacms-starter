@@ -74,7 +74,7 @@ export const setContentTypeArchived = mutation({
     if (archived) next.add(type)
     else next.delete(type)
     const result = [...next].sort()
-    await ctx.db.patch(settings._id, {
+    await ctx.db.patch("siteSettings", settings._id, {
       archivedContentTypes: result,
       updatedAt: Date.now(),
     })

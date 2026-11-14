@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}))
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidate }))
-vi.mock("@/lib/auth-server", () => ({
+vi.mock("@/lib/auth/server", () => ({
   requireAuth: mocks.requireAuth,
   fetchAuthMutation: mocks.mutation,
   fetchAuthQuery: mocks.query,

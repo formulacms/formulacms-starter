@@ -10,9 +10,11 @@ The onboarding mode requires a disposable fresh deployment where `/setup`
 renders the wizard; it creates the owner account, finishes setup in one step
 with one site language, and then confirms `/` shows the not-found page, because
 setup publishes nothing. It then publishes the draft home from the page editor
-and confirms `/` no longer shows the not-found page. The default mode skips the
-setup workflow so the forgot-password path can run against an app whose backend
-already records completed setup, without resetting data. Browser verification
+and confirms `/` no longer shows the not-found page. Then it signs in as the owner by
+username. Both modes check that sign-in refuses an unknown username with the
+neutral message (`scripts/verify-starter-e2e.ts`). The default mode skips the
+setup workflow so that check can run against an app whose backend already
+records completed setup, without resetting data. Browser verification
 never supplies an onboarding cookie or other client-side bypass; a redirect to
 `/setup` fails with an explicit completed-setup precondition.
 
@@ -51,7 +53,8 @@ CI runs the extraction gate against a disposable local Convex deployment:
 - `STARTER_E2E_ONBOARDING=single pnpm check:e2e` runs against a
   production-local Next server and a fresh local Convex process. It completes
   setup through the wizard, confirms `/` shows the not-found page until something
-  is published, publishes the draft home, and exercises the forgot-password path.
+  is published, publishes the draft home, signs in as the owner, and checks the refused
+  sign-in.
 
 When verifying a production build against local Convex storage URLs, build with
 `FORMULACMS_ALLOW_LOCAL_IMAGE_IPS=1`. That opt-in is only for private local

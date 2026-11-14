@@ -10,7 +10,7 @@ const reads = vi.hoisted(() => ({
   shell: vi.fn(),
   catalog: vi.fn(),
 }))
-vi.mock("@/lib/auth-server", () => ({ fetchAuthQuery: reads.auth }))
+vi.mock("@/lib/auth/server", () => ({ fetchAuthQuery: reads.auth }))
 vi.mock("convex/nextjs", () => ({ fetchQuery: reads.anonymous }))
 vi.mock("next/navigation", () => ({
   notFound: () => {

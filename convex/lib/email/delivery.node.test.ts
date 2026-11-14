@@ -165,18 +165,7 @@ describe("E04 FormulaCMS delivery executor", () => {
     // FR2e (D-7): the Forms and Team invitation consumers are checked in
     // formSubmissions.boundaries.test.ts and email.invites.test.ts, which ship
     // only with those modules.
-    const auth = await readFile(
-      fileURLToPath(new URL("../../auth.ts", import.meta.url)),
-      "utf8"
-    )
-    expect(auth).not.toContain("@opencoredev/email-sdk")
-    expect(auth).not.toContain("providerRegistry")
-    expect(auth).not.toMatch(/from ["'][^"']*resend[^"']*["']/)
-    expect(auth).not.toContain("emailRetrier")
-    expect(auth).not.toContain("internal.emailNode.sendEmail")
-    expect(auth).toContain("internal.email.enqueueDelivery")
-    expect(auth).toContain('consumer: { kind: "password_recovery" }')
-    expect(auth).toContain("`password_recovery:${bytesToHex")
+    // ADR-0056: sign-in sends no email, so `auth.ts` has no email consumer.
 
     const queueSource = await readFile(
       fileURLToPath(new URL("../../email.ts", import.meta.url)),

@@ -126,7 +126,7 @@ vi.mock("./lib/ai", async (original) => {
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "page-job-owner",
-  tokenIdentifier: "https://convex.test|page-job-owner",
+  tokenIdentifier: "page-job-owner",
 }
 const writeInput = (count = 2) => ({
   kind: "write" as const,
@@ -1089,7 +1089,7 @@ describe("AI1 U1b boundaries and six-unit window", () => {
     const { t, owner } = await setup()
     const stranger = t.withIdentity({
       subject: "stranger",
-      tokenIdentifier: "https://convex.test|stranger",
+      tokenIdentifier: "stranger",
     })
     await expect(start(stranger)).rejects.toThrow()
     await expect(
@@ -1657,7 +1657,7 @@ describe("Write page with AI: job list gap", () => {
       t
         .withIdentity({
           subject: "someone-else",
-          tokenIdentifier: "https://convex.test|someone-else",
+          tokenIdentifier: "someone-else",
         })
         .query(api.cms.aiJobs.pageJobProgress, {})
     ).rejects.toThrow()

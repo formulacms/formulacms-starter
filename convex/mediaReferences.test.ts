@@ -56,7 +56,7 @@ describe("mediaReferences descriptor-image walker", () => {
         content: { en: { title: "Job", slices: [] } },
         createdAt: Date.now(), updatedAt: Date.now(),
       })
-      await refreshMediaReferencesForPage(ctx, (await ctx.db.get(pageId))!)
+      await refreshMediaReferencesForPage(ctx, (await ctx.db.get("pages", pageId))!)
       expect(await ctx.db.query("mediaReferences")
         .withIndex("by_pageId", (q) => q.eq("pageId", pageId)).take(10))
         .toEqual([expect.objectContaining({
@@ -121,7 +121,7 @@ describe("mediaReferences descriptor-image walker", () => {
         createdAt: now,
         updatedAt: now,
       })
-      const doc = await ctx.db.get(pageId)
+      const doc = await ctx.db.get("pages", pageId)
       expect(doc).not.toBeNull()
 
       await refreshMediaReferencesForPage(ctx, doc!)
@@ -156,12 +156,12 @@ describe("mediaReferences descriptor-image walker", () => {
         createdAt: now,
         updatedAt: now,
       })
-      const doc = await ctx.db.get(pageId)
+      const doc = await ctx.db.get("pages", pageId)
       await refreshMediaReferencesForPage(ctx, doc!)
       expect((await ctx.db.query("mediaReferences").take(5)).length).toBe(1)
 
-      await ctx.db.patch(pageId, { personImage: undefined })
-      const cleared = await ctx.db.get(pageId)
+      await ctx.db.patch("pages", pageId, { personImage: undefined })
+      const cleared = await ctx.db.get("pages", pageId)
       await refreshMediaReferencesForPage(ctx, cleared!)
 
       const rows = await ctx.db.query("mediaReferences").take(5)
@@ -189,7 +189,7 @@ describe("mediaReferences descriptor-image walker", () => {
         createdAt: now,
         updatedAt: now,
       })
-      const doc = await ctx.db.get(pageId)
+      const doc = await ctx.db.get("pages", pageId)
       await refreshMediaReferencesForPage(ctx, doc!)
 
       const rows = await ctx.db.query("mediaReferences").take(5)

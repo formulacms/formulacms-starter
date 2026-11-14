@@ -22,7 +22,7 @@ const generatedTest = generatedStarter ? test : test.skip
 /** The one durable Community owner; both identity fields are explicit. */
 const OWNER = {
   subject: "reduced-selection-owner",
-  tokenIdentifier: "https://convex.test|reduced-selection-owner",
+  tokenIdentifier: "reduced-selection-owner",
   email: "reduced-selection-owner@example.test",
 }
 

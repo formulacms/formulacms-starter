@@ -28,7 +28,7 @@ import {
   readFreshConfig,
   withVersionPinnedConfig,
 } from "@/lib/cms/versioned-read"
-import { fetchAuthMutation } from "@/lib/auth-server"
+import { fetchAuthMutation } from "@/lib/auth/server"
 import { PREVIEW_SESSION_COOKIE } from "@/lib/preview-session"
 import { hasSliceBody } from "@/convex/lib/pages/sliceBodyContent"
 import { postContentType } from "@/convex/lib/contentTypes/post"

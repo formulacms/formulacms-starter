@@ -5,6 +5,7 @@
 //
 // Limits are intentionally hard-coded for v0.1; surfacing them in Settings → AI
 // is tracked on the AI-surface review checkbox of V0.1-LAUNCH-PLAN.md Step 6.
+import { getActor } from "./access/actor"
 import { ConvexError } from "convex/values"
 import { RateLimiter, MINUTE, HOUR } from "@convex-dev/rate-limiter"
 import { components } from "../_generated/api"
@@ -55,11 +56,11 @@ export async function enforceAiRateLimit(
   ctx: ActionCtx | MutationCtx,
   opts: { pageOp?: boolean } = {}
 ): Promise<void> {
-  const identity = await ctx.auth.getUserIdentity()
-  if (!identity) throw new ConvexError("Unauthenticated")
-  // Buckets key on `tokenIdentifier` — the cross-issuer stable identifier
-  // authHelpers treats as canonical (`subject` is only issuer-scoped).
-  const key = identity.tokenIdentifier
+  const actor = await getActor(ctx)
+  if (!actor) throw new ConvexError("Unauthenticated")
+  // Buckets key on the Convex Auth user ID: it is stable across sessions
+  // (the token `subject` is the session ID).
+  const key = actor.userId
   await aiRateLimiter.limit(ctx, "aiCallPerUser", { key, throws: true })
   await aiRateLimiter.limit(ctx, "aiCallPerDeployment", { throws: true })
   if (opts.pageOp) {

@@ -19,7 +19,7 @@ const restoreLegacyRevision = makeFunctionReference<"mutation", {
 }>("cms/pageHistory:restoreRevisionAsDraft")
 const OWNER = {
   subject: "occurrence-owner",
-  tokenIdentifier: "https://convex.test|occurrence-owner",
+  tokenIdentifier: "occurrence-owner",
 }
 function app() {
   const t = convexTest({
@@ -152,7 +152,7 @@ describe("real retained occurrence totals", () => {
     const f = await fixture()
     const stranger = f.t.withIdentity({
       subject: "foreign",
-      tokenIdentifier: "https://convex.test|foreign",
+      tokenIdentifier: "foreign",
     })
     const before = await f.t.run((ctx) =>
       ctx.db.query("sliceOccurrenceCountState").collect()
@@ -235,7 +235,7 @@ describe("real retained occurrence totals", () => {
           q.eq("type", "hero-with-image").eq("presentationId", "centered")
         )
         .unique()
-      await ctx.db.delete(row!._id)
+      await ctx.db.delete("sliceOccurrenceCounts", row!._id)
     })
     expect(await count(f)).toEqual({ status: "unavailable" })
     expect(await count(app())).toEqual({ status: "unavailable" })
@@ -251,7 +251,7 @@ describe("real retained occurrence totals", () => {
           q.eq("type", "hero-with-image").eq("presentationId", "centered")
         )
         .unique()
-      await ctx.db.patch(counter!._id, { count: 99 })
+      await ctx.db.patch("sliceOccurrenceCounts", counter!._id, { count: 99 })
     })
     await maintain(f, "verify")
     expect(await count(f)).toEqual({ status: "unavailable" })
@@ -264,10 +264,10 @@ describe("real retained occurrence totals", () => {
     await save(f)
     const published = await publish(f)
     await f.t.run(async (ctx) => {
-      const snapshot = await ctx.db.get(published.snapshotId)
+      const snapshot = await ctx.db.get("pagePublishedSnapshots", published.snapshotId)
       const candidateId = snapshot!.candidateId
-      const candidate = await ctx.db.get(candidateId)
-      await ctx.db.patch(candidateId, {
+      const candidate = await ctx.db.get("pageLocalePublicationCandidates", candidateId)
+      await ctx.db.patch("pageLocalePublicationCandidates", candidateId, {
         payloadJson: candidate!.payloadJson + " ",
       })
     })
@@ -365,7 +365,7 @@ describe("real retained occurrence totals", () => {
     // The bootstrap page is the home page, which can no longer be trashed.
     await f.t.run(async (ctx) => {
       const settings = await ctx.db.query("siteSettings").first()
-      await ctx.db.patch(settings!._id, { homePageId: undefined })
+      await ctx.db.patch("siteSettings", settings!._id, { homePageId: undefined })
     })
     const g = await generations(f)
     const trashed = await f.owner.mutation(api.cms.publication.softDeletePage, {
@@ -453,11 +453,11 @@ describe("real retained occurrence totals", () => {
     await save(f)
     const published = await publish(f)
     await f.t.run(async (ctx) => {
-      const snapshot = await ctx.db.get(published.snapshotId)
+      const snapshot = await ctx.db.get("pagePublishedSnapshots", published.snapshotId)
       for (const ref of await ctx.db
         .query("pagePublicationSliceReferences")
         .collect())
-        if (ref.sourceId !== snapshot!.candidateId) await ctx.db.delete(ref._id)
+        if (ref.sourceId !== snapshot!.candidateId) await ctx.db.delete("pagePublicationSliceReferences", ref._id)
       for (const table of [
         "pageLocaleDrafts",
         "pageSharedDrafts",
@@ -465,7 +465,7 @@ describe("real retained occurrence totals", () => {
         "pages",
       ] as const)
         for (const row of await ctx.db.query(table).collect())
-          await ctx.db.delete(row._id)
+          await ctx.db.delete(table, row._id)
     })
     await maintain(f)
     expect(await count(f)).toEqual({ status: "ready", counts: { centered: 1 } })

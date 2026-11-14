@@ -22,6 +22,7 @@
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "noEmit": true,
     "types": ["vite/client"]
   },

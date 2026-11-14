@@ -11,7 +11,7 @@ vi.mock("next/navigation", () => ({
   redirect: mocks.redirect,
 }))
 
-vi.mock("@/lib/auth-server", () => ({
+vi.mock("@/lib/auth/server", () => ({
   fetchAuthQuery: mocks.fetchAuthQuery,
   safeIsAuthenticated: mocks.safeIsAuthenticated,
 }))

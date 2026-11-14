@@ -5,12 +5,9 @@ import {
   clientFor,
   escapeRegExp,
   expectConvexDenial,
-  localOrigin,
   localPath,
   ownerPage,
   pageTranslator,
-  required,
-  signIn,
 } from "../support"
 
 const rulePath = `/fr6-v08-${Date.now()}`
@@ -50,8 +47,6 @@ async function moduleSaveOutcome(page: Page) {
 test("V08 Redirects enablement, rule, blocker, denial surface, and stale owner race", async ({ browser, request }) => {
   const first = await ownerPage(browser)
   const second = await ownerPage(browser)
-  const unrelatedContext = await browser.newContext({ baseURL: localOrigin() })
-  const unrelated = await unrelatedContext.newPage()
   try {
     const historicalPath = localPath("FR6_E2E_V08_HISTORICAL_PATH")
     const historicalLocation = localPath("FR6_E2E_V08_HISTORICAL_LOCATION")
@@ -62,13 +57,10 @@ test("V08 Redirects enablement, rule, blocker, denial surface, and stale owner r
     expect(historicalBefore.status()).toBe(307)
     expect(historicalBefore.headers().location).toBe(historicalLocation)
     await setRedirects(first, true)
-    await signIn(unrelated, required("FR6_E2E_B_EMAIL"), required("FR6_E2E_B_PASSWORD"))
     const ownerClient = await clientFor(first)
-    const unrelatedClient = await clientFor(unrelated)
     const anonymous = anonymousClient()
     const emptyRules = await ownerClient.query(api.cms.redirects.list, {})
     expect(emptyRules).toEqual([])
-    await expectConvexDenial(unrelatedClient.query(api.cms.redirects.list, {}), "CMS_OWNER_REQUIRED")
     await expectConvexDenial(anonymous.query(api.cms.redirects.list, {}), "UNAUTHENTICATED")
     expect(await ownerClient.query(api.cms.redirects.list, {})).toEqual(emptyRules)
 
@@ -126,7 +118,6 @@ test("V08 Redirects enablement, rule, blocker, denial surface, and stale owner r
     await expect(first).toHaveURL(/\/admin\/settings\/modules(?:\?|$)/)
     await expect(first.getByText((await pageTranslator(first))("inventory.redirects.moduleOffNotice"))).toBeVisible()
     await expectConvexDenial(ownerClient.query(api.cms.redirects.list, {}), "CMS_MODULE_DISABLED")
-    await expectConvexDenial(unrelatedClient.query(api.cms.redirects.list, {}), "CMS_OWNER_REQUIRED")
     await expectConvexDenial(anonymous.query(api.cms.redirects.list, {}), "UNAUTHENTICATED")
     const historicalAfter = await request.get(historicalPath, {
       maxRedirects: 0,
@@ -137,6 +128,5 @@ test("V08 Redirects enablement, rule, blocker, denial surface, and stale owner r
   } finally {
     await first.context().close()
     await second.context().close()
-    await unrelatedContext.close()
   }
 })

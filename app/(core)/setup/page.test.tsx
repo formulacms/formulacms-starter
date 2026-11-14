@@ -55,7 +55,7 @@ describe("setup page status gate", () => {
   })
 
   test("does not render account creation when setup status is unavailable", async () => {
-    render(await SetupPage({ searchParams: Promise.resolve({}) }))
+    render(await SetupPage())
 
     expect(
       screen.getByRole("heading", { name: "We can’t verify setup yet" })
@@ -76,29 +76,9 @@ describe("setup page status gate", () => {
       },
     })
 
-    await SetupPage({ searchParams: Promise.resolve({}) })
+    await SetupPage()
 
     expect(mocks.redirect).toHaveBeenCalledWith("/admin")
-  })
-
-  test("allows the claim-gated owner recovery path after initialization", async () => {
-    mocks.getSiteConfigState.mockResolvedValue({
-      status: "ready",
-      value: {
-        onboardingCompletedAt: 1_700_000_000_000,
-        defaultLocale: "en",
-        enabledLocales: ["en"],
-      },
-    })
-
-    render(
-      await SetupPage({
-        searchParams: Promise.resolve({ "recover-owner": "1" }),
-      })
-    )
-
-    expect(screen.getByText("Setup wizard")).toBeInTheDocument()
-    expect(mocks.redirect).not.toHaveBeenCalled()
   })
 
   test("renders account creation only for a confirmed fresh deployment", async () => {
@@ -111,7 +91,7 @@ describe("setup page status gate", () => {
       },
     })
 
-    render(await SetupPage({ searchParams: Promise.resolve({}) }))
+    render(await SetupPage())
 
     expect(screen.getByText("Setup wizard")).toBeInTheDocument()
   })
@@ -125,7 +105,7 @@ describe("setup page status gate", () => {
       },
     })
 
-    render(await SetupPage({ searchParams: Promise.resolve({}) }))
+    render(await SetupPage())
 
     const props = mocks.wizardProps.mock.calls[0]?.[0] as {
       messages: Record<string, Record<string, unknown>>
@@ -165,7 +145,7 @@ describe("setup page status gate", () => {
       },
     })
 
-    render(await SetupPage({ searchParams: Promise.resolve({}) }))
+    render(await SetupPage())
 
     const props = mocks.wizardProps.mock.calls[0]?.[0] as {
       ownerCodeTarget: { kind: string; folder?: string; command?: string }
@@ -191,7 +171,7 @@ describe("setup page status gate", () => {
       },
     })
 
-    render(await SetupPage({ searchParams: Promise.resolve({}) }))
+    render(await SetupPage())
 
     const props = mocks.wizardProps.mock.calls[0]?.[0] as {
       ownerCodeTarget: { kind: string; folder?: string; command?: string }
@@ -213,7 +193,7 @@ describe("setup page status gate", () => {
       },
     })
 
-    render(await SetupPage({ searchParams: Promise.resolve({}) }))
+    render(await SetupPage())
 
     const props = mocks.wizardProps.mock.calls[0]?.[0] as {
       ownerCodeTarget: { kind: string; deployment?: string; command?: string }
@@ -238,7 +218,7 @@ describe("setup page status gate", () => {
       },
     })
 
-    render(await SetupPage({ searchParams: Promise.resolve({}) }))
+    render(await SetupPage())
 
     const props = mocks.wizardProps.mock.calls[0]?.[0] as {
       ownerCodeTarget: unknown

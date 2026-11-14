@@ -49,7 +49,7 @@ async function urlForPageInLocale(
     if (pageId === cfg.homePageId) return prefix || "/"
     return `${prefix}${projection.path}`
   }
-  const page = await ctx.db.get(pageId)
+  const page = await ctx.db.get("pages", pageId)
   if (!page || page.deletedAt !== undefined) return null
   const targetLocale = page.content?.[locale] ? locale : cfg.defaultLocale
   if (!page.content?.[targetLocale]) return null
@@ -311,7 +311,7 @@ async function enrichRedirectRow(
   let toLabel: string
   let toPageTitle: string | null = null
   if (r.toPageId) {
-    const page = await ctx.db.get(r.toPageId)
+    const page = await ctx.db.get("pages", r.toPageId)
     if (page && page.deletedAt === undefined) {
       const previewLocale = r.locale ?? cfg.defaultLocale
       toLabel =
@@ -427,8 +427,8 @@ export const remove = mutation({
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
     await requireOwnerAndOptionalModule(ctx, "redirects")
-    const rule = await ctx.db.get(id)
-    await ctx.db.delete(id)
+    const rule = await ctx.db.get("redirects", id)
+    await ctx.db.delete("redirects", id)
     await recordPublicChange(ctx, {
       source: false,
       scopes: [{ locale: rule?.locale, domains: ["route_claims"] }],

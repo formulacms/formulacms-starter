@@ -9,6 +9,7 @@
 // Naming note: `lib/cms/tags.ts` is the unrelated Next.js cache-tag contract.
 // Surface this module as "content tags" in UI to avoid confusion.
 
+import { getActor } from "../lib/access/actor"
 import { ConvexError, v } from "convex/values"
 import type { Doc } from "../_generated/dataModel"
 import {
@@ -104,7 +105,7 @@ export async function ensureTagsForLabels(
   ctx: MutationCtx,
   labels: string[]
 ): Promise<string[]> {
-  const auth = await ctx.auth.getUserIdentity()
+  const actor = await getActor(ctx)
   const now = Date.now()
   const result: string[] = []
   const seen = new Set<string>()
@@ -124,7 +125,7 @@ export async function ensureTagsForLabels(
         slug,
         label: normalizeLabel(raw) || slug,
         createdAt: now,
-        createdBy: auth?.tokenIdentifier,
+        createdBy: actor?.userId,
         updatedAt: now,
       })
     }
@@ -150,7 +151,7 @@ export const rename = mutation({
     if (!cleaned) {
       throw new ConvexError("Label cannot be empty")
     }
-    await ctx.db.patch(id, {
+    await ctx.db.patch("tags", id, {
       label: cleaned,
       description: description?.trim() || undefined,
       updatedAt: Date.now(),
@@ -207,6 +208,7 @@ export const backfill = internalMutation({
       const unchanged =
         slugs.length === tags.length && slugs.every((s, i) => s === tags?.[i])
       if (!unchanged) {
+        // eslint-disable-next-line @convex-dev/explicit-table-ids -- id is a union of tables; the rule cannot pick one table
         await ctx.db.patch(doc._id, { tags: slugs })
         patched++
       }

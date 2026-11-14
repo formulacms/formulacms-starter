@@ -10,7 +10,7 @@ test("real catalog: every public U1b ingress fails closed, including Start CMS_M
   const t = convexTest(schema, modules)
   const identity = {
     subject: "jobs-real-catalog",
-    tokenIdentifier: "https://convex.test|jobs-real-catalog",
+    tokenIdentifier: "jobs-real-catalog",
   }
   await seedCommunityOwner(t, identity)
   const owner = t.withIdentity(identity)

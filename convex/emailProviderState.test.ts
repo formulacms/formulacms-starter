@@ -23,7 +23,7 @@ describe("E02 persisted email provider state shape", () => {
       })
     })
 
-    const stored = await t.run(async (ctx) => await ctx.db.get(id))
+    const stored = await t.run(async (ctx) => await ctx.db.get("emailProviderState", id))
     expect(stored).toMatchObject({
       key: "owner",
       provider: { kind: "active", providerId: "resend", configuration: {} },

@@ -12,7 +12,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
 }))
 
-vi.mock("@/lib/auth-server", () => ({
+vi.mock("@/lib/auth/server", () => ({
   fetchAuthMutation: vi.fn(),
   requireAuth: mocks.requireAuth,
 }))

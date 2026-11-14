@@ -5,11 +5,11 @@ import { api, internal } from "./_generated/api"
 import schema from "./schema"
 import { seedCommunityOwner } from "../convexTestWithExplicitAdmin"
 import actionRetrierTest from "@convex-dev/action-retrier/test"
-import betterAuthTest from "@convex-dev/better-auth/test"
+import { enableAuthSessions } from "../test-utils/convexAuthFixtures"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 import type { RunId } from "@convex-dev/action-retrier"
-import { hashAuthClientIdentity } from "./lib/authIpProof"
 import { rateLimiter } from "./lib/rateLimits"
+import { hashAuthClientIdentity } from "./email"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -17,7 +17,7 @@ const modules = import.meta.glob("./**/*.ts")
 const OWNER_ID = "owner-1"
 const ownerIdentity = {
   subject: OWNER_ID,
-  tokenIdentifier: "https://convex.test|owner-1",
+  tokenIdentifier: "owner-1",
   name: "Owner",
   email: "admin@example.com",
 }
@@ -37,42 +37,34 @@ function makeTest() {
   const t = convexTest(schema, modules)
   rateLimiterTest.register(t)
   actionRetrierTest.register(t)
-  betterAuthTest.register(t)
-  return t
+  return enableAuthSessions(t)
 }
 
 async function withEmailEnv<T>(
   overrides: Partial<Record<(typeof EMAIL_ENV_KEYS)[number], string>>,
   run: () => Promise<T>
 ): Promise<T> {
-  const previous = new Map<string, string | undefined>()
-  for (const key of EMAIL_ENV_KEYS) {
-    previous.set(key, process.env[key])
-    delete process.env[key]
-  }
+  for (const key of EMAIL_ENV_KEYS) vi.stubEnv(key, undefined)
   for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = value
-    }
+    vi.stubEnv(key, value)
   }
 
   try {
     return await run()
   } finally {
-    for (const [key, value] of previous) {
-      if (value === undefined) {
-        delete process.env[key]
-      } else {
-        process.env[key] = value
-      }
-    }
+    vi.unstubAllEnvs()
   }
 }
 
 async function seedOwner(t: ReturnType<typeof makeTest>) {
   await seedCommunityOwner(t, ownerIdentity)
+  // The owner test email goes to the stored notification email (ADR-0056 rule 5).
+  await t.run(async (ctx) => {
+    const owner = await ctx.db.query("cmsOwner").unique()
+    await ctx.db.patch("cmsOwner", owner!._id, {
+      notificationEmail: ownerIdentity.email,
+    })
+  })
 }
 
 describe("email settings", () => {
@@ -399,7 +391,7 @@ describe("email settings", () => {
         t
           .withIdentity({
             subject: "not-owner",
-            tokenIdentifier: "https://convex.test|not-owner",
+            tokenIdentifier: "not-owner",
             email: "not-owner@example.test",
           })
           .query(api.email.getEmailProviderSettings, {})
@@ -518,7 +510,7 @@ describe("email settings", () => {
         expect(
           await t.run(async (ctx) => {
             if (!receipt) return undefined
-            return (await ctx.db.get(receipt._id))?.consumedAt
+            return (await ctx.db.get("emailProviderActivationReceipts", receipt._id))?.consumedAt
           })
         ).toEqual(expect.any(Number))
 
@@ -614,13 +606,13 @@ describe("email settings", () => {
 
       await t.run(async (ctx) => {
         const now = Date.now()
-        await ctx.db.patch(receiptId, {
+        await ctx.db.patch("emailProviderActivationReceipts", receiptId, {
           consumedAt: undefined,
           expiresAt: now - 1,
         })
         const state = await ctx.db.query("emailProviderState").unique()
         if (!state) throw new Error("Missing provider state")
-        await ctx.db.patch(state._id, {
+        await ctx.db.patch("emailProviderState", state._id, {
           lastTest: {
             providerId: "resend",
             configurationVersion: 1,
@@ -746,7 +738,7 @@ describe("email settings", () => {
       t
         .withIdentity({
           subject: "someone-else",
-          tokenIdentifier: "https://convex.test|someone-else",
+          tokenIdentifier: "someone-else",
           name: "Someone",
           email: "someone@example.com",
         })
@@ -851,7 +843,7 @@ describe("email settings", () => {
 
     const [row, event] = await t.run(
       async (ctx) =>
-        await Promise.all([ctx.db.get(submissionId), ctx.db.get(eventId)])
+        await Promise.all([ctx.db.get("formSubmissions", submissionId), ctx.db.get("emailDeliveryEvents", eventId)])
     )
     expect(row?.notifyStatus).toBe("failed")
     expect(row?.notifyError).toBe("delivery_unknown")

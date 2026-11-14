@@ -14,25 +14,26 @@ import {
 } from "../support"
 
 /**
- * Owner replacement and former-owner session. Preconditions: disposable
- * completed English S4 app with `en` default and `fr` enabled, a live
- * former-owner session, and a newly rotated
- * FORMULACMS_OWNER_CLAIM that has not been consumed. The replacement email is
- * unused. FORMULACMS_DISPOSABLE_TARGET=1 and
- * FR6_E2E_START_STATE=owned-rotated-claim are mandatory. Postcondition: the
- * former owner starts a sealed French-removal impact preview before cutover.
- * Postcondition: the replacement owns the app, every former-owner M05 command
- * and impact query is denied, the old preview is owner-bound, and the new owner
- * can create and review its own preview. All denied mutations leave the new
- * owner's control snapshot unchanged.
- * Run last in the English app. The operator owns claim rotation and the
+ * Owner replacement by recovery link and the former-owner session (ADR-0056
+ * rule 4). Preconditions: disposable completed English S4 app with `en`
+ * default and `fr` enabled, a live former-owner session, and an unused
+ * recovery link that the operator printed with `pnpm owner:recover` less than
+ * 15 minutes ago (FR6_E2E_RECOVERY_URL). The replacement username is unused.
+ * FORMULACMS_DISPOSABLE_TARGET=1 and FR6_E2E_START_STATE=owned-recovery-link
+ * are mandatory. The former owner starts a sealed French-removal impact
+ * preview before cutover. Postcondition: the replacement owns the app; the
+ * former account is disabled and its sessions end, so every former-owner M05
+ * command and impact query runs signed out and is refused; the old preview is
+ * owner-bound, and the new owner can create and review its own preview. All
+ * denied mutations leave the new owner's control snapshot unchanged.
+ * Run last in the English app. The operator owns the recovery link and the
  * disposable backend.
  * Server: Playwright starts built Next by default and the caller owns Convex;
  * with `FR6_E2E_SERVER=external` the caller (in FR6, the D10 launcher) owns
  * both and Playwright only verifies the origin (see `playwright.config.ts`).
  */
 test("replacement revokes the former owner's existing browser and signed token", async ({ browser }) => {
-  requireDisposable("owned-rotated-claim")
+  requireDisposable("owned-recovery-link")
   const former = await ownerPage(browser)
   const formerClient = await clientFor(former)
   const replacementContext = await browser.newContext({ baseURL: localOrigin() })
@@ -58,18 +59,18 @@ test("replacement revokes the former owner's existing browser and signed token",
       previewId: sealed.previewId,
       ordinal: 0,
     })
-    await replacement.goto("/setup?recover-owner=1")
-    await replacement.getByRole("button", { name: (await pageTranslator(replacement))("setup.actions.replaceOwnerAccount") }).click()
-    await replacement.getByLabel((await pageTranslator(replacement))("setup.fields.name")).fill("FR6 replacement owner")
-    await replacement.getByLabel((await pageTranslator(replacement))("setup.fields.signInEmail")).fill(required("FR6_E2E_REPLACEMENT_EMAIL"))
-    await replacement.getByLabel((await pageTranslator(replacement))("setup.fields.newPassword")).fill(required("FR6_E2E_REPLACEMENT_PASSWORD"))
-    await replacement.getByLabel((await pageTranslator(replacement))("setup.fields.confirmPassword")).fill(required("FR6_E2E_REPLACEMENT_PASSWORD"))
-    await replacement.getByLabel((await pageTranslator(replacement))("setup.fields.ownerCode")).fill(required("FR6_E2E_ROTATED_OWNER_CLAIM"))
-    await replacement.getByRole("button", { name: (await pageTranslator(replacement))("setup.actions.createReplacementAccount") }).click()
-    const moved = (await pageTranslator(replacement))("setup.notices.ownerMoved", {
-      email: required("FR6_E2E_REPLACEMENT_EMAIL"),
-    })
-    await expect(replacement.getByText(moved, { exact: true })).toBeVisible()
+    const recovery = new URL(required("FR6_E2E_RECOVERY_URL"))
+    const username = required("FR6_E2E_REPLACEMENT_USERNAME")
+    const password = required("FR6_E2E_REPLACEMENT_PASSWORD")
+    await replacement.goto(`${recovery.pathname}${recovery.search}`)
+    const t = await pageTranslator(replacement)
+    await replacement.getByLabel(t("auth.recover.usernameLabel")).fill(username)
+    await replacement.getByLabel(t("auth.recover.passwordLabel")).fill(password)
+    await replacement.getByLabel(t("auth.recover.confirmLabel")).fill(password)
+    await replacement.getByRole("button", { name: t("auth.recover.submit") }).click()
+    await expect(replacement.getByText(t("auth.recover.success", { username }), { exact: true })).toBeVisible()
+    await replacement.getByRole("button", { name: t("setup.actions.openAdmin") }).click()
+    await expect(replacement).toHaveURL(/\/admin(?:\/|$)/)
     await replacement.goto("/admin")
     await expect(replacement).toHaveURL(/\/admin(?:\/|$)/)
     const replacementClient = await clientFor(replacement)
@@ -102,7 +103,7 @@ test("replacement revokes the former owner's existing browser and signed token",
       () => formerClient.query(api.cms.languageLifecycle.getLanguageLifecycleStatus, {}),
       () => formerClient.query(api.cms.modules.preview, { changes: [] }),
     ]) {
-      await expectConvexDenial(query(), "CMS_OWNER_REQUIRED")
+      await expectConvexDenial(query(), "UNAUTHENTICATED")
       expect(controlSnapshot(await control())).toBe(unchanged)
     }
 
@@ -166,7 +167,7 @@ test("replacement revokes the former owner's existing browser and signed token",
       }),
     ]
     for (const action of deniedMutations) {
-      await expectConvexDenialWithoutChange(control, action, "CMS_OWNER_REQUIRED")
+      await expectConvexDenialWithoutChange(control, action, "UNAUTHENTICATED")
     }
 
     await expectConvexDenial(

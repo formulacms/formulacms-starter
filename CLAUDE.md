@@ -16,7 +16,7 @@ This read-only rule applies only to an unmodified release checkout used as a
 blueprint. In an application the owner created from the starter, such as their
 own clone, agents may edit files, commit and run Git commands.
 
-To upgrade this site to a newer formulacms release, fetch the release tag and follow its upgrade file for your version, for example `git show v0.1.1:upgrades/v0.1.0-to-v0.1.1.md`. The file lists the steps and when to stop and ask the site owner.
+To upgrade this site to a newer formulacms release, fetch the release tag and follow its upgrade file for your version, for example `git show v0.2.0:upgrades/v0.1.1-to-v0.2.0.md`. Read the upgrade file before any `git pull` or merge of a release. The file lists the steps and when to stop and ask the site owner.
 
 To operate or customize a site, the owner must explicitly name a separate,
 non-starter application directory and authorize cloning the pure blueprint into

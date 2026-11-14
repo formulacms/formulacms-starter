@@ -23,14 +23,16 @@ You'll receive an acknowledgement within 48 hours and a status update within 7 d
 
 ## Scope
 
-- Authentication bypass or privilege escalation in Better Auth integration
-- Unauthorized access to content, settings, submissions, media, members, or
+- Authentication bypass or privilege escalation in the Convex Auth
+  integration (`convex/auth.ts`, `convex/users.ts`) or owner recovery
+  (`convex/cms/recovery.ts`)
+- Unauthorized access to content, settings, submissions, media, accounts, or
   credentials within a single self-hosted site
 - Server-side injection vulnerabilities (SSRF, RCE, SQL/NoSQL injection)
 - Sensitive data exposure (API keys, passwords, user PII)
 - XSS in admin UI or public-facing pages
-- Bypasses of application-level rate limits for public contact, account setup,
-  password recovery, or invitation flows
+- Bypasses of application-level rate limits for public contact or owner setup,
+  or of the sign-in lockout
 
 The starter enforces application-level rate limits for public and costly
 authenticated paths. Operators remain responsible for deployment-level network,
@@ -39,7 +41,7 @@ bypass of the application's protections.
 
 ## Out of scope
 
-- Vulnerabilities in Convex or Better Auth themselves (report upstream)
+- Vulnerabilities in Convex or Convex Auth themselves (report upstream)
 - Issues in self-modified installations
 
 ## Disclosure

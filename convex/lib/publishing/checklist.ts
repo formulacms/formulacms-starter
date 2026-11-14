@@ -647,7 +647,7 @@ export async function buildPrePublishChecklistWithReferences(
   const allTargetIds = new Set<Id<"pages">>(referencedPageLocales.keys())
   for (const rel of descriptorRelations) allTargetIds.add(rel.targetId)
   const targetsList = await Promise.all(
-    [...allTargetIds].map(async (id) => [id, await ctx.db.get(id)] as const)
+    [...allTargetIds].map(async (id) => [id, await ctx.db.get("pages", id)] as const)
   )
   const targetsById = new Map(targetsList)
 

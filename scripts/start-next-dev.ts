@@ -53,9 +53,7 @@ async function main(): Promise<void> {
     return
   }
   nextEnv.loadEnvConfig(projectRoot, true)
-  const config = resolveDevServerOrigin({
-    BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
-  })
+  const config = resolveDevServerOrigin(process.env)
   const bundler = resolveDevBundler(process.env)
   await assertPortAvailable(config)
 

@@ -622,7 +622,7 @@ export async function migrateEmailProviderState(
         configurationVersion: current.configurationVersion + 1,
         updatedAt: input.now,
       }
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("emailProviderState", existing._id, {
         sender: analysis.legacySender,
         configurationVersion: destination.configurationVersion,
         updatedAt: input.now,
@@ -671,7 +671,7 @@ export async function migrateEmailProviderState(
     }
   }
   if (existingReceipt) {
-    await ctx.db.patch(existingReceipt._id, receipt)
+    await ctx.db.patch("emailProviderMigrationReceipts", existingReceipt._id, receipt)
   } else {
     await ctx.db.insert("emailProviderMigrationReceipts", receipt)
   }

@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { convexTest } from "convex-test"
+import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import { describe, expect, test } from "vitest"
 import { api } from "./_generated/api"
 import schema from "./schema"
@@ -8,7 +8,7 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const owner = {
   subject: "admin-locale-owner",
-  tokenIdentifier: "https://issuer.test|admin-locale-owner",
+  tokenIdentifier: "admin-locale-owner",
   email: "owner@example.test",
 }
 

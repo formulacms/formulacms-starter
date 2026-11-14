@@ -205,7 +205,7 @@ export async function deletePageSearch(
     .query("pageSearch")
     .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
     .collect()
-  await Promise.all(rows.map((row) => ctx.db.delete(row._id)))
+  await Promise.all(rows.map((row) => ctx.db.delete("pageSearch", row._id)))
 }
 
 /**
@@ -233,7 +233,7 @@ export async function syncPageSearch(
     .collect()
 
   if (page.deletedAt !== undefined) {
-    await Promise.all(existing.map((row) => ctx.db.delete(row._id)))
+    await Promise.all(existing.map((row) => ctx.db.delete("pageSearch", row._id)))
     return
   }
 
@@ -337,7 +337,7 @@ export async function syncPageSearch(
           row.title !== fields.title ||
           row.slug !== fields.slug
         ) {
-          await ctx.db.patch(row._id, fields)
+          await ctx.db.patch("pageSearch", row._id, fields)
         }
       } else {
         await ctx.db.insert("pageSearch", fields)
@@ -347,6 +347,6 @@ export async function syncPageSearch(
 
   // Locales removed from the page no longer have content to match against.
   await Promise.all(
-    Array.from(byLocale.values()).map((stale) => ctx.db.delete(stale._id))
+    Array.from(byLocale.values()).map((stale) => ctx.db.delete("pageSearch", stale._id))
   )
 }

@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}))
 
-vi.mock("@/lib/auth-server", () => ({
+vi.mock("@/lib/auth/server", () => ({
   requireAuth: mocks.requireAuth,
 }))
 vi.mock("@/lib/owner-server", () => ({

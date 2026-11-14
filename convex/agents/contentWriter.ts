@@ -94,7 +94,7 @@ export interface ContentConfig {
   systemPrompt: string
   userPromptTemplate: string
   brandVoice: string | undefined
-  /** Better Auth `_id` of the caller, threaded through so the action can
+  /** Convex Auth user id of the caller, threaded through so the action can
    *  attribute an aiAuditLog row without a second auth round-trip. */
   authId: string
 }

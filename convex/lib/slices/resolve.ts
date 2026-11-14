@@ -75,7 +75,7 @@ export async function resolveRelations(
   }
 ): Promise<Record<string, RelationCard | null>> {
   const uniqueIds = [...new Set(ids)]
-  const pages = await Promise.all(uniqueIds.map((id) => ctx.db.get(id)))
+  const pages = await Promise.all(uniqueIds.map((id) => ctx.db.get("pages", id)))
 
   // Batch-resolve cardImageMediaId → media.url in one pass so we don't
   // round-trip per page.
@@ -88,7 +88,7 @@ export async function resolveRelations(
   ]
   const mediaUrlById = new Map<string, string>()
   if (mediaIds.length > 0) {
-    const mediaRows = await Promise.all(mediaIds.map((id) => ctx.db.get(id)))
+    const mediaRows = await Promise.all(mediaIds.map((id) => ctx.db.get("media", id)))
     for (const m of mediaRows) {
       if (m && m.deletedAt === undefined) mediaUrlById.set(m._id, m.url)
     }

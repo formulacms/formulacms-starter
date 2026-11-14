@@ -1,7 +1,7 @@
 import { createSampleSlice } from "@/convex/lib/slices/sample"
 /// <reference types="vite/client" />
 import { sliceProfile } from "@/test-utils/slice-profile"
-import { convexTest } from "convex-test"
+import { convexTestWithAuth as convexTest } from "../../../test-utils/convexAuthFixtures"
 import { beforeAll, describe, expect, test } from "vitest"
 import { validate } from "convex-helpers/validators"
 import { seedCommunityOwner } from "../../../convexTestWithExplicitAdmin"
@@ -23,7 +23,7 @@ import { separateSliceOccurrencePresentation } from "./occurrencePresentation"
 const modules = import.meta.glob("../../**/*.ts")
 const owner = {
   subject: "presentation-owner",
-  tokenIdentifier: "https://convex.test|presentation-owner",
+  tokenIdentifier: "presentation-owner",
 }
 let catalog: SlicePresentationCatalog
 beforeAll(async () => {
@@ -109,7 +109,7 @@ describe("central Slice mutation presentation integrity", () => {
         content: malformed,
       })
     )
-    expect((await t.run((ctx) => ctx.db.get(id)))?.content).toEqual(malformed)
+    expect((await t.run((ctx) => ctx.db.get("pages", id)))?.content).toEqual(malformed)
     await expect(
       actor.run((ctx) =>
         requireSliceMutationsPermitted(
@@ -189,7 +189,7 @@ describe("central Slice mutation presentation integrity", () => {
       t
         .withIdentity({
           subject: "other",
-          tokenIdentifier: "https://convex.test|other",
+          tokenIdentifier: "other",
         })
         .run((ctx) => requireSliceMutationsPermitted(ctx, actions, options))
     ).rejects.toThrow("CMS_OWNER_REQUIRED")

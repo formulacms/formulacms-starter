@@ -26,7 +26,7 @@ vi.mock("./lib/contentTypes/starterSelection", () => ({
 const modules = import.meta.glob("./**/*.ts")
 const identity = {
   subject: "address-owner",
-  tokenIdentifier: "https://convex.test|address-owner",
+  tokenIdentifier: "address-owner",
 }
 async function fixture() {
   const t = convexTest({
@@ -1807,7 +1807,7 @@ describe("old reference rows must not block address change or withdraw", () => {
     await f.t.run(async (ctx) => {
       const rows = await ctx.db
         .query("pagePublicationDocumentReferences")
-        .withIndex("by_targetId", (q) => q.eq("targetId", target))
+        .withIndex("by_targetId_and_sourceKind_and_locale", (q) => q.eq("targetId", target))
         .take(50)
       const { _id, _creationTime, ...row } = rows.find(
         (r) => r.referenceKind === "ancestry" && r.sourceKind === sourceKind

@@ -116,7 +116,7 @@ export const createPreviewSession = mutation({
       throw new ConvexError("PUBLISHED_SNAPSHOT_AUTHORITY_REQUIRED")
     }
     const owner = await requireOperationAccess(ctx)
-    const page = await ctx.db.get(args.pageId)
+    const page = await ctx.db.get("pages", args.pageId)
     if (!page) throw new ConvexError("PAGE_NOT_FOUND")
     const states = await ctx.db.query("pagePublicationPageStates")
       .withIndex("by_pageId", (q) => q.eq("pageId", args.pageId)).take(2)
@@ -170,7 +170,7 @@ export const getPreviewPage = mutation({
     }
     if (!pageId || !locale) return null
     const [page, sharedRows] = await Promise.all([
-      ctx.db.get(pageId),
+      ctx.db.get("pages", pageId),
       ctx.db.query("pageSharedDrafts").withIndex("by_pageId", (q) => q.eq("pageId", pageId!)).take(2),
     ])
     if (!page || sharedRows.length !== 1) return null

@@ -21,7 +21,6 @@ import {
   type PublicSiteShellProps,
 } from "@/components/public/public-site-shell"
 import { PresentationLocaleProvider } from "@/components/public/presentation-locale"
-import { Providers } from "@/components/providers"
 import { ThemeProvider } from "@/components/theme-provider"
 import { collectPageIds, type SliceRenderContext } from "@/lib/slices/links"
 import {
@@ -60,13 +59,10 @@ type FrameProps = {
   publicPath?: string | null
 }
 
-/** The private frame has its own root document and authenticated provider. */
+/** The private frame has its own root document; its layout provides the
+ * authenticated Convex client. */
 export function LivePreviewFrameRuntime(props: FrameProps) {
-  return (
-    <Providers>
-      <ConnectedLivePreviewFrame {...props} />
-    </Providers>
-  )
+  return <ConnectedLivePreviewFrame {...props} />
 }
 
 /** Executes in the child document: its editor, events and selection share a realm. */

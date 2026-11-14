@@ -1,7 +1,6 @@
 import migrationsTest from "@convex-dev/migrations/test"
 import { makeFunctionReference } from "convex/server"
 import { expect, vi } from "vitest"
-import { components } from "../../convex/_generated/api"
 import type { Id } from "../../convex/_generated/dataModel"
 import {
   defineRow,
@@ -52,53 +51,11 @@ if (Object.keys(import.meta.glob("../../convex/lib/ai.ts")).length) {
 
 type Fixture = MatrixState & {
   endpointId: Id<"webhookEndpoints">
-  inviteId: Id<"invites">
 }
 
 async function seedState(t: Site, state: MatrixState): Promise<Fixture> {
   await setupModuleLanguageState(t, state)
-  const { endpointId, inviteId } = await t.run(async (ctx) => {
-    await ctx.db.insert("cmsMemberships", {
-      authId: OWNER.subject,
-      tokenIdentifier: OWNER.tokenIdentifier,
-      role: "admin",
-      status: "active",
-      createdAt: 1,
-      activatedAt: 1,
-      updatedAt: 1,
-      transitionId: "matrix-owner-replacement",
-    })
-    await ctx.db.insert("cmsMemberships", {
-      authId: "target-user",
-      role: "viewer",
-      status: "active",
-      createdAt: 1,
-      activatedAt: 1,
-      updatedAt: 1,
-      transitionId: "matrix-target-member",
-    })
-    await ctx.db.insert("cmsMemberships", {
-      authId: "removed-user",
-      role: "viewer",
-      status: "removed",
-      createdAt: 1,
-      activatedAt: 1,
-      removedAt: 2,
-      updatedAt: 2,
-      transitionId: "matrix-removed-member",
-    })
-    await ctx.db.insert("cmsCapacity", {
-      key: "cms",
-      activeCount: 2,
-      reservedCount: 0,
-      allowance: 3,
-      overCap: false,
-      migrationState: "ready",
-      migrationVersion: 1,
-      migrationIssueCount: 0,
-      lastTransitionId: "matrix-ready",
-      updatedAt: 1,
-    })
+  const { endpointId } = await t.run(async (ctx) => {
     const endpointId = await ctx.db.insert("webhookEndpoints", {
       url: "https://example.test/hook",
       events: ["page.published"],
@@ -108,17 +65,9 @@ async function seedState(t: Site, state: MatrixState): Promise<Fixture> {
       updatedAt: 1,
       createdBy: OWNER.tokenIdentifier,
     })
-    const inviteId = await ctx.db.insert("invites", {
-      email: "pending@example.test",
-      role: "viewer",
-      tokenHash: "matrix-unused-token-hash",
-      expiresAt: Number.MAX_SAFE_INTEGER,
-      invitedBy: OWNER.subject,
-      createdAt: 1,
-    })
-    return { endpointId, inviteId }
+    return { endpointId }
   })
-  return { ...state, endpointId, inviteId }
+  return { ...state, endpointId }
 }
 
 type Expected = { value: unknown } | { error: string }
@@ -183,181 +132,6 @@ async function seedActiveEmailProvider(t: Site): Promise<void> {
   }))
 }
 
-async function seedReadyInviteEmail(t: Site): Promise<void> {
-  await seedActiveEmailProvider(t)
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
-    JSON.stringify({ id: "matrix-resend-accepted" }),
-    { status: 200, headers: { "Content-Type": "application/json" } },
-  ))
-  vi.stubEnv("RESEND_API_KEY", "matrix-test-only-key")
-}
-
-async function assertInviteEmailDelivered(t: Site): Promise<void> {
-  // The immediate retrier job must finish while the row-local fetch mock is
-  // installed. Future retention jobs have no outbound transport.
-  await t.finishAllScheduledFunctions(() => undefined, 40)
-  expect(globalThis.fetch).toHaveBeenCalledTimes(1)
-  await t.run(async (ctx) => {
-    const events = await ctx.db.query("emailDeliveryEvents").collect()
-    expect(events).toEqual([expect.objectContaining({
-      consumer: expect.objectContaining({ kind: "invitation" }),
-      state: "provider_accepted",
-    })])
-    const event = events[0]
-    if (!event || event.consumer.kind !== "invitation") {
-      throw new Error("Missing invitation delivery event")
-    }
-    const invite = await ctx.db.get(event.consumer.inviteId)
-    expect(invite?.deliveryState).toBe("provider_accepted")
-  })
-}
-
-function restoreInviteEmail(): void {
-  vi.restoreAllMocks()
-  vi.unstubAllEnvs()
-}
-
-async function hashInviteToken(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
-}
-
-async function inviteAcceptBudget(t: Site): Promise<number> {
-  const state = await t.run((ctx) => ctx.runQuery(components.rateLimiter.lib.getValue, {
-    name: "inviteAcceptGlobal",
-    config: { kind: "fixed window", rate: 100, period: 60 * 60 * 1000 },
-  }))
-  return state.value
-}
-
-function acceptInviteRow(): AuthorizationRow {
-  type InviteFixture = Fixture & {
-    tokens: Map<CallTarget, { token: string; email: string }>
-    inviteIds: Id<"invites">[]
-    budgetBefore?: number
-  }
-  const scenarios: Scenario<InviteFixture>[] = MATRIX_STATES.flatMap((state) => [
-    {
-      label: stateLabel(state),
-      setup: async (t, actors) => {
-        const fixture = await seedState(t, state)
-        await forbidExternalFetch()
-        const recipients = [
-          [actors.signedOut, "signed-out"],
-          [actors.unrelated, "unrelated"],
-          [actors.former, "former"],
-          [actors.owner, "owner"],
-        ] as const
-        const tokens = new Map<CallTarget, { token: string; email: string }>()
-        const inviteIds: Id<"invites">[] = []
-        const expiresAt = Date.now() + 60_000
-        for (const [actor, identity] of recipients) {
-          const token = `matrix-accept-${state.redirects}-${state.language}-${identity}`
-          const tokenHash = await hashInviteToken(token)
-          const email = `${identity}-${state.redirects}-${state.language.toLowerCase()}@example.test`
-          const inviteId = await t.run(async (ctx) => {
-            const id = await ctx.db.insert("invites", {
-              email,
-              role: "viewer",
-              tokenHash,
-              expiresAt,
-              invitedBy: OWNER.subject,
-              reservationKey: `invite:${tokenHash}`,
-              createdAt: Date.now(),
-            })
-            await ctx.db.insert("cmsSeatReservations", {
-              reservationKey: `invite:${tokenHash}`,
-              kind: "ordinary_invite",
-              status: "active",
-              inviteId: id,
-              tokenHash,
-              email,
-              expiresAt,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              actorAuthId: OWNER.subject,
-              transitionId: `matrix-invite:${tokenHash}`,
-              migrationVersion: 1,
-            })
-            return id
-          })
-          tokens.set(actor, { token, email })
-          inviteIds.push(inviteId)
-        }
-        await t.run(async (ctx) => {
-          const capacity = await ctx.db.query("cmsCapacity").unique()
-          await ctx.db.patch(capacity!._id, { reservedCount: 4, allowance: 2, overCap: true })
-        })
-        return { ...fixture, tokens, inviteIds }
-      },
-      call: (actor, fixture) => {
-        const invite = fixture.tokens.get(actor)
-        if (!invite) throw new Error("Missing actor invite fixture")
-        return invoke(actor, "action", "cms/invites:acceptInvite", {
-          token: invite.token, name: "Matrix Recipient", password: "MatrixSecret123!",
-        })
-      },
-      outcomes: (fixture) => {
-        const result = (actor: CallTarget) => ({ value: { ok: true, email: fixture.tokens.get(actor)!.email } })
-        const byToken = [...fixture.tokens.keys()]
-        return {
-          signedOut: result(byToken[0]!),
-          unrelated: result(byToken[1]!),
-          former: result(byToken[2]!),
-          owner: result(byToken[3]!),
-        }
-      },
-      after: async (t, fixture) => {
-        await t.run(async (ctx) => {
-          const capacity = await ctx.db.query("cmsCapacity").unique()
-          expect(capacity).toMatchObject({ activeCount: 6, reservedCount: 0, allowance: 2, overCap: true })
-          for (const inviteId of fixture.inviteIds) {
-            const invite = await ctx.db.get(inviteId)
-            expect(invite?.usedAt).toEqual(expect.any(Number))
-            const reservation = await ctx.db.query("cmsSeatReservations")
-              .withIndex("by_inviteId", (q) => q.eq("inviteId", inviteId)).unique()
-            expect(reservation?.status).toBe("consumed")
-            expect(reservation?.successorAuthId).toEqual(expect.any(String))
-            const user = await ctx.runQuery(components.betterAuth.adapter.findOne, {
-              model: "user",
-              where: [{ field: "email", operator: "eq", value: invite!.email }],
-            })
-            expect(user?._id).toBe(reservation?.successorAuthId)
-            const member = await ctx.db.query("cmsMemberships")
-              .withIndex("by_authId", (q) => q.eq("authId", user!._id)).unique()
-            expect(member).toMatchObject({ status: "active", role: "viewer" })
-          }
-        })
-      },
-      teardown: async () => { vi.restoreAllMocks() },
-    },
-    {
-      label: `${stateLabel(state)}/invalid-token`,
-      setup: async (t) => {
-        const fixture = await seedState(t, state)
-        await forbidExternalFetch()
-        return { ...fixture, tokens: new Map(), inviteIds: [], budgetBefore: await inviteAcceptBudget(t) }
-      },
-      call: (actor) => invoke(actor, "action", "cms/invites:acceptInvite", {
-        token: "matrix-nonempty-invalid-token", name: "Matrix Recipient", password: "MatrixSecret123!",
-      }),
-      outcomes: {
-        owner: { error: "INVALID_INVITE" },
-        signedOut: { error: "INVALID_INVITE" },
-        unrelated: { error: "INVALID_INVITE" },
-        former: { error: "INVALID_INVITE" },
-      },
-      // The shared harness snapshots every app and writable system table on each
-      // denial. The rate-limiter component deliberately consumes one unit first.
-      after: async (t, fixture) => {
-        expect(await inviteAcceptBudget(t)).toBe(fixture.budgetBefore! - 4)
-      },
-      teardown: async () => { vi.restoreAllMocks() },
-    },
-  ])
-  return defineRow({ name: "cms/invites:acceptInvite", kind: "action", scenarios })
-}
-
 async function forbidExternalFetch(): Promise<void> {
   vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
     throw new Error("Authorization matrix forbids external fetch")
@@ -389,51 +163,6 @@ async function signMatrixLocalAudit(event: Record<string, unknown>, secret: stri
   const auditProofSignature = Array.from(new Uint8Array(bytes))
     .map((byte) => byte.toString(16).padStart(2, "0")).join("")
   return { ...event, auditProofExpiresAt, auditProofSignature }
-}
-
-function publicRead(
-  name: string,
-  args: Args,
-  expected: (fixture: Fixture) => unknown,
-): AuthorizationRow {
-  const scenarios: Scenario<Fixture>[] = MATRIX_STATES.map((state) => ({
-    label: stateLabel(state),
-    setup: (t) => seedState(t, state),
-    call: (actor, fixture) => invoke(actor, "query", name, args(fixture)),
-    outcomes: (fixture) => ({
-      owner: { value: expected(fixture) },
-      signedOut: { value: expected(fixture) },
-      unrelated: { value: expected(fixture) },
-      former: { value: expected(fixture) },
-    }),
-    readOnly: true,
-  }))
-  return defineRow({
-    name,
-    kind: "query",
-    scenarios,
-  })
-}
-
-function publicAction(
-  name: string,
-  args: Args,
-  expected: (fixture: Fixture) => unknown,
-  readOnly = true,
-): AuthorizationRow {
-  const scenarios: Scenario<Fixture>[] = MATRIX_STATES.map((state) => ({
-    label: stateLabel(state),
-    setup: (t) => seedState(t, state),
-    call: (actor, fixture) => invoke(actor, "action", name, args(fixture)),
-    outcomes: (fixture) => ({
-      owner: { value: expected(fixture) },
-      signedOut: { value: expected(fixture) },
-      unrelated: { value: expected(fixture) },
-      former: { value: expected(fixture) },
-    }),
-    readOnly,
-  }))
-  return defineRow({ name, kind: "action", scenarios })
 }
 
 const noArgs: Args = () => ({})
@@ -620,30 +349,6 @@ export const integrationsRows: AuthorizationRow[] = [
     expiresAt: 1, signature: "invalid-proof",
   }), object),
   aiOwnerOnly("cms/revalidate:runRevalidationSelfTest", noArgs, object),
-  ownerOnly("cms/invites:listInvites", "query", noArgs, array, { membership: true }),
-  ownerOnly("cms/invites:cancelInvite", "mutation", (f) => ({ inviteId: f.inviteId }), nullable, { membership: true }),
-  acceptInviteRow(),
-  ownerOnly("cms/invites:bulkInvite", "action", () => ({ emails: [], role: "viewer" }),
-    { value: { sent: [], failed: [] } }, { membership: true, readOnly: true }),
-  ownerOnly("cms/invites:createInvite", "action", () => ({
-    email: "new-member@example.test", role: "viewer",
-  }), { value: expect.objectContaining({ ok: true, inviteId: expect.any(String), expiresAt: expect.any(Number) }) },
-  { membership: true, setup: seedReadyInviteEmail, after: assertInviteEmailDelivered, teardown: restoreInviteEmail }),
-  ownerOnly("cms/invites:createReplacementInvite", "action", () => ({
-    outgoingAuthId: "target-user", email: "replacement@example.test",
-  }), { value: expect.objectContaining({ ok: true, inviteId: expect.any(String), expiresAt: expect.any(Number) }) },
-  { membership: true, setup: seedReadyInviteEmail, after: assertInviteEmailDelivered, teardown: restoreInviteEmail }),
-  ownerOnly("cms/members:createMember", "action", () => ({
-    email: "created@example.test", password: "MatrixSecret123!", role: "viewer",
-  }), { value: expect.objectContaining({ authId: expect.any(String), created: true }) },
-  { membership: true }),
-  ownerOnly("cms/memberships:getCapacityStatus", "query", noArgs, object, { membership: true }),
-  ownerOnly("cms/memberships:listMigrationIssues", "query", noArgs, array, { membership: true }),
-  ownerOnly("cms/memberships:suspendMember", "mutation", () => ({ authId: "absent-user" }), nullable, { membership: true }),
-  ownerOnly("cms/memberships:reactivateMember", "mutation", () => ({ authId: OWNER.subject }), nullable, { membership: true }),
-  ownerOnly("cms/roles:listMembers", "query", noArgs, array, { membership: true }),
-  ownerOnly("cms/roles:setRole", "mutation", () => ({ authId: "target-user", role: "editor" }), nullable, { membership: true }),
-  ownerOnly("cms/roles:removeMember", "mutation", () => ({ authId: "removed-user" }), nullable, { membership: true }),
   ownerOnly("agents/localGeneration:preflight", "action", () => ({ kind: "field-translate" }), { error: "CMS_MODULE_DISABLED" }),
   aiOwnerOnly("agents/contentWriter:refineField", () => ({
     text: "Original copy", instruction: "Improve the copy", locale: "en", fieldLabel: "Title",
@@ -685,42 +390,6 @@ export const integrationsRows: AuthorizationRow[] = [
   }), object),
   ownerOnly("cms/entitlements:getAdminState", "query", noArgs, object),
   ownerOnly("cms/ai:isConfigured", "query", noArgs, { error: "CMS_MODULE_DISABLED" }),
-  publicRead("auth:getProvidersAvailable", noArgs, () => expect.objectContaining({ google: expect.any(Boolean) })),
-  publicRead("cms/roles:builtinRoles", noArgs, () => expect.any(Array)),
-  publicAction("cms/passwordRecovery:requestPasswordReset", () => ({ email: "nobody@example.test" }),
-    () => ({ ok: true })),
-  defineRow({
-    name: "cms/roles:myPermissions",
-    kind: "query",
-    scenarios: MATRIX_STATES.map((state): Scenario<Fixture> => ({
-      label: stateLabel(state),
-      setup: (t) => seedState(t, state),
-      call: (actor, fixture) => invoke(actor, "query", "cms/roles:myPermissions", noArgs(fixture)),
-      outcomes: {
-        owner: { value: expect.objectContaining({ authId: OWNER.subject, role: "admin" }) },
-        signedOut: { value: null },
-        unrelated: { value: null },
-        former: { value: null },
-      },
-      readOnly: true,
-    })),
-  }),
-  defineRow({
-    name: "cms/roles:listAssignableRoles",
-    kind: "query",
-    scenarios: MATRIX_STATES.map((state): Scenario<Fixture> => ({
-      label: stateLabel(state),
-      setup: (t) => seedState(t, state),
-      call: (actor, fixture) => invoke(actor, "query", "cms/roles:listAssignableRoles", noArgs(fixture)),
-      outcomes: {
-        owner: array,
-        signedOut: { value: [] },
-        unrelated: { error: "CMS_MEMBERSHIP_REQUIRED" },
-        former: { error: "CMS_MEMBERSHIP_REQUIRED" },
-      },
-      readOnly: true,
-    })),
-  }),
   defineRow({
     name: "agents/sliceAuthor:canAuthorSlices",
     kind: "query",

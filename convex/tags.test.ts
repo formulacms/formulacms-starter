@@ -8,7 +8,7 @@ import { normalizeTagSlug, TAG_SLUG_MAX_LENGTH } from "./cms/tags"
 const modules = import.meta.glob("./**/*.ts")
 const TEST_USER = {
   subject: "u-1",
-  tokenIdentifier: "https://convex.test|u-1",
+  tokenIdentifier: "u-1",
   name: "First",
   email: "f@x.com",
 }

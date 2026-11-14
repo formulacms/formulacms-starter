@@ -1,6 +1,8 @@
 import { ConvexError, v } from "convex/values"
 import type { MutationCtx, QueryCtx } from "../../_generated/server"
 import type { Doc, Id } from "../../_generated/dataModel"
+import { components } from "../../_generated/api"
+import { getActor } from "./actor"
 
 type OwnerContext = QueryCtx | MutationCtx
 
@@ -37,6 +39,10 @@ export const ownerSessionValidator = v.union(
     ownerId: v.id("cmsOwner"),
     authId: v.string(),
     email: v.union(v.string(), v.null()),
+    displayName: v.union(v.string(), v.null()),
+    // Owner-only: the admin sidebar shows it. Never in a public query
+    // (ADR-0056 rule 8).
+    username: v.union(v.string(), v.null()),
     role: v.literal("admin"),
   }),
   v.null()
@@ -53,15 +59,22 @@ export async function readOwnerState(ctx: OwnerContext): Promise<OwnerState> {
   return { status: "invalid" }
 }
 
+/**
+ * The caller as an owner-binding identity. Under Convex Auth `authId` and
+ * `tokenIdentifier` both hold the user ID (ADR-0056 rule 2), so a stored
+ * binding survives a change of session.
+ */
 export async function getOwnerIdentity(
   ctx: OwnerContext
 ): Promise<OwnerIdentity | null> {
-  const identity = await ctx.auth.getUserIdentity()
-  if (!identity) return null
+  const actor = await getActor(ctx)
+  if (!actor) return null
   return {
-    authId: identity.subject,
-    tokenIdentifier: identity.tokenIdentifier,
-    email: identity.email ?? null,
+    authId: actor.userId,
+    tokenIdentifier: actor.userId,
+    // The identity carries no email (ADR-0056); the notification email is
+    // read through `getOwnerNotificationEmail` where a send needs it.
+    email: null,
   }
 }
 
@@ -192,7 +205,7 @@ export async function replaceOwnerBinding(
     throw new ConvexError("CMS_OWNER_REPLACEMENT_INVALID")
   }
 
-  await ctx.db.patch(currentOwner._id, {
+  await ctx.db.patch("cmsOwner", currentOwner._id, {
     authId: successorIdentity.authId,
     tokenIdentifier: successorIdentity.tokenIdentifier,
     updatedAt: Date.now(),
@@ -202,4 +215,33 @@ export async function replaceOwnerBinding(
     ...successorIdentity,
     role: "admin",
   }
+}
+
+/** The account's sign-in username, or null. Owner-only reads (ADR-0056 rule 8). */
+export async function ownerUsername(
+  ctx: OwnerContext,
+  authId: string
+): Promise<string | null> {
+  return await ctx.runQuery(components.authUsername.public.getUsername, {
+    userId: authId,
+  })
+}
+
+/**
+ * The owner's label: the name typed at setup (`users.name`), then the username
+ * from the username component. Never the session ID, never the raw user ID.
+ * Only admin screens, presence and locks use it; public pages show the name
+ * only (ADR-0056 rule 8).
+ */
+export async function ownerDisplayName(
+  ctx: OwnerContext,
+  authId: string
+): Promise<string | null> {
+  const userId = ctx.db.normalizeId("users", authId)
+  if (userId) {
+    const user = await ctx.db.get("users", userId)
+    const name = user?.name?.trim()
+    if (name) return name
+  }
+  return await ownerUsername(ctx, authId)
 }

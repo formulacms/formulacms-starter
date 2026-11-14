@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import { prepareAuthSessions } from "../test-utils/convexAuthFixtures"
 import { expectLegacyPanel as legacyPanel } from "@/test-utils/menu-panel"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { ConvexError } from "convex/values"
@@ -134,12 +135,12 @@ const FIXTURE_URL = new URL(
   "../fixtures/m05-p1-module-off-baseline.json",
   import.meta.url
 )
-const WRITE_BASELINE = process.env.P1_BASELINE_WRITE === "1"
+const WRITE_BASELINE = import.meta.env.P1_BASELINE_WRITE === "1"
 
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "m05-p1-owner",
-  tokenIdentifier: "https://convex.test|m05-p1-owner",
+  tokenIdentifier: "m05-p1-owner",
 }
 const FIXED_NOW = Date.UTC(2026, 8, 16, 12, 0, 0)
 // A well-formed id that names no stored transition.
@@ -252,6 +253,12 @@ async function buildSite(
   aboutPublicationTimes?: Record<string, number>
 ): Promise<Site> {
   const t = app()
+  // Mint the owner's session a second early, then restore the frozen clock:
+  // transaction times only move forward, so minting at FIXED_NOW would push the
+  // first measured call to FIXED_NOW + 1 and shift every fixture timestamp.
+  vi.setSystemTime(FIXED_NOW - 1_000)
+  await prepareAuthSessions(t, OWNER.subject)
+  vi.setSystemTime(FIXED_NOW)
   const owner = t.withIdentity(OWNER)
   const locales = state === "S2" ? ["en", "fr"] : ["en"]
   let homeId: Id<"pages">
@@ -309,7 +316,7 @@ async function buildSite(
   // not enable `multilingual` (the stored shape after enable then disable).
   await t.run(async (ctx) => {
     for (const row of await ctx.db.query("cmsModuleState").collect()) {
-      await ctx.db.delete(row._id)
+      await ctx.db.delete("cmsModuleState", row._id)
     }
     if (variant === "disabled") {
       await ctx.db.insert("cmsModuleState", {
@@ -913,6 +920,25 @@ function occurrenceAccountingDeltas(state: string): AllowedDelta[] {
 }
 
 /** Only the native ID segment of the two new accounting key reads is adapted. */
+/**
+ * Convex Auth (ADR-0056) resolves the caller's session with one `get sessions`
+ * read inside every authenticated call. The frozen pre-C1 fixture cannot hold
+ * it, so the comparison drops that one read; every other read must still match.
+ */
+function dropSessionLookups(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => item !== "get sessions")
+      .map(dropSessionLookups)
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, dropSessionLookups(item)])
+    )
+  }
+  return value
+}
+
 function normalizeOccurrenceKeyReads(value: unknown): unknown {
   if (typeof value === "string") {
     const source =
@@ -1323,7 +1349,9 @@ describe("M05 P1 module-off baseline", () => {
         cases: Record<string, unknown>
       }
       expect(fixture.cases[key]).toBeDefined()
-      expect(normalizeOccurrenceKeyReads(normalizeIds(captured))).toEqual(
+      expect(
+        normalizeOccurrenceKeyReads(dropSessionLookups(normalizeIds(captured)))
+      ).toEqual(
         await expectedAfterC1(
           key,
           fixture.cases[key],
@@ -1598,7 +1626,7 @@ const INVENTORY_STATES: readonly InventoryState[] = [
 async function enableMultilingualModule(t: T) {
   await t.run(async (ctx) => {
     for (const row of await ctx.db.query("cmsModuleState").collect()) {
-      await ctx.db.delete(row._id)
+      await ctx.db.delete("cmsModuleState", row._id)
     }
     await ctx.db.insert("cmsModuleState", {
       key: "owner",
@@ -1613,8 +1641,8 @@ async function makeMultilingual(t: T, locales: string[]) {
   await t.run(async (ctx) => {
     const settings = (await ctx.db.query("siteSettings").unique())!
     const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-    await ctx.db.patch(settings._id, { enabledLocales: locales })
-    await ctx.db.patch(authority._id, {
+    await ctx.db.patch("siteSettings", settings._id, { enabledLocales: locales })
+    await ctx.db.patch("siteLanguageAuthority", authority._id, {
       mode: "multilingual",
       enabledLocales: locales,
       version: authority.version + 1,
@@ -2443,12 +2471,12 @@ describe("M05 P18 classifier inventory", () => {
     const authority = async (t: T, fields: Record<string, unknown>) =>
       t.run(async (ctx) => {
         const row = (await ctx.db.query("siteLanguageAuthority").unique())!
-        await ctx.db.patch(row._id, fields)
+        await ctx.db.patch("siteLanguageAuthority", row._id, fields)
       })
     const settings = async (t: T, fields: Record<string, unknown>) =>
       t.run(async (ctx) => {
         const row = (await ctx.db.query("siteSettings").unique())!
-        await ctx.db.patch(row._id, fields)
+        await ctx.db.patch("siteSettings", row._id, fields)
       })
 
     expect(await classify(async () => {})).toBe("multilingual")
@@ -2456,7 +2484,7 @@ describe("M05 P18 classifier inventory", () => {
       await classify((t) =>
         t.run(async (ctx) => {
           const row = (await ctx.db.query("cmsModuleState").unique())!
-          await ctx.db.patch(row._id, { enabledModules: [] })
+          await ctx.db.patch("cmsModuleState", row._id, { enabledModules: [] })
         })
       )
     ).toBe("invalid")
@@ -2464,7 +2492,7 @@ describe("M05 P18 classifier inventory", () => {
       await classify((t) =>
         t.run(async (ctx) => {
           for (const row of await ctx.db.query("cmsModuleState").collect()) {
-            await ctx.db.delete(row._id)
+            await ctx.db.delete("cmsModuleState", row._id)
           }
         })
       )
@@ -2534,7 +2562,7 @@ describe("M05 P18 classifier inventory", () => {
       const site = await buildSite("S1", variant)
       await site.t.run(async (ctx) => {
         const row = (await ctx.db.query("siteLanguageAuthority").unique())!
-        await ctx.db.patch(row._id, {
+        await ctx.db.patch("siteLanguageAuthority", row._id, {
           mode: "multilingual",
           enabledLocales: ["en"],
         })
@@ -2618,7 +2646,7 @@ describe("M05 P18 classifier inventory", () => {
         createdAt: FIXED_NOW,
       })
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, {
+      await ctx.db.patch("siteLanguageAuthority", authority._id, {
         lastCommittedTransitionId: transitionId,
       })
     })
@@ -2948,7 +2976,7 @@ describe("M05 P3 adoption and lifecycle", () => {
       const site = await buildSite("S1", "absent")
       await site.t.run(async (ctx) => {
         const row = (await ctx.db.query("siteLanguageAuthority").unique())!
-        await ctx.db.patch(row._id, { currentLocale: "fr" })
+        await ctx.db.patch("siteLanguageAuthority", row._id, { currentLocale: "fr" })
       })
       await enableMultilingualModule(site.t)
       await expectRefusal(site, "SITE_LANGUAGE_AUTHORITY_INVALID")
@@ -2961,7 +2989,7 @@ describe("M05 P3 adoption and lifecycle", () => {
       const site = await buildSite("S2", "absent")
       await site.t.run(async (ctx) => {
         const row = (await ctx.db.query("siteSettings").unique())!
-        await ctx.db.patch(row._id, { enabledLocales: [...enabledLocales] })
+        await ctx.db.patch("siteSettings", row._id, { enabledLocales: [...enabledLocales] })
       })
       await enableMultilingualModule(site.t)
       await expectRefusal(site, code)
@@ -2978,7 +3006,7 @@ describe("M05 P3 adoption and lifecycle", () => {
       // Settings moved after the caller's preview.
       await site.t.run(async (ctx) => {
         const row = (await ctx.db.query("siteSettings").unique())!
-        await ctx.db.patch(row._id, { updatedAt: FIXED_NOW + 1 })
+        await ctx.db.patch("siteSettings", row._id, { updatedAt: FIXED_NOW + 1 })
       })
       await expectRefusal(site, "LANGUAGE_OPERATION_STALE")
     }
@@ -3003,7 +3031,7 @@ describe("M05 P3 adoption and lifecycle", () => {
       )
       if (phase === "cancelling") {
         await site.t.run((ctx) =>
-          ctx.db.patch(transitionId, { phase: "cancelling" })
+          ctx.db.patch("siteLanguageTransitions", transitionId, { phase: "cancelling" })
         )
       }
       expect(
@@ -3055,11 +3083,11 @@ describe("M05 P2a owner-only foundation", () => {
     const FORMER = OWNER
     const CURRENT = {
       subject: "m05-p2a-current",
-      tokenIdentifier: "https://convex.test|m05-p2a-current",
+      tokenIdentifier: "m05-p2a-current",
     }
     const LEGACY_ADMIN = {
       subject: "m05-p2a-legacy-admin",
-      tokenIdentifier: "https://convex.test|m05-p2a-legacy-admin",
+      tokenIdentifier: "m05-p2a-legacy-admin",
     }
     await seedCommunityOwner(t, FORMER)
     const former = t.withIdentity(FORMER)
@@ -3088,7 +3116,7 @@ describe("M05 P2a owner-only foundation", () => {
       })
       // The owner binding moves to a new identity; FORMER is now replaced.
       const owner = (await ctx.db.query("cmsOwner").unique())!
-      await ctx.db.patch(owner._id, {
+      await ctx.db.patch("cmsOwner", owner._id, {
         authId: CURRENT.subject,
         tokenIdentifier: CURRENT.tokenIdentifier,
       })
@@ -3148,7 +3176,7 @@ describe("M05 P2a owner-only foundation", () => {
       t,
       t.withIdentity({
         subject: "m05-p2a-stranger",
-        tokenIdentifier: "https://convex.test|m05-p2a-stranger",
+        tokenIdentifier: "m05-p2a-stranger",
       }),
       t.withIdentity(LEGACY_ADMIN),
       former,
@@ -3620,7 +3648,7 @@ async function enableRedirects(t: T) {
       .query("cmsModuleState")
       .withIndex("by_key", (q) => q.eq("key", "owner"))
       .unique())!
-    await ctx.db.patch(row._id, {
+    await ctx.db.patch("cmsModuleState", row._id, {
       enabledModules: [
         ...row.enabledModules,
         { moduleId: "redirects", configVersion: 1 },
@@ -3930,7 +3958,7 @@ async function seedSelections(
       _id: pageDocId,
       _creationTime: pageCreationTime,
       ...page
-    } = (await ctx.db.get(pageId))!
+    } = (await ctx.db.get("pages", pageId))!
     void pageDocId
     void pageCreationTime
     const pageIds: Id<"pages">[] = []
@@ -4066,7 +4094,7 @@ async function startPreview(
 }
 
 async function previewRow(t: T, previewId: PreviewId) {
-  return (await t.run((ctx) => ctx.db.get(previewId)))!
+  return (await t.run((ctx) => ctx.db.get("siteLanguageImpactPreviews", previewId)))!
 }
 
 async function previewPages(t: T, previewId: PreviewId) {
@@ -4317,7 +4345,7 @@ describe("M05 P17 sealed preview mechanics", () => {
 
     await site.t.run(async (ctx) => {
       const row = (await ctx.db.query("cmsModuleState").unique())!
-      await ctx.db.patch(row._id, {
+      await ctx.db.patch("cmsModuleState", row._id, {
         enabledModules: row.enabledModules.filter(
           (entry) => entry.moduleId !== "redirects"
         ),
@@ -4462,7 +4490,7 @@ describe("M05 P17 sealed preview mechanics", () => {
 
     // More than one live row in a slot fails closed and writes nothing.
     await t.run(async (ctx) => {
-      const { _id, _creationTime, ...row } = (await ctx.db.get(second))!
+      const { _id, _creationTime, ...row } = (await ctx.db.get("siteLanguageImpactPreviews", second))!
       void _id
       void _creationTime
       await ctx.db.insert("siteLanguageImpactPreviews", {
@@ -4534,7 +4562,7 @@ describe("M05 P17 sealed preview mechanics", () => {
           q.eq("pageId", site.frPageId).eq("locale", "fr")
         )
         .unique())!
-      await ctx.db.delete(bonjour._id)
+      await ctx.db.delete("pageLocalePublicationStates", bonjour._id)
     })
     const longSite = { ...site, frPageId: longPageId }
     await seedSelections(
@@ -4800,7 +4828,7 @@ describe("M05 P17 sealed preview mechanics", () => {
     }
     // A direct patch bypasses `menus.saveCanonical`, so no counter moves; the
     // node cursor itself must refuse the shorter walk.
-    await t.run((ctx) => ctx.db.patch(menuId, { nav: menuNav(1, 2, ["fr"]) }))
+    await t.run((ctx) => ctx.db.patch("menus", menuId, { nav: menuNav(1, 2, ["fr"]) }))
     const pagesBefore = await previewPages(t, previewId)
     await stepPreview(t, previewId)
     expect((await previewRow(t, previewId)).phase).toBe("stale")
@@ -4992,10 +5020,10 @@ describe("M05 C2b.1e review receipts", () => {
         recordReview(owner, previewId, 1, digests[1]!)
       )
     ).toEqual(refused("LANGUAGE_PREVIEW_STATE_INVALID"))
-    await t.run((ctx) => ctx.db.delete(duplicate))
+    await t.run((ctx) => ctx.db.delete("siteLanguageDisclosurePages", duplicate))
 
     for (const phase of ["scanning", "stale", "expired", "consumed"] as const) {
-      await t.run((ctx) => ctx.db.patch(previewId, { phase }))
+      await t.run((ctx) => ctx.db.patch("siteLanguageImpactPreviews", previewId, { phase }))
       expect({
         phase,
         result: await refusalWritesNothing(t, () =>
@@ -5003,7 +5031,7 @@ describe("M05 C2b.1e review receipts", () => {
         ),
       }).toEqual({ phase, result: STALE })
     }
-    await t.run((ctx) => ctx.db.patch(previewId, { phase: "complete" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageImpactPreviews", previewId, { phase: "complete" }))
     expect(await recordReview(owner, previewId, 1, digests[1]!)).toMatchObject({
       stale: false,
       reviewedThroughOrdinal: 1,
@@ -5039,20 +5067,20 @@ describe("M05 P2b owner-only previews and receipts (preview half)", () => {
     const { t } = site
     const FORMER = {
       subject: "m05-p2b-former",
-      tokenIdentifier: "https://convex.test|m05-p2b-former",
+      tokenIdentifier: "m05-p2b-former",
     }
     const CURRENT = {
       subject: "m05-p2b-current",
-      tokenIdentifier: "https://convex.test|m05-p2b-current",
+      tokenIdentifier: "m05-p2b-current",
     }
     const LEGACY_ADMIN = {
       subject: "m05-p2b-legacy-admin",
-      tokenIdentifier: "https://convex.test|m05-p2b-legacy-admin",
+      tokenIdentifier: "m05-p2b-legacy-admin",
     }
     const bindOwner = (identity: typeof CURRENT) =>
       t.run(async (ctx) => {
         const owner = (await ctx.db.query("cmsOwner").unique())!
-        await ctx.db.patch(owner._id, {
+        await ctx.db.patch("cmsOwner", owner._id, {
           authId: identity.subject,
           tokenIdentifier: identity.tokenIdentifier,
         })
@@ -5110,7 +5138,7 @@ describe("M05 P2b owner-only previews and receipts (preview half)", () => {
         "unrelated signed-in",
         t.withIdentity({
           subject: "m05-p2b-stranger",
-          tokenIdentifier: "https://convex.test|m05-p2b-stranger",
+          tokenIdentifier: "m05-p2b-stranger",
         }),
         "CMS_OWNER_REQUIRED",
       ],
@@ -5208,8 +5236,8 @@ async function measuredPreviewSite(pageCount: number) {
   await site.t.run(async (ctx) => {
     const settings = (await ctx.db.query("siteSettings").unique())!
     const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-    await ctx.db.patch(settings._id, { enabledLocales: locales })
-    await ctx.db.patch(authority._id, { enabledLocales: locales })
+    await ctx.db.patch("siteSettings", settings._id, { enabledLocales: locales })
+    await ctx.db.patch("siteLanguageAuthority", authority._id, { enabledLocales: locales })
   })
   if (pageCount > 0) {
     await seedSelections(
@@ -5636,7 +5664,7 @@ describe("M05 P15a delayed preview steps (preview half)", () => {
     expect(
       await refusalWritesNothing(t, () => stepPreview(t, previewId, 2))
     ).toEqual(ok(null))
-    await t.run((ctx) => ctx.db.patch(previewId, { generation: 2 }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageImpactPreviews", previewId, { generation: 2 }))
     expect(
       await refusalWritesNothing(t, () => stepPreview(t, previewId, 1))
     ).toEqual(ok(null))
@@ -5653,7 +5681,7 @@ describe("M05 P15a delayed preview steps (preview half)", () => {
     await stepPreview(t, previewId)
     // Well-formed preview cursor JSON, so the step reaches `.paginate()`.
     await t.run((ctx) =>
-      ctx.db.patch(previewId, {
+      ctx.db.patch("siteLanguageImpactPreviews", previewId, {
         cursor: JSON.stringify({ page: "not-a-cursor" }),
       })
     )
@@ -5734,8 +5762,8 @@ async function hideLocale(t: T, locale: string) {
       (enabled) => enabled !== locale
     )
     const now = Date.now()
-    await ctx.db.patch(settings._id, { enabledLocales, updatedAt: now })
-    await ctx.db.patch(authority._id, {
+    await ctx.db.patch("siteSettings", settings._id, { enabledLocales, updatedAt: now })
+    await ctx.db.patch("siteLanguageAuthority", authority._id, {
       enabledLocales,
       version: authority.version + 1,
       updatedAt: now,
@@ -5897,7 +5925,7 @@ describe("M05 P4 add and independent publish", () => {
     // M4: outside snapshot authority.
     await t.run(async (ctx) => {
       const row = (await ctx.db.query("pagePublicationCutover").unique())!
-      await ctx.db.patch(row._id, { phase: "preparing" })
+      await ctx.db.patch("pagePublicationCutover", row._id, { phase: "preparing" })
     })
     await refuses(
       () => addLanguage(site, "es"),
@@ -5956,7 +5984,7 @@ describe("M05 P4 add and independent publish", () => {
     const { t } = site
     await t.run(async (ctx) => {
       const row = (await ctx.db.query("cmsModuleState").unique())!
-      await ctx.db.patch(row._id, {
+      await ctx.db.patch("cmsModuleState", row._id, {
         enabledModules: row.enabledModules.filter(
           (entry) => entry.moduleId !== "redirects"
         ),
@@ -6038,7 +6066,7 @@ describe("M05 P4 add and independent publish", () => {
     await refuses(await previewClaim(t, other), "LANGUAGE_PREVIEW_MISMATCH")
     const otherKind = await startPreview(site, "remove", "fr")
     await runPreview(t, otherKind)
-    await t.run((ctx) => ctx.db.patch(otherKind, { locale: "nl" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageImpactPreviews", otherKind, { locale: "nl" }))
     await refuses(await previewClaim(t, otherKind), "LANGUAGE_PREVIEW_MISMATCH")
     await refuses(
       { ...claim, expectedDigest: "not-the-digest" },
@@ -6055,9 +6083,9 @@ describe("M05 P4 add and independent publish", () => {
       "LANGUAGE_PREVIEW_MISMATCH"
     )
     // A consumed preview refuses although everything else still matches.
-    await t.run((ctx) => ctx.db.patch(reviewed, { phase: "consumed" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageImpactPreviews", reviewed, { phase: "consumed" }))
     await refuses(claim, "LANGUAGE_OPERATION_STALE")
-    await t.run((ctx) => ctx.db.patch(reviewed, { phase: "complete" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageImpactPreviews", reviewed, { phase: "complete" }))
     // At `expiresAt`, before the expiry flip has run, and after it.
     const { expiresAt } = await previewRow(t, reviewed)
     vi.setSystemTime(expiresAt!)
@@ -6111,7 +6139,7 @@ describe("M05 D1 add-language locale-prefix shadowing", () => {
           q.eq("pageId", site.aboutId).eq("locale", "en")
         )
         .unique())!
-      const page = (await ctx.db.get(site.aboutId))!
+      const page = (await ctx.db.get("pages", site.aboutId))!
       const {
         _id: stateId,
         _creationTime: stateCreatedAt,
@@ -6247,7 +6275,7 @@ describe("M05 D1 add-language locale-prefix shadowing", () => {
           q.eq("pageId", site.aboutId).eq("locale", "en")
         )
         .unique())!
-      await ctx.db.patch(state._id, { currentPath: "/nl/contact" })
+      await ctx.db.patch("pageLocalePublicationStates", state._id, { currentPath: "/nl/contact" })
     })
 
     expect(
@@ -6452,7 +6480,7 @@ describe("M05 D1 add-language locale-prefix shadowing", () => {
           q.eq("pageId", site.aboutId).eq("locale", "en")
         )
         .unique())!
-      await ctx.db.patch(state._id, { currentPath: "/deutsch" })
+      await ctx.db.patch("pageLocalePublicationStates", state._id, { currentPath: "/deutsch" })
       await ctx.db.insert("pageHistoricalLocaleRoutes", {
         pageId: site.aboutId,
         locale: "en",
@@ -6497,7 +6525,7 @@ describe("M05 D1 add-language locale-prefix shadowing", () => {
           q.eq("pageId", site.aboutId).eq("locale", "en")
         )
         .unique())!
-      await ctx.db.patch(state._id, { currentPath: "/nl" })
+      await ctx.db.patch("pageLocalePublicationStates", state._id, { currentPath: "/nl" })
     })
 
     expect(
@@ -6521,7 +6549,7 @@ describe("M05 D1 add-language locale-prefix shadowing", () => {
           q.eq("pageId", site.aboutId).eq("locale", "en")
         )
         .unique())!
-      await ctx.db.patch(state._id, { currentPath: "/nl/contact" })
+      await ctx.db.patch("pageLocalePublicationStates", state._id, { currentPath: "/nl/contact" })
     })
     const previewId = await startPreview(site, "reveal", "nl")
     await runPreview(t, previewId)
@@ -6596,20 +6624,20 @@ describe("M05 P2b owner-only add and reveal (command half)", () => {
     const { t } = site
     const FORMER = {
       subject: "m05-p2b-add-former",
-      tokenIdentifier: "https://convex.test|m05-p2b-add-former",
+      tokenIdentifier: "m05-p2b-add-former",
     }
     const CURRENT = {
       subject: "m05-p2b-add-current",
-      tokenIdentifier: "https://convex.test|m05-p2b-add-current",
+      tokenIdentifier: "m05-p2b-add-current",
     }
     const LEGACY_ADMIN = {
       subject: "m05-p2b-add-legacy-admin",
-      tokenIdentifier: "https://convex.test|m05-p2b-add-legacy-admin",
+      tokenIdentifier: "m05-p2b-add-legacy-admin",
     }
     const bindOwner = (identity: typeof CURRENT) =>
       t.run(async (ctx) => {
         const owner = (await ctx.db.query("cmsOwner").unique())!
-        await ctx.db.patch(owner._id, {
+        await ctx.db.patch("cmsOwner", owner._id, {
           authId: identity.subject,
           tokenIdentifier: identity.tokenIdentifier,
         })
@@ -6652,7 +6680,7 @@ describe("M05 P2b owner-only add and reveal (command half)", () => {
         "unrelated signed-in",
         t.withIdentity({
           subject: "m05-p2b-add-stranger",
-          tokenIdentifier: "https://convex.test|m05-p2b-add-stranger",
+          tokenIdentifier: "m05-p2b-add-stranger",
         }),
         "CMS_OWNER_REQUIRED",
       ],
@@ -6748,15 +6776,16 @@ describe("M05 P11b bounded add and reveal commits (command half)", () => {
     const largeReveal = await revealMetrics(1_000)
     expect(largeReveal.pages).toBeGreaterThan(smallReveal.pages)
     expect(counts(largeReveal.used)).toEqual(counts(smallReveal.used))
+    // Includes the one Convex Auth session lookup per authenticated call.
     expect(counts(smallAdd)).toEqual({
-      databaseQueries: 18,
-      documentsRead: 8,
+      databaseQueries: 19,
+      documentsRead: 9,
       documentsWritten: 3,
       functionsScheduled: 0,
     })
     expect(counts(smallReveal.used)).toEqual({
-      databaseQueries: 19,
-      documentsRead: 13,
+      databaseQueries: 20,
+      documentsRead: 14,
       documentsWritten: 4,
       functionsScheduled: 0,
     })
@@ -6952,8 +6981,8 @@ async function patchAuthorityInPlace(
   await t.run(async (ctx) => {
     const settings = (await ctx.db.query("siteSettings").unique())!
     const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-    await ctx.db.patch(authority._id, patch)
-    await ctx.db.patch(settings._id, {
+    await ctx.db.patch("siteLanguageAuthority", authority._id, patch)
+    await ctx.db.patch("siteSettings", settings._id, {
       ...(patch.enabledLocales ? { enabledLocales: patch.enabledLocales } : {}),
       ...(patch.currentLocale ? { defaultLocale: patch.currentLocale } : {}),
     })
@@ -7023,7 +7052,7 @@ describe("M05 P5 remove", () => {
     // Not found, and the rule is silenced, not deleted; `en` is unchanged.
     expect(await publicRead(t, "fr", frPath)).toEqual(NOT_FOUND)
     expect(await resolveRule(t, "/angebot", "fr")).toBeNull()
-    expect(await t.run((ctx) => ctx.db.get(ruleId!))).toMatchObject({
+    expect(await t.run((ctx) => ctx.db.get("redirects", ruleId!))).toMatchObject({
       locale: "fr",
       fromPath: "/angebot",
     })
@@ -7106,21 +7135,21 @@ describe("M05 P5 remove", () => {
     // Missing, another owner's, another kind; another digest or count.
     const missing = await reviewedRemoval({ t, owner }, "fr")
     const missingClaim = await previewClaim(t, missing)
-    await t.run((ctx) => ctx.db.delete(missing))
+    await t.run((ctx) => ctx.db.delete("siteLanguageImpactPreviews", missing))
     await refuses(missingClaim, "LANGUAGE_PREVIEW_MISMATCH")
     const fresh = await reviewedRemoval(site)
     const freshClaim = await previewClaim(t, fresh)
     const foreign = await previewRow(t, fresh)
     await t.run((ctx) =>
-      ctx.db.patch(fresh, {
+      ctx.db.patch("siteLanguageImpactPreviews", fresh, {
         owner: { ...foreign.owner, tokenIdentifier: "https://convex.test|x" },
       })
     )
     await refuses(freshClaim, "LANGUAGE_PREVIEW_MISMATCH")
-    await t.run((ctx) => ctx.db.patch(fresh, { owner: foreign.owner }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageImpactPreviews", fresh, { owner: foreign.owner }))
     const reveal = await startPreview(site, "reveal", "nl")
     await runPreview(t, reveal)
-    await t.run((ctx) => ctx.db.patch(reveal, { locale: "fr" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageImpactPreviews", reveal, { locale: "fr" }))
     await refuses(await previewClaim(t, reveal), "LANGUAGE_PREVIEW_MISMATCH")
     await refuses(
       { ...freshClaim, expectedDigest: "not-the-digest" },
@@ -7138,9 +7167,9 @@ describe("M05 P5 remove", () => {
     )
     // Replaced by `fresh`, so `reviewed` is stale; so is a consumed preview.
     await refuses(claim, "LANGUAGE_OPERATION_STALE")
-    await t.run((ctx) => ctx.db.patch(fresh, { phase: "consumed" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageImpactPreviews", fresh, { phase: "consumed" }))
     await refuses(freshClaim, "LANGUAGE_OPERATION_STALE")
-    await t.run((ctx) => ctx.db.patch(fresh, { phase: "complete" }))
+    await t.run((ctx) => ctx.db.patch("siteLanguageImpactPreviews", fresh, { phase: "complete" }))
 
     // A moved token after review.
     await site.owner.mutation(api.cms.redirects.create, {
@@ -7208,7 +7237,7 @@ describe("M05 P5 remove", () => {
       await refusalWritesNothing(t, () => removeLanguage(owner, claim))
     ).toEqual(refused("LANGUAGE_LOCALE_OBLIGATIONS_PRESENT"))
     await t.run((ctx) =>
-      ctx.db.patch(releaseId, {
+      ctx.db.patch("pageLocalePublicationReleases", releaseId, {
         status: "held",
         holdReason: "LOCALE_NOT_ENABLED",
         heldAt: FIXED_NOW,
@@ -7219,13 +7248,13 @@ describe("M05 P5 remove", () => {
     ).toEqual(refused("LANGUAGE_LOCALE_OBLIGATIONS_PRESENT"))
     const heldId = await seedRelease(site, "fr", "held")
     await t.run((ctx) =>
-      ctx.db.patch(releaseId, { status: "cancelled", cancelledAt: FIXED_NOW })
+      ctx.db.patch("pageLocalePublicationReleases", releaseId, { status: "cancelled", cancelledAt: FIXED_NOW })
     )
     expect(
       await refusalWritesNothing(t, () => removeLanguage(owner, claim))
     ).toEqual(refused("LANGUAGE_LOCALE_OBLIGATIONS_PRESENT"))
     await t.run((ctx) =>
-      ctx.db.patch(heldId, { status: "cancelled", cancelledAt: FIXED_NOW })
+      ctx.db.patch("pageLocalePublicationReleases", heldId, { status: "cancelled", cancelledAt: FIXED_NOW })
     )
 
     // Other languages' pending and held releases are unrelated: the default
@@ -7245,7 +7274,7 @@ describe("M05 P5 remove", () => {
     const setCutoverPhase = (phase: "preparing" | "snapshot_active") =>
       t.run(async (ctx) => {
         const row = (await ctx.db.query("pagePublicationCutover").unique())!
-        await ctx.db.patch(row._id, { phase })
+        await ctx.db.patch("pagePublicationCutover", row._id, { phase })
       })
     await setCutoverPhase("preparing")
     expect(
@@ -7264,7 +7293,7 @@ describe("M05 P5 remove", () => {
       await refusalWritesNothing(t, () => removeLanguage(owner, claim))
     ).toEqual(refused("MULTILINGUAL_NOT_ADOPTED"))
     // Also when the named preview no longer exists.
-    await t.run((ctx) => ctx.db.delete(claim.previewId))
+    await t.run((ctx) => ctx.db.delete("siteLanguageImpactPreviews", claim.previewId))
     expect(
       await refusalWritesNothing(t, () => removeLanguage(owner, claim))
     ).toEqual(refused("MULTILINGUAL_NOT_ADOPTED"))
@@ -7313,20 +7342,20 @@ describe("M05 P2b owner-only remove (command half)", () => {
     const { t } = site
     const FORMER = {
       subject: "m05-p2b-remove-former",
-      tokenIdentifier: "https://convex.test|m05-p2b-remove-former",
+      tokenIdentifier: "m05-p2b-remove-former",
     }
     const CURRENT = {
       subject: "m05-p2b-remove-current",
-      tokenIdentifier: "https://convex.test|m05-p2b-remove-current",
+      tokenIdentifier: "m05-p2b-remove-current",
     }
     const LEGACY_ADMIN = {
       subject: "m05-p2b-remove-legacy-admin",
-      tokenIdentifier: "https://convex.test|m05-p2b-remove-legacy-admin",
+      tokenIdentifier: "m05-p2b-remove-legacy-admin",
     }
     const bindOwner = (identity: typeof CURRENT) =>
       t.run(async (ctx) => {
         const owner = (await ctx.db.query("cmsOwner").unique())!
-        await ctx.db.patch(owner._id, {
+        await ctx.db.patch("cmsOwner", owner._id, {
           authId: identity.subject,
           tokenIdentifier: identity.tokenIdentifier,
         })
@@ -7368,7 +7397,7 @@ describe("M05 P2b owner-only remove (command half)", () => {
         "unrelated signed-in",
         t.withIdentity({
           subject: "m05-p2b-remove-stranger",
-          tokenIdentifier: "https://convex.test|m05-p2b-remove-stranger",
+          tokenIdentifier: "m05-p2b-remove-stranger",
         }),
         "CMS_OWNER_REQUIRED",
       ],
@@ -7636,7 +7665,7 @@ describe("M05 P8 disable and re-enable", () => {
       )
       if (phase === "cancelling") {
         await site.t.run((ctx) =>
-          ctx.db.patch(transitionId, { phase: "cancelling" })
+          ctx.db.patch("siteLanguageTransitions", transitionId, { phase: "cancelling" })
         )
       }
       // M6 keeps an open F09 transition and the enabled module apart, so the
@@ -7647,7 +7676,7 @@ describe("M05 P8 disable and re-enable", () => {
       ) =>
         site.t.run(async (ctx) => {
           const row = (await ctx.db.query("siteLanguageAuthority").unique())!
-          await ctx.db.patch(row._id, { activeTransitionId })
+          await ctx.db.patch("siteLanguageAuthority", row._id, { activeTransitionId })
         })
       await nameTransition(undefined)
       await enableMultilingualModule(site.t)
@@ -7908,11 +7937,11 @@ describe("M05 P15a delayed releases (command half)", () => {
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(settings._id, {
+      await ctx.db.patch("siteSettings", settings._id, {
         defaultLocale: "nl",
         enabledLocales: ["nl"],
       })
-      await ctx.db.patch(authority._id, {
+      await ctx.db.patch("siteLanguageAuthority", authority._id, {
         currentLocale: "nl",
         version: current + 1,
       })
@@ -7931,7 +7960,7 @@ describe("M05 P15a delayed releases (command half)", () => {
     // Removal refuses an obligation in its language (P5), so it is built
     // after the removal, directly, as no writer creates one before M07.
     const releaseId = await seedRelease(site, "fr", "pending")
-    const release = (await t.run((ctx) => ctx.db.get(releaseId)))!
+    const release = (await t.run((ctx) => ctx.db.get("pageLocalePublicationReleases", releaseId)))!
     const row = {
       locale: release.locale,
       capturedLanguageVersion: await authorityVersion(t),
@@ -7942,7 +7971,7 @@ describe("M05 P15a delayed releases (command half)", () => {
       expect((await releaseEligibility(t, row)).verdict).toEqual(
         HELD_NOT_ENABLED
       )
-      expect(await t.run((ctx) => ctx.db.get(releaseId))).toEqual(release)
+      expect(await t.run((ctx) => ctx.db.get("pageLocalePublicationReleases", releaseId))).toEqual(release)
       expect(await outcome(() => publicRead(t, "fr", frPath))).toEqual(
         ok(NOT_FOUND)
       )
@@ -8029,7 +8058,7 @@ async function nameDefaultMigration(
 ) {
   await t.run(async (ctx) => {
     const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-    await ctx.db.patch(authority._id, { activeDefaultMigrationId: migrationId })
+    await ctx.db.patch("siteLanguageAuthority", authority._id, { activeDefaultMigrationId: migrationId })
   })
 }
 
@@ -8066,7 +8095,7 @@ async function storeContinuityPointer(site: Pick<Site, "t" | "aboutId">) {
       shadow: "to_current",
     })
     const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-    await ctx.db.patch(authority._id, { continuityPointer: pointer })
+    await ctx.db.patch("siteLanguageAuthority", authority._id, { continuityPointer: pointer })
   })
   return pointer
 }
@@ -8095,7 +8124,7 @@ async function adoptWithLiveTokens(site: Pick<Site, "t" | "owner">) {
 function setCutover(t: T, phase: "preparing" | "snapshot_active") {
   return t.run(async (ctx) => {
     const row = (await ctx.db.query("pagePublicationCutover").unique())!
-    await ctx.db.patch(row._id, { phase })
+    await ctx.db.patch("pagePublicationCutover", row._id, { phase })
   })
 }
 
@@ -8113,7 +8142,7 @@ describe("M05 C3a default-migration authority", () => {
       })
       await site.t.run(async (ctx) => {
         const row = (await ctx.db.query("siteLanguageAuthority").unique())!
-        await ctx.db.patch(row._id, fields(migrationId))
+        await ctx.db.patch("siteLanguageAuthority", row._id, fields(migrationId))
       })
       return recordSyscalls(() => languageKind(site.t))
     }
@@ -8155,7 +8184,7 @@ describe("M05 C3a default-migration authority", () => {
     })
     await nameDefaultMigration(t, migrationId)
     for (const phase of OPEN_MIGRATION_PHASES) {
-      await t.run((ctx) => ctx.db.patch(migrationId, { phase }))
+      await t.run((ctx) => ctx.db.patch("siteDefaultLanguageMigrations", migrationId, { phase }))
       expect(
         await refusalWritesNothing(t, () => addLanguage(site, "nl"))
       ).toEqual(OPERATION_OPEN)
@@ -8192,7 +8221,7 @@ describe("M05 C3a default-migration authority", () => {
 
     // Cancelled: the pointer is cleared, and the same reviewed removal commits.
     await t.run((ctx) =>
-      ctx.db.patch(migrationId, { phase: "cancelled", cancelledAt: Date.now() })
+      ctx.db.patch("siteDefaultLanguageMigrations", migrationId, { phase: "cancelled", cancelledAt: Date.now() })
     )
     await nameDefaultMigration(t, undefined)
     expect((await previewDisable(site)).blockers).toEqual([
@@ -8244,7 +8273,7 @@ describe("M05 C3a default-migration authority", () => {
             toLocale: "fr",
             phase: "enumerating",
           })
-          await t.run((ctx) => ctx.db.delete(id))
+          await t.run((ctx) => ctx.db.delete("siteDefaultLanguageMigrations", id))
           return id
         },
       ],
@@ -8309,7 +8338,7 @@ describe("M05 C3a default-migration authority", () => {
     ).toEqual(INVALID)
     await s1.t.run(async (ctx) => {
       const row = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(row._id, { activeTransitionId: undefined })
+      await ctx.db.patch("siteLanguageAuthority", row._id, { activeTransitionId: undefined })
     })
     expect(
       await refusalWritesNothing(s1.t, () =>
@@ -8398,7 +8427,7 @@ async function migrationSite(): Promise<MigrationSite> {
   const [homeFrId] = await seedLocaleStates(site, "fr", ["/"])
   await site.t.run(async (ctx) => {
     const settings = (await ctx.db.query("siteSettings").unique())!
-    await ctx.db.patch(settings._id, { homePageId: homeFrId })
+    await ctx.db.patch("siteSettings", settings._id, { homePageId: homeFrId })
   })
   return { ...site, homeEnId, homeFrId: homeFrId! }
 }
@@ -8418,7 +8447,7 @@ async function seedLocaleStates(
           q.eq("pageId", pageId).eq("locale", "fr")
         )
         .unique())!
-      await ctx.db.patch(state._id, { locale })
+      await ctx.db.patch("pageLocalePublicationStates", state._id, { locale })
     }
   })
   return pageIds
@@ -8476,7 +8505,7 @@ async function storePointedGeneration(
       })
     }
     const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-    await ctx.db.patch(authority._id, {
+    await ctx.db.patch("siteLanguageAuthority", authority._id, {
       continuityPointer: { migrationId, generation: 1 },
     })
   })
@@ -8504,7 +8533,7 @@ async function startMigration(
 }
 
 async function migrationRow(t: T, migrationId: MigrationId) {
-  return (await t.run((ctx) => ctx.db.get(migrationId)))!
+  return (await t.run((ctx) => ctx.db.get("siteDefaultLanguageMigrations", migrationId)))!
 }
 
 async function stepMigration(
@@ -8683,14 +8712,14 @@ describe("M05 C3b start", () => {
     // The home rule: `homePageId` without a current `fr` selection at `/`.
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, { homePageId: site.homeEnId })
+      await ctx.db.patch("siteSettings", settings._id, { homePageId: site.homeEnId })
     })
     expect(await refusalWritesNothing(t, start({}))).toEqual(
       refused("DEFAULT_MIGRATION_TARGET_HOME_MISSING")
     )
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, { homePageId: site.homeFrId })
+      await ctx.db.patch("siteSettings", settings._id, { homePageId: site.homeFrId })
     })
 
     // M4 comes before every other check.
@@ -8713,7 +8742,7 @@ describe("M05 C3b start", () => {
       phase: "enumerating",
     })
     const fixture = await migrationRow(t, fixtureId)
-    await t.run((ctx) => ctx.db.delete(fixtureId))
+    await t.run((ctx) => ctx.db.delete("siteDefaultLanguageMigrations", fixtureId))
     expect(Object.keys(migration).sort()).toEqual(
       [...Object.keys(fixture), "cursorPhase"].sort()
     )
@@ -8807,7 +8836,7 @@ describe("M05 C3b start", () => {
       },
     })
     // An authority naming a migration that is not open classifies IX here.
-    await t.run((ctx) => ctx.db.patch(migrationId, { phase: "cancelled" }))
+    await t.run((ctx) => ctx.db.patch("siteDefaultLanguageMigrations", migrationId, { phase: "cancelled" }))
     expect(
       await owner.query(api.cms.multilingual.getMultilingualState, {})
     ).toMatchObject({
@@ -9266,7 +9295,7 @@ describe("M05 P6 default migration enumeration cases", () => {
       cursorPhase: "old_default_current",
     })
     // So does a stored cursor that no longer decodes.
-    await t.run((ctx) => ctx.db.patch(migrationId, { cursor: "{not json" }))
+    await t.run((ctx) => ctx.db.patch("siteDefaultLanguageMigrations", migrationId, { cursor: "{not json" }))
     await stepMigration(t, migrationId)
     expect(await migrationRow(t, migrationId)).toMatchObject({
       generation: 4,
@@ -9303,12 +9332,12 @@ describe("M05 P15b delayed migration steps (step half)", () => {
     ).toEqual(ok(null))
     await nameDefaultMigration(t, migrationId)
     for (const phase of ["committed", "cancelled"] as const) {
-      await t.run((ctx) => ctx.db.patch(migrationId, { phase }))
+      await t.run((ctx) => ctx.db.patch("siteDefaultLanguageMigrations", migrationId, { phase }))
       expect(
         await refusalWritesNothing(t, () => stepMigration(t, migrationId))
       ).toEqual(ok(null))
     }
-    await t.run((ctx) => ctx.db.patch(migrationId, { phase: "enumerating" }))
+    await t.run((ctx) => ctx.db.patch("siteDefaultLanguageMigrations", migrationId, { phase: "enumerating" }))
 
     const realPaginate =
       defaultMigrationSeam.paginate.bind(defaultMigrationSeam)
@@ -9370,7 +9399,7 @@ describe("M05 P15b delayed migration steps (step half)", () => {
 
     // At page size one a further split restarts the generation.
     await t.run((ctx) =>
-      ctx.db.patch(migrationId, {
+      ctx.db.patch("siteDefaultLanguageMigrations", migrationId, {
         cursor: JSON.stringify({ ...JSON.parse(resumed.cursor!), size: 1 }),
       })
     )
@@ -9391,7 +9420,7 @@ describe("M05 P15b delayed migration steps (step half)", () => {
     await stepMigration(t, migrationId)
     const second = await migrationRow(t, migrationId)
     await t.run((ctx) =>
-      ctx.db.patch(migrationId, {
+      ctx.db.patch("siteDefaultLanguageMigrations", migrationId, {
         cursor: JSON.stringify({ ...JSON.parse(second.cursor!), size: 1 }),
       })
     )
@@ -9461,7 +9490,7 @@ async function storeF09Continuity(
       })
     }
     const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-    await ctx.db.patch(authority._id, {
+    await ctx.db.patch("siteLanguageAuthority", authority._id, {
       lastCommittedTransitionId: transitionId,
     })
   })
@@ -9625,7 +9654,7 @@ describe("M05 C3b migration disclosure listing and review receipts", () => {
 
     // A missing migration is malformed; a moved token is stale everywhere.
     await t.run((ctx) =>
-      ctx.db.patch(migrationId, { reviewedThroughOrdinal: -1 })
+      ctx.db.patch("siteDefaultLanguageMigrations", migrationId, { reviewedThroughOrdinal: -1 })
     )
     await owner.mutation(api.cms.redirects.create, {
       fromPath: "/late",
@@ -9702,20 +9731,20 @@ describe("M05 P2c owner-only default migration (enumeration, validation and canc
     const { t } = site
     const FORMER = {
       subject: "m05-p2c-former",
-      tokenIdentifier: "https://convex.test|m05-p2c-former",
+      tokenIdentifier: "m05-p2c-former",
     }
     const CURRENT = {
       subject: "m05-p2c-current",
-      tokenIdentifier: "https://convex.test|m05-p2c-current",
+      tokenIdentifier: "m05-p2c-current",
     }
     const LEGACY_ADMIN = {
       subject: "m05-p2c-legacy-admin",
-      tokenIdentifier: "https://convex.test|m05-p2c-legacy-admin",
+      tokenIdentifier: "m05-p2c-legacy-admin",
     }
     const bindOwner = (identity: typeof CURRENT) =>
       t.run(async (ctx) => {
         const owner = (await ctx.db.query("cmsOwner").unique())!
-        await ctx.db.patch(owner._id, {
+        await ctx.db.patch("cmsOwner", owner._id, {
           authId: identity.subject,
           tokenIdentifier: identity.tokenIdentifier,
         })
@@ -9780,7 +9809,7 @@ describe("M05 P2c owner-only default migration (enumeration, validation and canc
         "unrelated signed-in",
         t.withIdentity({
           subject: "m05-p2c-stranger",
-          tokenIdentifier: "https://convex.test|m05-p2c-stranger",
+          tokenIdentifier: "m05-p2c-stranger",
         }),
         "CMS_OWNER_REQUIRED",
       ],
@@ -10126,8 +10155,8 @@ describe("M05 P11c bounded default migration workers (enumeration cells)", () =>
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(settings._id, { enabledLocales: locales })
-      await ctx.db.patch(authority._id, { enabledLocales: locales })
+      await ctx.db.patch("siteSettings", settings._id, { enabledLocales: locales })
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { enabledLocales: locales })
     })
     // Uncontested paths make every candidate cost all four point reads.
     await seedLocaleStates(
@@ -10441,7 +10470,7 @@ describe("M05 C3c.1 default migration validation", () => {
     // A generation with no disclosure page seals the empty chain digest.
     const second = await validatingMigration()
     await second.site.t.run((ctx) =>
-      ctx.db.patch(second.migrationId, {
+      ctx.db.patch("siteDefaultLanguageMigrations", second.migrationId, {
         digest: undefined,
         disclosurePageCount: 0,
       })
@@ -10496,7 +10525,7 @@ describe("M05 C3c.1 default migration validation", () => {
       const setHome = (homePageId: Id<"pages">) =>
         t.run(async (ctx) => {
           const settings = (await ctx.db.query("siteSettings").unique())!
-          await ctx.db.patch(settings._id, { homePageId })
+          await ctx.db.patch("siteSettings", settings._id, { homePageId })
         })
       await setHome(homeEnId)
       expect(
@@ -10604,12 +10633,12 @@ describe("M05 C3c.1 default migration validation", () => {
         [JSON.stringify({ page: null, tally: { rows: -1 } }), 4],
       ] as const) {
         await other.t.run(async (ctx) => {
-          const row = (await ctx.db.get(otherId))!
+          const row = (await ctx.db.get("siteDefaultLanguageMigrations", otherId))!
           if (row.phase !== "validating") {
             // Re-enumerate the restarted generation first.
             return
           }
-          await ctx.db.patch(otherId, { cursor })
+          await ctx.db.patch("siteDefaultLanguageMigrations", otherId, { cursor })
         })
         await stepMigration(other.t, otherId)
         expect(await migrationRow(other.t, otherId)).toMatchObject({
@@ -10651,7 +10680,7 @@ describe("M05 C3c.1 default migration validation", () => {
       }
       await corrupt(
         "DEFAULT_MIGRATION_GENERATION_INCONSISTENT",
-        (ctx) => ctx.db.delete(first!._id),
+        (ctx) => ctx.db.delete("siteDefaultLanguageRoutes", first!._id),
         (ctx) => {
           const { _id, _creationTime, ...row } = first!
           void _id
@@ -10668,36 +10697,36 @@ describe("M05 C3c.1 default migration validation", () => {
           void _creationTime
           duplicateId = await ctx.db.insert("siteDefaultLanguageRoutes", row)
         },
-        (ctx) => ctx.db.delete(duplicateId!)
+        (ctx) => ctx.db.delete("siteDefaultLanguageRoutes", duplicateId!)
       )
       await corrupt(
         "DEFAULT_MIGRATION_GENERATION_INCONSISTENT",
-        (ctx) => ctx.db.patch(second!._id, { shadow: "to_current" }),
-        (ctx) => ctx.db.patch(second!._id, { shadow: undefined })
+        (ctx) => ctx.db.patch("siteDefaultLanguageRoutes", second!._id, { shadow: "to_current" }),
+        (ctx) => ctx.db.patch("siteDefaultLanguageRoutes", second!._id, { shadow: undefined })
       )
       await corrupt(
         "DEFAULT_MIGRATION_GENERATION_INCONSISTENT",
         (ctx) =>
-          ctx.db.patch(second!._id, {
+          ctx.db.patch("siteDefaultLanguageRoutes", second!._id, {
             shadow: "to_historical",
             manualRule: undefined,
           }),
-        (ctx) => ctx.db.patch(second!._id, { shadow: undefined })
+        (ctx) => ctx.db.patch("siteDefaultLanguageRoutes", second!._id, { shadow: undefined })
       )
       await corrupt(
         "DEFAULT_MIGRATION_GENERATION_INCONSISTENT",
-        (ctx) => ctx.db.patch(second!._id, { manualRule: "shadowed" }),
-        (ctx) => ctx.db.patch(second!._id, { manualRule: undefined })
+        (ctx) => ctx.db.patch("siteDefaultLanguageRoutes", second!._id, { manualRule: "shadowed" }),
+        (ctx) => ctx.db.patch("siteDefaultLanguageRoutes", second!._id, { manualRule: undefined })
       )
       await corrupt(
         "DEFAULT_MIGRATION_GENERATION_INCONSISTENT",
         (ctx) =>
-          ctx.db.patch(second!._id, {
+          ctx.db.patch("siteDefaultLanguageRoutes", second!._id, {
             shadow: "to_current",
             manualRule: "shadowed",
           }),
         (ctx) =>
-          ctx.db.patch(second!._id, {
+          ctx.db.patch("siteDefaultLanguageRoutes", second!._id, {
             shadow: undefined,
             manualRule: undefined,
           })
@@ -10722,8 +10751,8 @@ describe("M05 C3c.1 default migration validation", () => {
       const shadowed = routes.find((row) => row.shadow !== undefined)!
       expect(marked.fromPath).toBe("/marked")
       await t3.run(async (ctx) => {
-        await ctx.db.patch(marked._id, { manualRule: undefined })
-        await ctx.db.patch(shadowed._id, { manualRule: "shadowed" })
+        await ctx.db.patch("siteDefaultLanguageRoutes", marked._id, { manualRule: undefined })
+        await ctx.db.patch("siteDefaultLanguageRoutes", shadowed._id, { manualRule: "shadowed" })
       })
       expect(
         await refusalWritesNothing(t3, () => stepMigration(t3, otherId))
@@ -10845,7 +10874,7 @@ describe("M05 P6 default migration cancel", () => {
       toLocale: "fr",
       phase: "enumerating",
     })
-    await t.run((ctx) => ctx.db.delete(goneId))
+    await t.run((ctx) => ctx.db.delete("siteDefaultLanguageMigrations", goneId))
     expect(await refusalWritesNothing(t, cancel(goneId))).toEqual(
       refused("LANGUAGE_PREVIEW_MISMATCH")
     )
@@ -10873,22 +10902,22 @@ describe("M05 P6 default migration cancel", () => {
       }).toEqual({ phase, result: refused("LANGUAGE_OPERATION_STALE") })
     }
     // An authority naming a closed migration is invalid state.
-    await t.run((ctx) => ctx.db.patch(migrationId, { phase: "committed" }))
+    await t.run((ctx) => ctx.db.patch("siteDefaultLanguageMigrations", migrationId, { phase: "committed" }))
     expect(await refusalWritesNothing(t, cancel(migrationId))).toEqual(
       refused("SITE_LANGUAGE_AUTHORITY_INVALID")
     )
-    await t.run((ctx) => ctx.db.patch(migrationId, { phase: "validating" }))
+    await t.run((ctx) => ctx.db.patch("siteDefaultLanguageMigrations", migrationId, { phase: "validating" }))
     // So is a single authority naming a migration (C3a).
     await t.run(async (ctx) => {
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, { mode: "single" })
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { mode: "single" })
     })
     expect(await refusalWritesNothing(t, cancel(migrationId))).toEqual(
       refused("SITE_LANGUAGE_AUTHORITY_INVALID")
     )
     await t.run(async (ctx) => {
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, { mode: "multilingual" })
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { mode: "multilingual" })
     })
     // Outside a multilingual authority there is nothing to cancel.
     for (const state of ["V0S", "CUR"] as const) {
@@ -11303,11 +11332,11 @@ describe("M05 P6 default migration activation", () => {
         activateMigration(owner, claim)
     const patchMigration = (
       fields: Partial<Doc<"siteDefaultLanguageMigrations">>
-    ) => t.run((ctx) => ctx.db.patch(migrationId, fields))
+    ) => t.run((ctx) => ctx.db.patch("siteDefaultLanguageMigrations", migrationId, fields))
     const setHome = (pageId: Id<"pages">) =>
       t.run(async (ctx) => {
         const settings = (await ctx.db.query("siteSettings").unique())!
-        await ctx.db.patch(settings._id, { homePageId: pageId })
+        await ctx.db.patch("siteSettings", settings._id, { homePageId: pageId })
       })
     const migration = await migrationRow(t, migrationId)
     const manifest = migration.manifest!
@@ -11318,7 +11347,7 @@ describe("M05 P6 default migration activation", () => {
       toLocale: "fr",
       phase: "enumerating",
     })
-    await t.run((ctx) => ctx.db.delete(goneId))
+    await t.run((ctx) => ctx.db.delete("siteDefaultLanguageMigrations", goneId))
     await setCutover(t, "preparing")
     for (const claim of [args, { ...args, migrationId: goneId }]) {
       expect(await refusalWritesNothing(t, activate(claim))).toEqual(
@@ -11331,7 +11360,7 @@ describe("M05 P6 default migration activation", () => {
     // invalid, and outside a multilingual authority it is not adopted.
     await t.run(async (ctx) => {
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, { mode: "single" })
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { mode: "single" })
     })
     for (const claim of [args, { ...args, migrationId: goneId }]) {
       expect(await refusalWritesNothing(t, activate(claim))).toEqual(
@@ -11340,7 +11369,7 @@ describe("M05 P6 default migration activation", () => {
     }
     await t.run(async (ctx) => {
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, { mode: "multilingual" })
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { mode: "multilingual" })
     })
     for (const state of ["V0S", "CUR"] as const) {
       const other = await inventorySite(state)
@@ -11349,7 +11378,7 @@ describe("M05 P6 default migration activation", () => {
         toLocale: "fr",
         phase: "ready",
       })
-      await other.t.run((ctx) => ctx.db.delete(id))
+      await other.t.run((ctx) => ctx.db.delete("siteDefaultLanguageMigrations", id))
       const seeded = await seedDefaultMigration(other.t, {
         fromLocale: "en",
         toLocale: "fr",
@@ -11496,7 +11525,7 @@ describe("M05 P6 default migration activation", () => {
     expect(await refusalWritesNothing(t, activate())).toEqual(
       refused("DEFAULT_MIGRATION_TARGET_HOME_MISSING")
     )
-    await t.run((ctx) => ctx.db.delete(enPending))
+    await t.run((ctx) => ctx.db.delete("pageLocalePublicationReleases", enPending))
     expect(await refusalWritesNothing(t, activate())).toEqual(
       refused("DEFAULT_MIGRATION_TARGET_HOME_MISSING")
     )
@@ -11515,7 +11544,7 @@ describe("M05 P6 default migration activation", () => {
           status,
           result: refused("LANGUAGE_LOCALE_OBLIGATIONS_PRESENT"),
         })
-        await t.run((ctx) => ctx.db.delete(releaseId))
+        await t.run((ctx) => ctx.db.delete("pageLocalePublicationReleases", releaseId))
       }
     }
     // Another language's obligations do not block, and nothing above left a
@@ -11539,7 +11568,7 @@ describe("M05 P6 default migration activation", () => {
       [3, 1, refused("DEFAULT_MIGRATION_REVIEW_INCOMPLETE")],
     ] as const) {
       await t.run((ctx) =>
-        ctx.db.patch(migrationId, {
+        ctx.db.patch("siteDefaultLanguageMigrations", migrationId, {
           disclosurePageCount: count,
           reviewedThroughOrdinal: through,
         })
@@ -11553,7 +11582,7 @@ describe("M05 P6 default migration activation", () => {
       }).toEqual({ count, through, result })
     }
     await t.run((ctx) =>
-      ctx.db.patch(migrationId, {
+      ctx.db.patch("siteDefaultLanguageMigrations", migrationId, {
         disclosurePageCount: 0,
         reviewedThroughOrdinal: -1,
       })
@@ -11576,10 +11605,10 @@ describe("M05 P6 default migration activation", () => {
         )
         .collect()
       for (const row of rows) {
-        await ctx.db.patch(row._id, { hasCurrentSnapshot: false })
+        await ctx.db.patch("pageLocalePublicationStates", row._id, { hasCurrentSnapshot: false })
       }
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, { homePageId: homeEnId })
+      await ctx.db.patch("siteSettings", settings._id, { homePageId: homeEnId })
       return rows.map((row) => row._id)
     })
     expect(current.length).toBeGreaterThan(0)
@@ -11619,9 +11648,9 @@ describe("M05 P6 default migration activation", () => {
           q.eq("pageId", homeFrId).eq("locale", "fr")
         )
         .unique())!
-      await ctx.db.patch(home._id, { hasCurrentSnapshot: true })
+      await ctx.db.patch("pageLocalePublicationStates", home._id, { hasCurrentSnapshot: true })
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, { homePageId: homeFrId })
+      await ctx.db.patch("siteSettings", settings._id, { homePageId: homeFrId })
     })
     expect(await outcome(() => activateMigration(owner, args))).toEqual(
       ok({ version: args.expectedAuthorityVersion + 1, locale: "fr" })
@@ -11678,20 +11707,20 @@ describe("M05 P2c owner-only default migration (activation)", () => {
     const { t } = site
     const FORMER = {
       subject: "m05-p2c-act-former",
-      tokenIdentifier: "https://convex.test|m05-p2c-act-former",
+      tokenIdentifier: "m05-p2c-act-former",
     }
     const CURRENT = {
       subject: "m05-p2c-act-current",
-      tokenIdentifier: "https://convex.test|m05-p2c-act-current",
+      tokenIdentifier: "m05-p2c-act-current",
     }
     const LEGACY_ADMIN = {
       subject: "m05-p2c-act-legacy-admin",
-      tokenIdentifier: "https://convex.test|m05-p2c-act-legacy-admin",
+      tokenIdentifier: "m05-p2c-act-legacy-admin",
     }
     const bindOwner = (identity: typeof CURRENT) =>
       t.run(async (ctx) => {
         const owner = (await ctx.db.query("cmsOwner").unique())!
-        await ctx.db.patch(owner._id, {
+        await ctx.db.patch("cmsOwner", owner._id, {
           authId: identity.subject,
           tokenIdentifier: identity.tokenIdentifier,
         })
@@ -11728,7 +11757,7 @@ describe("M05 P2c owner-only default migration (activation)", () => {
         "unrelated signed-in",
         t.withIdentity({
           subject: "m05-p2c-act-stranger",
-          tokenIdentifier: "https://convex.test|m05-p2c-act-stranger",
+          tokenIdentifier: "m05-p2c-act-stranger",
         }),
         "CMS_OWNER_REQUIRED",
       ],
@@ -11979,7 +12008,7 @@ async function setPointer(
 ) {
   await t.run(async (ctx) => {
     const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-    await ctx.db.patch(authority._id, { continuityPointer: pointer })
+    await ctx.db.patch("siteLanguageAuthority", authority._id, { continuityPointer: pointer })
   })
 }
 
@@ -11988,7 +12017,7 @@ async function setMigration(
   migrationId: MigrationId,
   fields: Partial<Doc<"siteDefaultLanguageMigrations">>
 ) {
-  await t.run((ctx) => ctx.db.patch(migrationId, fields))
+  await t.run((ctx) => ctx.db.patch("siteDefaultLanguageMigrations", migrationId, fields))
 }
 
 describe("M05 P15b default migration collection", () => {
@@ -12198,7 +12227,7 @@ describe("M05 P15b default migration collection", () => {
           const authority = (await ctx.db
             .query("siteLanguageAuthority")
             .unique())!
-          if (c.authorities === 0) await ctx.db.delete(authority._id)
+          if (c.authorities === 0) await ctx.db.delete("siteLanguageAuthority", authority._id)
           else {
             const { _id, _creationTime, ...copy } = authority
             void _id
@@ -12227,7 +12256,7 @@ describe("M05 P15b default migration collection", () => {
       phase: "cancelled",
     })
     await seedGenerations(t, goneId, [{ generation: 1, rows: 2, pages: 1 }])
-    await t.run((ctx) => ctx.db.delete(goneId))
+    await t.run((ctx) => ctx.db.delete("siteDefaultLanguageMigrations", goneId))
     const goneBefore = await everyRow(t)
     expect(await collectStep(t, { migrationId: goneId })).toEqual({
       kind: "noop",
@@ -12240,9 +12269,9 @@ describe("M05 P15b default migration collection", () => {
           q.eq("previewId", previewId)
         )
         .collect()) {
-        await ctx.db.delete(page._id)
+        await ctx.db.delete("siteLanguageDisclosurePages", page._id)
       }
-      await ctx.db.delete(previewId)
+      await ctx.db.delete("siteLanguageImpactPreviews", previewId)
     })
     expect(await collectStep(t, { previewId })).toEqual({ kind: "noop" })
     expect(await everyRow(t)).toEqual(goneBefore)
@@ -12277,7 +12306,7 @@ describe("M05 P15b default migration collection", () => {
     }
     // Past its expiry time, a complete preview waits for its scheduled flip.
     await t.run((ctx) =>
-      ctx.db.patch(ids.complete, { expiresAt: FIXED_NOW - 1 })
+      ctx.db.patch("siteLanguageImpactPreviews", ids.complete, { expiresAt: FIXED_NOW - 1 })
     )
     for (const phase of ["scanning", "complete", "consumed"] as const) {
       expect(await drainCollection(t, { previewId: ids[phase] })).toEqual([
@@ -12300,7 +12329,7 @@ describe("M05 P15b default migration collection", () => {
     }
     // The preview rows themselves stay.
     expect(
-      await t.run(async (ctx) => (await ctx.db.get(ids.stale))?.phase)
+      await t.run(async (ctx) => (await ctx.db.get("siteLanguageImpactPreviews", ids.stale))?.phase)
     ).toBe("stale")
   })
 
@@ -12697,13 +12726,13 @@ async function activatedPathSite() {
           .gte("fromPath", "/dense-")
       )
       .take(3)
-    await ctx.db.patch(dense[0]!._id, { shadow: "to_current" })
-    await ctx.db.patch(dense[1]!._id, {
+    await ctx.db.patch("siteDefaultLanguageRoutes", dense[0]!._id, { shadow: "to_current" })
+    await ctx.db.patch("siteDefaultLanguageRoutes", dense[1]!._id, {
       retiredAt: FIXED_NOW,
       retiredReason: "to_historical",
     })
     // A carried row's destination is neither the old nor the new default.
-    await ctx.db.patch(dense[2]!._id, { locale: "nl", origin: "carried" })
+    await ctx.db.patch("siteDefaultLanguageRoutes", dense[2]!._id, { locale: "nl", origin: "carried" })
   })
   await seedSelections(site, [null, null])
   await seedLocaleStates(
@@ -12831,7 +12860,7 @@ describe("M05 P19c default migration lifecycle path phases", () => {
     const intent = await migrationIntent(t)
     for (const phase of ["manifest_paths", "new_default_paths"] as const) {
       await t.run((ctx) =>
-        ctx.db.patch(intent._id, {
+        ctx.db.patch("siteLanguageLifecycleIntents", intent._id, {
           phase,
           cursor: "not-a-cursor",
           origin: P19C_ORIGIN,
@@ -12858,7 +12887,7 @@ describe("M05 P19c default migration lifecycle path phases", () => {
     // The locales are the intent's own: an earlier `nl → it` intent keeps its
     // prefixes, and `it` has no current path, so its second phase posts nothing.
     await t.run((ctx) =>
-      ctx.db.patch(intent._id, {
+      ctx.db.patch("siteLanguageLifecycleIntents", intent._id, {
         locales: ["nl", "it"],
         phase: "manifest_paths",
         cursor: undefined,
@@ -12888,7 +12917,7 @@ describe("M05 P19c default migration lifecycle path phases", () => {
     const intentId = (await migrationIntent(t))._id
     const measure = (phase: "manifest_paths" | "new_default_paths") =>
       t.run(async (ctx) => {
-        const intent = (await ctx.db.get(intentId))!
+        const intent = (await ctx.db.get("siteLanguageLifecycleIntents", intentId))!
         const step = await planDefaultMigrationPaths(
           ctx,
           { ...intent, generation: 7 },
@@ -13189,7 +13218,7 @@ describe("M05 P6 default migration resolution", () => {
       await redirectTo(t, aboutId, "en", "/about")
     )
     await t.run((ctx) =>
-      ctx.db.patch(rows.get("/about")!._id, {
+      ctx.db.patch("siteDefaultLanguageRoutes", rows.get("/about")!._id, {
         retiredAt: FIXED_NOW,
         retiredReason: "to_current",
       })
@@ -13205,7 +13234,7 @@ describe("M05 P6 default migration resolution", () => {
     await withdrawPublished(site, movedId, "en")
     expect(await resolvePath(t, "fr", "/moved-old")).toEqual(UNAVAILABLE)
     await t.run((ctx) =>
-      ctx.db.patch(rows.get("/moved-old")!._id, {
+      ctx.db.patch("siteDefaultLanguageRoutes", rows.get("/moved-old")!._id, {
         retiredAt: FIXED_NOW,
         retiredReason: "to_historical",
       })
@@ -13220,7 +13249,7 @@ describe("M05 P6 default migration resolution", () => {
     // The reverse needs an en home at `/` (start's home rule).
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, { homePageId: site.homeEnId })
+      await ctx.db.patch("siteSettings", settings._id, { homePageId: site.homeEnId })
     })
     const reverseId = await migrateAndActivate(site, "en")
     expect(await authorityRow(t)).toMatchObject({
@@ -13661,7 +13690,7 @@ describe("M05 C3d.1 resolver pointer branch", () => {
     // A pointer at a generation with no rows reads as absent.
     await t.run(async (ctx) => {
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, {
+      await ctx.db.patch("siteLanguageAuthority", authority._id, {
         continuityPointer: { migrationId, generation: 7 },
       })
     })
@@ -13670,7 +13699,7 @@ describe("M05 C3d.1 resolver pointer branch", () => {
     // no longer enabled fails the projection gate alone.
     await t.run(async (ctx) => {
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, {
+      await ctx.db.patch("siteLanguageAuthority", authority._id, {
         continuityPointer: { migrationId, generation: 1 },
       })
     })
@@ -13734,7 +13763,7 @@ describe("M05 C3d.1 resolver pointer branch", () => {
     const withPointer = await resolve("/missing")
     await t.run(async (ctx) => {
       const authority = (await ctx.db.query("siteLanguageAuthority").unique())!
-      await ctx.db.patch(authority._id, { continuityPointer: undefined })
+      await ctx.db.patch("siteLanguageAuthority", authority._id, { continuityPointer: undefined })
     })
     const withoutPointer = await resolve("/missing")
     expect([withPointer.result, withoutPointer.result]).toEqual([
@@ -14222,7 +14251,7 @@ async function seedSiteDescriptions(
 ) {
   await t.run(async (ctx) => {
     const settings = (await ctx.db.query("siteSettings").unique())!
-    await ctx.db.patch(settings._id, fields)
+    await ctx.db.patch("siteSettings", settings._id, fields)
   })
 }
 
@@ -14573,7 +14602,7 @@ async function seedStateRow(
       _id: pageDocId,
       _creationTime: pageCreatedAt,
       ...page
-    } = (await ctx.db.get(site.aboutId))!
+    } = (await ctx.db.get("pages", site.aboutId))!
     void pageDocId
     void pageCreatedAt
     const clone = await ctx.db.insert("pages", {
@@ -15461,7 +15490,7 @@ describe("M05 A4 removeLastExtraLanguage", () => {
     // Another change bumps the module configuration version after review.
     await site.t.run(async (ctx) => {
       const row = (await ctx.db.query("cmsModuleState").first())!
-      await ctx.db.patch(row._id, {
+      await ctx.db.patch("cmsModuleState", row._id, {
         configurationVersion: row.configurationVersion + 1,
       })
     })
@@ -15489,7 +15518,7 @@ describe("M05 A4 removeLastExtraLanguage", () => {
     const site = await previewSite()
     await site.t.run(async (ctx) => {
       const row = (await ctx.db.query("cmsModuleState").first())!
-      await ctx.db.patch(row._id, {
+      await ctx.db.patch("cmsModuleState", row._id, {
         configurationVersion: Number.MAX_SAFE_INTEGER,
       })
     })
@@ -15820,11 +15849,11 @@ describe("M05 A4 owner-only (P2a)", () => {
     }
     const CURRENT = {
       subject: "a4-current",
-      tokenIdentifier: "https://convex.test|a4-current",
+      tokenIdentifier: "a4-current",
     }
     await site.t.run(async (ctx) => {
       const owner = (await ctx.db.query("cmsOwner").unique())!
-      await ctx.db.patch(owner._id, {
+      await ctx.db.patch("cmsOwner", owner._id, {
         authId: CURRENT.subject,
         tokenIdentifier: CURRENT.tokenIdentifier,
       })
@@ -15862,7 +15891,7 @@ describe("M05 A4 owner-only (P2a)", () => {
       site.t,
       site.t.withIdentity({
         subject: "a4-stranger",
-        tokenIdentifier: "https://convex.test|a4-stranger",
+        tokenIdentifier: "a4-stranger",
       }),
       site.t.withIdentity(OWNER),
     ]

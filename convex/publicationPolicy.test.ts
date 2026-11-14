@@ -42,7 +42,7 @@ vi.mock("./lib/publishing/publicationPolicy", async (importOriginal) => {
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "f08-policy-owner",
-  tokenIdentifier: "https://convex.test|f08-policy-owner",
+  tokenIdentifier: "f08-policy-owner",
 }
 
 function app() {
@@ -235,15 +235,15 @@ describe("F08 publication policy composition", () => {
       }
       seen.push({
         input,
-        candidateExists: (await ctx.db.get(input.candidateId)) !== null,
-        releaseExists: (await ctx.db.get(input.releaseId)) !== null,
+        candidateExists: (await ctx.db.get("pageLocalePublicationCandidates", input.candidateId)) !== null,
+        releaseExists: (await ctx.db.get("pageLocalePublicationReleases", input.releaseId)) !== null,
         tamperRejected,
       })
       return { decision: "allow" }
     }
 
     const result = await publish(owner, pageId)
-    const candidate = await t.run((ctx) => ctx.db.get(result.candidateId))
+    const candidate = await t.run((ctx) => ctx.db.get("pageLocalePublicationCandidates", result.candidateId))
     const release = await t.run((ctx) =>
       ctx.db
         .query("pageLocalePublicationReleases")

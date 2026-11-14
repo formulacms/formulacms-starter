@@ -197,7 +197,7 @@ export async function adoptMultilingualAuthorityInTransaction(
   const enabledLocales = [...state.settings.enabledLocales]
   const defaultLocale = state.settings.defaultLocale
   if (authority) {
-    await ctx.db.patch(authority._id, {
+    await ctx.db.patch("siteLanguageAuthority", authority._id, {
       mode: "multilingual",
       enabledLocales,
       currentLocale: defaultLocale,
@@ -245,7 +245,7 @@ export async function returnToSingleLanguageInTransaction(
   }
   if (state.locales.length !== 1) fail("LANGUAGE_MULTIPLE_LOCALES_ENABLED")
   const version = state.version + 1
-  await ctx.db.patch(state.authority._id, {
+  await ctx.db.patch("siteLanguageAuthority", state.authority._id, {
     mode: "single",
     enabledLocales: undefined,
     version,
@@ -359,14 +359,14 @@ export async function addLanguageInTransaction(
   const now = Date.now()
   const version = state.version + 1
   const enabledLocales = [...state.locales, locale]
-  await ctx.db.patch(state.authority._id, {
+  await ctx.db.patch("siteLanguageAuthority", state.authority._id, {
     enabledLocales,
     version,
     updatedAt: now,
   })
-  await ctx.db.patch(state.settings._id, { enabledLocales, updatedAt: now })
+  await ctx.db.patch("siteSettings", state.settings._id, { enabledLocales, updatedAt: now })
   if (preview) {
-    await ctx.db.patch(preview._id, { phase: "consumed", updatedAt: now })
+    await ctx.db.patch("siteLanguageImpactPreviews", preview._id, { phase: "consumed", updatedAt: now })
   }
   const operationKind = reveals ? "reveal" : "add"
   await insertLanguageLifecycleIntent(ctx, {
@@ -633,12 +633,12 @@ export async function addLanguageSilentlyInTransaction(
   const now = Date.now()
   const version = state.version + 1
   const enabledLocales = [...state.locales, locale]
-  await ctx.db.patch(state.authority._id, {
+  await ctx.db.patch("siteLanguageAuthority", state.authority._id, {
     enabledLocales,
     version,
     updatedAt: now,
   })
-  await ctx.db.patch(state.settings._id, { enabledLocales, updatedAt: now })
+  await ctx.db.patch("siteSettings", state.settings._id, { enabledLocales, updatedAt: now })
   const operationKind = reveals ? "reveal" : "add"
   await insertLanguageLifecycleIntent(ctx, {
     operationId: `${operationKind}:v${version}`,
@@ -669,7 +669,7 @@ export async function removeLanguageInTransaction(
   }
   const [state, target] = await Promise.all([
     readSiteLanguageState(ctx),
-    ctx.db.get(claim.previewId),
+    ctx.db.get("siteLanguageImpactPreviews", claim.previewId),
   ])
   if (state.kind === "invalid") fail("SITE_LANGUAGE_AUTHORITY_INVALID")
   if (state.kind !== "multilingual") fail("MULTILINGUAL_NOT_ADOPTED")
@@ -711,13 +711,13 @@ export async function removeLanguageInTransaction(
   const now = Date.now()
   const version = state.version + 1
   const enabledLocales = state.locales.filter((enabled) => enabled !== locale)
-  await ctx.db.patch(state.authority._id, {
+  await ctx.db.patch("siteLanguageAuthority", state.authority._id, {
     enabledLocales,
     version,
     updatedAt: now,
   })
-  await ctx.db.patch(state.settings._id, { enabledLocales, updatedAt: now })
-  await ctx.db.patch(preview._id, { phase: "consumed", updatedAt: now })
+  await ctx.db.patch("siteSettings", state.settings._id, { enabledLocales, updatedAt: now })
+  await ctx.db.patch("siteLanguageImpactPreviews", preview._id, { phase: "consumed", updatedAt: now })
   await insertLanguageLifecycleIntent(ctx, {
     operationId: `remove:v${version}`,
     operationKind: "remove",

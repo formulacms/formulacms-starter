@@ -43,6 +43,9 @@ next-env.d.ts
 .roo/
 .vscode/
 
+# slice authoring CLI sign-in (tokens), its lock and temp files
+/.slice-authoring-session.*
+
 # local design-time artifacts
 .cms-starter/
 .vercel

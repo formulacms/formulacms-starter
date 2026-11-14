@@ -16,6 +16,8 @@ const navigationTimeoutMs = Number(
   process.env.STARTER_E2E_NAV_TIMEOUT_MS ?? 60_000
 )
 const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+const ownerUsername = `starter-e2e-${unique}`
+const ownerPassword = "starter-e2e-password"
 const ownerClaim = process.env.STARTER_E2E_OWNER_CLAIM
 
 type OnboardingMode = "skip" | "single"
@@ -97,13 +99,9 @@ async function runOnboarding(page: Page) {
   // Setup opens on the language step: accept the prefilled choices.
   await page.getByRole("button", { name: setup.actions.continue }).click()
   await page.getByLabel(setup.fields.name).fill("Starter E2E")
-  await page
-    .getByLabel(setup.fields.signInEmail)
-    .fill(`starter-e2e-${unique}@example.com`)
-  await page.getByLabel(setup.fields.newPassword).fill("starter-e2e-password")
-  await page
-    .getByLabel(setup.fields.confirmPassword)
-    .fill("starter-e2e-password")
+  await page.getByLabel(setup.fields.username).fill(ownerUsername)
+  await page.getByLabel(setup.fields.newPassword).fill(ownerPassword)
+  await page.getByLabel(setup.fields.confirmPassword).fill(ownerPassword)
   await page.getByLabel(setup.fields.ownerCode).fill(ownerClaim)
   await page.getByRole("button", { name: setup.actions.createAccount }).click()
 
@@ -181,25 +179,37 @@ async function publishDraftHome(page: Page) {
   }
 }
 
-async function runForgotPasswordFlow(page: Page) {
-  await page.goto(url("/forgot-password"))
+/** Signs in through the sign-in form, which posts to /auth/signin. */
+async function submitSignIn(page: Page, username: string, password: string) {
+  await page.goto(url("/sign-in"))
   await waitForSettled(page)
   assertAuthoritativeSetupComplete(page.url(), "check:e2e")
-  const forgotPassword = adminMessagesForResolvedLocale(await pageLocale(page))
-    .auth.forgotPassword
+  const signIn = adminMessagesForResolvedLocale(await pageLocale(page)).auth
+    .signIn
   await assertVisible(
-    page.getByRole("heading", { name: forgotPassword.title }),
-    "Forgot-password page heading did not render."
+    page.getByRole("heading", { name: signIn.form.title }),
+    "Sign-in page heading did not render."
   )
-  await page
-    .getByLabel(forgotPassword.emailLabel)
-    .fill(`unknown-${unique}@example.com`)
-  await page.getByRole("button", { name: forgotPassword.sendResetLink }).click()
+  await page.getByLabel(signIn.form.usernameLabel).fill(username)
+  await page.getByLabel(signIn.form.passwordLabel).fill(password)
+  await page.getByRole("button", { name: signIn.form.submit }).click()
+  return signIn
+}
+
+// An unknown username gets the same neutral refusal as a wrong password.
+async function runRefusedSignIn(page: Page) {
+  const signIn = await submitSignIn(page, `unknown-${unique}`, ownerPassword)
   await assertVisible(
-    page.getByText(forgotPassword.confirmation),
-    "Forgot-password flow did not show neutral confirmation.",
+    page.getByText(signIn.errors.invalidCredentials),
+    "Sign-in did not refuse an unknown username with the neutral message.",
     20_000
   )
+}
+
+// The owner made by onboarding signs in again in a fresh browser.
+async function runOwnerSignIn(page: Page) {
+  await submitSignIn(page, ownerUsername, ownerPassword)
+  await page.waitForURL(/\/admin(?:\/|$)/, { timeout: 20_000 })
 }
 
 async function withPage<T>(
@@ -223,15 +233,16 @@ async function main() {
   try {
     if (onboardingMode === "single") {
       await withPage(browser, runOnboarding)
+      await withPage(browser, runOwnerSignIn)
     }
-    await withPage(browser, runForgotPasswordFlow)
+    await withPage(browser, runRefusedSignIn)
   } finally {
     await browser.close()
   }
 
   const onboarding =
     onboardingMode === "skip" ? "onboarding skipped" : "single onboarding"
-  console.log(`✓ Starter e2e passed (${onboarding}, forgot-password).`)
+  console.log(`✓ Starter e2e passed (${onboarding}, sign-in).`)
 }
 
 main().catch((error) => {

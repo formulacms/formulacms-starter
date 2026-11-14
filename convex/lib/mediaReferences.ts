@@ -159,7 +159,7 @@ export async function resolveMediaReference(
   ref: CollectedMediaReference
 ): Promise<ResolvedMediaReference | null> {
   if (ref.mediaId) {
-    const media = await ctx.db.get(ref.mediaId)
+    const media = await ctx.db.get("media", ref.mediaId)
     if (!media) return null
     return {
       mediaId: media._id,
@@ -200,7 +200,7 @@ export async function clearMediaReferencesForPage(
     .query("mediaReferences")
     .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
     .take(1000)
-  await Promise.all(existing.map((ref) => ctx.db.delete(ref._id)))
+  await Promise.all(existing.map((ref) => ctx.db.delete("mediaReferences", ref._id)))
 }
 
 export async function refreshMediaReferencesForPage(

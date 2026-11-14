@@ -289,7 +289,7 @@ export async function snapshotAdminPageRow(
   state: Doc<"pagePublicationPageStates">,
   options: { includeProspectivePaths?: boolean } = {}
 ): Promise<SnapshotAdminPageRow | null> {
-  const page = await ctx.db.get(state.pageId)
+  const page = await ctx.db.get("pages", state.pageId)
   if (!page || !isActiveContentType(page.pageType)) return null
   const [sharedRows, localeStates, settingsRows] = await Promise.all([
     ctx.db
@@ -912,7 +912,7 @@ async function clearSourceReferences(
       .take(513)
     if (rows.length > 512) throw new ConvexError("PUBLICATION_REFERENCE_LIMIT")
     await Promise.all(
-      rows.map((row) => occurrenceUsageWrites(ctx).delete(row._id))
+      rows.map((row) => occurrenceUsageWrites(ctx).delete(table, row._id))
     )
   }
 }
@@ -1190,7 +1190,7 @@ async function clearCurrentReferences(
       .take(513)
     if (rows.length > 512) throw new ConvexError("PUBLICATION_REFERENCE_LIMIT")
     await Promise.all(
-      rows.map((row) => occurrenceUsageWrites(ctx).delete(row._id))
+      rows.map((row) => occurrenceUsageWrites(ctx).delete(table, row._id))
     )
   }
 }
@@ -1286,7 +1286,7 @@ async function writeReferences(
     if (collected.storageId && collected.storageId !== resolved.storageId) {
       throw new ConvexError("PUBLICATION_MEDIA_REFERENCE_IDENTITY_MISMATCH")
     }
-    if (!(await ctx.db.system.get(resolved.storageId))) {
+    if (!(await ctx.db.system.get("_storage", resolved.storageId))) {
       throw new ConvexError("PUBLICATION_MEDIA_STORAGE_MISSING")
     }
   }
@@ -1306,7 +1306,7 @@ async function writeReferences(
     throw new ConvexError("PUBLICATION_REFERENCE_LIMIT")
   }
   for (const ref of documents) {
-    const target = await ctx.db.get(ref.targetId)
+    const target = await ctx.db.get("pages", ref.targetId)
     if (!target) throw new ConvexError("PUBLICATION_REFERENCE_TARGET_MISSING")
     if (
       validatePublicTargets &&
@@ -1334,7 +1334,7 @@ async function writeReferences(
   }
   for (const ancestor of ancestry) {
     const targetId = ancestor.pageId as Id<"pages">
-    const target = await ctx.db.get(targetId)
+    const target = await ctx.db.get("pages", targetId)
     if (
       !target ||
       !locale ||
@@ -1426,7 +1426,7 @@ async function captureAncestry(
       .query("pagePublicationPageStates")
       .withIndex("by_pageId", (q) => q.eq("pageId", cursor!))
       .take(2)
-    const parent = await ctx.db.get(cursor)
+    const parent = await ctx.db.get("pages", cursor)
     if (
       parentState.length !== 1 ||
       !parent ||
@@ -1715,7 +1715,7 @@ export const cleanupMigratedLegacyStaging = internalMutation({
     }
     const migrationRunId = cutover.migrationRunId
     if (cutover.cleanupStartedAt === undefined) {
-      await ctx.db.patch(cutover._id, { cleanupStartedAt: Date.now() })
+      await ctx.db.patch("pagePublicationCutover", cutover._id, { cleanupStartedAt: Date.now() })
     }
     const manifests = await ctx.db
       .query("pagePublicationMigrationPages")
@@ -1745,7 +1745,7 @@ export const cleanupMigratedLegacyStaging = internalMutation({
         retained += 1
         continue
       }
-      await occurrenceUsageWrites(ctx).delete(row._id)
+      await occurrenceUsageWrites(ctx).delete("pageStaging", row._id)
       deleted += 1
     }
     if (!manifests.isDone) {
@@ -1827,7 +1827,7 @@ export const normalizeLegacyHomeIdentity = mutation({
     const effective = await resolveEffectiveHomePageId(ctx, settings.homePageId)
     if (!effective) throw new ConvexError("PUBLICATION_HOME_REQUIRED")
     const now = Date.now()
-    await ctx.db.patch(settings._id, { homePageId: effective, updatedAt: now })
+    await ctx.db.patch("siteSettings", settings._id, { homePageId: effective, updatedAt: now })
     return { homePageId: effective, settingsUpdatedAt: now }
   },
 })
@@ -1861,7 +1861,7 @@ export const beginSnapshotMigration = mutation({
       throw new ConvexError("PUBLICATION_HOME_NOT_NORMALIZED")
     }
     const revision = row.revision + 1
-    await ctx.db.patch(row._id, {
+    await ctx.db.patch("pagePublicationCutover", row._id, {
       phase: "preparing",
       revision,
       migrationRunId: args.migrationRunId,
@@ -1908,7 +1908,7 @@ export const scanSnapshotMigrationSources = mutation({
     })
     const expectedPageCount =
       (cutover.expectedPageCount ?? 0) + batch.page.length
-    await ctx.db.patch(cutover._id, {
+    await ctx.db.patch("pagePublicationCutover", cutover._id, {
       expectedPageCount,
       ...(batch.isDone
         ? { closurePhase: "routes" as const, closureCursor: undefined }
@@ -1942,8 +1942,8 @@ async function preparedAncestry(
   const snapshotId = state.currentSnapshotId
   if (!snapshotId)
     throw new ConvexError("PUBLICATION_MIGRATION_PARENT_NOT_PREPARED")
-  const snapshot = await ctx.db.get(snapshotId)
-  const candidate = snapshot ? await ctx.db.get(snapshot.candidateId) : null
+  const snapshot = await ctx.db.get("pagePublishedSnapshots", snapshotId)
+  const candidate = snapshot ? await ctx.db.get("pageLocalePublicationCandidates", snapshot.candidateId) : null
   const payload = candidate
     ? await reconstructLocalePublicationCandidate(candidate)
     : null
@@ -1996,7 +1996,7 @@ export const prepareSnapshotMigrationPage = mutation({
       throw new ConvexError("PUBLICATION_MIGRATION_MANIFEST_INVALID")
     if (existingManifest.length === 1)
       return { pageId: args.pageId, prepared: false }
-    const page = await ctx.db.get(args.pageId)
+    const page = await ctx.db.get("pages", args.pageId)
     if (!page || !isActiveContentType(page.pageType))
       throw new ConvexError("PUBLICATION_MIGRATION_PAGE_INVALID")
     const [
@@ -2223,7 +2223,7 @@ export const prepareSnapshotMigrationPage = mutation({
             attribution: migrationAttribution,
           }
         )
-        await ctx.db.patch(releaseId, {
+        await ctx.db.patch("pageLocalePublicationReleases", releaseId, {
           publishedSnapshotId: snapshotId,
           publishedAt: now,
           updatedAt: now,
@@ -2266,7 +2266,7 @@ export const prepareSnapshotMigrationPage = mutation({
           ancestry,
           false
         )
-        await occurrenceUsageWrites(ctx).patch(state._id, {
+        await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
           draftBaseSnapshotId: snapshotId,
           publicGeneration: 1,
           releaseGeneration: 1,
@@ -2370,7 +2370,7 @@ export const prepareSnapshotMigrationPage = mutation({
       successorArtifactDigest,
       preparedAt: Date.now(),
     })
-    await ctx.db.patch(cutover._id, {
+    await ctx.db.patch("pagePublicationCutover", cutover._id, {
       preparedPageCount: (cutover.preparedPageCount ?? 0) + 1,
       updatedAt: Date.now(),
     })
@@ -2510,11 +2510,11 @@ async function verifyMigrationPublicReferences(
       }
     }
     for (const ref of media) {
-      const mediaRow = await ctx.db.get(ref.mediaId)
+      const mediaRow = await ctx.db.get("media", ref.mediaId)
       if (
         !mediaRow ||
         mediaRow.storageId !== ref.storageId ||
-        !(await ctx.db.system.get(ref.storageId))
+        !(await ctx.db.system.get("_storage", ref.storageId))
       ) {
         throw new ConvexError("PUBLICATION_MIGRATION_REFERENCE_INVALID")
       }
@@ -2892,7 +2892,7 @@ export const finalizeSnapshotMigration = mutation({
     })
     const closurePageCount = (cutover.closurePageCount ?? 0) + pages.length
     if (!pageBatch.isDone) {
-      await ctx.db.patch(cutover._id, {
+      await ctx.db.patch("pagePublicationCutover", cutover._id, {
         closurePhase: "references",
         closureCursor: pageBatch.continueCursor,
         closurePageCount,
@@ -2911,7 +2911,7 @@ export const finalizeSnapshotMigration = mutation({
     ) {
       throw new ConvexError("PUBLICATION_MIGRATION_CLOSURE_INCOMPLETE")
     }
-    await ctx.db.patch(cutover._id, {
+    await ctx.db.patch("pagePublicationCutover", cutover._id, {
       phase: "ready",
       closurePhase: "references",
       closureCursor: undefined,
@@ -2954,7 +2954,7 @@ export const activateSnapshotAuthority = mutation({
       throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_STALE")
     }
     const revision = cutover.revision + 1
-    await ctx.db.patch(cutover._id, {
+    await ctx.db.patch("pagePublicationCutover", cutover._id, {
       phase: "snapshot_active",
       revision,
       updatedAt: Date.now(),
@@ -3015,21 +3015,21 @@ export const abortSnapshotMigrationPage = mutation({
     for (const id of manifest.localeDraftIds)
       await clearSourceReferences(ctx, "locale_draft", id)
     await clearSourceReferences(ctx, "shared_draft", manifest.sharedDraftId)
-    await Promise.all(historicalRoutes.map((route) => ctx.db.delete(route._id)))
+    await Promise.all(historicalRoutes.map((route) => ctx.db.delete("pageHistoricalLocaleRoutes", route._id)))
     for (const id of manifest.snapshotIds)
-      await occurrenceUsageWrites(ctx).delete(id)
-    for (const id of manifest.releaseIds) await ctx.db.delete(id)
+      await occurrenceUsageWrites(ctx).delete("pagePublishedSnapshots", id)
+    for (const id of manifest.releaseIds) await ctx.db.delete("pageLocalePublicationReleases", id)
     for (const id of manifest.candidateIds)
-      await occurrenceUsageWrites(ctx).delete(id)
+      await occurrenceUsageWrites(ctx).delete("pageLocalePublicationCandidates", id)
     for (const id of manifest.localeDraftIds)
-      await occurrenceUsageWrites(ctx).delete(id)
+      await occurrenceUsageWrites(ctx).delete("pageLocaleDrafts", id)
     for (const id of manifest.localeStateIds)
-      await occurrenceUsageWrites(ctx).delete(id)
-    await occurrenceUsageWrites(ctx).delete(manifest.sharedDraftId)
-    await occurrenceUsageWrites(ctx).delete(manifest.pageStateId)
+      await occurrenceUsageWrites(ctx).delete("pageLocalePublicationStates", id)
+    await occurrenceUsageWrites(ctx).delete("pageSharedDrafts", manifest.sharedDraftId)
+    await occurrenceUsageWrites(ctx).delete("pagePublicationPageStates", manifest.pageStateId)
     await assertPageSuccessorArtifactsAbsent(ctx, manifest.pageId)
-    await ctx.db.delete(manifest._id)
-    await ctx.db.patch(cutover._id, {
+    await ctx.db.delete("pagePublicationMigrationPages", manifest._id)
+    await ctx.db.patch("pagePublicationCutover", cutover._id, {
       phase: "preparing",
       preparedPageCount: Math.max(0, (cutover.preparedPageCount ?? 1) - 1),
       closurePhase: undefined,
@@ -3065,7 +3065,7 @@ export const finishSnapshotMigrationAbort = mutation({
     if (remaining.length > 0)
       throw new ConvexError("PUBLICATION_MIGRATION_ABORT_INCOMPLETE")
     const revision = cutover.revision + 1
-    await ctx.db.patch(cutover._id, {
+    await ctx.db.patch("pagePublicationCutover", cutover._id, {
       phase: "legacy",
       revision,
       migrationRunId: undefined,
@@ -3153,7 +3153,7 @@ export const restoreSnapshotAsDraft = mutation({
     await requireSnapshotAuthority(ctx)
     const owner = await requireOperationAccess(ctx)
     const { settings } = await assertOrdinaryLocale(ctx, args.locale)
-    const page = await ctx.db.get(args.pageId)
+    const page = await ctx.db.get("pages", args.pageId)
     if (!page || !isActiveContentType(page.pageType))
       throw new ConvexError("PAGE_NOT_FOUND")
     const pageState = await onePageState(ctx, args.pageId)
@@ -3206,7 +3206,7 @@ export const restoreSnapshotAsDraft = mutation({
       readLegacyShapes: true,
       trustedSource: {
         recordId: args.snapshotId,
-        version: (await ctx.db.get(args.snapshotId))!.candidateDigest,
+        version: (await ctx.db.get("pagePublishedSnapshots", args.snapshotId))!.candidateDigest,
         content: { [args.locale]: frozen.payload.localized.content },
       },
     }
@@ -3318,7 +3318,7 @@ export const restoreSnapshotAsDraft = mutation({
     const now = Date.now()
     const draftGeneration = state.draftGeneration + 1
     const sharedDraftGeneration = shared.generation + 1
-    await occurrenceUsageWrites(ctx).patch(shared._id, {
+    await occurrenceUsageWrites(ctx).patch("pageSharedDrafts", shared._id, {
       generation: sharedDraftGeneration,
       system: restoredSystem,
       descriptor: restoredSharedDescriptor,
@@ -3337,7 +3337,7 @@ export const restoreSnapshotAsDraft = mutation({
       updatedAt: now,
     }
     const draftId = drafts[0]
-      ? (await occurrenceUsageWrites(ctx).patch(drafts[0]._id, row as never),
+      ? (await occurrenceUsageWrites(ctx).patch("pageLocaleDrafts", drafts[0]._id, row as never),
         drafts[0]._id)
       : await occurrenceUsageWrites(ctx).insert(
           "pageLocaleDrafts",
@@ -3380,7 +3380,7 @@ export const restoreSnapshotAsDraft = mutation({
       undefined,
       now
     )
-    await occurrenceUsageWrites(ctx).patch(state._id, {
+    await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
       draftGeneration,
       updatedAt: now,
     })
@@ -3423,7 +3423,7 @@ export const saveSharedDraft = mutation({
     const writeOptions: WriteOptions = {}
     await requireSnapshotAuthority(ctx)
     const owner = await requireOperationAccess(ctx)
-    const page = await ctx.db.get(args.pageId)
+    const page = await ctx.db.get("pages", args.pageId)
     if (!page) throw new ConvexError("PAGE_NOT_FOUND")
     const pageState = await onePageState(ctx, args.pageId)
     if (
@@ -3482,7 +3482,7 @@ export const saveSharedDraft = mutation({
       shared.descriptor as unknown as Record<string, unknown>,
       descriptorPatch
     )
-    await occurrenceUsageWrites(ctx).patch(shared._id, {
+    await occurrenceUsageWrites(ctx).patch("pageSharedDrafts", shared._id, {
       generation: shared.generation + 1,
       system: nextSystem,
       descriptor: nextDescriptor,
@@ -3529,7 +3529,7 @@ export const saveLocaleDraft = mutation({
     const writeOptions: WriteOptions = {}
     await requireSnapshotAuthority(ctx)
     const owner = await requireOperationAccess(ctx)
-    const page = await ctx.db.get(args.pageId)
+    const page = await ctx.db.get("pages", args.pageId)
     if (!page) throw new ConvexError("PAGE_NOT_FOUND")
     const pageState = await onePageState(ctx, args.pageId)
     if (
@@ -3619,7 +3619,7 @@ export const saveLocaleDraft = mutation({
             updatedAt: now,
           }
         )
-        const created = await ctx.db.get(stateId)
+        const created = await ctx.db.get("pageLocalePublicationStates", stateId)
         if (!created)
           throw new ConvexError("PAGE_LOCALE_PUBLICATION_STATE_INVALID")
         return created
@@ -3658,7 +3658,7 @@ export const saveLocaleDraft = mutation({
     )
     const localeDraftId = existingRows[0]
       ? (await occurrenceUsageWrites(ctx).patch(
-          existingRows[0]._id,
+          "pageLocaleDrafts", existingRows[0]._id,
           row as never
         ),
         existingRows[0]._id)
@@ -3678,7 +3678,7 @@ export const saveLocaleDraft = mutation({
       undefined,
       now
     )
-    await occurrenceUsageWrites(ctx).patch(state._id, {
+    await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
       draftGeneration: state.draftGeneration + 1,
       updatedAt: now,
     })
@@ -3746,7 +3746,7 @@ export const saveEditorDraft = mutation({
     if (!args.shared && !args.localized) {
       throw new ConvexError("EDITOR_DRAFT_PATCH_REQUIRED")
     }
-    const page = await ctx.db.get(args.pageId)
+    const page = await ctx.db.get("pages", args.pageId)
     if (!page) throw new ConvexError("PAGE_NOT_FOUND")
     const pageState = await onePageState(ctx, args.pageId)
     if (
@@ -3813,7 +3813,7 @@ export const saveEditorDraft = mutation({
       )
       if (args.shared.clearParent) delete nextSystem.parentId
       sharedDraftGeneration = shared.generation + 1
-      await occurrenceUsageWrites(ctx).patch(shared._id, {
+      await occurrenceUsageWrites(ctx).patch("pageSharedDrafts", shared._id, {
         generation: sharedDraftGeneration,
         descriptor: nextDescriptor,
         system: nextSystem,
@@ -3937,7 +3937,7 @@ export const saveEditorDraft = mutation({
               updatedAt: now,
             }
           )
-          const created = await ctx.db.get(stateId)
+          const created = await ctx.db.get("pageLocalePublicationStates", stateId)
           if (!created)
             throw new ConvexError("PAGE_LOCALE_PUBLICATION_STATE_INVALID")
           return created
@@ -3957,7 +3957,7 @@ export const saveEditorDraft = mutation({
       }
       const localeDraftId = existingRows[0]
         ? (await occurrenceUsageWrites(ctx).patch(
-            existingRows[0]._id,
+            "pageLocaleDrafts", existingRows[0]._id,
             row as never
           ),
           existingRows[0]._id)
@@ -3977,7 +3977,7 @@ export const saveEditorDraft = mutation({
         undefined,
         now
       )
-      await occurrenceUsageWrites(ctx).patch(state._id, {
+      await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
         draftGeneration,
         updatedAt: now,
       })
@@ -4039,10 +4039,10 @@ export const discardLocaleDraft = mutation({
     }
     if (rows[0]) {
       await clearSourceReferences(ctx, "locale_draft", rows[0]._id)
-      await occurrenceUsageWrites(ctx).delete(rows[0]._id)
+      await occurrenceUsageWrites(ctx).delete("pageLocaleDrafts", rows[0]._id)
     }
     const now = Date.now()
-    await occurrenceUsageWrites(ctx).patch(state._id, {
+    await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
       draftGeneration: state.draftGeneration + 1,
       updatedAt: now,
     })
@@ -4114,10 +4114,10 @@ export const deleteLocaleContent = mutation({
     if (drafts.length > 1) throw new ConvexError("PAGE_LOCALE_DRAFT_INVALID")
     if (drafts[0]) {
       await clearSourceReferences(ctx, "locale_draft", drafts[0]._id)
-      await occurrenceUsageWrites(ctx).delete(drafts[0]._id)
+      await occurrenceUsageWrites(ctx).delete("pageLocaleDrafts", drafts[0]._id)
     }
     const now = Date.now()
-    await occurrenceUsageWrites(ctx).patch(state._id, {
+    await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
       draftBaseSnapshotId: undefined,
       draftGeneration: state.draftGeneration + 1,
       updatedAt: now,
@@ -4160,7 +4160,7 @@ export const publishLocale = mutation({
       "PUBLICATION_LOCALE_CONFIG_INVALID"
     )
 
-    const page = await ctx.db.get(args.pageId)
+    const page = await ctx.db.get("pages", args.pageId)
     if (!page) throw new ConvexError("PAGE_NOT_FOUND")
 
     const pageStateRows = await ctx.db
@@ -4202,7 +4202,7 @@ export const publishLocale = mutation({
       throw new ConvexError("PAGE_LOCALE_PUBLICATION_STALE")
     }
     if (localeState.currentReleaseId) {
-      const currentRelease = await ctx.db.get(localeState.currentReleaseId)
+      const currentRelease = await ctx.db.get("pageLocalePublicationReleases", localeState.currentReleaseId)
       if (
         currentRelease &&
         (currentRelease.status === "pending" ||
@@ -4241,7 +4241,7 @@ export const publishLocale = mutation({
     }
     const sourceVersion = draftRows[0]
       ? sourceDraft.generation
-      : (await ctx.db.get(localeState.draftBaseSnapshotId!))!.candidateDigest
+      : (await ctx.db.get("pagePublishedSnapshots", localeState.draftBaseSnapshotId!))!.candidateDigest
     const draft = {
       ...sourceDraft,
       content: writeLocaleContent(
@@ -4376,7 +4376,7 @@ export const publishLocale = mutation({
         createdAt: publishedAt,
       }
     )
-    const persistedCandidate = await ctx.db.get(candidateId)
+    const persistedCandidate = await ctx.db.get("pageLocalePublicationCandidates", candidateId)
     const frozenPayload = persistedCandidate
       ? await reconstructLocalePublicationCandidate(persistedCandidate)
       : null
@@ -4443,7 +4443,7 @@ export const publishLocale = mutation({
         attribution,
       }
     )
-    await ctx.db.patch(releaseId, {
+    await ctx.db.patch("pageLocalePublicationReleases", releaseId, {
       publishedSnapshotId: snapshotId,
       publishedAt,
       updatedAt: publishedAt,
@@ -4484,7 +4484,7 @@ export const publishLocale = mutation({
         })
       }
     }
-    await occurrenceUsageWrites(ctx).patch(localeState._id, {
+    await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", localeState._id, {
       draftBaseSnapshotId: snapshotId,
       publicGeneration: localeState.publicGeneration + 1,
       releaseGeneration: localeState.releaseGeneration + 1,
@@ -4526,7 +4526,7 @@ export const publishLocale = mutation({
     // cannot touch another locale or a later save.
     if (draftRows[0]) {
       await clearSourceReferences(ctx, "locale_draft", draftRows[0]._id)
-      await occurrenceUsageWrites(ctx).delete(draftRows[0]._id)
+      await occurrenceUsageWrites(ctx).delete("pageLocaleDrafts", draftRows[0]._id)
     }
     // Step 10: optional History/Search run last; a throw rolls back all of it.
     await runPublicationContributions(
@@ -4672,7 +4672,7 @@ export const withdrawLocale = mutation({
     }
     const now = Date.now()
     await clearCurrentReferences(ctx, args.pageId, args.locale)
-    await occurrenceUsageWrites(ctx).patch(state._id, {
+    await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
       publicGeneration: state.publicGeneration + 1,
       currentSnapshotId: undefined,
       currentReleaseId: undefined,
@@ -4770,7 +4770,7 @@ export async function assertSnapshotPageSoftDeleteAllowed(
         .map((reference) => reference.menuId)
     )
   )
-  const liveMenus = (await Promise.all(menuIds.map((id) => ctx.db.get(id))))
+  const liveMenus = (await Promise.all(menuIds.map((id) => ctx.db.get("menus", id))))
     .filter(
       (menu): menu is Doc<"menus"> =>
         menu !== null && menu.deletedAt === undefined
@@ -4789,7 +4789,7 @@ export async function assertSnapshotPageSoftDeleteAllowed(
     })
   }
 
-  const target = await ctx.db.get(pageId)
+  const target = await ctx.db.get("pages", pageId)
   if (!target || target.pageType !== "author") return
   const currentReferences = await ctx.db
     .query("pagePublicationDocumentReferences")
@@ -4803,7 +4803,7 @@ export async function assertSnapshotPageSoftDeleteAllowed(
   const sourceIds = Array.from(
     new Set(boundedCurrentReferences.map((reference) => reference.pageId))
   )
-  const sourcePages = await Promise.all(sourceIds.map((id) => ctx.db.get(id)))
+  const sourcePages = await Promise.all(sourceIds.map((id) => ctx.db.get("pages", id)))
   const publishedPostIds = new Set(
     sourcePages
       .filter(
@@ -5077,7 +5077,7 @@ async function transitionLifecycle(
     patch.restoreLifecycleState =
       expectedCurrent === "archived" ? "archived" : "active"
   else patch.restoreLifecycleState = undefined
-  await occurrenceUsageWrites(ctx).patch(state._id, patch)
+  await occurrenceUsageWrites(ctx).patch("pagePublicationPageStates", state._id, patch)
   const cancelledReleaseLocales = new Set<string>()
   if (next === "trashed") {
     for (const localeState of localeStates) {
@@ -5095,7 +5095,7 @@ async function transitionLifecycle(
           throw new ConvexError("PUBLICATION_RELEASE_LIMIT")
         for (const release of releases) {
           cancelledReleaseLocales.add(localeState.locale)
-          await ctx.db.patch(release._id, {
+          await ctx.db.patch("pageLocalePublicationReleases", release._id, {
             status: "cancelled",
             cancelledAt: now,
             cancelReason: "PAGE_SOFT_DELETED",
@@ -5326,7 +5326,7 @@ export async function publishPreparedTargetLocale(
   )
   const locale = transition.targetLocale
   const attribution = transition.attribution
-  const page = await ctx.db.get(input.pageId)
+  const page = await ctx.db.get("pages", input.pageId)
   if (!page) throw new ConvexError("PAGE_NOT_FOUND")
   const pageState = await onePageState(ctx, input.pageId)
   if (
@@ -5364,7 +5364,7 @@ export async function publishPreparedTargetLocale(
         updatedAt: publishedAt,
       }
     )
-    localeState = await ctx.db.get(stateId)
+    localeState = await ctx.db.get("pageLocalePublicationStates", stateId)
     if (!localeState) {
       throw new ConvexError("PAGE_LOCALE_PUBLICATION_STATE_INVALID")
     }
@@ -5382,7 +5382,7 @@ export async function publishPreparedTargetLocale(
     throw new ConvexError("PAGE_LOCALE_PUBLICATION_STALE")
   }
   if (localeState.currentReleaseId) {
-    const currentRelease = await ctx.db.get(localeState.currentReleaseId)
+    const currentRelease = await ctx.db.get("pageLocalePublicationReleases", localeState.currentReleaseId)
     if (
       currentRelease &&
       (currentRelease.status === "pending" || currentRelease.status === "held")
@@ -5456,7 +5456,7 @@ export async function publishPreparedTargetLocale(
         input.pageId,
         transition.sourceLocale
       ),
-      ctx.db.get(input.sourceSnapshotId),
+      ctx.db.get("pagePublishedSnapshots", input.sourceSnapshotId),
     ])
     if (
       !frozen ||
@@ -5595,7 +5595,7 @@ export async function publishPreparedTargetLocale(
       createdAt: publishedAt,
     }
   )
-  const persistedCandidate = await ctx.db.get(candidateId)
+  const persistedCandidate = await ctx.db.get("pageLocalePublicationCandidates", candidateId)
   const frozenPayload = persistedCandidate
     ? await reconstructLocalePublicationCandidate(persistedCandidate)
     : null
@@ -5667,7 +5667,7 @@ export async function publishPreparedTargetLocale(
       attribution,
     }
   )
-  await ctx.db.patch(releaseId, {
+  await ctx.db.patch("pageLocalePublicationReleases", releaseId, {
     publishedSnapshotId: snapshotId,
     publishedAt,
     updatedAt: publishedAt,
@@ -5709,7 +5709,7 @@ export async function publishPreparedTargetLocale(
       })
     }
   }
-  await occurrenceUsageWrites(ctx).patch(localeState._id, {
+  await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", localeState._id, {
     draftBaseSnapshotId: snapshotId,
     publicGeneration: localeState.publicGeneration + 1,
     releaseGeneration: localeState.releaseGeneration + 1,
@@ -5747,7 +5747,7 @@ export async function publishPreparedTargetLocale(
   })
   if (draftId && !(input.arm === "draft" && input.preserveDraft)) {
     await clearSourceReferences(ctx, "locale_draft", draftId)
-    await occurrenceUsageWrites(ctx).delete(draftId)
+    await occurrenceUsageWrites(ctx).delete("pageLocaleDrafts", draftId)
   }
   await runPublicationContributions(ctx, INSTALLED_PUBLICATION_CONTRIBUTIONS, {
     kind: "publish",
@@ -5835,7 +5835,7 @@ export async function withdrawPreparedTargetLocale(
   }
   const now = Date.now()
   await clearCurrentReferences(ctx, input.pageId, locale)
-  await occurrenceUsageWrites(ctx).patch(state._id, {
+  await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
     publicGeneration: state.publicGeneration + 1,
     currentSnapshotId: undefined,
     currentReleaseId: undefined,
@@ -5893,7 +5893,7 @@ export async function createTransitionTargetDraft(
     new Set(["enumerating", "preparing", "validating", "ready"])
   )
   const locale = transition.targetLocale
-  const page = await ctx.db.get(input.pageId)
+  const page = await ctx.db.get("pages", input.pageId)
   if (!page) throw new ConvexError("PAGE_NOT_FOUND")
   const [stateRows, draftRows] = await Promise.all([
     ctx.db
@@ -5993,7 +5993,7 @@ export async function createTransitionTargetDraft(
         updatedAt: now,
       }
     )
-    state = await ctx.db.get(stateId)
+    state = await ctx.db.get("pageLocalePublicationStates", stateId)
     if (!state) throw new ConvexError("PAGE_LOCALE_PUBLICATION_STATE_INVALID")
   }
   const draftGeneration = state.draftGeneration + 1
@@ -6019,7 +6019,7 @@ export async function createTransitionTargetDraft(
     undefined,
     now
   )
-  await occurrenceUsageWrites(ctx).patch(state._id, {
+  await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
     draftGeneration,
     updatedAt: now,
   })
@@ -6096,9 +6096,9 @@ export async function deleteTransitionTargetDraft(
   if (drafts.length > 1) throw new ConvexError("PAGE_LOCALE_DRAFT_INVALID")
   if (drafts[0]) {
     await clearSourceReferences(ctx, "locale_draft", drafts[0]._id)
-    await occurrenceUsageWrites(ctx).delete(drafts[0]._id)
+    await occurrenceUsageWrites(ctx).delete("pageLocaleDrafts", drafts[0]._id)
   }
-  await occurrenceUsageWrites(ctx).patch(state._id, {
+  await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
     draftBaseSnapshotId: undefined,
     draftGeneration: state.draftGeneration + 1,
     updatedAt: Date.now(),
@@ -6127,7 +6127,7 @@ export async function deleteCancelledRetainedTargetDraft(
     expectedLifecycleGeneration: number
   }
 ): Promise<number> {
-  const page = await ctx.db.get(input.pageId)
+  const page = await ctx.db.get("pages", input.pageId)
   if (!page) throw new ConvexError("PAGE_NOT_FOUND")
 
   const pageState = await onePageState(ctx, input.pageId)
@@ -6181,9 +6181,9 @@ export async function deleteCancelledRetainedTargetDraft(
   }
 
   await clearSourceReferences(ctx, "locale_draft", draft._id)
-  await occurrenceUsageWrites(ctx).delete(draft._id)
+  await occurrenceUsageWrites(ctx).delete("pageLocaleDrafts", draft._id)
   const draftGeneration = state.draftGeneration + 1
-  await occurrenceUsageWrites(ctx).patch(state._id, {
+  await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
     draftBaseSnapshotId: undefined,
     draftGeneration,
     updatedAt: Date.now(),
@@ -6431,7 +6431,7 @@ export async function stepSitemapManifestBuildInTransaction(
   if (manifest.status !== "building") return "noop"
   const now = Date.now()
   const abandon = async (): Promise<SitemapBuildStep> => {
-    await ctx.db.patch(manifest._id, { status: "abandoned", updatedAt: now })
+    await ctx.db.patch("siteSitemapManifests", manifest._id, { status: "abandoned", updatedAt: now })
     return "abandoned"
   }
   if ((await readLiveLanguageVersion(ctx)) !== manifest.languageVersion) {
@@ -6447,13 +6447,13 @@ export async function stepSitemapManifestBuildInTransaction(
       )
       .take(2)
     for (const previous of ready) {
-      await ctx.db.patch(previous._id, {
+      await ctx.db.patch("siteSitemapManifests", previous._id, {
         status: "superseded",
         supersededAt: now,
         updatedAt: now,
       })
     }
-    await ctx.db.patch(manifest._id, { status: "ready", updatedAt: now })
+    await ctx.db.patch("siteSitemapManifests", manifest._id, { status: "ready", updatedAt: now })
     return "published"
   }
 
@@ -6483,7 +6483,7 @@ export async function stepSitemapManifestBuildInTransaction(
     oversized: close.oversized,
   })
   await ctx.db.patch(
-    manifest._id,
+    "siteSitemapManifests", manifest._id,
     close.highCreationTime === null
       ? {
           buildLocale: nextLocale,
@@ -6566,7 +6566,7 @@ export async function runSitemapSweepStep(
       )
       const stalled = building[0]
       if (stalled && stalled.updatedAt < now - SITEMAP_BUILD_STALL_MS) {
-        await ctx.db.patch(stalled._id, {
+        await ctx.db.patch("siteSitemapManifests", stalled._id, {
           status: "abandoned",
           updatedAt: now,
         })
@@ -6661,9 +6661,9 @@ export async function runSitemapSweepStep(
       q.eq("manifestVersion", collectable.manifestVersion)
     )
     .take(SITEMAP_COLLECT_BATCH)
-  for (const partition of partitions) await ctx.db.delete(partition._id)
+  for (const partition of partitions) await ctx.db.delete("siteSitemapPartitions", partition._id)
   if (partitions.length < SITEMAP_COLLECT_BATCH) {
-    await ctx.db.delete(collectable._id)
+    await ctx.db.delete("siteSitemapManifests", collectable._id)
   }
   await scheduleSitemapSweep(ctx, "collect")
 }

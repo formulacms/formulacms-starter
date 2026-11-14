@@ -16,7 +16,7 @@ type PostStageIdentityPatch = Partial<
 > & { authorIds: AuthorIdentityRows }
 const OWNER = {
   subject: "rf2a-author-identity-owner",
-  tokenIdentifier: "https://convex.test|rf2a-author-identity-owner",
+  tokenIdentifier: "rf2a-author-identity-owner",
   name: "RF2a owner",
   email: "rf2a-owner@example.test",
 }

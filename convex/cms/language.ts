@@ -230,7 +230,7 @@ async function scheduleStep(
   ctx: MutationCtx,
   transitionId: Id<"siteLanguageTransitions">
 ): Promise<void> {
-  const transition = await ctx.db.get(transitionId)
+  const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
   if (!transition || !OPEN_TRANSITION_PHASES.has(transition.phase)) return
   await ctx.scheduler.runAfter(
     0,
@@ -461,7 +461,7 @@ async function readRetainedTargetState(
     fail("PUBLISHED_SNAPSHOT_INTEGRITY_INVALID")
   }
   const selectionSnapshot = targetState?.currentSnapshotId
-    ? await ctx.db.get(targetState.currentSnapshotId)
+    ? await ctx.db.get("pagePublishedSnapshots", targetState.currentSnapshotId)
     : null
   if (frozen && !selectionSnapshot) {
     fail("PUBLISHED_SNAPSHOT_INTEGRITY_INVALID")
@@ -583,7 +583,7 @@ async function patchRow(
 ): Promise<void> {
   const disposition = next.disposition ?? row.disposition
   const status = next.status ?? row.status
-  await ctx.db.patch(row._id, {
+  await ctx.db.patch("siteLanguageTransitionPages", row._id, {
     ...next,
     generation: row.generation + 1,
     updatedAt: Date.now(),
@@ -666,7 +666,7 @@ async function deleteRoutes(
     .take(ROUTE_LIMIT + 1)
   if (routes.length > ROUTE_LIMIT) fail("LANGUAGE_TRANSITION_ROUTE_LIMIT")
   for (const route of routes) {
-    if (route.origin === origin) await ctx.db.delete(route._id)
+    if (route.origin === origin) await ctx.db.delete("siteLanguageTransitionRoutes", route._id)
   }
 }
 
@@ -901,7 +901,7 @@ async function convertPointedCarryRoutes(
       })
       return true
     }
-    const fresh = await ctx.db.get(transition._id)
+    const fresh = await ctx.db.get("siteLanguageTransitions", transition._id)
     if (!fresh) fail("LANGUAGE_TRANSITION_STATE_INVALID")
     const stale =
       fresh.sourcePublicSetVersion !== cursor.startSourcePublicSetVersion ||
@@ -1175,7 +1175,7 @@ async function reconcilePointedCarryRoutes(
   }> = []
   for (const decision of result.page) {
     if (decision.outcome === "drop_retired") continue
-    const route = await ctx.db.get(decision.routeId)
+    const route = await ctx.db.get("siteDefaultLanguageRoutes", decision.routeId)
     if (!route || route.fromPath !== decision.fromPath) {
       fail("LANGUAGE_TRANSITION_STATE_INVALID")
     }
@@ -1209,7 +1209,7 @@ async function reconcilePointedCarryRoutes(
 
   const decidedAt = Date.now()
   for (const plan of plans) {
-    await ctx.db.patch(plan.decision._id, {
+    await ctx.db.patch("siteLanguageCarryDecisions", plan.decision._id, {
       outcome: plan.outcome,
       capturedSourcePublicSetVersion: transition.sourcePublicSetVersion,
       capturedCarryInputVersion: transition.carryInputVersion ?? 0,
@@ -1225,7 +1225,7 @@ async function reconcilePointedCarryRoutes(
         createdAt: decidedAt,
       })
     } else if (plan.outcome !== "carry" && plan.owned) {
-      await ctx.db.delete(plan.owned._id)
+      await ctx.db.delete("siteLanguageTransitionRoutes", plan.owned._id)
     }
   }
   await patchTransition(ctx, transition._id, {
@@ -1345,7 +1345,7 @@ async function coverPointedCarryRoutes(
   if (entersValidation && !confirmationReceiptsMatch(transition)) {
     fail("LANGUAGE_TRANSITION_PREVIEW_UNCONFIRMED")
   }
-  await ctx.db.replace(transition._id, {
+  await ctx.db.replace("siteLanguageTransitions", transition._id, {
     ...storedTransition,
     ...(entersValidation
       ? {
@@ -1630,7 +1630,7 @@ export const listLanguageTransitionPages = query({
   returns: paginationResultValidator(transitionPageReportValidator),
   handler: async (ctx, args) => {
     const owner = await requireInstallationOwner(ctx)
-    const transition = await ctx.db.get(args.transitionId)
+    const transition = await ctx.db.get("siteLanguageTransitions", args.transitionId)
     if (!transition) fail("LANGUAGE_TRANSITION_NOT_FOUND")
     const status = args.status
     const result = status
@@ -1806,7 +1806,7 @@ export const listLanguageCarryDecisions = query({
   returns: paginationResultValidator(carryDecisionViewValidator),
   handler: async (ctx, args) => {
     await requireInstallationOwner(ctx)
-    if (!(await ctx.db.get(args.transitionId))) {
+    if (!(await ctx.db.get("siteLanguageTransitions", args.transitionId))) {
       fail("LANGUAGE_TRANSITION_NOT_FOUND")
     }
     const range = ctx.db
@@ -1865,7 +1865,7 @@ export const getSourcePublicationNotice = query({
       transition.sourceLocale
     )
     const snapshot = sourceState?.currentSnapshotId
-      ? await ctx.db.get(sourceState.currentSnapshotId)
+      ? await ctx.db.get("pagePublishedSnapshots", sourceState.currentSnapshotId)
       : null
     return {
       sourceLocale: transition.sourceLocale,
@@ -2064,7 +2064,7 @@ export const startLanguageTransition = mutation({
     // 4. Rollback names the last committed transition with reversed locales.
     if (args.mode === "rollback") {
       const compensated = args.compensatesTransitionId
-        ? await ctx.db.get(args.compensatesTransitionId)
+        ? await ctx.db.get("siteLanguageTransitions", args.compensatesTransitionId)
         : null
       if (
         !compensated ||
@@ -2120,7 +2120,7 @@ export const startLanguageTransition = mutation({
       createdAt: now,
       updatedAt: now,
     })
-    await ctx.db.patch(state.authority._id, {
+    await ctx.db.patch("siteLanguageAuthority", state.authority._id, {
       activeTransitionId: transitionId,
       updatedAt: now,
     })
@@ -2169,7 +2169,7 @@ export async function runLanguageTransitionStep(
   transitionId: Id<"siteLanguageTransitions">,
   generation: number
 ): Promise<null> {
-  const transition = await ctx.db.get(transitionId)
+  const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
   if (
     !transition ||
     transition.generation !== generation ||
@@ -2212,7 +2212,7 @@ export const continueLanguageTransition = mutation({
     )
     const more = await runStep(ctx, transition)
     if (more) await scheduleContinuation(ctx, transition)
-    const after = await ctx.db.get(transition._id)
+    const after = await ctx.db.get("siteLanguageTransitions", transition._id)
     if (!after) fail("LANGUAGE_TRANSITION_STATE_INVALID")
     return { phase: after.phase, generation: after.generation, more }
   },
@@ -2233,7 +2233,7 @@ async function attributeSnapshot(
   if (rows.length > ATTRIBUTION_LIMIT) fail("LANGUAGE_TRANSITION_STATE_INVALID")
   for (const row of rows) {
     if (row.transitionId === transition._id) continue
-    const earlier = await ctx.db.get(row.transitionId)
+    const earlier = await ctx.db.get("siteLanguageTransitions", row.transitionId)
     if (!earlier) fail("LANGUAGE_TRANSITION_STATE_INVALID")
     if (earlier.phase !== "committed" && earlier.phase !== "cancelled") continue
     if (
@@ -2269,7 +2269,7 @@ async function attributeDraft(
       if (row.target.draftGeneration !== undefined) return true
       continue
     }
-    const earlier = await ctx.db.get(row.transitionId)
+    const earlier = await ctx.db.get("siteLanguageTransitions", row.transitionId)
     if (!earlier) fail("LANGUAGE_TRANSITION_STATE_INVALID")
     if (
       (earlier.phase === "committed" || earlier.phase === "cancelled") &&
@@ -2521,7 +2521,7 @@ async function enumerateStep(
   if (transition.mode === "correct_label") {
     await copyLiveMenuTextToTarget(ctx, transition)
   }
-  const fresh = await ctx.db.get(transition._id)
+  const fresh = await ctx.db.get("siteLanguageTransitions", transition._id)
   if (!fresh) fail("LANGUAGE_TRANSITION_STATE_INVALID")
   await patchTransition(ctx, transition._id, {
     fields: {
@@ -2584,8 +2584,8 @@ export async function copyMenuTextToTarget(
     transition.sourceLocale
   )
   if (canonicalJson(next) === canonicalJson(menu.nav)) return
-  await ctx.db.patch(menu._id, { nav: next, updatedAt: Date.now() })
-  const saved = await ctx.db.get(menu._id)
+  await ctx.db.patch("menus", menu._id, { nav: next, updatedAt: Date.now() })
+  const saved = await ctx.db.get("menus", menu._id)
   if (!saved) fail("LANGUAGE_TRANSITION_MENU_INVALID")
   await refreshMenuReferences(ctx, saved)
   await patchTransition(ctx, transition._id, {
@@ -2809,7 +2809,7 @@ export const prepareTransitionPage = internalMutation({
     v.literal("skipped")
   ),
   handler: async (ctx, args): Promise<PrepareOutcome> => {
-    const transition = await ctx.db.get(args.transitionId)
+    const transition = await ctx.db.get("siteLanguageTransitions", args.transitionId)
     if (
       !transition ||
       transition.generation !== args.generation ||
@@ -2918,7 +2918,7 @@ async function prepareCorrectionStep(
     })
     return true
   }
-  const fresh = await ctx.db.get(transition._id)
+  const fresh = await ctx.db.get("siteLanguageTransitions", transition._id)
   if (!fresh) fail("LANGUAGE_TRANSITION_STATE_INVALID")
   if (fresh.unresolvedCount === 0) {
     await patchTransition(ctx, transition._id, {
@@ -3434,7 +3434,7 @@ export const setPageDisposition = mutation({
         .take(ROUTE_LIMIT + 1)
       for (const route of routes) {
         if (route.origin === "redirect_disposition")
-          await ctx.db.delete(route._id)
+          await ctx.db.delete("siteLanguageTransitionRoutes", route._id)
       }
     }
     if (
@@ -3451,7 +3451,7 @@ export const setPageDisposition = mutation({
       )
     }
     const leaving = args.disposition !== "target"
-    await ctx.db.patch(row._id, {
+    await ctx.db.patch("siteLanguageTransitionPages", row._id, {
       disposition: args.disposition,
       redirectToPageId: args.redirectToPageId,
       target: leaving ? targetWithoutSelection(acceptedTarget) : acceptedTarget,
@@ -3767,7 +3767,7 @@ async function returnToPreparing(
   ctx: MutationCtx,
   transitionId: Id<"siteLanguageTransitions">
 ) {
-  const fresh = await ctx.db.get(transitionId)
+  const fresh = await ctx.db.get("siteLanguageTransitions", transitionId)
   if (!fresh) fail("LANGUAGE_TRANSITION_STATE_INVALID")
   await patchTransition(ctx, transitionId, {
     fields: {
@@ -4002,7 +4002,7 @@ async function validateStep(
     }
   }
 
-  const fresh = await ctx.db.get(transition._id)
+  const fresh = await ctx.db.get("siteLanguageTransitions", transition._id)
   if (!fresh) fail("LANGUAGE_TRANSITION_STATE_INVALID")
   if (failures > 0 || fresh.unresolvedCount > 0 || fresh.blockedCount > 0) {
     await returnToPreparing(ctx, transition._id)
@@ -4086,7 +4086,7 @@ async function transitionSwapsDescriptions(
   if (transition.mode === "correct_label") return true
   if (transition.mode === "replace_content") return false
   const compensated = transition.compensatesTransitionId
-    ? await ctx.db.get(transition.compensatesTransitionId)
+    ? await ctx.db.get("siteLanguageTransitions", transition.compensatesTransitionId)
     : null
   if (!compensated) fail("LANGUAGE_ROLLBACK_INVALID")
   return compensated.descriptionSwapped === true
@@ -4107,7 +4107,7 @@ export async function activateLanguageTransitionInTransaction(
     fail("LANGUAGE_TRANSITION_MULTILINGUAL_ENABLED")
   }
   if (state.kind !== "current") fail("SITE_LANGUAGE_AUTHORITY_INVALID")
-  const transition = await ctx.db.get(args.transitionId)
+  const transition = await ctx.db.get("siteLanguageTransitions", args.transitionId)
   if (
     !transition ||
     state.authority.activeTransitionId !== transition._id ||
@@ -4168,7 +4168,7 @@ export async function activateLanguageTransitionInTransaction(
 
   const now = Date.now()
   const version = state.version + 1
-  await ctx.db.patch(state.settings._id, {
+  await ctx.db.patch("siteSettings", state.settings._id, {
     defaultLocale: transition.targetLocale,
     enabledLocales: [transition.targetLocale],
     ...transitionSiteDescriptionFields(
@@ -4179,7 +4179,7 @@ export async function activateLanguageTransitionInTransaction(
     ),
     updatedAt: now,
   })
-  await ctx.db.patch(state.authority._id, {
+  await ctx.db.patch("siteLanguageAuthority", state.authority._id, {
     version,
     currentLocale: transition.targetLocale,
     activeTransitionId: undefined,
@@ -4187,7 +4187,7 @@ export async function activateLanguageTransitionInTransaction(
     continuityPointer: undefined,
     updatedAt: now,
   })
-  await ctx.db.patch(transition._id, {
+  await ctx.db.patch("siteLanguageTransitions", transition._id, {
     ...(relabel ? { descriptionSwapped: true as const } : {}),
     phase: "committed",
     generation: transition.generation + 1,
@@ -4273,7 +4273,7 @@ export const withdrawTransitionTarget = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const transition = await ctx.db.get(args.transitionId)
+    const transition = await ctx.db.get("siteLanguageTransitions", args.transitionId)
     if (!transition || transition.generation !== args.generation) return null
     await withdrawPreparedTargetLocale(ctx, {
       transitionId: args.transitionId,
@@ -4299,7 +4299,7 @@ export const discardTransitionTargetDraft = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const transition = await ctx.db.get(args.transitionId)
+    const transition = await ctx.db.get("siteLanguageTransitions", args.transitionId)
     if (!transition || transition.generation !== args.generation) return null
     await deleteTransitionTargetDraft(ctx, {
       transitionId: args.transitionId,
@@ -4328,7 +4328,7 @@ async function cancelStep(
       }
     )
     for (const decision of result.page) {
-      await ctx.db.delete(decision._id)
+      await ctx.db.delete("siteLanguageCarryDecisions", decision._id)
     }
     if (!result.isDone) {
       await patchTransition(ctx, transition._id, {
@@ -4342,7 +4342,7 @@ async function cancelStep(
       return true
     }
     const now = Date.now()
-    const fresh = await ctx.db.get(transition._id)
+    const fresh = await ctx.db.get("siteLanguageTransitions", transition._id)
     if (!fresh) fail("LANGUAGE_TRANSITION_STATE_INVALID")
     await patchTransition(ctx, transition._id, {
       fields: {
@@ -4362,7 +4362,7 @@ async function cancelStep(
     ) {
       fail("SITE_LANGUAGE_AUTHORITY_INVALID")
     }
-    await ctx.db.patch(authorityRows[0]!._id, {
+    await ctx.db.patch("siteLanguageAuthority", authorityRows[0]!._id, {
       activeTransitionId: undefined,
       updatedAt: now,
     })

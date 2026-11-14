@@ -26,6 +26,67 @@ type SenderDraft = {
 
 type ProviderReadiness = "unknown" | "needs_setup" | "ready"
 
+/**
+ * The owner's notification email (ADR-0056 rule 5), with its own Save. Save
+ * turns on only when the field differs from the saved value.
+ */
+function NotificationsCard({ saved }: { saved: string }) {
+  const t = useTranslations("settings.email.notifications")
+  const tErrors = useTranslations("caughtErrors")
+  const tCommon = useTranslations("common")
+  const setNotificationEmail = useMutation(api.cms.owner.setNotificationEmail)
+  const [draft, setDraft] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const value = draft ?? saved
+  const dirty = draft !== null && draft !== saved
+
+  async function save() {
+    setSaving(true)
+    try {
+      const trimmed = value.trim()
+      const result = await setNotificationEmail({ email: trimmed || null })
+      if (result.status === "saved") {
+        setDraft(null)
+        toast.success(t("saved"))
+      } else {
+        toast.error(tErrors("invalidEmail"))
+      }
+    } catch {
+      toast.error(tCommon("error"))
+    }
+    setSaving(false)
+  }
+
+  return (
+    <section className="space-y-4 rounded-lg border bg-card p-5">
+      <h2 className="text-base font-semibold">{t("heading")}</h2>
+      <div className="space-y-2">
+        <Label htmlFor="notification-email">{t("label")}</Label>
+        <Input
+          id="notification-email"
+          type="email"
+          autoComplete="email"
+          inputMode="email"
+          spellCheck={false}
+          className="max-w-md"
+          value={value}
+          disabled={saving}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">{t("hint")}</p>
+      </div>
+      <Button
+        type="button"
+        disabled={!dirty || saving}
+        onClick={() => void save()}
+      >
+        {saving && <Loader2 className="animate-spin" />}
+        {t("save")}
+      </Button>
+    </section>
+  )
+}
+
 export function EmailSettings() {
   const t = useTranslations("settings.email")
   const tMetadata = useTranslations("metadata")
@@ -35,6 +96,10 @@ export function EmailSettings() {
   const canView = owner !== undefined && owner !== null
   const settings = useQuery(
     api.email.getEmailProviderSettings,
+    canView ? {} : "skip"
+  )
+  const notificationEmail = useQuery(
+    api.cms.owner.getNotificationEmail,
     canView ? {} : "skip"
   )
   const saveConfiguration = useMutation(
@@ -75,7 +140,7 @@ export function EmailSettings() {
       </div>
     )
   }
-  if (settings === undefined) {
+  if (settings === undefined || notificationEmail === undefined) {
     return (
       <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
         {tCommon("loading")}
@@ -243,6 +308,8 @@ export function EmailSettings() {
         </p>
       </section>
 
+      <NotificationsCard saved={notificationEmail ?? ""} />
+
       <div className="grid overflow-hidden rounded-lg border bg-card lg:grid-cols-[minmax(15rem,0.75fr)_minmax(0,1.6fr)]">
         <section
           aria-label={t("catalogue.heading")}
@@ -403,7 +470,7 @@ export function EmailSettings() {
                       </h3>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {t("test.description", {
-                          email: owner.email ?? t("test.ownerAccount"),
+                          email: notificationEmail || t("test.ownerAccount"),
                         })}
                       </p>
                     </div>

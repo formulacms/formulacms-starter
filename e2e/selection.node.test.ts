@@ -79,8 +79,8 @@ describe("disposable case table", () => {
   test("declares every case with its start state and stages", () => {
     expect(DISPOSABLE_CASES).toEqual({
       ownership: { startState: "fresh-unclaimed", stages: [] },
-      v02: { startState: "owned-after-reset", stages: [] },
-      replacement: { startState: "owned-rotated-claim", stages: [] },
+      v02: { startState: "owned", stages: [] },
+      replacement: { startState: "owned-recovery-link", stages: [] },
       m05: {
         startState: "single-en",
         stages: [
@@ -157,7 +157,7 @@ describe("selectE2ERun", () => {
     [
       "a wrong unstaged start state",
       { FR6_E2E_DISPOSABLE_CASE: "v02", FORMULACMS_DISPOSABLE_TARGET: "1", FR6_E2E_START_STATE: "fresh-unclaimed" },
-      /FR6_E2E_START_STATE must be owned-after-reset/,
+      /FR6_E2E_START_STATE must be owned/,
     ],
     ["a stage without a case", { FR6_E2E_STAGE: "m05-1-adoption" }, /require FR6_E2E_DISPOSABLE_CASE/],
     ["a start state without a case", { FR6_E2E_START_STATE: "single-en" }, /require FR6_E2E_DISPOSABLE_CASE/],

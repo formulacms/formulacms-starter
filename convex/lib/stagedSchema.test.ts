@@ -61,7 +61,7 @@ describe("staged validator integration seams", () => {
         expectTypeOf(doc.field).toEqualTypeOf<string | number>()
         expectTypeOf(doc.removed).toEqualTypeOf<string | undefined>()
         // A migration can still read and patch the enforced legacy shape.
-        await ctx.db.patch(doc._id, { field: doc.field, removed: doc.removed })
+        await ctx.db.patch("objects", doc._id, { field: doc.field, removed: doc.removed })
       },
     })
     expect(backfill).toBeDefined()
@@ -72,11 +72,11 @@ describe("staged validator integration seams", () => {
     const id = await t.run((ctx) =>
       ctx.db.insert("objects", { label: "legacy", field: "12", removed: "old" })
     )
-    expect(await t.run((ctx) => ctx.db.get(id))).toMatchObject({
+    expect(await t.run((ctx) => ctx.db.get("objects", id))).toMatchObject({
       label: "legacy", field: "12", removed: "old",
     })
-    await t.run((ctx) => ctx.db.patch(id, { field: 12, removed: undefined }))
-    const migrated = await t.run((ctx) => ctx.db.get(id))
+    await t.run((ctx) => ctx.db.patch("objects", id, { field: 12, removed: undefined }))
+    const migrated = await t.run((ctx) => ctx.db.get("objects", id))
     expect(migrated?.field).toBe(12)
     expect(migrated).not.toHaveProperty("removed")
     await expect(t.run((ctx) => ctx.db.insert("objects", {
@@ -95,11 +95,11 @@ describe("staged validator integration seams", () => {
     const id = await t.run((ctx) =>
       ctx.db.insert("variants", { kind: "count", value: "12" })
     )
-    expect(await t.run((ctx) => ctx.db.get(id))).toMatchObject({
+    expect(await t.run((ctx) => ctx.db.get("variants", id))).toMatchObject({
       kind: "count", value: "12",
     })
-    await t.run((ctx) => ctx.db.patch(id, { value: 12 }))
-    expect(await t.run((ctx) => ctx.db.get(id))).toMatchObject({
+    await t.run((ctx) => ctx.db.patch("variants", id, { value: 12 }))
+    expect(await t.run((ctx) => ctx.db.get("variants", id))).toMatchObject({
       kind: "count", value: 12,
     })
     await expect(t.run((ctx) =>

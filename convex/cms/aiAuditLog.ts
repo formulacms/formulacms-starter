@@ -118,7 +118,7 @@ export const purgeExpired = internalMutation({
       .query("aiAuditLog")
       .withIndex("by_createdAt", (q) => q.lt("createdAt", cutoff))
       .take(PURGE_BATCH_SIZE)
-    await Promise.all(expired.map((row) => ctx.db.delete(row._id)))
+    await Promise.all(expired.map((row) => ctx.db.delete("aiAuditLog", row._id)))
     if (expired.length === PURGE_BATCH_SIZE) {
       await ctx.scheduler.runAfter(0, internal.cms.aiAuditLog.purgeExpired, {})
     }

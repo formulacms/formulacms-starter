@@ -2,6 +2,11 @@ import { isValidElement, type ReactElement } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/fonts", () => ({ fontClassName: "font-test" }))
+// Convex Auth's helpers need a deployment; this test covers the document.
+vi.mock("@/lib/auth/convexAuth", () => ({
+  ConvexAuthNextjsServerProvider: ({ children }: { children: unknown }) =>
+    children,
+}))
 
 import LiveFrameLayout from "./layout"
 

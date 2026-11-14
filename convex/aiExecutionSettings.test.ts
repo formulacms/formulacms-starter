@@ -30,7 +30,7 @@ vi.mock("./lib/ai", async (original) => {
 const modules = import.meta.glob("./**/*.ts")
 const identity = {
   subject: "execution-owner",
-  tokenIdentifier: "https://test|execution-owner",
+  tokenIdentifier: "execution-owner",
 }
 beforeEach(() => {
   fake.beforeAdmission.mockReset()

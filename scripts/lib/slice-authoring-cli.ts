@@ -1,34 +1,47 @@
 import { createHash, randomUUID } from "node:crypto"
 import { constants } from "node:fs"
-import { lstat, open, realpath, stat } from "node:fs/promises"
+import { lstat, open, realpath, rename, rm, stat } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
+import { createInterface } from "node:readline/promises"
+import { Writable } from "node:stream"
 import { ConvexHttpClient } from "convex/browser"
 import { ConvexError } from "convex/values"
 import { pathToFileURL } from "node:url"
 import { register, type NamespacedUnregister } from "tsx/esm/api"
 import { parseConfigFileTextToJson } from "typescript"
 import { api } from "../../convex/_generated/api.js"
-import { parseCreationReceipt } from "../../lib/setup/creation-receipt"
 
-const CREATION_RECEIPT_FILE = ".formulacms/creation-receipt.json"
-const POST_CREATE_BASELINE_FILE = ".formulacms/post-create-baseline.json"
-const RELEASE_LOCK_FILE = "starter.release-lock.json"
-
-const MAX_COOKIE_BYTES = 16_384
+// The CLI's own Convex Auth session, kept in the app root and git-ignored.
+// Only the tokens are stored; the password never is.
+const SESSION_FILE = ".slice-authoring-session.json"
+const SESSION_LOCK_FILE = ".slice-authoring-session.lock"
+const SESSION_FORMAT = "formulacms.slice-authoring-session"
+const MAX_SESSION_BYTES = 16_384
+// A backend call must finish while its access token is still valid
+// (tokens last 60 seconds, convex/auth.ts). Renew one with less time left.
+const MIN_TOKEN_LIFETIME_MS = 20_000
 const MAX_RECORD_BYTES = 1_048_576
 const REQUEST_TIMEOUT_MS = 10_000
 
 const REFUSALS = {
   arguments:
-    "Use a supported command with explicit app root, app URL, backend URL and cookie file.",
+    "Use a supported command with explicit app root, app URL and backend URL.",
   target:
     "Both targets must be HTTP loopback origins with explicit nonprivileged local ports.",
   production: "Slice authoring is only supported in local development.",
   application:
-    "Use this CLI inside a separately created application, not source or an immutable blueprint.",
-  cookie:
-    "Provide a protected regular cookie file owned by the current user, without symlinks or hard links.",
-  authentication: "The normal local session token exchange failed.",
+    "Run slice authoring from your own site's folder, not from another folder or the formulacms source repository.",
+  signedOut:
+    "This app has no slice authoring sign-in for that backend. Run the sign-in command first: pnpm slices:author login --app-root <app> --backend-url <backend>",
+  expired:
+    "The slice authoring sign-in has ended. Run the sign-in command again: pnpm slices:author login --app-root <app> --backend-url <backend>",
+  session: `The sign-in file ${SESSION_FILE} must be a regular file owned by you and readable only by you, without symlinks or hard links. Run the sign-in command again.`,
+  busy: `Another slice authoring command is running in this app (lock file ${SESSION_LOCK_FILE}). Wait for it to finish. Delete that file only when no slice authoring command is running.`,
+  credentials: "Wrong username or password.",
+  rateLimited:
+    "Too many sign-in attempts for this account. Wait a minute, then try again.",
+  authentication:
+    "The backend did not complete the sign-in. Check that the local backend is running, then try again.",
   owner: "The current backend did not authenticate the installation owner.",
   backend: "The current authenticated backend read failed.",
   source: "The local registered source could not be read consistently.",
@@ -83,7 +96,6 @@ export type SliceAuthoringOptions = {
   appRoot: string
   appUrl: string
   backendUrl: string
-  cookieFile: string
 }
 
 function fullMatch(pattern: RegExp, value: string): boolean {
@@ -144,8 +156,7 @@ export function parseSliceAuthoringArgs(
     )
       refuse("arguments")
   }
-  const values = new Map<string, string>()
-  const required = ["--app-root", "--app-url", "--backend-url", "--cookie-file"]
+  const required = ["--app-root", "--app-url", "--backend-url"]
   if (
     command === "review-model" ||
     command === "update-model" ||
@@ -164,23 +175,10 @@ export function parseSliceAuthoringArgs(
     command === "update-renderer"
   )
     required.push("--expected-revision")
-  const allowed = required
-  for (; index < args.length; index += 2) {
-    const flag = args[index]
-    const value = args[index + 1]
-    if (
-      !allowed.includes(flag) ||
-      values.has(flag) ||
-      !value ||
-      value.startsWith("--")
-    )
-      refuse("arguments")
-    values.set(flag, value)
-  }
+  const values = parseFlags(args, index, required)
   if (
-    required.some((flag) => !values.has(flag)) ||
-    (values.has("--expected-revision") &&
-      !fullMatch(/^[a-f0-9]{64}$/, values.get("--expected-revision")!))
+    values.has("--expected-revision") &&
+    !fullMatch(/^[a-f0-9]{64}$/, values.get("--expected-revision")!)
   )
     refuse("arguments")
   return {
@@ -189,10 +187,43 @@ export function parseSliceAuthoringArgs(
     appRoot: values.get("--app-root")!,
     appUrl: localOrigin(values.get("--app-url")!),
     backendUrl: localOrigin(values.get("--backend-url")!),
-    cookieFile: values.get("--cookie-file")!,
     specFile: values.get("--spec-file"),
     operationsFile: values.get("--operations-file"),
     expectedRevision: values.get("--expected-revision"),
+  }
+}
+
+/** Exactly the required flags, each once, each with a value. */
+function parseFlags(
+  args: readonly string[],
+  start: number,
+  required: readonly string[]
+): Map<string, string> {
+  const values = new Map<string, string>()
+  for (let index = start; index < args.length; index += 2) {
+    const flag = args[index]
+    const value = args[index + 1]
+    if (
+      !required.includes(flag) ||
+      values.has(flag) ||
+      !value ||
+      value.startsWith("--")
+    )
+      refuse("arguments")
+    values.set(flag, value)
+  }
+  if (required.some((flag) => !values.has(flag))) refuse("arguments")
+  return values
+}
+
+export function parseSliceAuthoringSessionArgs(args: readonly string[]) {
+  const command = args[0]
+  if (command !== "login" && command !== "logout") refuse("arguments")
+  const values = parseFlags(args, 1, ["--app-root", "--backend-url"])
+  return {
+    command,
+    appRoot: values.get("--app-root")!,
+    backendUrl: localOrigin(values.get("--backend-url")!),
   }
 }
 
@@ -237,7 +268,9 @@ async function boundedRegularFile(path: string): Promise<Buffer> {
 }
 
 /** entrypointPath comes from the trusted executable's import.meta.url, never an operator flag.
- * Receipt consistency proves creation records only; it does not authenticate a backend or attest provenance. */
+ * The one check that a folder may run the CLI: not in production, this folder's own entry script, and
+ * no formulacms source repository at or above it. Any site qualifies, cloned or created; the creation
+ * receipt is not read. It does not authenticate a backend or attest provenance. */
 export async function assertSliceAuthoringApplication(
   appRoot: string,
   entrypointPath: string
@@ -259,32 +292,6 @@ export async function assertSliceAuthoringApplication(
       }
       if (ancestor === dirname(ancestor)) break
     }
-    const receiptText = (
-      await boundedRegularFile(join(root, CREATION_RECEIPT_FILE))
-    ).toString("utf8")
-    const receipt = parseCreationReceipt(receiptText)
-    if (receiptText !== `${JSON.stringify(receipt, null, 2)}\n`)
-      refuse("application")
-    const [lock, baseline, packageBytes] = await Promise.all([
-      boundedRegularFile(join(root, RELEASE_LOCK_FILE)),
-      boundedRegularFile(join(root, POST_CREATE_BASELINE_FILE)),
-      boundedRegularFile(join(root, "package.json")),
-    ])
-    const digest = (bytes: Buffer) =>
-      createHash("sha256").update(bytes).digest("hex")
-    const pkg = JSON.parse(packageBytes.toString("utf8")) as {
-      name?: unknown
-      private?: unknown
-    }
-    const naming = receipt.transforms[1]
-    if (
-      naming.id !== "package-name" ||
-      digest(lock) !== receipt.blueprint.lockSha256 ||
-      digest(baseline) !== receipt.postCreateBaselineDigest ||
-      pkg.name !== naming.projectName ||
-      pkg.private !== true
-    )
-      refuse("application")
     return root
   } catch (error) {
     if (error instanceof SliceAuthoringCliRefusal) throw error
@@ -295,7 +302,7 @@ export async function assertSliceAuthoringApplication(
 async function readProtectedDataFile(
   path: string,
   limit: number,
-  code: "cookie" | "spec" | "operations"
+  code: "session" | "spec" | "operations"
 ): Promise<string> {
   try {
     const absolute = resolve(path)
@@ -345,22 +352,226 @@ async function readProtectedDataFile(
   }
 }
 
-export async function readSliceAuthoringCookie(path: string): Promise<string> {
-  const cookie = (
-    await readProtectedDataFile(path, MAX_COOKIE_BYTES, "cookie")
-  ).trim()
-  if (
-    !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+=[\x21-\x2b\x2d-\x3a\x3c-\x7e]+(?:; ?[!#$%&'*+\-.^_`|~0-9A-Za-z]+=[\x21-\x2b\x2d-\x3a\x3c-\x7e]+)*$/.test(
-      cookie
-    )
+type StoredSession = {
+  backendUrl: string
+  accessToken: string
+  refreshToken: string
+  refreshTokenExpiresAt: number
+}
+
+/** Returns an access token valid for at least MIN_TOKEN_LIFETIME_MS. */
+type SessionToken = () => Promise<string>
+
+function isAccessToken(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= MAX_SESSION_BYTES &&
+    fullMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/, value)
   )
-    refuse("cookie")
-  return cookie
+}
+
+/** Reads a Convex Auth token bundle; only its tokens and expiry are kept. */
+function tokenBundle(
+  value: unknown,
+  backendUrl: string
+): StoredSession | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const { accessToken, refreshToken, refreshTokenExpiresAt } = value as Record<
+    string,
+    unknown
+  >
+  if (
+    !isAccessToken(accessToken) ||
+    typeof refreshToken !== "string" ||
+    refreshToken.length > MAX_SESSION_BYTES ||
+    !fullMatch(/^[\x21-\x7e]+$/, refreshToken) ||
+    typeof refreshTokenExpiresAt !== "number" ||
+    !Number.isFinite(refreshTokenExpiresAt)
+  )
+    return undefined
+  return { backendUrl, accessToken, refreshToken, refreshTokenExpiresAt }
+}
+
+/** Milliseconds left before the access token's `exp`; negative when unknown. */
+function accessTokenLifetimeMs(token: string): number {
+  try {
+    const { exp } = JSON.parse(
+      Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")
+    ) as { exp?: unknown }
+    return typeof exp === "number" ? exp * 1000 - Date.now() : -1
+  } catch {
+    return -1
+  }
+}
+
+/** The saved session, or undefined when the app has none. */
+async function readSession(root: string): Promise<StoredSession | undefined> {
+  const path = join(root, SESSION_FILE)
+  try {
+    await lstat(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    refuse("session")
+  }
+  let saved: Record<string, unknown> | undefined
+  try {
+    saved = JSON.parse(
+      await readProtectedDataFile(path, MAX_SESSION_BYTES, "session")
+    ) as Record<string, unknown>
+  } catch {
+    refuse("session")
+  }
+  const session =
+    saved?.format === SESSION_FORMAT && typeof saved.backendUrl === "string"
+      ? tokenBundle(saved, saved.backendUrl)
+      : undefined
+  if (!session) refuse("session")
+  return session
+}
+
+/** Replaces the session file atomically: a private temp file, then rename. */
+async function writeSession(root: string, session: StoredSession) {
+  const temp = join(root, `${SESSION_FILE}.${randomUUID()}.tmp`)
+  try {
+    const file = await open(
+      temp,
+      constants.O_WRONLY |
+        constants.O_CREAT |
+        constants.O_EXCL |
+        constants.O_NOFOLLOW,
+      0o600
+    )
+    try {
+      await file.writeFile(
+        `${JSON.stringify({ format: SESSION_FORMAT, ...session }, null, 2)}\n`
+      )
+      await file.sync()
+    } finally {
+      await file.close()
+    }
+    await rename(temp, join(root, SESSION_FILE))
+  } catch {
+    await rm(temp, { force: true })
+    refuse("session")
+  }
+}
+
+async function deleteSession(root: string) {
+  try {
+    await rm(join(root, SESSION_FILE), { force: true })
+  } catch {
+    refuse("session")
+  }
+}
+
+/**
+ * One CLI process at a time, so two commands never spend one refresh token.
+ * Any existing lock refuses: a command never removes a lock it did not
+ * create. A lock left by a killed command is removed by hand (REFUSALS.busy).
+ */
+async function withSessionLock<T>(
+  root: string,
+  run: () => Promise<T>
+): Promise<T> {
+  const path = join(root, SESSION_LOCK_FILE)
+  let file: Awaited<ReturnType<typeof open>>
+  try {
+    file = await open(
+      path,
+      constants.O_WRONLY |
+        constants.O_CREAT |
+        constants.O_EXCL |
+        constants.O_NOFOLLOW,
+      0o600
+    )
+  } catch (error) {
+    return refuse(
+      (error as NodeJS.ErrnoException).code === "EEXIST" ? "busy" : "session"
+    )
+  }
+  // From here on this process owns the lock and must release it.
+  let created: number | undefined
+  try {
+    try {
+      created = (await file.stat()).ino
+      await file.writeFile(`${process.pid}\n`)
+    } finally {
+      await file.close()
+    }
+    return await run()
+  } finally {
+    // Release only the lock file this process created.
+    const current = await lstat(path).catch(() => undefined)
+    if (current && (created === undefined || current.ino === created))
+      await rm(path, { force: true })
+  }
+}
+
+/**
+ * Hands out the session's access token, renewing it first when it has under
+ * MIN_TOKEN_LIFETIME_MS left. Convex Auth rotates the refresh token on every
+ * renewal; the new bundle is saved before its token is used. The presented
+ * refresh token stays valid until its successor is first used, so a failed
+ * save leaves the old file usable.
+ */
+function sessionToken(
+  root: string,
+  transport: SliceAuthoringReadTransport,
+  initial: StoredSession
+): SessionToken {
+  let session = initial
+  const renew = async (): Promise<StoredSession> => {
+    if (session.refreshTokenExpiresAt <= Date.now()) {
+      await deleteSession(root)
+      refuse("expired")
+    }
+    let result: unknown
+    try {
+      result = await transport.refresh(session.backendUrl, session.refreshToken)
+    } catch {
+      return refuse("authentication")
+    }
+    const outcome = result as { kind?: unknown; tokens?: unknown } | null
+    if (outcome?.kind === "noSession") {
+      await deleteSession(root)
+      refuse("expired")
+    }
+    const next =
+      outcome?.kind === "rotated"
+        ? tokenBundle(outcome.tokens, session.backendUrl)
+        : undefined
+    if (
+      !next ||
+      accessTokenLifetimeMs(next.accessToken) < MIN_TOKEN_LIFETIME_MS
+    )
+      refuse("authentication")
+    await writeSession(root, next)
+    return next
+  }
+  let pending: Promise<StoredSession> | undefined
+  return async () => {
+    if (accessTokenLifetimeMs(session.accessToken) >= MIN_TOKEN_LIFETIME_MS)
+      return session.accessToken
+    pending ??= renew().finally(() => {
+      pending = undefined
+    })
+    session = await pending
+    return session.accessToken
+  }
 }
 
 /** Narrow test transport. The real executable always constructs the normal user-token transport below. */
 export type SliceAuthoringReadTransport = {
-  token(appUrl: string, cookie: string): Promise<string>
+  /** `auth:refreshSession`: a Convex Auth `RefreshResult`. */
+  refresh(backendUrl: string, refreshToken: string): Promise<unknown>
+  /** `auth:signInWithUsernamePassword`: a sign-in result. */
+  signIn?(
+    backendUrl: string,
+    username: string,
+    password: string
+  ): Promise<unknown>
+  /** `auth:signOut`: ends the session the refresh token belongs to. */
+  signOut?(backendUrl: string, refreshToken: string): Promise<unknown>
   owner(backendUrl: string, token: string): Promise<unknown>
   state(backendUrl: string, token: string): Promise<unknown>
   usage?(
@@ -389,7 +600,7 @@ export type SliceAuthoringReadTransport = {
 }
 
 export function createSliceAuthoringReadTransport(): SliceAuthoringReadTransport {
-  const clientFor = (backendUrl: string, token: string) => {
+  const clientFor = (backendUrl: string, token?: string) => {
     const client = new ConvexHttpClient(backendUrl, {
       skipConvexDeploymentUrlCheck: true,
       fetch: (input, init) =>
@@ -399,7 +610,7 @@ export function createSliceAuthoringReadTransport(): SliceAuthoringReadTransport
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         }),
     })
-    client.setAuth(token)
+    if (token) client.setAuth(token)
     return client
   }
   return {
@@ -412,41 +623,15 @@ export function createSliceAuthoringReadTransport(): SliceAuthoringReadTransport
           expectedState,
         }
       ),
-    async token(appUrl, cookie) {
-      const response = await fetch(`${appUrl}/api/auth/convex/token`, {
-        method: "GET",
-        headers: { Origin: appUrl, Cookie: cookie },
-        redirect: "error",
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      })
-      if (
-        !response.ok ||
-        response.redirected ||
-        Number(response.headers.get("content-length")) > MAX_COOKIE_BYTES
-      )
-        refuse("authentication")
-      // Bound the response even when Content-Length is absent or false.
-      if (!response.body) refuse("authentication")
-      const reader = response.body.getReader()
-      let text = ""
-      let bytes = 0
-      const decoder = new TextDecoder()
-      try {
-        for (;;) {
-          const part = await reader.read()
-          if (part.done) break
-          bytes += part.value.length
-          if (bytes > MAX_COOKIE_BYTES) refuse("authentication")
-          text += decoder.decode(part.value, { stream: true })
-        }
-        text += decoder.decode()
-      } finally {
-        await reader.cancel()
-      }
-      const value = JSON.parse(text) as { token?: unknown }
-      if (typeof value?.token !== "string") refuse("authentication")
-      return value.token
-    },
+    refresh: (backendUrl, refreshToken) =>
+      clientFor(backendUrl).mutation(api.auth.refreshSession, { refreshToken }),
+    signIn: (backendUrl, username, password) =>
+      clientFor(backendUrl).mutation(api.auth.signInWithUsernamePassword, {
+        username,
+        password,
+      }),
+    signOut: (backendUrl, refreshToken) =>
+      clientFor(backendUrl).mutation(api.auth.signOut, { refreshToken }),
     owner: (backendUrl, token) =>
       clientFor(backendUrl, token).query(api.cms.owner.getOwnerSession, {}),
     state: (backendUrl, token) =>
@@ -778,7 +963,7 @@ async function modelCommand(
   options: SliceAuthoringOptions,
   root: string,
   loader: NamespacedUnregister,
-  token: string,
+  token: SessionToken,
   transport: SliceAuthoringReadTransport,
   current: Awaited<ReturnType<typeof localTypes>>["slices"][number],
   specJson?: string
@@ -834,7 +1019,7 @@ async function modelCommand(
                 return authoritativeUsage(
                   await transport.usage(
                     options.backendUrl,
-                    token,
+                    await token(),
                     target,
                     false
                   )
@@ -852,7 +1037,7 @@ async function modelCommand(
                 if (!transport.retirementAllowed) refuse("backend")
                 return transport.retirementAllowed(
                   options.backendUrl,
-                  token,
+                  await token(),
                   target
                 )
               },
@@ -861,14 +1046,19 @@ async function modelCommand(
                 // This endpoint itself checks the current owner, retirement permission
                 // and publication references. It is the final backend read before writes.
                 return authoritativeUsage(
-                  await transport.usage(options.backendUrl, token, target, true)
+                  await transport.usage(
+                    options.backendUrl,
+                    await token(),
+                    target,
+                    true
+                  )
                 )
               },
               cleanupArchive: async (target) => {
                 if (!transport.cleanupArchive) refuse("backend")
                 return transport.cleanupArchive(
                   options.backendUrl,
-                  token,
+                  await token(),
                   target
                 )
               },
@@ -893,7 +1083,7 @@ async function modelCommand(
         : "status" in result && result.status === "cleanup_pending"
           ? {
               ...result,
-              nextAction: `Recompile or push the changed source to the same ordinary local backend, then run retry-cleanup ${type} with the same explicit --app-root, --app-url, --backend-url and --cookie-file options.`,
+              nextAction: `Recompile or push the changed source to the same ordinary local backend, then run retry-cleanup ${type} with the same explicit --app-root, --app-url and --backend-url options.`,
             }
           : result
     return {
@@ -932,7 +1122,7 @@ async function rendererCommand(
   root: string,
   entrypointPath: string,
   loader: NamespacedUnregister,
-  token: string,
+  token: SessionToken,
   transport: SliceAuthoringReadTransport,
   current: Awaited<ReturnType<typeof localTypes>>,
   owner: { ownerId: string; authId: string },
@@ -969,7 +1159,7 @@ async function rendererCommand(
       let usage: import("../../lib/slices/authoring/service").SliceRetirementUsage
       try {
         usage = authoritativeUsage(
-          await transport.usage(options.backendUrl, token, type, false)
+          await transport.usage(options.backendUrl, await token(), type, false)
         )
       } catch (error) {
         if (error instanceof SliceAuthoringCliRefusal) throw error
@@ -978,8 +1168,9 @@ async function rendererCommand(
       // Usage itself follows normal permissions. Bind it to a fresh ordinary
       // installation-owner identity and exact backend contract after its await.
       let nextOwner: unknown
+      const ownerToken = await token()
       try {
-        nextOwner = await transport.owner(options.backendUrl, token)
+        nextOwner = await transport.owner(options.backendUrl, ownerToken)
       } catch {
         refuse("owner")
       }
@@ -993,8 +1184,9 @@ async function rendererCommand(
       )
         refuse("owner")
       let nextState: unknown
+      const stateToken = await token()
       try {
-        nextState = await transport.state(options.backendUrl, token)
+        nextState = await transport.state(options.backendUrl, stateToken)
       } catch {
         refuse("backend")
       }
@@ -1088,7 +1280,7 @@ async function assertCleanupTargetAbsent(
 async function retryCleanup(
   options: SliceAuthoringOptions,
   archivedTypes: readonly string[],
-  token: string,
+  token: SessionToken,
   transport: SliceAuthoringReadTransport
 ) {
   const type = options.type!
@@ -1101,8 +1293,9 @@ async function retryCleanup(
     return { ...result, result: { status: "already_clean" as const } }
   if (!transport.cleanupArchive) refuse("cleanup")
   let next: unknown
+  const accessToken = await token()
   try {
-    next = await transport.cleanupArchive(options.backendUrl, token, type)
+    next = await transport.cleanupArchive(options.backendUrl, accessToken, type)
   } catch {
     return refuse("cleanup")
   }
@@ -1132,7 +1325,20 @@ export async function runSliceAuthoringCommand(
     options.appRoot,
     entrypointPath
   )
-  const cookie = await readSliceAuthoringCookie(options.cookieFile)
+  return withSessionLock(root, () =>
+    lockedCommand(options, root, entrypointPath, transport)
+  )
+}
+
+async function lockedCommand(
+  options: SliceAuthoringOptions,
+  root: string,
+  entrypointPath: string,
+  transport: SliceAuthoringReadTransport
+) {
+  const session = await readSession(root)
+  if (!session || session.backendUrl !== options.backendUrl) refuse("signedOut")
+  const token = sessionToken(root, transport, session)
   const specJson = options.specFile
     ? await readProtectedDataFile(options.specFile, MAX_RECORD_BYTES, "spec")
     : undefined
@@ -1163,21 +1369,10 @@ export async function runSliceAuthoringCommand(
         options.type!,
         local.registeredTypes
       )
-    let token: string
-    try {
-      token = await transport.token(options.appUrl, cookie)
-    } catch {
-      return refuse("authentication")
-    }
-    if (
-      typeof token !== "string" ||
-      token.length > MAX_COOKIE_BYTES ||
-      !fullMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/, token)
-    )
-      refuse("authentication")
     let owner: unknown
+    const ownerToken = await token()
     try {
-      owner = await transport.owner(options.backendUrl, token)
+      owner = await transport.owner(options.backendUrl, ownerToken)
     } catch {
       return refuse("owner")
     }
@@ -1193,8 +1388,9 @@ export async function runSliceAuthoringCommand(
     )
       refuse("owner")
     let state: unknown
+    const stateToken = await token()
     try {
-      state = await transport.state(options.backendUrl, token)
+      state = await transport.state(options.backendUrl, stateToken)
     } catch {
       return refuse("backend")
     }
@@ -1273,10 +1469,11 @@ export async function runSliceAuthoringCommand(
       if (!transport.setArchived) refuse("backend")
       const desired = options.command === "archive"
       let next: unknown
+      const accessToken = await token()
       try {
         next = await transport.setArchived(
           options.backendUrl,
-          token,
+          accessToken,
           options.type!,
           desired,
           {
@@ -1335,6 +1532,140 @@ export async function runSliceAuthoringCommand(
   } finally {
     await loader.unregister()
   }
+}
+
+export type SliceAuthoringCredentials = () => Promise<{
+  username: string
+  password: string
+}>
+
+/**
+ * `login` signs the CLI in with its own Convex Auth session and saves only
+ * the returned tokens. `logout` ends that session and deletes the file. The
+ * browser session is never touched.
+ */
+export async function runSliceAuthoringSessionCommand(
+  args: readonly string[],
+  entrypointPath: string,
+  transport: SliceAuthoringReadTransport,
+  credentials: SliceAuthoringCredentials
+) {
+  if (process.env.NODE_ENV === "production") refuse("production")
+  const { command, appRoot, backendUrl } = parseSliceAuthoringSessionArgs(args)
+  const root = await assertSliceAuthoringApplication(appRoot, entrypointPath)
+  if (command === "logout")
+    return withSessionLock(root, async () => {
+      let session: StoredSession | undefined
+      try {
+        session = await readSession(root)
+      } catch {
+        session = undefined
+      }
+      let backendSessionEnded = false
+      if (session?.backendUrl === backendUrl && transport.signOut) {
+        try {
+          await transport.signOut(backendUrl, session.refreshToken)
+          backendSessionEnded = true
+        } catch {
+          backendSessionEnded = false
+        }
+      }
+      await deleteSession(root)
+      return { command, status: "signed_out" as const, backendSessionEnded }
+    })
+  // Ask before taking the lock, so an interrupted prompt leaves none behind.
+  let username: string
+  let password: string
+  try {
+    ;({ username, password } = await credentials())
+  } catch {
+    return refuse("credentials")
+  }
+  if (!username || !password) refuse("credentials")
+  return withSessionLock(root, async () => {
+    let previous: StoredSession | undefined
+    try {
+      previous = await readSession(root)
+    } catch {
+      previous = undefined
+    }
+    if (!transport.signIn) refuse("authentication")
+    let result: unknown
+    try {
+      result = await transport.signIn(backendUrl, username, password)
+    } catch (error) {
+      // `convex/users.ts` refuses a disabled account with a ConvexError.
+      return refuse(
+        error instanceof ConvexError ? "credentials" : "authentication"
+      )
+    }
+    const outcome = result as {
+      status?: unknown
+      tokens?: unknown
+      userError?: { error?: unknown }
+    } | null
+    if (
+      outcome?.status === "error" &&
+      outcome.userError?.error === "RATE_LIMITED"
+    )
+      refuse("rateLimited")
+    if (outcome?.status !== "complete") refuse("credentials")
+    const session = tokenBundle(outcome.tokens, backendUrl)
+    if (!session) refuse("authentication")
+    await writeSession(root, session)
+    // A new sign-in replaces the old one; end the old session too.
+    if (previous?.backendUrl === backendUrl && transport.signOut)
+      await transport
+        .signOut(backendUrl, previous.refreshToken)
+        .catch(() => null)
+    return { command, status: "signed_in" as const, sessionFile: SESSION_FILE }
+  })
+}
+
+/**
+ * Asks for the username and the password on the terminal; the password is
+ * not echoed. Piped input gives the username on the first line and the
+ * password on the second, so an agent never puts it in arguments.
+ */
+export async function readTerminalCredentials(): Promise<{
+  username: string
+  password: string
+}> {
+  const input = process.stdin
+  if (!input.isTTY) {
+    const lines = createInterface({ input, terminal: false })
+    const reader = lines[Symbol.asyncIterator]()
+    const first = await reader.next()
+    const second = await reader.next()
+    lines.close()
+    return {
+      username: first.done ? "" : String(first.value).trim(),
+      password: second.done ? "" : String(second.value),
+    }
+  }
+  const ask = async (prompt: string, echo: boolean) => {
+    // Prompts go to stderr so stdout stays the JSON result.
+    const output = echo
+      ? process.stderr
+      : new Writable({ write: (_chunk, _encoding, done) => done() })
+    const prompter = createInterface({ input, output, terminal: true })
+    prompter.on("SIGINT", () => {
+      prompter.close()
+      process.stderr.write("\n")
+      process.exit(130)
+    })
+    try {
+      if (echo) return await prompter.question(prompt)
+      process.stderr.write(prompt)
+      const answer = await prompter.question("")
+      process.stderr.write("\n")
+      return answer
+    } finally {
+      prompter.close()
+    }
+  }
+  const username = (await ask("Username: ", true)).trim()
+  return { username, password: await ask("Password: ", false) }
 }
 
 export async function runSliceAuthoringRead(

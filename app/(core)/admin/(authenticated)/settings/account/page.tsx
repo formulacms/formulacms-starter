@@ -1,5 +1,6 @@
 import { getLocale, getTranslations } from "next-intl/server";
 import { AccountLanguagePicker } from "@/components/admin/settings/account-language-picker";
+import { ChangePassword } from "@/components/admin/settings/change-password";
 import { getLocaleDisplayName } from "@/lib/i18n/config";
 import { ADMIN_DICTIONARY_LOCALES } from "@/lib/i18n/admin-dictionaries";
 
@@ -32,6 +33,7 @@ export default async function AccountSettingsPage() {
             localeOptions={localeOptions}
           />
         </div>
+        <ChangePassword />
       </div>
     </div>
   );

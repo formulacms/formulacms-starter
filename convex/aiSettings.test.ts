@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
-import { convexTest } from "convex-test"
+import { prepareAuthSessions } from "../test-utils/convexAuthFixtures"
+import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import { ConvexError } from "convex/values"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { api, internal } from "./_generated/api"
@@ -99,7 +100,7 @@ async function seed(
     await ctx.db.insert("cmsOwner", {
       key: "owner",
       authId: "admin-1",
-      tokenIdentifier: "https://convex.test|admin-1",
+      tokenIdentifier: "admin-1",
       establishedAt: 1,
       updatedAt: 1,
     })
@@ -672,14 +673,8 @@ describe("aiSettings.setProductionAiConfiguration", () => {
     setAvailability({ openrouter: true, anthropic: true, openai: true })
     const t = convexTest(schema, modules)
     await seed(t, "openai")
-
-    // Both saves call `Date.now()`, so on a fast machine they can land in the
-    // same millisecond and the strict `>` below fails for a reason that has
-    // nothing to do with the short-circuit this test covers. Pin the clock and
-    // step it by hand. Only `Date` is faked — convex-test drives its async work
-    // through real timers, which faking wholesale would stall.
-    vi.useFakeTimers({ toFake: ["Date"] })
-    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"))
+    // Mint the fixture session on the real clock; its token is signed with it.
+    await prepareAuthSessions(t, "admin-1")
 
     // Baseline save with no task defaults.
     await identity(t, "admin-1").mutation(
@@ -687,10 +682,13 @@ describe("aiSettings.setProductionAiConfiguration", () => {
       { selectedProvider: "openai", providerDefaults: PROVIDER_DEFAULTS }
     )
     const first = await t.run((ctx) => ctx.db.query("siteSettings").first())
-    const firstUpdatedAt = first?.updatedAt ?? 0
     expect(first?.aiRuntime?.taskDefaults).toBeUndefined()
-
-    vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"))
+    // Convex does not promise that two mutations see different `Date.now()`
+    // values, so do not compare two clock readings. Reset the stored stamp to a
+    // sentinel that no clock reading can equal; only a second write replaces it.
+    await t.run((ctx) =>
+      ctx.db.patch("siteSettings", first!._id, { updatedAt: 1 })
+    )
 
     // Task-only edit must NOT be short-circuited as "unchanged".
     await identity(t, "admin-1").mutation(
@@ -709,7 +707,7 @@ describe("aiSettings.setProductionAiConfiguration", () => {
       }
     )
     const second = await t.run((ctx) => ctx.db.query("siteSettings").first())
-    expect(second?.updatedAt).toBeGreaterThan(firstUpdatedAt)
+    expect(second?.updatedAt).toBeGreaterThan(1)
     expect(second?.aiRuntime?.taskDefaults).toBeDefined()
   })
 })

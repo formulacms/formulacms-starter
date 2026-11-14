@@ -16,6 +16,14 @@ const mocks = vi.hoisted(() => ({
   }>,
 }))
 
+// Convex Auth's proxy wrapper refreshes cookies against the deployment; these
+// tests cover the routing it wraps, so it passes straight through.
+vi.mock("@/lib/auth/convexAuth", () => ({
+  convexAuthNextjsProxy:
+    (handler: (request: unknown, ctx: unknown) => unknown) =>
+    (request: unknown) =>
+      handler(request, {}),
+}))
 vi.mock("@/lib/i18n/site-config", () => ({
   getCachedSiteConfig: mocks.getCachedSiteConfig,
   getSiteConfigState: mocks.getSiteConfigState,
@@ -84,9 +92,10 @@ describe("public locale proxy", () => {
   })
 
   test.each([
-    "/api",
-    "/api/",
-    "/api/x",
+    "/auth",
+    "/auth/signin",
+    "/auth/refresh",
+    "/auth/signout",
     "/_next/static/chunk.js",
     "/_next/image",
     "/favicon.ico",
@@ -94,6 +103,28 @@ describe("public locale proxy", () => {
   ])("exported matcher excludes %s", (url) => {
     expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false)
   })
+
+  test.each(["/api", "/api/x", "/api/session-label", "/api/preview"])(
+    "exported matcher admits %s so its session refreshes, then passes it through",
+    async (path) => {
+      expect(unstable_doesMiddlewareMatch({ config, url: path })).toBe(true)
+      mocks.getSiteConfigState.mockClear()
+      const response = await proxy(
+        new NextRequest(`https://example.test${path}`)
+      )
+      expect(response.headers.get("x-middleware-next")).toBe("1")
+      expect(response.headers.get("x-middleware-rewrite")).toBeNull()
+      expect(mocks.getSiteConfigState).not.toHaveBeenCalled()
+      expect(mocks.fetchQuery).not.toHaveBeenCalled()
+    }
+  )
+
+  test.each(["/authors", "/author/x"])(
+    "exported matcher admits public path %s",
+    (path) => {
+      expect(unstable_doesMiddlewareMatch({ config, url: path })).toBe(true)
+    }
+  )
 
   test.each(["/api-reference", "/api-reference/child", "/apiary", "/apix/y"])(
     "exported matcher admits %s for the default-language rewrite",
@@ -270,6 +301,18 @@ describe("public locale proxy", () => {
       }
     )
 
+    // The recovery link carries its token in the query; a redirect would drop it.
+    test("never sends /recover to /setup, so the recovery token survives", async () => {
+      notOnboarded()
+
+      const response = await proxy(
+        new NextRequest("http://localhost:3000/recover?token=one-time-token")
+      )
+
+      expect(response.headers.get("location")).toBeNull()
+      expect(response.headers.get("x-middleware-next")).toBe("1")
+    })
+
     test("still sends /admin to /setup before onboarding completes", async () => {
       notOnboarded()
 
@@ -331,13 +374,13 @@ describe("public locale proxy", () => {
       )
     })
 
-    test("allows the claim-gated owner recovery path after onboarding", async () => {
+    test("the retired recover-owner=1 setup path goes to the admin like any setup URL", async () => {
       const response = await proxy(
         new NextRequest("http://localhost:3000/setup?recover-owner=1")
       )
 
-      expect(response.status).toBe(200)
-      expect(response.headers.get("location")).toBeNull()
+      expect(response.status).toBe(307)
+      expect(new URL(response.headers.get("location")!).pathname).toBe("/admin")
     })
   })
 
@@ -860,7 +903,7 @@ describe("public proxy on next-intl (default language wins)", () => {
   })
 
   test("excluded paths never reach next-intl or Convex", async () => {
-    for (const path of ["/admin", "/admin/pages", "/sign-in"]) {
+    for (const path of ["/admin", "/admin/pages", "/sign-in", "/recover"]) {
       const response = await proxy(
         request(path, { cookie: "NEXT_LOCALE=fr", acceptLanguage: "fr" })
       )

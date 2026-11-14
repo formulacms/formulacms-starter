@@ -5,13 +5,12 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type ReactNode,
 } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useConvex, useConvexAuth, useMutation, useQuery } from "convex/react"
 import { ConvexHttpClient } from "convex/browser"
-import { Eye, EyeOff, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import {
   NextIntlClientProvider,
   useTranslations,
@@ -19,7 +18,7 @@ import {
 } from "next-intl"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
 import { api } from "@/convex/_generated/api"
-import { authClient } from "@/lib/auth-client"
+import { useSignOut, useUsernamePasswordSignIn } from "@/lib/auth/client"
 import { SUPPORTED_LOCALES, getLocaleDisplayName } from "@/lib/i18n/config"
 import {
   hasAdminDictionary,
@@ -29,6 +28,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { PasswordField } from "@/components/auth/password-field"
 import {
   Card,
   CardContent,
@@ -39,7 +39,6 @@ import {
 import type { SetupBootstrapHandoff } from "@/lib/setup/bootstrap-handoff"
 import { readSiteDescription } from "@/lib/i18n/site-description"
 import type { OwnerCodeTarget } from "@/lib/setup/owner-code-command"
-import { OWNER_CLAIM_HEADER } from "@/convex/lib/ownerClaim"
 
 // ─── Step definitions ────────────────────────────────────────────────────────
 
@@ -52,7 +51,8 @@ type StepKey = "language" | "account" | "identity"
 
 const STEPS: StepKey[] = ["language", "account", "identity"]
 
-const MIN_PASSWORD_LENGTH = 8
+// Convex Auth password limits (ADR-0056): 10 to 100 characters.
+const MIN_PASSWORD_LENGTH = 10
 
 /**
  * Admin dictionaries the wizard can switch to, as `{ setup, caughtErrors }`
@@ -168,60 +168,6 @@ function useLocalTime(timezone: string, locale: string) {
   }
 }
 
-/** Password input with a show/hide eye button inside it. */
-function PasswordField({
-  id,
-  label,
-  value,
-  onChange,
-  autoComplete,
-  disabled,
-  name,
-  children,
-}: {
-  id: string
-  label: string
-  value: string
-  onChange: (value: string) => void
-  autoComplete: string
-  disabled?: boolean
-  /** Form field name; defaults to the id. Password managers expect `password`. */
-  name?: string
-  children?: ReactNode
-}) {
-  const t = useTranslations("setup.fields")
-  const [shown, setShown] = useState(false)
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <div className="relative">
-        <Input
-          id={id}
-          name={name ?? id}
-          type={shown ? "text" : "password"}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          autoComplete={autoComplete}
-          disabled={disabled}
-          className="pr-9"
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground"
-          aria-label={shown ? t("hidePassword") : t("showPassword")}
-          aria-pressed={shown}
-          onClick={() => setShown((current) => !current)}
-        >
-          {shown ? <EyeOff /> : <Eye />}
-        </Button>
-      </div>
-      {children}
-    </div>
-  )
-}
-
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -331,57 +277,30 @@ function RotateOwnerCodeHelp({
 }
 
 /**
- * What to tell someone whose account creation just failed.
+ * What to tell someone whose owner code was refused.
  *
- * The server cannot say. `claimOwner` returns only `claimed | unavailable`,
- * and the sign-up hook answers a single "Account creation is not available."
- * for a wrong code, a consumed code, an unset code, and an untrusted
- * transport alike — deliberate, per ADR-0007, so the response can't be used
- * to probe the deployment.
+ * The server cannot say. `createOwnerAccount` answers a single `unavailable`
+ * for a wrong code, a consumed code and an unset code alike — deliberate, per
+ * ADR-0007, so the response can't be used to probe the deployment.
  *
- * An unavailable claim result cannot establish a typo, so it always uses
- * unavailable copy. A signup 403 checks fresh public availability over HTTP
- * before blaming a typo; the reactive client's one-off query can reuse its
- * subscribed value. Later consumption also changes the rendered refusal.
+ * Only a refusal followed by a fresh, still-open public availability read
+ * points to a typo (the reactive client's one-off query can reuse its
+ * subscribed value, so the read goes over HTTP). Later consumption also
+ * changes the rendered refusal.
  */
-type AccountErrorKey =
-  | "errors.tooManyAttempts"
-  | "errors.accountAlreadyExists"
-  | "errors.ownerCodeUnavailable"
-  | "errors.createOwner"
-  | "errors.ownerCodeMismatch"
+type AccountErrorKey = "errors.ownerCodeUnavailable" | "errors.ownerCodeMismatch"
 
 type AccountErrorOptions = {
-  /** Which call failed. Claim refusal never establishes a typo. */
-  source: "signup" | "claim"
-  status?: number
-  code?: string
   claimAvailable?: boolean
 }
 
 function accountErrorMessage(
   options: AccountErrorOptions,
-  translate: (key: AccountErrorKey) => string,
-  displayError: (error: unknown, fallback: string) => string
+  translate: (key: AccountErrorKey) => string
 ): string {
-  if (options.status === 429) {
-    return translate("errors.tooManyAttempts")
-  }
-  if (options.code === "USER_ALREADY_EXISTS") {
-    return translate("errors.accountAlreadyExists")
-  }
-  // Only the perimeter hook's 403 identifies a setup-code refusal. Other
-  // sign-up failures select allowlisted validation copy or the translated
-  // operation fallback, never arbitrary provider wording.
-  if (options.source === "signup" && options.status !== 403) {
-    return displayError({ code: options.code }, translate("errors.createOwner"))
-  }
-  // Only a signup refusal with fresh, still-open public availability points
-  // to a typo. A claim result alone cannot distinguish a consumed valid code.
-  if (options.source === "claim" || options.claimAvailable !== true) {
-    return translate("errors.ownerCodeUnavailable")
-  }
-  return translate("errors.ownerCodeMismatch")
+  return options.claimAvailable === true
+    ? translate("errors.ownerCodeMismatch")
+    : translate("errors.ownerCodeUnavailable")
 }
 
 function OwnerCodeUnavailable({ target }: { target: OwnerCodeTarget }) {
@@ -491,10 +410,15 @@ function SetupWizardBody({
 }) {
   const displayError = useCaughtError()
   const t = useTranslations("setup")
+  const tErrors = useTranslations("caughtErrors")
   const convex = useConvex()
   const router = useRouter()
-  const { data: session } = authClient.useSession()
-  const { isAuthenticated: isConvexAuthenticated } = useConvexAuth()
+  // Convex Auth: the Convex client's own state is the session.
+  const { isLoading: authLoading, isAuthenticated: isConvexAuthenticated } =
+    useConvexAuth()
+  const signedIn = isConvexAuthenticated
+  const { signIn } = useUsernamePasswordSignIn()
+  const signOut = useSignOut()
   const convexAuthenticatedRef = useRef(isConvexAuthenticated)
   useEffect(() => {
     convexAuthenticatedRef.current = isConvexAuthenticated
@@ -526,13 +450,11 @@ function SetupWizardBody({
     ownerRoleEstablished ? {} : "skip"
   )
   const setAdminLocale = useMutation(api.cms.userPreferences.setAdminLocale)
-  const claimOwner = useMutation(api.cms.owner.claimOwner)
-  const replaceOwner = useMutation(api.cms.owner.replaceOwner)
+  const createOwnerAccount = useMutation(api.cms.owner.createOwnerAccount)
   const bootstrapInstallation = useMutation(
     api.cms.settings.bootstrapInstallation
   )
 
-  const [replacingOwner, setReplacingOwner] = useState(false)
   // Step 1 is client-only and never blocks a resumed owner: it always shows
   // first, and bookmarks route only the steps after it.
   const [languageDone, setLanguageDone] = useState(false)
@@ -540,11 +462,9 @@ function SetupWizardBody({
   // once an owner exists, the only remaining step is the bootstrap.
   const progressStepKey: StepKey = ownerAccountExists ? "identity" : "account"
   const [stepOverride, setStepOverride] = useState<StepKey | null>(null)
-  const stepKey: StepKey = replacingOwner
-    ? "account"
-    : !languageDone
-      ? "language"
-      : (stepOverride ?? progressStepKey)
+  const stepKey: StepKey = !languageDone
+    ? "language"
+    : (stepOverride ?? progressStepKey)
   const hasResumeBanner =
     languageDone &&
     stepOverride === null &&
@@ -567,8 +487,7 @@ function SetupWizardBody({
                 errorState.claimAvailable === true &&
                 ownerClaimAvailability?.available === true,
             },
-            t,
-            displayError
+            t
           )
         : null
   // Claiming the owner role is the one irreversible step in the wizard, and it
@@ -578,9 +497,12 @@ function SetupWizardBody({
 
   // Account
   const [name, setName] = useState("")
-  const [email, setEmail] = useState(initialSetup?.adminEmail ?? "")
+  const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  // A refusal of the password itself shows under the password field.
+  const [passwordError, setPasswordError] = useState<string | null>(null)
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [notificationEmail, setNotificationEmail] = useState("")
   const [ownerClaim, setOwnerClaim] = useState("")
   const passwordsMatch = password === confirmPassword
   const passwordAcceptable =
@@ -660,21 +582,30 @@ function SetupWizardBody({
 
   // ─── Step handlers ────────────────────────────────────────────────────────
 
+  // Every `invalid_input` code from `createOwnerAccount` gets a message. A bad
+  // notification email names that field; the two password refusals show under
+  // the password field (handleAccount); the rest keep the general message.
+  function createOwnerInputError(code: string): string {
+    switch (code) {
+      case "RATE_LIMITED":
+        return t("errors.tooManyAttempts")
+      case "EMAIL_INVALID":
+        return tErrors("invalidEmail")
+      default:
+        return t("errors.createOwner")
+    }
+  }
+
   async function handleResumeSignIn() {
     setBusy(true)
     setError(null)
-    try {
-      const { error: authError } = await authClient.signIn.email({
-        email,
-        password,
-      })
-      if (authError) {
-        setError(displayError(authError, t("errors.signIn")))
-      }
-    } catch {
-      setError(t("errors.signIn"))
-      setBusy(false)
-      return
+    const result = await signIn({ username: username.trim(), password })
+    if (result.status !== "complete") {
+      setError(
+        result.userError.error === "RATE_LIMITED"
+          ? t("errors.tooManyAttempts")
+          : t("errors.signIn")
+      )
     }
     setBusy(false)
   }
@@ -683,7 +614,7 @@ function SetupWizardBody({
     setBusy(true)
     setError(null)
     try {
-      await authClient.signOut()
+      await signOut()
       router.refresh()
     } catch {
       setError(t("errors.signOut"))
@@ -696,94 +627,75 @@ function SetupWizardBody({
   async function handleAccount() {
     setBusy(true)
     setError(null)
+    setPasswordError(null)
     setNotice(null)
     try {
-      const alreadyAdmin = session && ownerSession?.role === "admin"
-      if (!alreadyAdmin && ownerClaimAvailability?.available !== true) {
-        setError({ source: "claim" })
-        setBusy(false)
-        return
-      }
-
-      if (!session) {
-        const { error: authError } = await authClient.signUp.email({
-          name,
-          email,
-          password,
-          fetchOptions: {
-            headers: {
-              [OWNER_CLAIM_HEADER]: submittedOwnerClaim,
-            },
-          },
-        })
-        if (authError) {
-          // Account may already exist from an earlier abandoned run.
-          const { error: signInError } = await authClient.signIn.email({
-            email,
-            password,
-          })
-          if (signInError) {
-            let claimAvailable = false
-            if (
-              authError.status === 403 &&
-              authError.code !== "USER_ALREADY_EXISTS"
-            ) {
-              try {
-                // HTTP query performs a new read; ConvexReactClient.query may
-                // return the pre-refusal subscribed availability value.
-                const availability = await new ConvexHttpClient(convex.url).query(
-                  api.cms.owner.getOwnerClaimAvailability,
-                  {}
-                )
-                claimAvailable = availability.available
-              } catch {
-                // Without a fresh read, a typo is not established.
-              }
-            }
-            setError({
-              source: "signup",
-              claimAvailable,
-              status: authError.status,
-              code: authError.code,
-            })
-            setBusy(false)
-            return
-          }
-        }
-      }
-
+      const alreadyAdmin = signedIn && ownerSession?.role === "admin"
       if (!alreadyAdmin) {
+        if (ownerClaimAvailability?.available !== true) {
+          setError({})
+          setBusy(false)
+          return
+        }
+        // One transaction checks the owner code, creates the account and
+        // binds it as the owner (ADR-0056 rule 1). Then the owner signs in
+        // through the normal sign-in route.
+        const accountUsername = username.trim()
+        const created = await createOwnerAccount({
+          code: submittedOwnerClaim,
+          name: name.trim(),
+          username: accountUsername,
+          password,
+          ...(notificationEmail.trim()
+            ? { notificationEmail: notificationEmail.trim() }
+            : {}),
+        })
+        if (created.status === "unavailable") {
+          let claimAvailable = false
+          try {
+            // HTTP query performs a new read; ConvexReactClient.query may
+            // return the pre-refusal subscribed availability value.
+            const availability = await new ConvexHttpClient(convex.url).query(
+              api.cms.owner.getOwnerClaimAvailability,
+              {}
+            )
+            claimAvailable = availability.available
+          } catch {
+            // Without a fresh read, a typo is not established.
+          }
+          setError({ claimAvailable })
+          setBusy(false)
+          return
+        }
+        if (created.status === "invalid_input") {
+          if (created.error === "PASSWORD_TOO_COMMON") {
+            setPasswordError(tErrors("passwordTooCommon"))
+          } else if (
+            created.error === "PASSWORD_HAS_SURROUNDING_WHITESPACE"
+          ) {
+            setPasswordError(tErrors("passwordSurroundingSpaces"))
+          } else {
+            setError(createOwnerInputError(created.error))
+          }
+          setBusy(false)
+          return
+        }
+        const signInResult = await signIn({
+          username: accountUsername,
+          password,
+        })
+        if (signInResult.status !== "complete") {
+          setError(t("errors.signIn"))
+          setBusy(false)
+          return
+        }
         await waitForConvexAuthentication(
           () => convexAuthenticatedRef.current,
           t("errors.connectAccount")
         )
-        const claimResult = replacingOwner
-          ? await replaceOwner({ claim: submittedOwnerClaim })
-          : await claimOwner({ claim: submittedOwnerClaim })
-        if (claimResult.status !== "claimed") {
-          setError({ source: "claim" })
-          setBusy(false)
-          return
-        }
-        setNotice(
-          replacingOwner
-            ? t("notices.ownerMoved", {
-                email:
-                  email || session?.user?.email || t("notices.thisAccount"),
-              })
-            : t("notices.ownerCreated", {
-                email: email || t("notices.you"),
-              })
-        )
+        setNotice(t("notices.ownerCreated", { username: accountUsername }))
       }
 
-      if (replacingOwner && progress?.finished) {
-        setReplacingOwner(false)
-        router.refresh()
-        setBusy(false)
-        return
-      }
-      if (replacingOwner) setReplacingOwner(false)
       setStepOverride("identity")
       setError(null)
       setBusy(false)
@@ -870,11 +782,7 @@ function SetupWizardBody({
     )
   }
 
-  const ownerReplacementAvailable =
-    ownerEstablished?.established === true &&
-    ownerClaimAvailability?.available === true
-
-  if (onboardingFinished && !replacingOwner) {
+  if (onboardingFinished) {
     return (
       <Card className="w-full max-w-2xl" aria-live="polite">
         <CardHeader>
@@ -887,17 +795,12 @@ function SetupWizardBody({
           <Button asChild>
             <Link href="/admin">{t("actions.openAdmin")}</Link>
           </Button>
-          {!ownerRoleEstablished && ownerReplacementAvailable && (
-            <Button variant="outline" onClick={() => setReplacingOwner(true)}>
-              {t("actions.replaceOwnerAccount")}
-            </Button>
-          )}
         </CardContent>
       </Card>
     )
   }
 
-  if (!languageDone && !replacingOwner) {
+  if (!languageDone) {
     return (
       <Card className="w-full max-w-2xl">
         <CardHeader>
@@ -994,7 +897,27 @@ function SetupWizardBody({
     )
   }
 
-  if (ownerAccountExists && !session && !replacingOwner) {
+  // The Convex client is still reading the stored session.
+  if (ownerAccountExists && authLoading) {
+    return (
+      <Card className="w-full max-w-2xl">
+        <CardHeader>
+          <CardTitle role="heading" aria-level={1}>
+            {t("resume.connectingTitle")}
+          </CardTitle>
+          <CardDescription>{t("resume.connectingDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Loader2
+            className="animate-spin"
+            aria-label={t("resume.connectingLabel")}
+          />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (ownerAccountExists && !signedIn) {
     return (
       <Card className="w-full max-w-2xl">
         <CardHeader>
@@ -1010,17 +933,17 @@ function SetupWizardBody({
             </p>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="resumeEmail">{t("fields.email")}</Label>
+            <Label htmlFor="resumeUsername">{t("fields.username")}</Label>
             <Input
-              id="resumeEmail"
-              name="email"
-              type="email"
-              value={email}
-              autoComplete="email"
-              inputMode="email"
+              id="resumeUsername"
+              name="username"
+              type="text"
+              value={username}
+              autoComplete="username"
+              autoCapitalize="none"
               spellCheck={false}
               disabled={busy}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => setUsername(event.target.value)}
             />
           </div>
           <PasswordField
@@ -1044,48 +967,23 @@ function SetupWizardBody({
               {t("actions.back")}
             </Button>
             <Button
-              disabled={busy || !email.trim() || password.length < 8}
+              disabled={
+                busy ||
+                !username.trim() ||
+                password.length < MIN_PASSWORD_LENGTH
+              }
               onClick={() => void handleResumeSignIn()}
             >
               {busy && <Loader2 className="animate-spin" />}
               {t("actions.signInAndResume")}
             </Button>
           </div>
-          {ownerReplacementAvailable && (
-            <Button variant="outline" onClick={() => setReplacingOwner(true)}>
-              {t("actions.replaceOwnerAccount")}
-            </Button>
-          )}
         </CardContent>
       </Card>
     )
   }
 
-  if (ownerAccountExists && session && !isConvexAuthenticated) {
-    return (
-      <Card className="w-full max-w-2xl">
-        <CardHeader>
-          <CardTitle role="heading" aria-level={1}>
-            {t("resume.connectingTitle")}
-          </CardTitle>
-          <CardDescription>{t("resume.connectingDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Loader2
-            className="animate-spin"
-            aria-label={t("resume.connectingLabel")}
-          />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  if (
-    ownerAccountExists &&
-    session &&
-    isConvexAuthenticated &&
-    ownerSession === undefined
-  ) {
+  if (ownerAccountExists && signedIn && ownerSession === undefined) {
     return (
       <Card className="w-full max-w-2xl">
         <CardHeader>
@@ -1108,10 +1006,9 @@ function SetupWizardBody({
 
   if (
     ownerAccountExists &&
-    session &&
+    signedIn &&
     ownerSession !== undefined &&
-    !ownerRoleEstablished &&
-    !replacingOwner
+    !ownerRoleEstablished
   ) {
     return (
       <Card className="w-full max-w-2xl">
@@ -1120,9 +1017,7 @@ function SetupWizardBody({
             {t("resume.wrongAccountTitle")}
           </CardTitle>
           <CardDescription>
-            {t("resume.wrongAccountDescription", {
-              email: session.user?.email ?? "",
-            })}
+            {t("resume.wrongAccountDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1139,11 +1034,6 @@ function SetupWizardBody({
             {busy && <Loader2 className="animate-spin" />}
             {t("actions.signOutAndRetry")}
           </Button>
-          {ownerReplacementAvailable && (
-            <Button variant="outline" onClick={() => setReplacingOwner(true)}>
-              {t("actions.replaceOwnerAccount")}
-            </Button>
-          )}
         </CardContent>
       </Card>
     )
@@ -1194,24 +1084,22 @@ function SetupWizardBody({
 
         {stepKey === "account" && (
           <div className="space-y-3">
-            {session && ownerSession?.role === "admin" ? (
+            {signedIn && ownerSession?.role === "admin" ? (
               <p className="text-sm text-muted-foreground">
                 {t("account.signedInAs", {
-                  email: session.user?.email ?? "",
+                  name: ownerSession.displayName ?? "",
                 })}
               </p>
             ) : (
               <>
                 <p className="text-sm text-muted-foreground">
-                  {replacingOwner
-                    ? t("account.replaceDescription")
-                    : t("account.createDescription")}
+                  {t("account.createDescription")}
                 </p>
                 {ownerClaimAvailability?.available === false ? (
                   <OwnerCodeUnavailable target={ownerCodeTarget} />
                 ) : (
                   <>
-                    {!session && (
+                    {!signedIn && (
                       <>
                         <div className="space-y-1.5">
                           <Label htmlFor="name">{t("fields.name")}</Label>
@@ -1225,35 +1113,43 @@ function SetupWizardBody({
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label htmlFor="email">
-                            {t("fields.signInEmail")}
+                          <Label htmlFor="username">
+                            {t("fields.username")}
                           </Label>
                           <Input
-                            id="email"
-                            name="email"
-                            type="email"
-                            value={email}
-                            autoComplete="email"
-                            inputMode="email"
+                            id="username"
+                            name="username"
+                            type="text"
+                            value={username}
+                            autoComplete="username"
+                            autoCapitalize="none"
                             spellCheck={false}
                             disabled={busy}
-                            onChange={(e) => setEmail(e.target.value)}
+                            onChange={(e) => setUsername(e.target.value)}
                           />
                           <p className="text-xs text-muted-foreground">
-                            {t("fields.signInEmailHint")}
+                            {t("fields.usernameHint")}
                           </p>
                         </div>
                         <PasswordField
                           id="password"
                           label={t("fields.newPassword")}
                           value={password}
-                          onChange={setPassword}
+                          onChange={(value) => {
+                            setPassword(value)
+                            setPasswordError(null)
+                          }}
                           autoComplete="new-password"
                           disabled={busy}
                         >
                           <p className="text-xs text-muted-foreground">
                             {t("fields.newPasswordHint")}
                           </p>
+                          {passwordError && (
+                            <p className="text-xs text-destructive" role="alert">
+                              {passwordError}
+                            </p>
+                          )}
                         </PasswordField>
                         <PasswordField
                           id="confirmPassword"
@@ -1269,6 +1165,27 @@ function SetupWizardBody({
                             </p>
                           )}
                         </PasswordField>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="notificationEmail">
+                            {t("fields.notificationEmail")}
+                          </Label>
+                          <Input
+                            id="notificationEmail"
+                            name="notificationEmail"
+                            type="email"
+                            value={notificationEmail}
+                            autoComplete="email"
+                            inputMode="email"
+                            spellCheck={false}
+                            disabled={busy}
+                            onChange={(e) =>
+                              setNotificationEmail(e.target.value)
+                            }
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {t("fields.notificationEmailHint")}
+                          </p>
+                        </div>
                       </>
                     )}
                     <div className="space-y-1.5">
@@ -1335,33 +1252,25 @@ function SetupWizardBody({
           <Button
             variant="ghost"
             disabled={busy}
-            onClick={replacingOwner ? () => setReplacingOwner(false) : goBack}
+            onClick={goBack}
           >
-            {replacingOwner
-              ? t("actions.cancel")
-              : t("actions.back")}
+            {t("actions.back")}
           </Button>
 
           {stepKey === "account" && (
             <Button
               disabled={
                 busy ||
-                (Boolean(session) && ownerSession === undefined) ||
+                (signedIn && ownerSession === undefined) ||
                 (ownerSession?.role !== "admin" &&
                   (ownerClaimAvailability?.available !== true ||
                     !ownerClaim.trim())) ||
-                (!session && (!name || !email || !passwordAcceptable))
+                (!signedIn && (!name || !username.trim() || !passwordAcceptable))
               }
               onClick={() => void handleAccount()}
             >
               {busy && <Loader2 className="animate-spin" />}
-              {replacingOwner
-                ? session
-                  ? t("actions.replaceOwner")
-                  : t("actions.createReplacementAccount")
-                : session
-                  ? t("actions.continue")
-                  : t("actions.createAccount")}
+              {signedIn ? t("actions.continue") : t("actions.createAccount")}
             </Button>
           )}
 

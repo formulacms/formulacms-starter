@@ -10,7 +10,7 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "write-tier-owner",
-  tokenIdentifier: "https://convex.test|write-tier-owner",
+  tokenIdentifier: "write-tier-owner",
   name: "Write tier owner",
   email: "write-tier@example.test",
 }

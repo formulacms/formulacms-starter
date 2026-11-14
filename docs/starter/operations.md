@@ -39,9 +39,11 @@ Classify a source-to-target transition with the first matching rule:
 `unsupported` → `breaking upgrade` → `guided upgrade` → `update`. A declared
 path must be verified by release CI; tooling must not infer its class from a
 diff. Patch releases contain updates only; minor releases may contain updates
-or guided upgrades; major releases may contain breaking upgrades. Before 1.0,
-patch releases remain compatible updates and every minor release must declare
-its class. Per-hop transitions may be non-composable.
+or guided upgrades; major releases may contain breaking upgrades. A release
+may declare no path from an older release. The checker then prints
+"Unsupported transition", and the release's upgrade file in `upgrades/` says
+what to do. Release 0.2.0 declares no path from 0.1.x: it supports fresh
+installs only. Per-hop transitions may be non-composable.
 
 `engine.manifest.json` records schema version 4 and supports schema version 3; schema version 2 remains unsupported.
 The separate `starter.transitions.json` is the
@@ -157,9 +159,9 @@ A synthetic check is a scheduled, read-only request that measures availability w
 
 The adapter must redact these values before an event reaches an alert, routine log, incident ticket, or chat notification:
 
-- **Secrets**: environment values, API keys, `BETTER_AUTH_SECRET`, `CONTACT_IP_PROOF_SECRET`, `REVALIDATE_SECRET`, provider credentials, owner setup codes, webhook signing secrets, and private keys. During the gated legacy migration this also includes `CMS_SECRET_KEY`, SMTP passwords, and stored SMTP ciphertext.
-- **Tokens**: cookies, bearer values, password-reset tokens, invitation tokens, signed proofs, and URLs that contain tokens or query parameters
-- **Authentication data**: passwords, email addresses, auth subjects, session IDs, reset addresses, and identity-provider responses; use a role or an internal event count when needed
+- **Secrets**: environment values, API keys, `CONTACT_IP_PROOF_SECRET`, `REVALIDATE_SECRET`, provider credentials, owner setup codes, webhook signing secrets, and private keys. During the gated legacy migration this also includes `CMS_SECRET_KEY`, SMTP passwords, and stored SMTP ciphertext.
+- **Tokens**: cookies, bearer values, owner recovery links, signed proofs, and URLs that contain tokens or query parameters
+- **Authentication data**: passwords, email addresses, usernames, auth subjects and session IDs; use a role or an internal event count when needed
 - **User content**: page text, rich-text bodies, form fields, submissions, media payloads, AI prompts and outputs, email bodies, and storage URLs with access signatures
 - **Request metadata**: raw IP addresses, full URLs, query strings, `Authorization`, `Cookie`, `Referer`, request or response bodies, and unrestricted user-agent strings
 
@@ -237,7 +239,7 @@ Use this sequence:
 1. Inventory the secret's consumers, owner, last rotation, expiry, and operational consequence. Record names only.
 2. Create the replacement value in the approved secret source, then update every consumer in one change window. Assume no dual-key overlap unless the implementation documents it.
 3. Run environment preflight, the relevant read-only health check, and an authenticated smoke path. Check that errors and alerts contain no secret values.
-4. Revoke the old value and record the revocation time. Plan reauthentication when rotating `BETTER_AUTH_SECRET`. Rotating an active email provider credential, initially `RESEND_API_KEY`, makes readiness fail until the server detects the replacement; re-run the owner test and activation flow. Treat `CMS_SECRET_KEY` and stored SMTP ciphertext only as legacy migration inventory until separately authorized cleanup proves no remaining consumer.
+4. Revoke the old value and record the revocation time. Rotating an active email provider credential, initially `RESEND_API_KEY`, makes readiness fail until the server detects the replacement; re-run the owner test and activation flow. Treat `CMS_SECRET_KEY` and stored SMTP ciphertext only as legacy migration inventory until separately authorized cleanup proves no remaining consumer.
 5. Record the owner, change reference, consumer results, and post-rotation release identity.
 
 ### Roll back a release without hiding data changes
@@ -296,32 +298,35 @@ part of starter publication.
 
 On your computer, you set none of these by hand, and you do not copy
 `.env.local.example`. On the first start, `pnpm dev` writes the Convex
-addresses, the three secrets and `BETTER_AUTH_URL` to `.env.local`. It copies
-the secrets to the Convex development backend and makes the owner setup code.
+addresses and the two secrets to `.env.local`. It copies the secrets to the
+Convex development backend and makes the owner setup code
+(`scripts/lib/local-setup.ts`).
 See [Quickstart](#quickstart). For a hosted site, follow
 [Put your site online](hosting.md).
 
 Required for the Next.js runtime:
 
-| Variable                      | Where                     | Purpose                                  |
-| ----------------------------- | ------------------------- | ---------------------------------------- |
-| `NEXT_PUBLIC_CONVEX_URL`      | `.env.local` / deploy env | Convex client and server queries.        |
-| `NEXT_PUBLIC_CONVEX_SITE_URL` | `.env.local` / deploy env | Convex HTTP actions used by Better Auth. |
-| `BETTER_AUTH_SECRET`          | `.env.local` / deploy env | Auth secret; generate per environment.   |
+| Variable                      | Where                     | Purpose                                              |
+| ----------------------------- | ------------------------- | ---------------------------------------------------- |
+| `NEXT_PUBLIC_CONVEX_URL`      | `.env.local` / deploy env | Convex client, server queries and sign-in.           |
 
-Next.js validates these on Node server startup via `instrumentation.ts`, and
-the auth helpers validate them before wiring Better Auth. Missing or placeholder
-values fail fast.
+Next.js checks `NEXT_PUBLIC_CONVEX_URL` when the Node server starts
+(`instrumentation.ts`, `lib/env.ts`). A missing or placeholder value fails
+fast.
+
+Sign-in needs no auth secret and no auth URL. Convex Auth signs its own access
+tokens inside the Convex deployment (`convex/auth.ts`).
 
 Required public-request proof pairing:
 
 | Variable                  | Where                   | Purpose                                                                    |
 | ------------------------- | ----------------------- | -------------------------------------------------------------------------- |
-| `CONTACT_IP_PROOF_SECRET` | Next env and Convex env | Proves trusted client keys for contact, password reset, and account setup. |
+| `CONTACT_IP_PROOF_SECRET` | Next env and Convex env | Proves trusted client keys for contact messages and local AI audit events. |
 
-Password reset fails closed when this pairing is absent or mismatched. The
-generated starter preflight compares `.env.local` with the active Convex
-deployment without printing either value.
+Without an exact pairing, contact messages still arrive, but every sender
+shares one rate-limit bucket (`convex/lib/contactIpProof.ts`,
+`convex/cms/formSubmissions.ts`). The generated starter preflight compares
+`.env.local` with the active Convex deployment without printing either value.
 
 Optional but recommended:
 
@@ -334,12 +339,15 @@ before the legacy fallback without changing each setting's blank-value semantics
 | ------------------------ | ----------------------- | --------------------------------------------------------------------- |
 | `FORMULACMS_OWNER_CLAIM` | Convex env only         | One-time owner setup code; never save it in `.env.local` or metadata. |
 | `REVALIDATE_SECRET`      | Next env and Convex env | Shared secret for publish-time ISR cache purge.                       |
-| `NEXT_PUBLIC_SITE_URL`   | Next env                | Canonical URL and Open Graph origin fallback.                         |
+| `NEXT_PUBLIC_SITE_URL`   | Next env                | Canonical URL and Open Graph origin fallback; local dev address.      |
 | `RESEND_API_KEY`         | Convex env              | Enables readiness for the bundled Resend email adapter.               |
 
-`BETTER_AUTH_SECRET`, `CONTACT_IP_PROOF_SECRET`, and `REVALIDATE_SECRET` are
-each set in the Next.js environment and in Convex, and the two values must be
-equal. If you set one by hand, send the same value to Convex over stdin, never
+A local `NEXT_PUBLIC_SITE_URL` (`localhost`, `127.0.0.1` or `[::1]`) also sets
+the address `pnpm dev` binds, for example `http://localhost:3001`. Any other
+value keeps `http://localhost:3000` (`scripts/lib/dev-server-origin.ts`).
+
+`CONTACT_IP_PROOF_SECRET` and `REVALIDATE_SECRET` are each set in the
+Next.js environment and in Convex, and the two values must be equal. If you set one by hand, send the same value to Convex over stdin, never
 as a command argument. `pnpm check:preflight` fails when either side is
 missing or the values differ.
 
@@ -347,16 +355,10 @@ The owner setup code (`FORMULACMS_OWNER_CLAIM`) lives in Convex only. Never put
 it in a URL, a file or a command argument. Until the site has an owner,
 `pnpm dev` shows the code in the terminal. Setup uses the code once.
 
-Rotating `FORMULACMS_OWNER_CLAIM` enables the deployment-owner replacement
-path. To make a new code, follow step 3 of "By hand" in
-[Local setup](local-setup.md), or step 12 of [Put your site online](hosting.md)
-for a hosted site. Then open `/setup`, choose
-**Replace owner account**, and enter the new code with the successor account's
-details. The replacement rebinds the same installation-owner record, removes
-the outgoing account's owner authority in the binding transaction, and schedules
-fixed-size cleanup of its Better Auth sessions. A competing signup may create
-an ordinary Better Auth account, but only the account that completes the
-replacement receives CMS access.
+A new `FORMULACMS_OWNER_CLAIM` does not replace an existing owner: setup
+accepts the code only while the site has no owner (`convex/cms/owner.ts`). An
+owner who cannot sign in uses a recovery link instead; see
+[Owner recovery](#owner-recovery).
 
 ## Quickstart
 
@@ -413,8 +415,7 @@ before changing thresholds or adding sites.
 Fresh onboarding collects no provider, sender, credential, or test-email data
 and creates no email settings row. Absence resolves to the **Console fallback**.
 Console sends nothing, returns `not_configured`, and is not production-ready;
-it must not log recipients, subjects, bodies, URLs, reset tokens, or invitation
-tokens.
+it must not log recipients, subjects, bodies, URLs or tokens.
 
 FormulaCMS owns the provider contract and build-time static registry:
 
@@ -477,40 +478,44 @@ installation:
    the registered provider. Do not add runtime package installation, a second
    queue/retry owner, cross-provider fallback, or caller-selected SDK adapters.
 
-## Admin Password Recovery
+## Owner recovery
 
-If reset email is unavailable, a deployment owner can replace a built-in
-owner's password from a trusted terminal. The recovery action is internal: it
-is callable through the authenticated Convex CLI, but it is not exposed to the
-browser or the public Convex API. It refuses every account except the current
-durable owner, creates a credential login for an OAuth-only owner when needed,
-and revokes all existing sessions in bounded database batches before reporting
-success.
+The owner signs in with a username and a password. There is no email sign-in,
+no password reset by email and no Google sign-in. When the owner forgets the
+password, or wrong guesses have locked the account, the owner gets back in
+with a one-time recovery link.
 
-Run the dedicated interactive command from the starter directory:
+Run this command from the site's folder, on a computer that can reach the
+Convex deployment:
 
 ```bash
-pnpm admin:reset-password
+pnpm owner:recover
 ```
 
-The command explicitly targets the project's personal development deployment
-by default, so an inherited production deploy key cannot silently change the
-target. Use `pnpm admin:reset-password --prod` for production, or add
-`--deployment <selector>` for another deployment. Production and explicit
-deployment targets require an exact typed confirmation before the command asks
-for the admin email or password.
+It prints three lines: a heading, the link, and the time the link expires
+(`scripts/owner-recover.ts`). For example:
 
-The password is entered twice without terminal echo. The command refuses piped
-or unattended input and does not place the password in shell history, an
-environment variable, a temporary file, or the operating system's process
-arguments. It invokes the pinned Convex CLI in-process so Convex still applies
-its normal authenticated deployment selection. JavaScript necessarily retains
-the password briefly in process memory until the command exits; run it only on
-a trusted machine and terminal.
+```text
+Owner recovery link (works once):
+http://localhost:3000/recover?token=…
+It expires at 2026-11-14T10:15:00.000Z.
+```
 
-A successful result is `{"reset":true,"sessionsRevoked":<count>}`. The count
-is the total removed before the command returned; sign in again with the new
-password. Treat terminal access to this command as deployment-admin access.
+- The link works once and expires after 15 minutes. A new link replaces the
+  previous one (`convex/cms/recovery.ts`).
+- Convex stores only a SHA-256 hash of the link's secret part.
+- By default the command uses the deployment in `.env.local`. Add `--prod`
+  for the production deployment, or `--deployment <name>` for another one.
+- The link opens the site address saved in Settings. If no address is saved,
+  the command stops and asks for one: add `--base-url`, for example
+  `pnpm owner:recover --base-url http://localhost:3000`.
+
+Open the link and choose a new username and password. Ownership moves to the
+new account at once. The old account is disabled, its sessions end, and
+sign-in refuses it. This works even while wrong guesses lock the old account.
+
+Treat terminal access to this command as owner access: anyone who can run it
+against the deployment can take over the site.
 
 ## Author and member identity
 
@@ -586,8 +591,8 @@ For a specific release, follow its upgrade file in `upgrades/`; it takes precede
 
 Before integrating, record the exact source and target annotated SemVer starter
 tags and generated-tree digests for both sides. An untagged checkout is not a
-release transition. Stop if the target release declares the path unsupported;
-do not infer a supported path from a schema number. Read the exact hop from
+release transition. Stop if the target release declares the path unsupported
+or does not declare it; do not infer a supported path from a schema number. Read the exact hop from
 `starter.transitions.json` and validate it with:
 
 ```bash

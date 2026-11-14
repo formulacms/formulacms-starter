@@ -14,7 +14,8 @@ export const PAGE_LOCK_ACTIVE_MS = 90_000
 
 export type LockAuth = {
   userId: string
-  email?: string | null
+  /** Display name (never an email or username). */
+  name?: string | null
 }
 
 export type EditorLockState =
@@ -78,20 +79,19 @@ export async function acquirePageEditorLock(
   await Promise.all(
     locks
       .filter((lock) => lock.userId !== auth.userId)
-      .map((lock) => ctx.db.delete(lock._id))
+      .map((lock) => ctx.db.delete("pageEditorLocks", lock._id))
   )
 
   const ownLock = locks.find((lock) => lock.userId === auth.userId)
   const patch = {
-    name: auth.email?.split("@")[0] ?? undefined,
-    email: auth.email ?? undefined,
+    name: auth.name ?? undefined,
     lastActiveAt: now,
     updatedAt: now,
   }
 
   if (ownLock) {
-    await ctx.db.patch(ownLock._id, patch)
-    const lock = await ctx.db.get(ownLock._id)
+    await ctx.db.patch("pageEditorLocks", ownLock._id, patch)
+    const lock = await ctx.db.get("pageEditorLocks", ownLock._id)
     if (!lock) throw new ConvexError("Could not refresh editor lock")
     return { status: "acquired", lock }
   }
@@ -102,7 +102,7 @@ export async function acquirePageEditorLock(
     acquiredAt: now,
     ...patch,
   })
-  const lock = await ctx.db.get(lockId)
+  const lock = await ctx.db.get("pageEditorLocks", lockId)
   if (!lock) throw new ConvexError("Could not acquire editor lock")
   return { status: "acquired", lock }
 }
@@ -120,6 +120,6 @@ export async function releasePageEditorLock(
   await Promise.all(
     locks
       .filter((lock) => lock.userId === auth.userId)
-      .map((lock) => ctx.db.delete(lock._id))
+      .map((lock) => ctx.db.delete("pageEditorLocks", lock._id))
   )
 }

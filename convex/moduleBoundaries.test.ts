@@ -76,7 +76,7 @@ vi.mock("./lib/publishing/publicationContributions", async (importOriginal) => {
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "f08-boundary-owner",
-  tokenIdentifier: "https://convex.test|f08-boundary-owner",
+  tokenIdentifier: "f08-boundary-owner",
 }
 
 // Generated declarations intentionally remain untouched in this source-only
@@ -203,7 +203,7 @@ describe("F08 real module boundaries", () => {
 
     const published = await publish(owner, pageId)
     await t.run((ctx) =>
-      ctx.db.patch(pageId, {
+      ctx.db.patch("pages", pageId, {
         slug: "mutable-legacy-slug",
         content: {
           en: { title: "MUTABLE LEGACY PAGE", slices: [] },

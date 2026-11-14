@@ -1,5 +1,5 @@
 import { api } from "@/convex/_generated/api"
-import { fetchAuthQuery, requireAuth } from "@/lib/auth-server"
+import { fetchAuthQuery, requireAuth } from "@/lib/auth/server"
 
 /**
  * Checks ordinary protected-operation access from a Next.js server action.

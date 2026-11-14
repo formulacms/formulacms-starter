@@ -94,7 +94,7 @@ describe("aiAuditLog — translation actions write audit rows (AI-03)", () => {
     )
     await seedCommunityOwner(t, {
       subject: "auth-1",
-      tokenIdentifier: "https://convex.test|auth-1",
+      tokenIdentifier: "auth-1",
     })
     const asUser = t.withIdentity({
       subject: "auth-1",
@@ -137,7 +137,7 @@ describe("aiAuditLog — translation actions write audit rows (AI-03)", () => {
     )
     await seedCommunityOwner(t, {
       subject: "auth-page-translate",
-      tokenIdentifier: "https://convex.test|auth-page-translate",
+      tokenIdentifier: "auth-page-translate",
     })
     const asUser = t.withIdentity({
       subject: "auth-page-translate",
@@ -191,7 +191,7 @@ describe("aiAuditLog.deleteAuditLogForUser — admin-only erasure", () => {
       await ctx.db.insert("cmsOwner", {
         key: "owner",
         authId: "admin-1",
-        tokenIdentifier: "https://convex.test|admin-1",
+        tokenIdentifier: "admin-1",
         establishedAt: now,
         updatedAt: now,
       })
@@ -232,7 +232,7 @@ describe("aiAuditLog.deleteAuditLogForUser — admin-only erasure", () => {
       await ctx.db.insert("cmsOwner", {
         key: "owner",
         authId: "admin-1",
-        tokenIdentifier: "https://convex.test|admin-1",
+        tokenIdentifier: "admin-1",
         establishedAt: Date.now(),
         updatedAt: Date.now(),
       })

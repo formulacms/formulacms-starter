@@ -3,9 +3,7 @@ import { sliceProfile } from "@/test-utils/slice-profile"
 import { act, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
-  createContext,
   isValidElement,
-  useContext,
   type ReactElement,
   type ReactNode,
 } from "react"
@@ -45,11 +43,9 @@ const controls = vi.hoisted(() => ({
 }))
 vi.mock("convex/react", () => ({
   useQuery: controls.query,
-  useConvexAuth: () => {
-    if (!useContext(QueryProviderContext))
-      throw new Error("missing authenticated provider")
-    return controls.auth
-  },
+  // The signed-in provider lives in the live-frame layout
+  // (app/layout-provider-boundaries.test.ts checks it).
+  useConvexAuth: () => controls.auth,
 }))
 vi.mock(
   "@/app/(live-preview)/admin/pages/[id]/live-frame/[locale]/actions",
@@ -67,11 +63,6 @@ vi.mock("@/convex/lib/slices/resolve", async () => {
       controls.relations ?? actual.collectRelationIds(slices),
   }
 })
-vi.mock("@/components/providers", () => ({
-  Providers: ({ children }: { children: ReactNode }) => (
-    <QueryProviderContext value={true}>{children}</QueryProviderContext>
-  ),
-}))
 vi.mock("@/components/theme-provider", () => ({
   ThemeProvider: ({ children }: { children: ReactNode }) => children,
 }))
@@ -114,7 +105,6 @@ vi.mock("./page-live-preview-canvas", () => ({
   },
 }))
 
-const QueryProviderContext = createContext(false)
 
 const pm = (text: string) =>
   JSON.stringify({

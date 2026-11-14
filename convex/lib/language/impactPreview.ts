@@ -214,7 +214,7 @@ export async function startImpactPreviewInTransaction(
   if (liveRows.length > 1) fail("LANGUAGE_PREVIEW_STATE_INVALID")
   const now = Date.now()
   for (const row of liveRows) {
-    await ctx.db.patch(row._id, { phase: "stale", updatedAt: now })
+    await ctx.db.patch("siteLanguageImpactPreviews", row._id, { phase: "stale", updatedAt: now })
   }
 
   return ctx.db.insert("siteLanguageImpactPreviews", {
@@ -414,7 +414,7 @@ async function markStale(
   ctx: MutationCtx,
   preview: ImpactPreview
 ): Promise<ImpactPreviewStepResult> {
-  await ctx.db.patch(preview._id, { phase: "stale", updatedAt: Date.now() })
+  await ctx.db.patch("siteLanguageImpactPreviews", preview._id, { phase: "stale", updatedAt: Date.now() })
   return { kind: "stale" }
 }
 
@@ -428,7 +428,7 @@ export async function stepImpactPreviewInTransaction(
   previewId: Id<"siteLanguageImpactPreviews">,
   generation: number
 ): Promise<ImpactPreviewStepResult> {
-  const preview = await ctx.db.get(previewId)
+  const preview = await ctx.db.get("siteLanguageImpactPreviews", previewId)
   if (
     !preview ||
     preview.phase !== "scanning" ||
@@ -477,7 +477,7 @@ export async function stepImpactPreviewInTransaction(
   const now = Date.now()
   if (batch.kind === "halve") {
     if (size <= 1) return markStale(ctx, preview)
-    await ctx.db.patch(preview._id, {
+    await ctx.db.patch("siteLanguageImpactPreviews", preview._id, {
       cursor: encodeCursor({ ...cursor, size: Math.floor(size / 2) }),
       updatedAt: now,
     })
@@ -526,7 +526,7 @@ export async function stepImpactPreviewInTransaction(
       : section
   if (following === null) {
     const expiresAt = now + IMPACT_PREVIEW_TTL_MS
-    await ctx.db.patch(preview._id, {
+    await ctx.db.patch("siteLanguageImpactPreviews", preview._id, {
       phase: "complete",
       cursor: undefined,
       count,
@@ -538,7 +538,7 @@ export async function stepImpactPreviewInTransaction(
     })
     return { kind: "complete", expiresAt }
   }
-  await ctx.db.patch(preview._id, {
+  await ctx.db.patch("siteLanguageImpactPreviews", preview._id, {
     cursorPhase: following,
     cursor:
       batch.cursor === "section_done" ? undefined : encodeCursor(batch.cursor),
@@ -1111,7 +1111,7 @@ async function resumeMenu(
   size: number
 ): Promise<Batch> {
   const position = cursor.menu!
-  const menu = await ctx.db.get(position.menuId)
+  const menu = await ctx.db.get("menus", position.menuId)
   // A menu write between steps advances a captured counter, so a missing or
   // deleted menu here means the walk is no longer static.
   if (!menu || menu.deletedAt !== undefined) return { kind: "stale" }
@@ -1161,7 +1161,7 @@ export async function listImpactPreviewPage(
   previewId: Id<"siteLanguageImpactPreviews">,
   ordinal: number
 ): Promise<ImpactPreviewListing> {
-  const preview = await ctx.db.get(previewId)
+  const preview = await ctx.db.get("siteLanguageImpactPreviews", previewId)
   if (!preview || preview.owner.tokenIdentifier !== owner.tokenIdentifier) {
     fail("LANGUAGE_PREVIEW_MISMATCH")
   }
@@ -1222,7 +1222,7 @@ export async function recordImpactReviewInTransaction(
   ordinal: number,
   pageDigest: string
 ): Promise<ImpactPreviewReceipt> {
-  const preview = await ctx.db.get(previewId)
+  const preview = await ctx.db.get("siteLanguageImpactPreviews", previewId)
   if (!preview || preview.owner.tokenIdentifier !== owner.tokenIdentifier) {
     fail("LANGUAGE_PREVIEW_MISMATCH")
   }
@@ -1258,7 +1258,7 @@ export async function recordImpactReviewInTransaction(
     fail("LANGUAGE_PREVIEW_STATE_INVALID")
   }
   if (pages[0]!.digest !== pageDigest) fail("LANGUAGE_PREVIEW_MISMATCH")
-  await ctx.db.patch(previewId, {
+  await ctx.db.patch("siteLanguageImpactPreviews", previewId, {
     reviewedThroughOrdinal: ordinal,
     updatedAt: now,
   })
@@ -1308,7 +1308,7 @@ export async function requireCommittablePreview(
   liveTokens: ImpactPreviewTokens,
   claim: PreviewCommitClaim
 ): Promise<ImpactPreview> {
-  const preview = await ctx.db.get(claim.previewId)
+  const preview = await ctx.db.get("siteLanguageImpactPreviews", claim.previewId)
   if (
     !preview ||
     preview.owner.tokenIdentifier !== owner.tokenIdentifier ||
@@ -1344,7 +1344,7 @@ export async function expireImpactPreviewInTransaction(
   previewId: Id<"siteLanguageImpactPreviews">,
   generation: number
 ): Promise<void> {
-  const preview = await ctx.db.get(previewId)
+  const preview = await ctx.db.get("siteLanguageImpactPreviews", previewId)
   if (
     !preview ||
     preview.phase !== "complete" ||
@@ -1354,5 +1354,5 @@ export async function expireImpactPreviewInTransaction(
   ) {
     return
   }
-  await ctx.db.patch(previewId, { phase: "expired", updatedAt: Date.now() })
+  await ctx.db.patch("siteLanguageImpactPreviews", previewId, { phase: "expired", updatedAt: Date.now() })
 }

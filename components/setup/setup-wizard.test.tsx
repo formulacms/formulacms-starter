@@ -9,7 +9,6 @@ import {
 import { getFunctionName } from "convex/server"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, test, vi } from "vitest"
-import { OWNER_CLAIM_HEADER } from "@/convex/lib/ownerClaim"
 import {
   buildLiveOwnerCodeCommand,
   buildOwnerCodeCommand,
@@ -81,25 +80,19 @@ const mocks = vi.hoisted(() => ({
     ai: false,
     finished: false,
   } as TestOnboardingProgress | undefined,
-  session: {
-    session: { id: "session-1" },
-    user: { email: "owner@example.com" },
-  } as {
-    session: { id: string }
-    user: { email: string }
-  } | null,
+  // A browser session exists (cookie); Convex Auth reports it as loading
+  // until the Convex client confirms it (`convexAuthenticated`).
+  session: { signedIn: true } as { signedIn: true } | null,
   push: vi.fn(),
   assign: vi.fn(),
   replace: vi.fn(),
   refresh: vi.fn(),
-  signUpEmail: vi.fn(),
-  signInEmail: vi.fn(),
+  signIn: vi.fn(),
   signOut: vi.fn(),
   useQuery: vi.fn(),
   useMutation: vi.fn(),
-  claimOwner: vi.fn(),
+  createOwnerAccount: vi.fn(),
   httpQuery: vi.fn(),
-  replaceOwner: vi.fn(),
   bootstrapInstallation: vi.fn(),
   markStep: vi.fn(),
   setAdminLocale: vi.fn(),
@@ -124,22 +117,17 @@ vi.mock("convex/browser", () => ({
 vi.mock("convex/react", () => ({
   useConvex: () => ({ url: "http://convex.example.invalid" }),
   useConvexAuth: () => ({
-    isAuthenticated: mocks.convexAuthenticated,
-    isLoading: !mocks.convexAuthenticated,
-    isRefreshing: false,
+    isAuthenticated: mocks.session !== null && mocks.convexAuthenticated,
+    isLoading: mocks.session !== null && !mocks.convexAuthenticated,
   }),
   useQuery: mocks.useQuery,
   useMutation: (reference: unknown) => mocks.useMutation(reference),
   useAction: () => mocks.action,
 }))
 
-vi.mock("@/lib/auth-client", () => ({
-  authClient: {
-    useSession: () => ({ data: mocks.session }),
-    signUp: { email: mocks.signUpEmail },
-    signIn: { email: mocks.signInEmail },
-    signOut: mocks.signOut,
-  },
+vi.mock("@/lib/auth/client", () => ({
+  useUsernamePasswordSignIn: () => ({ signIn: mocks.signIn, pending: false }),
+  useSignOut: () => mocks.signOut,
 }))
 
 /**
@@ -176,13 +164,9 @@ describe("SetupWizard auth bridge", () => {
       ai: false,
       finished: false,
     }
-    mocks.session = {
-      session: { id: "session-1" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
     mocks.httpQuery.mockResolvedValue({ available: true })
-    mocks.claimOwner.mockResolvedValue({ status: "claimed" })
-    mocks.replaceOwner.mockResolvedValue({ status: "claimed" })
+    mocks.createOwnerAccount.mockResolvedValue({ status: "created" })
     mocks.bootstrapInstallation.mockResolvedValue({
       phase: "snapshot_active",
       revision: 1,
@@ -193,8 +177,9 @@ describe("SetupWizard auth bridge", () => {
     mocks.mutation.mockResolvedValue(null)
     mocks.useMutation.mockImplementation((reference) => {
       const name = getFunctionName(reference)
-      if (name === "cms/owner:claimOwner") return mocks.claimOwner
-      if (name === "cms/owner:replaceOwner") return mocks.replaceOwner
+      if (name === "cms/owner:createOwnerAccount") {
+        return mocks.createOwnerAccount
+      }
       if (name === "cms/settings:bootstrapInstallation") {
         return mocks.bootstrapInstallation
       }
@@ -204,9 +189,8 @@ describe("SetupWizard auth bridge", () => {
       }
       return mocks.mutation
     })
-    mocks.signUpEmail.mockResolvedValue({ error: null })
-    mocks.signInEmail.mockResolvedValue({ error: null })
-    mocks.signOut.mockResolvedValue({ error: null })
+    mocks.signIn.mockResolvedValue({ status: "complete" })
+    mocks.signOut.mockResolvedValue(undefined)
     mocks.useQuery.mockImplementation((reference, args) => {
       if (args === "skip") return undefined
       const name = getFunctionName(reference)
@@ -225,8 +209,10 @@ describe("SetupWizard auth bridge", () => {
       if (name === "cms/owner:getOwnerSession") {
         if (!mocks.ownerSessionReady) return undefined
         return {
+          ownerId: "owner-1",
           authId: "owner-1",
-          email: "owner@example.com",
+          email: null,
+          displayName: "First Owner",
           role: mocks.role,
           permissions: [],
         }
@@ -450,6 +436,31 @@ describe("SetupWizard auth bridge", () => {
     ).not.toBeInTheDocument()
   })
 
+  function fillNewAccount(
+    messages: typeof en = en,
+    code = "one-time-owner-code"
+  ) {
+    fireEvent.change(screen.getByLabelText(messages.setup.fields.name), {
+      target: { value: "First Owner" },
+    })
+    fireEvent.change(screen.getByLabelText(messages.setup.fields.username), {
+      target: { value: "owner" },
+    })
+    fireEvent.change(screen.getByLabelText(messages.setup.fields.newPassword), {
+      target: { value: "password123" },
+    })
+    fireEvent.change(
+      screen.getByLabelText(messages.setup.fields.confirmPassword),
+      { target: { value: "password123" } }
+    )
+    fireEvent.change(screen.getByLabelText(messages.setup.fields.ownerCode), {
+      target: { value: code },
+    })
+    fireEvent.click(
+      screen.getByRole("button", { name: messages.setup.actions.createAccount })
+    )
+  }
+
   test("offers existing owner sign-in when setup resumes without a session", async () => {
     progressMock().account = true
     mocks.session = null
@@ -460,13 +471,13 @@ describe("SetupWizard auth bridge", () => {
     expect(
       screen.getByRole("heading", { name: "Sign in to resume setup" })
     ).toBeInTheDocument()
-    expect(screen.getByLabelText("Email")).toBeInTheDocument()
+    expect(screen.getByLabelText("Username")).toBeInTheDocument()
     expect(screen.getByLabelText("Account password")).toBeInTheDocument()
     expect(screen.queryByLabelText("Site name")).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Owner setup code")).not.toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText("Email"), {
-      target: { value: "owner@example.com" },
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: " owner " },
     })
     fireEvent.change(screen.getByLabelText("Account password"), {
       target: { value: "password123" },
@@ -474,18 +485,14 @@ describe("SetupWizard auth bridge", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in and resume" }))
 
     await waitFor(() =>
-      expect(mocks.signInEmail).toHaveBeenCalledWith({
-        email: "owner@example.com",
+      expect(mocks.signIn).toHaveBeenCalledWith({
+        username: "owner",
         password: "password123",
       })
     )
-    expect(mocks.claimOwner).not.toHaveBeenCalled()
-    expect(mocks.replaceOwner).not.toHaveBeenCalled()
+    expect(mocks.createOwnerAccount).not.toHaveBeenCalled()
 
-    mocks.session = {
-      session: { id: "session-2" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
     mocks.convexAuthenticated = true
     mocks.role = "admin"
     view.rerender(<SetupWizard />)
@@ -494,8 +501,7 @@ describe("SetupWizard auth bridge", () => {
     expect(screen.getByText(/Resuming from/)).toHaveTextContent(
       "Resuming from Site identity"
     )
-    expect(mocks.claimOwner).not.toHaveBeenCalled()
-    expect(mocks.replaceOwner).not.toHaveBeenCalled()
+    expect(mocks.createOwnerAccount).not.toHaveBeenCalled()
   })
 
   test("requires the existing owner to sign in when the setup row is missing", () => {
@@ -508,64 +514,54 @@ describe("SetupWizard auth bridge", () => {
     expect(
       screen.getByRole("heading", { name: "Sign in to resume setup" })
     ).toBeInTheDocument()
-    expect(screen.getByLabelText("Email")).toBeInTheDocument()
+    expect(screen.getByLabelText("Username")).toBeInTheDocument()
     expect(screen.queryByLabelText("Owner setup code")).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Create account" })
     ).not.toBeInTheDocument()
   })
 
-  test("keeps the resume gate available after invalid credentials", async () => {
-    progressMock().account = true
-    mocks.session = null
-    mocks.convexAuthenticated = false
-    mocks.signInEmail.mockResolvedValue({
-      error: { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" },
-    })
+  test.each([
+    [{ error: "INVALID_CREDENTIALS" }, "Could not sign in."],
+    [{ error: "USER_NOT_FOUND" }, "Could not sign in."],
+    [
+      { error: "OTHER_ERROR", cause: new Error("network unavailable") },
+      "Could not sign in.",
+    ],
+    [
+      { error: "RATE_LIMITED", retryAfterMs: 60_000 },
+      "Too many attempts. Wait a minute, then try again.",
+    ],
+  ])(
+    "keeps the resume gate available after a refused sign-in (%o)",
+    async (userError, expected) => {
+      progressMock().account = true
+      mocks.session = null
+      mocks.convexAuthenticated = false
+      mocks.signIn.mockResolvedValue({ status: "error", userError })
 
-    render(<SetupWizard />)
+      render(<SetupWizard />)
 
-    fireEvent.change(screen.getByLabelText("Email"), {
-      target: { value: "owner@example.com" },
-    })
-    fireEvent.change(screen.getByLabelText("Account password"), {
-      target: { value: "incorrect-password" },
-    })
-    fireEvent.click(screen.getByRole("button", { name: "Sign in and resume" }))
+      fireEvent.change(screen.getByLabelText("Username"), {
+        target: { value: "owner" },
+      })
+      fireEvent.change(screen.getByLabelText("Account password"), {
+        target: { value: "incorrect-password" },
+      })
+      fireEvent.click(
+        screen.getByRole("button", { name: "Sign in and resume" })
+      )
 
-    expect(
-      await screen.findByText(en.caughtErrors.invalidCredentials)
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("heading", { name: "Sign in to resume setup" })
-    ).toBeInTheDocument()
-    expect(mocks.claimOwner).not.toHaveBeenCalled()
-    expect(mocks.replaceOwner).not.toHaveBeenCalled()
-  })
-
-  test("recovers the resume gate after a sign-in transport failure", async () => {
-    progressMock().account = true
-    mocks.session = null
-    mocks.convexAuthenticated = false
-    mocks.signInEmail.mockRejectedValue(new Error("network unavailable"))
-
-    render(<SetupWizard />)
-
-    fireEvent.change(screen.getByLabelText("Email"), {
-      target: { value: "owner@example.com" },
-    })
-    fireEvent.change(screen.getByLabelText("Account password"), {
-      target: { value: "password123" },
-    })
-    fireEvent.click(screen.getByRole("button", { name: "Sign in and resume" }))
-
-    expect(await screen.findByText("Could not sign in.")).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Sign in and resume" })
-    ).toBeEnabled()
-    expect(mocks.claimOwner).not.toHaveBeenCalled()
-    expect(mocks.replaceOwner).not.toHaveBeenCalled()
-  })
+      expect(await screen.findByText(expected)).toBeInTheDocument()
+      expect(
+        screen.getByRole("heading", { name: "Sign in to resume setup" })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Sign in and resume" })
+      ).toBeEnabled()
+      expect(mocks.createOwnerAccount).not.toHaveBeenCalled()
+    }
+  )
 
   test("keeps resumed setup hidden while Convex authentication connects", () => {
     progressMock().account = true
@@ -591,6 +587,11 @@ describe("SetupWizard auth bridge", () => {
         name: "This account can't resume setup",
       })
     ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Another account is signed in, but only the site owner can continue setup."
+      )
+    ).toBeInTheDocument()
     expect(screen.queryByLabelText("Site name")).not.toBeInTheDocument()
 
     fireEvent.click(
@@ -601,8 +602,7 @@ describe("SetupWizard auth bridge", () => {
 
     await waitFor(() => expect(mocks.signOut).toHaveBeenCalledOnce())
     expect(mocks.refresh).toHaveBeenCalledOnce()
-    expect(mocks.claimOwner).not.toHaveBeenCalled()
-    expect(mocks.replaceOwner).not.toHaveBeenCalled()
+    expect(mocks.createOwnerAccount).not.toHaveBeenCalled()
     expect(queryArgsFor("cms/settings:getSettings")).toBe("skip")
   })
 
@@ -643,87 +643,162 @@ describe("SetupWizard auth bridge", () => {
     expect(queryArgsFor("cms/settings:getSettings")).toBe("skip")
   })
 
-  test("waits for Convex authentication before claiming the owner role", async () => {
+  test("creates the owner in one call, signs in, then waits for Convex authentication", async () => {
     mocks.session = null
     mocks.convexAuthenticated = false
 
     const view = render(<SetupWizard />)
+    fillNewAccount()
 
-    fireEvent.change(screen.getByLabelText("Your name"), {
-      target: { value: "First Owner" },
+    await waitFor(() => expect(mocks.signIn).toHaveBeenCalledOnce())
+    expect(mocks.createOwnerAccount).toHaveBeenCalledWith({
+      code: "one-time-owner-code",
+      name: "First Owner",
+      username: "owner",
+      password: "password123",
     })
-    fireEvent.change(screen.getByLabelText("Sign-in email"), {
-      target: { value: "owner@example.com" },
+    expect(mocks.signIn).toHaveBeenCalledWith({
+      username: "owner",
+      password: "password123",
     })
-    fireEvent.change(screen.getByLabelText("Account password (min 8 chars)"), {
-      target: { value: "password123" },
-    })
-    fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "password123" } })
-    fireEvent.change(screen.getByLabelText("Owner setup code"), {
-      target: { value: "one-time-owner-code" },
-    })
-    fireEvent.click(screen.getByRole("button", { name: "Create account" }))
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
 
-    await waitFor(() => expect(mocks.signUpEmail).toHaveBeenCalledOnce())
-    expect(mocks.claimOwner).not.toHaveBeenCalled()
-    expect(mocks.replaceOwner).not.toHaveBeenCalled()
-
-    mocks.session = {
-      session: { id: "session-2" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
     mocks.convexAuthenticated = true
+    mocks.role = "admin"
     view.rerender(<SetupWizard />)
 
-    await waitFor(
-      () =>
-        expect(mocks.claimOwner).toHaveBeenCalledWith({
-          claim: "one-time-owner-code",
-        }),
-      { timeout: 1_000 }
+    expect(
+      await screen.findByRole("status", {}, { timeout: 1_000 })
+    ).toHaveTextContent(/Owner account created for owner/)
+    expect(screen.getByLabelText("Site name")).toBeInTheDocument()
+  })
+
+  test("trims copied setup-code whitespace before creating the owner", async () => {
+    mocks.session = null
+
+    render(<SetupWizard />)
+    fillNewAccount(en, "  one-time-owner-code  ")
+
+    await waitFor(() =>
+      expect(mocks.createOwnerAccount).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "one-time-owner-code" })
+      )
     )
   })
 
-  test("trims copied setup-code whitespace before signup and owner claim", async () => {
+  test("shows the optional notification email before the setup code and sends it trimmed", async () => {
     mocks.session = null
 
     render(<SetupWizard />)
 
-    fireEvent.change(screen.getByLabelText("Your name"), {
-      target: { value: "First Owner" },
+    expect(
+      Array.from(document.querySelectorAll("label"), (label) =>
+        label.textContent?.trim()
+      )
+    ).toEqual([
+      "Your name",
+      "Username",
+      "Account password (min 10 chars)",
+      "Confirm password",
+      "Notification email (optional)",
+      "Owner setup code",
+    ])
+    expect(
+      screen.getByText("Contact form messages go here. Never used to sign in.")
+    ).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText("Notification email (optional)"), {
+      target: { value: " owner@example.com " },
     })
-    fireEvent.change(screen.getByLabelText("Sign-in email"), {
-      target: { value: "owner@example.com" },
-    })
-    fireEvent.change(screen.getByLabelText("Account password (min 8 chars)"), {
-      target: { value: "password123" },
-    })
-    fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "password123" } })
-    fireEvent.change(screen.getByLabelText("Owner setup code"), {
-      target: { value: "  one-time-owner-code  " },
-    })
-    fireEvent.click(screen.getByRole("button", { name: "Create account" }))
+    fillNewAccount()
 
     await waitFor(() =>
-      expect(mocks.claimOwner).toHaveBeenCalledWith({
-        claim: "one-time-owner-code",
-      })
-    )
-    expect(mocks.signUpEmail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        fetchOptions: {
-          headers: {
-            [OWNER_CLAIM_HEADER]: "one-time-owner-code",
-          },
-        },
+      expect(mocks.createOwnerAccount).toHaveBeenCalledWith({
+        code: "one-time-owner-code",
+        name: "First Owner",
+        username: "owner",
+        password: "password123",
+        notificationEmail: "owner@example.com",
       })
     )
   })
 
-  // The banner used to say only "ask the person who deployed it", which is
-  // useless when the reader IS the deployer — the common case for a
-  // self-hosted CMS — and named no way out. Used codes cannot be recovered,
-  // only replaced, so the replacement command has to be reachable from here.
+  test("names the notification email when the server refuses it", async () => {
+    mocks.session = null
+    mocks.createOwnerAccount.mockResolvedValue({
+      status: "invalid_input",
+      error: "EMAIL_INVALID",
+    })
+
+    render(<SetupWizard />)
+    fireEvent.change(screen.getByLabelText("Notification email (optional)"), {
+      target: { value: "not-an-email" },
+    })
+    fillNewAccount()
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      en.caughtErrors.invalidEmail
+    )
+    expect(mocks.signIn).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    ["en", "PASSWORD_TOO_COMMON", "This password is too common. Choose another."],
+    [
+      "fr",
+      "PASSWORD_HAS_SURROUNDING_WHITESPACE",
+      "Retirez les espaces au début ou à la fin du mot de passe.",
+    ],
+  ] as const)(
+    "shows %s %s under the password field",
+    async (locale, error, message) => {
+      mocks.session = null
+      mocks.createOwnerAccount.mockResolvedValue({
+        status: "invalid_input",
+        error,
+      })
+
+      render(<SetupWizard />, locale)
+      const messages = locale === "fr" ? fr : en
+      fillNewAccount(messages)
+
+      const alert = await screen.findByText(message)
+      expect(
+        screen
+          .getByLabelText(messages.setup.fields.newPassword)
+          .closest(".space-y-1\\.5")
+      ).toContainElement(alert)
+      expect(
+        screen.queryByText(messages.setup.errors.createOwner)
+      ).not.toBeInTheDocument()
+      expect(mocks.signIn).not.toHaveBeenCalled()
+
+      fireEvent.change(
+        screen.getByLabelText(messages.setup.fields.newPassword),
+        { target: { value: "another-password-1" } }
+      )
+      expect(screen.queryByText(message)).not.toBeInTheDocument()
+    }
+  )
+
+  test("does not sign in when the owner account was not created", async () => {
+    mocks.session = null
+    mocks.createOwnerAccount.mockResolvedValue({
+      status: "invalid_input",
+      error: "PASSWORD_TOO_SHORT",
+    })
+
+    render(<SetupWizard />)
+    fillNewAccount()
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      en.setup.errors.createOwner
+    )
+    expect(mocks.signIn).not.toHaveBeenCalled()
+  })
+
+  // Used codes cannot be recovered, only replaced, so the replacement command
+  // has to be reachable from here.
   describe("owner setup code recovery", () => {
     test("names the way out when the code has already been used", () => {
       mocks.claimAvailable = false
@@ -866,38 +941,15 @@ describe("SetupWizard auth bridge", () => {
       )
     })
 
-    // A wrong code used to surface Better Auth's "Account creation is not
-    // available", which described the deployment rather than the typo and sent
-    // people looking for a broken site instead of a mistyped code.
+    // A wrong code must blame the code, not the deployment: "not available"
+    // sends people looking for a broken site instead of a mistyped code.
     test("blames the code, not the site, when the code is wrong", async () => {
       mocks.session = null
       mocks.role = "viewer"
-      mocks.signUpEmail.mockResolvedValue({
-        error: { status: 403, code: "FORBIDDEN", message: "Account creation is not available." },
-      })
-      mocks.signInEmail.mockResolvedValue({
-        error: { status: 401, code: "INVALID_EMAIL_OR_PASSWORD" },
-      })
+      mocks.createOwnerAccount.mockResolvedValue({ status: "unavailable" })
 
       render(<SetupWizard />)
-
-      fireEvent.change(screen.getByLabelText("Your name"), {
-        target: { value: "Owner" },
-      })
-      fireEvent.change(screen.getByLabelText("Sign-in email"), {
-        target: { value: "owner@example.com" },
-      })
-      fireEvent.change(
-        screen.getByLabelText("Account password (min 8 chars)"),
-        {
-          target: { value: "password123" },
-        }
-      )
-      fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "password123" } })
-      fireEvent.change(screen.getByLabelText("Owner setup code"), {
-        target: { value: "wrong-code" },
-      })
-      fireEvent.click(screen.getByRole("button", { name: "Create account" }))
+      fillNewAccount(en, "wrong-code")
 
       expect(
         await screen.findByText(/doesn't match the one this site is expecting/i)
@@ -905,84 +957,25 @@ describe("SetupWizard auth bridge", () => {
       expect(
         screen.queryByText(/not available|not possible/i)
       ).not.toBeInTheDocument()
+      expect(mocks.signIn).not.toHaveBeenCalled()
     })
 
-    test.each([
-      {
-        status: 403,
-        code: "FORBIDDEN",
-        message: "Account creation is not available.",
-        expected: /missing or already used/i,
-      },
-      {
-        status: 400,
-        code: "INVALID_EMAIL",
-        message: "That email address isn't allowed.",
-        expected: en.caughtErrors.invalidEmail,
-      },
-    ])(
-      "uses the current claim availability after pending signup fails with $code",
-      async ({ status, code, message, expected }) => {
-        mocks.session = null
-        mocks.role = "viewer"
-        const signup = deferred<{
-          error: { status: number; code: string; message: string }
-        }>()
-        mocks.signUpEmail.mockReturnValue(signup.promise)
-        mocks.signInEmail.mockResolvedValue({
-          error: { status: 401, code: "INVALID_EMAIL_OR_PASSWORD" },
-        })
-
-        const view = render(<SetupWizard />)
-        fireEvent.change(screen.getByLabelText("Your name"), {
-          target: { value: "Owner" },
-        })
-        fireEvent.change(screen.getByLabelText("Sign-in email"), {
-          target: { value: "owner@example.com" },
-        })
-        fireEvent.change(
-          screen.getByLabelText("Account password (min 8 chars)"),
-          { target: { value: "password123" } }
-        )
-        fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "password123" } })
-        fireEvent.change(screen.getByLabelText("Owner setup code"), {
-          target: { value: "one-time-owner-code" },
-        })
-        fireEvent.click(screen.getByRole("button", { name: "Create account" }))
-
-        await waitFor(() => expect(mocks.signUpEmail).toHaveBeenCalledOnce())
-        expect(mocks.claimOwner).not.toHaveBeenCalled()
-        mocks.claimAvailable = false
-        view.rerender(<SetupWizard />)
-        await act(async () => {
-          signup.resolve({ error: { status, code, message } })
-        })
-
-        expect(screen.getByRole("alert")).toHaveTextContent(expected)
-        expect(screen.getByRole("alert")).not.toHaveTextContent("That email address isn't allowed.")
-        expect(screen.getByRole("alert")).not.toHaveTextContent(
-          /doesn't match the one this site is expecting/i
-        )
-        expect(mocks.claimOwner).not.toHaveBeenCalled()
-      }
-    )
-
-    test("uses current claim availability after a pending claim is refused", async () => {
+    test("uses the current claim availability after a pending refusal", async () => {
+      mocks.session = null
       mocks.role = "viewer"
-      const claim = deferred<{ status: "unavailable" }>()
-      mocks.claimOwner.mockReturnValue(claim.promise)
+      const created = deferred<{ status: "unavailable" }>()
+      mocks.createOwnerAccount.mockReturnValue(created.promise)
 
       const view = render(<SetupWizard />)
-      fireEvent.change(screen.getByLabelText("Owner setup code"), {
-        target: { value: "one-time-owner-code" },
-      })
-      fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+      fillNewAccount()
 
-      await waitFor(() => expect(mocks.claimOwner).toHaveBeenCalledOnce())
+      await waitFor(() =>
+        expect(mocks.createOwnerAccount).toHaveBeenCalledOnce()
+      )
       mocks.claimAvailable = false
       view.rerender(<SetupWizard />)
       await act(async () => {
-        claim.resolve({ status: "unavailable" })
+        created.resolve({ status: "unavailable" })
       })
 
       expect(screen.getByRole("alert")).toHaveTextContent(
@@ -991,165 +984,129 @@ describe("SetupWizard auth bridge", () => {
       expect(screen.getByRole("alert")).not.toHaveTextContent(
         /doesn't match the one this site is expecting/i
       )
+      expect(mocks.signIn).not.toHaveBeenCalled()
     })
 
     test.each(["en", "fr"] as const)(
-      "never blames a refused claim before consumed availability settles (%s)",
-      async (locale) => {
-        mocks.role = "viewer"
-        const claim = deferred<{ status: "unavailable" }>()
-        mocks.claimOwner.mockReturnValue(claim.promise)
-        const messages = locale === "fr" ? fr : en
-
-        const view = render(<SetupWizard />, locale)
-        fireEvent.change(screen.getByLabelText(messages.setup.fields.ownerCode), {
-          target: { value: "one-time-owner-code" },
-        })
-        fireEvent.click(screen.getByRole("button", { name: messages.setup.actions.continue }))
-        await waitFor(() => expect(mocks.claimOwner).toHaveBeenCalledOnce())
-        await act(async () => {
-          claim.resolve({ status: "unavailable" })
-        })
-        expect(screen.getByRole("alert")).toHaveTextContent(messages.setup.errors.ownerCodeUnavailable)
-        expect(screen.getByRole("alert")).not.toHaveTextContent(messages.setup.errors.ownerCodeMismatch)
-
-        mocks.claimAvailable = false
-        view.rerender(<SetupWizard />)
-        expect(screen.getByRole("alert")).toHaveTextContent(messages.setup.errors.ownerCodeUnavailable)
-        expect(screen.getByRole("alert")).not.toHaveTextContent(messages.setup.errors.ownerCodeMismatch)
-      }
-    )
-
-    test.each(["en", "fr"] as const)(
-      "waits for fresh availability after a consumed-code signup refusal (%s)",
+      "waits for fresh availability after a consumed-code refusal (%s)",
       async (locale) => {
         mocks.session = null
         const availability = deferred<{ available: boolean }>()
         mocks.httpQuery.mockReturnValue(availability.promise)
-        mocks.signUpEmail.mockResolvedValue({
-          error: { status: 403, code: "FORBIDDEN", message: "Account creation is not available." },
-        })
-        mocks.signInEmail.mockResolvedValue({
-          error: { status: 401, code: "INVALID_EMAIL_OR_PASSWORD" },
-        })
+        mocks.createOwnerAccount.mockResolvedValue({ status: "unavailable" })
         const messages = locale === "fr" ? fr : en
         render(<SetupWizard />, locale)
-        fireEvent.change(screen.getByLabelText(messages.setup.fields.name), { target: { value: "Owner" } })
-        fireEvent.change(screen.getByLabelText(messages.setup.fields.signInEmail), { target: { value: "owner@example.com" } })
-        fireEvent.change(screen.getByLabelText(messages.setup.fields.newPassword), { target: { value: "password123" } })
-        fireEvent.change(screen.getByLabelText(messages.setup.fields.confirmPassword), { target: { value: "password123" } })
-        fireEvent.change(screen.getByLabelText(messages.setup.fields.ownerCode), { target: { value: "one-time-owner-code" } })
-        fireEvent.click(screen.getByRole("button", { name: messages.setup.actions.createAccount }))
-        await waitFor(() => expect(mocks.signInEmail).toHaveBeenCalledOnce())
-        expect(screen.queryByText(messages.setup.errors.ownerCodeMismatch)).not.toBeInTheDocument()
+        fillNewAccount(messages)
         await waitFor(() => expect(mocks.httpQuery).toHaveBeenCalledOnce())
+        expect(
+          screen.queryByText(messages.setup.errors.ownerCodeMismatch)
+        ).not.toBeInTheDocument()
         expect(mocks.httpQuery).toHaveBeenCalledWith(expect.anything(), {})
-        await act(async () => { availability.resolve({ available: false }) })
-        expect(screen.getByRole("alert")).toHaveTextContent(messages.setup.errors.ownerCodeUnavailable)
-        expect(screen.getByRole("alert")).not.toHaveTextContent(messages.setup.errors.ownerCodeMismatch)
+        await act(async () => {
+          availability.resolve({ available: false })
+        })
+        expect(screen.getByRole("alert")).toHaveTextContent(
+          messages.setup.errors.ownerCodeUnavailable
+        )
+        expect(screen.getByRole("alert")).not.toHaveTextContent(
+          messages.setup.errors.ownerCodeMismatch
+        )
       }
     )
 
     test.each([
-      { name: "failed availability read", status: 403, readFails: true, consumeLater: false, expected: en.setup.errors.ownerCodeUnavailable },
-      { name: "later consumption of a confirmed unused code", status: 403, readFails: false, consumeLater: true, expected: en.setup.errors.ownerCodeMismatch },
-      { name: "rate limit", status: 429, readFails: false, consumeLater: false, expected: en.setup.errors.tooManyAttempts },
-    ])("keeps truthful signup copy after $name", async ({ status, readFails, consumeLater, expected }) => {
-      mocks.session = null
-      if (readFails) mocks.httpQuery.mockRejectedValue(new Error("Read failed"))
-      mocks.signUpEmail.mockResolvedValue({ error: { status, code: "FORBIDDEN", message: "Account creation is not available." } })
-      mocks.signInEmail.mockResolvedValue({ error: { status: 401, code: "INVALID_EMAIL_OR_PASSWORD" } })
-      const view = render(<SetupWizard />)
-      fireEvent.change(screen.getByLabelText(en.setup.fields.name), { target: { value: "Owner" } })
-      fireEvent.change(screen.getByLabelText(en.setup.fields.signInEmail), { target: { value: "owner@example.com" } })
-      fireEvent.change(screen.getByLabelText(en.setup.fields.newPassword), { target: { value: "password123" } })
-      fireEvent.change(screen.getByLabelText(en.setup.fields.confirmPassword), { target: { value: "password123" } })
-      fireEvent.change(screen.getByLabelText(en.setup.fields.ownerCode), { target: { value: "one-time-owner-code" } })
-      fireEvent.click(screen.getByRole("button", { name: en.setup.actions.createAccount }))
-      expect(await screen.findByRole("alert")).toHaveTextContent(expected)
-      if (status === 429) expect(mocks.httpQuery).not.toHaveBeenCalled()
-      if (consumeLater) {
-        mocks.claimAvailable = false
-        view.rerender(<SetupWizard />)
-        expect(screen.getByRole("alert")).toHaveTextContent(en.setup.errors.ownerCodeUnavailable)
-        expect(screen.getByRole("alert")).not.toHaveTextContent(en.setup.errors.ownerCodeMismatch)
-      }
-      expect(mocks.claimOwner).not.toHaveBeenCalled()
-    })
-
-    // A rejected password is not a wrong setup code. Blaming the code sent
-    // people to re-paste a correct one and then rotate a working claim, while
-    // the real reason was displayed nowhere.
-    test.each([["en", "INVALID_EMAIL"], ["fr", "INVALID_EMAIL"], ["en", "UNKNOWN_PROVIDER_CODE"], ["fr", "UNKNOWN_PROVIDER_CODE"]] as const)("translates signup %s %s without provider prose or blaming setup code", async (locale, code) => {
-      mocks.session = null
-      mocks.role = "viewer"
-      mocks.signUpEmail.mockResolvedValue({
-        error: {
-          status: 400,
-          code,
-          message: "That email address isn't allowed.",
-        },
-      })
-      mocks.signInEmail.mockResolvedValue({
-        error: { status: 401, code: "INVALID_EMAIL_OR_PASSWORD" },
-      })
-
-      render(<SetupWizard />, locale)
-      const messages = locale === "fr" ? fr : en
-
-      fireEvent.change(screen.getByLabelText(messages.setup.fields.name), {
-        target: { value: "Owner" },
-      })
-      fireEvent.change(screen.getByLabelText(messages.setup.fields.signInEmail), {
-        target: { value: "owner@example.com" },
-      })
-      fireEvent.change(
-        screen.getByLabelText(messages.setup.fields.newPassword),
-        {
-          target: { value: "password123" },
+      {
+        name: "failed availability read",
+        result: { status: "unavailable" },
+        readFails: true,
+        consumeLater: false,
+        expected: en.setup.errors.ownerCodeUnavailable,
+      },
+      {
+        name: "later consumption of a confirmed unused code",
+        result: { status: "unavailable" },
+        readFails: false,
+        consumeLater: true,
+        expected: en.setup.errors.ownerCodeMismatch,
+      },
+      {
+        name: "rate limit",
+        result: { status: "invalid_input", error: "RATE_LIMITED" },
+        readFails: false,
+        consumeLater: false,
+        expected: en.setup.errors.tooManyAttempts,
+      },
+    ])(
+      "keeps truthful account copy after $name",
+      async ({ result, readFails, consumeLater, expected }) => {
+        mocks.session = null
+        if (readFails) mocks.httpQuery.mockRejectedValue(new Error("Read failed"))
+        mocks.createOwnerAccount.mockResolvedValue(result)
+        const view = render(<SetupWizard />)
+        fillNewAccount()
+        expect(await screen.findByRole("alert")).toHaveTextContent(expected)
+        if (result.status === "invalid_input") {
+          expect(mocks.httpQuery).not.toHaveBeenCalled()
         }
-      )
-      fireEvent.change(screen.getByLabelText(messages.setup.fields.confirmPassword), { target: { value: "password123" } })
-      fireEvent.change(screen.getByLabelText(messages.setup.fields.ownerCode), {
-        target: { value: "one-time-owner-code" },
-      })
-      fireEvent.click(screen.getByRole("button", { name: messages.setup.actions.createAccount }))
+        if (consumeLater) {
+          mocks.claimAvailable = false
+          view.rerender(<SetupWizard />)
+          expect(screen.getByRole("alert")).toHaveTextContent(
+            en.setup.errors.ownerCodeUnavailable
+          )
+          expect(screen.getByRole("alert")).not.toHaveTextContent(
+            en.setup.errors.ownerCodeMismatch
+          )
+        }
+        expect(mocks.signIn).not.toHaveBeenCalled()
+      }
+    )
 
-      expect(
-        await screen.findByText(code === "INVALID_EMAIL" ? messages.caughtErrors.invalidEmail : messages.setup.errors.createOwner)
-      ).toBeInTheDocument()
-      expect(screen.queryByText("That email address isn't allowed.")).not.toBeInTheDocument()
-      expect(screen.queryByText(messages.setup.errors.ownerCodeMismatch)).not.toBeInTheDocument()
-    })
+    // A rejected password or name is not a wrong setup code. Blaming the code
+    // sends people to re-paste a correct one and rotate a working claim.
+    test.each([
+      ["en", "PASSWORD_TOO_SHORT"],
+      ["fr", "USERNAME_HAS_INVALID_CHARACTERS"],
+      ["en", "NAME_INVALID"],
+      ["fr", "UNKNOWN_SERVER_CODE"],
+    ] as const)(
+      "translates invalid input %s %s without blaming the setup code",
+      async (locale, error) => {
+        mocks.session = null
+        mocks.role = "viewer"
+        mocks.createOwnerAccount.mockResolvedValue({
+          status: "invalid_input",
+          error,
+        })
+
+        render(<SetupWizard />, locale)
+        const messages = locale === "fr" ? fr : en
+        fillNewAccount(messages)
+
+        expect(
+          await screen.findByText(messages.setup.errors.createOwner)
+        ).toBeInTheDocument()
+        expect(screen.queryByText(error)).not.toBeInTheDocument()
+        expect(
+          screen.queryByText(messages.setup.errors.ownerCodeMismatch)
+        ).not.toBeInTheDocument()
+      }
+    )
 
     test("confirms in plain words once the owner account exists", async () => {
       mocks.session = null
       mocks.role = "viewer"
 
-      render(<SetupWizard />)
+      const view = render(<SetupWizard />)
+      fillNewAccount()
+      await waitFor(() => expect(mocks.signIn).toHaveBeenCalledOnce())
+      mocks.session = { signedIn: true }
+      mocks.convexAuthenticated = true
+      mocks.role = "admin"
+      view.rerender(<SetupWizard />)
 
-      fireEvent.change(screen.getByLabelText("Your name"), {
-        target: { value: "Owner" },
-      })
-      fireEvent.change(screen.getByLabelText("Sign-in email"), {
-        target: { value: "owner@example.com" },
-      })
-      fireEvent.change(
-        screen.getByLabelText("Account password (min 8 chars)"),
-        {
-          target: { value: "password123" },
-        }
-      )
-      fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "password123" } })
-      fireEvent.change(screen.getByLabelText("Owner setup code"), {
-        target: { value: "one-time-owner-code" },
-      })
-      fireEvent.click(screen.getByRole("button", { name: "Create account" }))
-
-      const notice = await screen.findByRole("status")
-      expect(notice).toHaveTextContent(
-        /Owner account created for owner@example.com/i
-      )
+      const notice = await screen.findByRole("status", {}, { timeout: 1_000 })
+      expect(notice).toHaveTextContent(/Owner account created for owner/i)
       expect(notice).toHaveTextContent(/setup code is used up/i)
     })
 
@@ -1173,7 +1130,7 @@ describe("SetupWizard auth bridge", () => {
       ).toBeInTheDocument()
     })
 
-    test("uses the rotated code to replace the owner through the setup consumer", async () => {
+    test("offers no owner replacement by setup code (ADR-0056 rule 4)", () => {
       progressMock().finished = true
       mocks.ownerEstablished = true
       mocks.claimAvailable = true
@@ -1181,21 +1138,9 @@ describe("SetupWizard auth bridge", () => {
 
       render(<SetupWizard />)
 
-      fireEvent.click(
-        screen.getByRole("button", { name: "Replace owner account" })
-      )
-      fireEvent.change(screen.getByLabelText("Owner setup code"), {
-        target: { value: "rotated-owner-code" },
-      })
-      fireEvent.click(screen.getByRole("button", { name: "Replace owner" }))
-
-      await waitFor(() =>
-        expect(mocks.replaceOwner).toHaveBeenCalledWith({
-          claim: "rotated-owner-code",
-        })
-      )
-      expect(mocks.claimOwner).not.toHaveBeenCalled()
-      expect(mocks.refresh).toHaveBeenCalledOnce()
+      expect(
+        screen.queryByRole("button", { name: /Replace owner/ })
+      ).not.toBeInTheDocument()
     })
   })
 })
@@ -1222,7 +1167,7 @@ describe("SetupWizard language-first onboarding", () => {
     }
     mocks.session = null
     mocks.httpQuery.mockResolvedValue({ available: true })
-    mocks.claimOwner.mockResolvedValue({ status: "claimed" })
+    mocks.createOwnerAccount.mockResolvedValue({ status: "created" })
     mocks.bootstrapInstallation.mockResolvedValue({
       phase: "snapshot_active",
       revision: 1,
@@ -1230,11 +1175,12 @@ describe("SetupWizard language-first onboarding", () => {
     })
     mocks.setAdminLocale.mockResolvedValue(null)
     mocks.mutation.mockResolvedValue(null)
-    mocks.signUpEmail.mockResolvedValue({ error: null })
-    mocks.signInEmail.mockResolvedValue({ error: null })
+    mocks.signIn.mockResolvedValue({ status: "complete" })
     mocks.useMutation.mockImplementation((reference) => {
       const name = getFunctionName(reference)
-      if (name === "cms/owner:claimOwner") return mocks.claimOwner
+      if (name === "cms/owner:createOwnerAccount") {
+        return mocks.createOwnerAccount
+      }
       if (name === "cms/settings:bootstrapInstallation") {
         return mocks.bootstrapInstallation
       }
@@ -1258,8 +1204,10 @@ describe("SetupWizard language-first onboarding", () => {
       }
       if (name === "cms/owner:getOwnerSession") {
         return {
+          ownerId: "owner-1",
           authId: "owner-1",
-          email: "owner@example.com",
+          email: null,
+          displayName: "First Owner",
           role: mocks.role,
           permissions: [],
         }
@@ -1300,10 +1248,7 @@ describe("SetupWizard language-first onboarding", () => {
     }
     mocks.ownerEstablished = true
     mocks.role = "admin"
-    mocks.session = {
-      session: { id: "session-1" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
 
     const view = render(<SetupWizard />, "en", { stayOnLanguage: true })
     expect(
@@ -1317,12 +1262,9 @@ describe("SetupWizard language-first onboarding", () => {
     expect(
       screen.getByRole("heading", { name: "Sign in to resume setup" })
     ).toBeInTheDocument()
-    expect(screen.getByLabelText("Email")).toBeInTheDocument()
+    expect(screen.getByLabelText("Username")).toBeInTheDocument()
 
-    mocks.session = {
-      session: { id: "session-2" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
     mocks.convexAuthenticated = true
     view.rerender(<SetupWizard />)
     expect(screen.getByText("Site identity: step 3 of 3")).toBeInTheDocument()
@@ -1331,10 +1273,7 @@ describe("SetupWizard language-first onboarding", () => {
   test("prefills the language and time zone from the saved settings of a signed-in owner", () => {
     mocks.ownerEstablished = true
     mocks.role = "admin"
-    mocks.session = {
-      session: { id: "session-1" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
     const baseQuery = mocks.useQuery.getMockImplementation()!
     mocks.useQuery.mockImplementation((reference, args) => {
       if (
@@ -1369,7 +1308,7 @@ describe("SetupWizard language-first onboarding", () => {
     expect(document.documentElement.lang).toBe("fr")
     fireEvent.click(screen.getByRole("button", { name: "Continuer" }))
     expect(screen.getByLabelText("Code de configuration du propriétaire")).toBeInTheDocument()
-    expect(screen.getByLabelText("E-mail de connexion")).toBeInTheDocument()
+    expect(screen.getByLabelText("Nom d’utilisateur")).toBeInTheDocument()
   })
 
   test("a locale without an admin dictionary keeps the wizard in English with one short note", () => {
@@ -1402,23 +1341,23 @@ describe("SetupWizard language-first onboarding", () => {
   test("account creation needs a matching confirmation and has show/hide eyes", async () => {
     render(<SetupWizard />)
 
-    expect(screen.getByLabelText("Sign-in email")).toBeInTheDocument()
+    expect(screen.getByLabelText("Username")).toBeInTheDocument()
     expect(
       screen.getByText(
-        "You’ll use it to sign in. Password reset emails go here once email delivery is set up. Never shown on your site."
+        "You’ll use it to sign in. Never shown on your site."
       )
     ).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText("Your name"), {
       target: { value: "Owner" },
     })
-    fireEvent.change(screen.getByLabelText("Sign-in email"), {
+    fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "owner@example.com" },
     })
     fireEvent.change(screen.getByLabelText("Owner setup code"), {
       target: { value: "one-time-owner-code" },
     })
-    fireEvent.change(screen.getByLabelText("Account password (min 8 chars)"), {
+    fireEvent.change(screen.getByLabelText("Account password (min 10 chars)"), {
       target: { value: "password123" },
     })
     const create = screen.getByRole("button", { name: "Create account" })
@@ -1436,7 +1375,7 @@ describe("SetupWizard language-first onboarding", () => {
     expect(screen.queryByText("Passwords don’t match.")).not.toBeInTheDocument()
     expect(create).toBeEnabled()
 
-    const password = screen.getByLabelText("Account password (min 8 chars)")
+    const password = screen.getByLabelText("Account password (min 10 chars)")
     const confirm = screen.getByLabelText("Confirm password")
     expect(password).toHaveAttribute("type", "password")
     const eyes = screen.getAllByRole("button", { name: "Show password" })
@@ -1452,7 +1391,7 @@ describe("SetupWizard language-first onboarding", () => {
     expect(password).toHaveAttribute("type", "password")
   })
 
-  test("the resume sign-in keeps one password field with an eye and the plain Email label", () => {
+  test("the resume sign-in keeps one password field with an eye and the plain Username label", () => {
     mocks.progress = {
       account: true,
       identity: false,
@@ -1464,7 +1403,7 @@ describe("SetupWizard language-first onboarding", () => {
 
     render(<SetupWizard />)
 
-    expect(screen.getByLabelText("Email")).toBeInTheDocument()
+    expect(screen.getByLabelText("Username")).toBeInTheDocument()
     expect(screen.queryByLabelText("Confirm password")).not.toBeInTheDocument()
     const password = screen.getByLabelText("Account password")
     expect(password).toHaveAttribute("type", "password")
@@ -1475,10 +1414,7 @@ describe("SetupWizard language-first onboarding", () => {
   test("the bootstrap receives the language and time zone chosen on step 1", async () => {
     mocks.ownerEstablished = true
     mocks.role = "admin"
-    mocks.session = {
-      session: { id: "session-1" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
     mocks.progress = {
       account: true,
       identity: false,
@@ -1524,10 +1460,7 @@ describe("SetupWizard language-first onboarding", () => {
     async ({ locale, saved }) => {
       mocks.ownerEstablished = true
       mocks.role = "admin"
-      mocks.session = {
-        session: { id: "session-1" },
-        user: { email: "owner@example.com" },
-      }
+      mocks.session = { signedIn: true }
 
       render(<SetupWizard messages={wizardMessages} />, "en", {
         stayOnLanguage: true,
@@ -1558,10 +1491,7 @@ describe("SetupWizard language-first onboarding", () => {
     mocks.storedAdminLocale = "fr"
     mocks.ownerEstablished = true
     mocks.role = "admin"
-    mocks.session = {
-      session: { id: "session-1" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
 
     render(<SetupWizard messages={wizardMessages} />, "en", {
       stayOnLanguage: true,
@@ -1579,10 +1509,7 @@ describe("SetupWizard language-first onboarding", () => {
   test("Continue on step 1 locks in the values even when saved settings load afterwards", async () => {
     mocks.ownerEstablished = true
     mocks.role = "admin"
-    mocks.session = {
-      session: { id: "session-1" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
     mocks.progress = {
       account: true,
       identity: false,
@@ -1634,10 +1561,7 @@ describe("SetupWizard language-first onboarding", () => {
   test("going Back and choosing another language saves the new admin language", async () => {
     mocks.ownerEstablished = true
     mocks.role = "admin"
-    mocks.session = {
-      session: { id: "session-1" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
     mocks.progress = {
       account: true,
       identity: false,
@@ -1673,10 +1597,7 @@ describe("SetupWizard language-first onboarding", () => {
   test("going Back to a language without admin text resets the admin language to English", async () => {
     mocks.ownerEstablished = true
     mocks.role = "admin"
-    mocks.session = {
-      session: { id: "session-1" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
     mocks.progress = {
       account: true,
       identity: false,
@@ -1732,10 +1653,7 @@ describe("SetupWizard language-first onboarding", () => {
   test("a failure saving the admin language never blocks setup", async () => {
     mocks.ownerEstablished = true
     mocks.role = "admin"
-    mocks.session = {
-      session: { id: "session-1" },
-      user: { email: "owner@example.com" },
-    }
+    mocks.session = { signedIn: true }
     mocks.setAdminLocale.mockRejectedValue(new Error("offline"))
 
     render(<SetupWizard />)

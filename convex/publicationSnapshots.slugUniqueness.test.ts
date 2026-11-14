@@ -14,7 +14,7 @@ import { slugify } from "../components/admin/page-editor/lib/content"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "f08a-slug-uniqueness-owner",
-  tokenIdentifier: "https://convex.test|f08a-slug-uniqueness-owner",
+  tokenIdentifier: "f08a-slug-uniqueness-owner",
 }
 
 async function activeApp() {

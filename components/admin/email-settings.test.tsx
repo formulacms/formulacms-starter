@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   deactivate: vi.fn(),
   check: vi.fn(),
   sendTest: vi.fn(),
+  setNotificationEmail: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
 }))
@@ -31,6 +32,9 @@ vi.mock("convex/react", () => ({
     if (name === "email:saveEmailProviderConfiguration") return mocks.save
     if (name === "email:activateEmailProvider") return mocks.activate
     if (name === "email:deactivateEmailProvider") return mocks.deactivate
+    if (name === "cms/owner:setNotificationEmail") {
+      return mocks.setNotificationEmail
+    }
     throw new Error(`Unexpected email settings mutation: ${name}`)
   },
   useAction: (reference: unknown) => {
@@ -48,7 +52,7 @@ vi.mock("sonner", () => ({
 const owner = {
   ownerId: "owner-row",
   authId: "owner-auth",
-  email: "owner@example.com",
+  email: null,
   role: "admin" as const,
 }
 
@@ -88,6 +92,7 @@ function emailSettings(
 
 let ownerState: typeof owner | null | undefined
 let settingsState: Record<string, unknown> | undefined
+let notificationEmailState: string | null | undefined
 
 function emailSettingsTree(locale: "en" | "fr" = "en") {
   return (
@@ -118,9 +123,13 @@ beforeEach(() => {
   vi.clearAllMocks()
   ownerState = owner
   settingsState = emailSettings()
+  notificationEmailState = null
   mocks.useQuery.mockImplementation((reference, args) => {
     const name = getFunctionName(reference)
     if (name === "cms/owner:getOwnerSession") return ownerState
+    if (name === "cms/owner:getNotificationEmail") {
+      return args === "skip" ? undefined : notificationEmailState
+    }
     if (name === "email:getEmailProviderSettings") {
       return args === "skip" ? undefined : settingsState
     }
@@ -145,6 +154,7 @@ beforeEach(() => {
     providerId: "resend",
     readiness: "ready",
   })
+  mocks.setNotificationEmail.mockResolvedValue({ status: "saved" })
   mocks.sendTest.mockResolvedValue({
     status: "queued",
     configurationVersion: 1,
@@ -455,5 +465,101 @@ describe("EmailSettings E05 provider flow", () => {
         getFunctionName(reference) === "email:getEmailProviderSettings"
     )
     expect(settingsCall?.[1]).toBe("skip")
+  })
+})
+
+describe("EmailSettings notifications card (ADR-0056 rule 5)", () => {
+  const saveButton = () => screen.getByRole("button", { name: "Save" })
+  const field = () => screen.getByLabelText("Notification email (optional)")
+
+  test("Save turns on only when the field differs from the saved value", () => {
+    notificationEmailState = "owner@example.com"
+    renderEmailSettings()
+
+    expect(field()).toHaveValue("owner@example.com")
+    expect(saveButton()).toBeDisabled()
+    fireEvent.change(field(), { target: { value: "other@example.com" } })
+    expect(saveButton()).toBeEnabled()
+    fireEvent.change(field(), { target: { value: "owner@example.com" } })
+    expect(saveButton()).toBeDisabled()
+  })
+
+  test("saves the trimmed email and says Saved", async () => {
+    renderEmailSettings()
+
+    fireEvent.change(field(), { target: { value: "  owner@example.com " } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mocks.success).toHaveBeenCalledWith("Saved"))
+    expect(mocks.setNotificationEmail).toHaveBeenCalledWith({
+      email: "owner@example.com",
+    })
+  })
+
+  test("an emptied field clears the saved email", async () => {
+    notificationEmailState = "owner@example.com"
+    renderEmailSettings()
+
+    fireEvent.change(field(), { target: { value: "" } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() =>
+      expect(mocks.setNotificationEmail).toHaveBeenCalledWith({ email: null })
+    )
+  })
+
+  test("an invalid email is refused with the shared message", async () => {
+    mocks.setNotificationEmail.mockResolvedValue({ status: "invalid_email" })
+    renderEmailSettings()
+
+    fireEvent.change(field(), { target: { value: "not-an-email" } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith("Enter a valid email address.")
+    )
+    expect(mocks.success).not.toHaveBeenCalled()
+    expect(saveButton()).toBeEnabled()
+  })
+
+  test("Resend's sender and test lines name the notification email", () => {
+    notificationEmailState = "owner@example.com"
+    renderEmailSettings()
+
+    fireEvent.click(screen.getByRole("button", { name: /^Resend/ }))
+
+    expect(
+      screen.getByText(
+        "This identity appears in the From field. Contact notifications go to the notification email."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Send a fixed test only to owner@example.com. A provider-accepted result is required before activation."
+      )
+    ).toBeInTheDocument()
+  })
+
+  test("without a notification email the test line names the owner account", () => {
+    renderEmailSettings()
+
+    fireEvent.click(screen.getByRole("button", { name: /^Resend/ }))
+
+    expect(
+      screen.getByText(
+        "Send a fixed test only to the site owner's account. A provider-accepted result is required before activation."
+      )
+    ).toBeInTheDocument()
+  })
+
+  test("skips the notification email query for a non-owner", () => {
+    ownerState = null
+    renderEmailSettings()
+
+    const call = mocks.useQuery.mock.calls.find(
+      ([reference]) =>
+        getFunctionName(reference) === "cms/owner:getNotificationEmail"
+    )
+    expect(call?.[1]).toBe("skip")
   })
 })

@@ -33,12 +33,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export const dynamic = "force-dynamic"
 
-type SetupPageProps = {
-  searchParams: Promise<{ "recover-owner"?: string | string[] }>
-}
-
-export default async function SetupPage({ searchParams }: SetupPageProps) {
-  const recoverOwner = (await searchParams)?.["recover-owner"] === "1"
+export default async function SetupPage() {
   const [siteConfigState, initialSetup] = await Promise.all([
     getSiteConfigState(),
     readSetupBootstrapHandoff(),
@@ -74,10 +69,9 @@ export default async function SetupPage({ searchParams }: SetupPageProps) {
     )
   }
 
-  // A completed site normally leaves setup permanently. The owner-recovery
-  // path is intentionally claim-gated inside SetupWizard so a rotated claim
-  // can repair a stale owner binding without reopening ordinary onboarding.
-  if (siteConfigState.value.onboardingCompletedAt != null && !recoverOwner) {
+  // A completed site leaves setup permanently. Owner recovery uses the
+  // one-time /recover link (ADR-0056 rule 4), never setup.
+  if (siteConfigState.value.onboardingCompletedAt != null) {
     redirect("/admin")
   }
 

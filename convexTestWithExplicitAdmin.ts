@@ -1,6 +1,7 @@
 import { convexTest as baseConvexTest, type TestConvex } from "convex-test"
 import type { UserIdentity } from "convex/server"
 import appSchema from "./convex/schema"
+import { enableAuthSessions } from "./test-utils/convexAuthFixtures"
 
 type Modules = Record<string, () => Promise<unknown>>
 type BaseOptions = Parameters<typeof baseConvexTest>[0]
@@ -9,15 +10,16 @@ type TransactionLimits = BaseOptions extends {
 }
   ? Limits
   : never
-type OwnerIdentity = Pick<UserIdentity, "subject" | "tokenIdentifier">
+type OwnerIdentity = Pick<UserIdentity, "subject"> &
+  Partial<Pick<UserIdentity, "tokenIdentifier">>
 type Options = {
   schema: typeof appSchema
   modules?: Modules
   transactionLimits?: TransactionLimits
   /**
-   * Deterministic Community owner fixture. Only an identity matching BOTH
-   * `subject` and `tokenIdentifier` establishes the durable owner row; every
-   * other authenticated identity stays unprivileged.
+   * Deterministic Community owner fixture. Only the identity with this
+   * `subject` establishes the durable owner row; every other authenticated
+   * identity stays unprivileged.
    */
   ownerIdentity?: OwnerIdentity
   /** Opt out only in tests that deliberately exercise missing cutover state. */
@@ -75,7 +77,14 @@ export function convexTest(
       }
     })
   }
-  const withIdentity = t.withIdentity.bind(t)
+  // Every `t.withIdentity(identity)` runs as a REAL Convex Auth session of a
+  // user whose ID is `identity.subject` (see `test-utils/convexAuthFixtures`).
+  const ensureOwner = async (identity: Partial<UserIdentity>) => {
+    if (!configuredOwner || identity.subject !== configuredOwner.subject) return
+    await ensurePublicationAuthority()
+    await seedCommunityOwner(t, configuredOwner)
+  }
+  enableAuthSessions(t, { beforeCall: ensureOwner })
 
   for (const property of ["query", "mutation", "action", "run"] as const) {
     const value = t[property].bind(t) as (...args: unknown[]) => Promise<unknown>
@@ -85,64 +94,21 @@ export function convexTest(
     }
   }
 
-  t.withIdentity = (identity: Partial<UserIdentity>) => {
-    if (!identity.subject) {
-      throw new Error(
-        "Explicit-admin test identities must declare a stable subject."
-      )
-    }
-    const authenticated = withIdentity(identity)
-    if (!configuredOwner) return authenticated
-
-    // convex-test defaults a missing `tokenIdentifier` to `<issuer>|<subject>`.
-    // Resolve it the same way so the owner match stays a genuine two-field
-    // comparison rather than an accident of the caller omitting the field.
-    const tokenIdentifier =
-      identity.tokenIdentifier ??
-      `${identity.issuer ?? "https://convex.test"}|${identity.subject}`
-    const isConfiguredOwner =
-      identity.subject === configuredOwner.subject &&
-      tokenIdentifier === configuredOwner.tokenIdentifier
-    if (!isConfiguredOwner) return authenticated
-
-    const ensureOwner = async () => {
-      await ensurePublicationAuthority()
-      await seedCommunityOwner(t, configuredOwner)
-    }
-
-    return new Proxy(authenticated, {
-      get(target, property, receiver) {
-        const value = Reflect.get(target, property, receiver)
-        if (
-          (property === "query" ||
-            property === "mutation" ||
-            property === "action") &&
-          typeof value === "function"
-        ) {
-          return async (...args: unknown[]) => {
-            await ensureOwner()
-            return Reflect.apply(value, target, args)
-          }
-        }
-        return value
-      },
-    })
-  }
-
   return t
 }
 
-/** Seed the one intended Community owner explicitly in a test fixture. */
+/**
+ * Seed the one intended Community owner explicitly in a test fixture. Under
+ * Convex Auth `authId` and `tokenIdentifier` both hold the user ID, and the
+ * fixture user ID is the identity `subject` (ADR-0056 rule 2).
+ */
 export async function seedCommunityOwner(
   t: TestConvex<typeof appSchema>,
   identity: OwnerIdentity
 ): Promise<void> {
-  const authId = identity.subject
-  const tokenIdentifier = identity.tokenIdentifier
-  if (!authId || !tokenIdentifier) {
-    throw new Error(
-      "Community owner fixtures require authId and tokenIdentifier"
-    )
+  const userId = identity.subject
+  if (!userId) {
+    throw new Error("Community owner fixtures require a subject")
   }
   await t.run(async (ctx) => {
     const existing = await ctx.db
@@ -152,8 +118,8 @@ export async function seedCommunityOwner(
     if (existing.length > 0) {
       if (
         existing.length !== 1 ||
-        existing[0]!.authId !== authId ||
-        existing[0]!.tokenIdentifier !== tokenIdentifier
+        existing[0]!.authId !== userId ||
+        existing[0]!.tokenIdentifier !== userId
       ) {
         throw new Error(
           "Community owner fixture already has a different binding"
@@ -164,8 +130,8 @@ export async function seedCommunityOwner(
     const now = Date.now()
     await ctx.db.insert("cmsOwner", {
       key: "owner",
-      authId,
-      tokenIdentifier,
+      authId: userId,
+      tokenIdentifier: userId,
       establishedAt: now,
       updatedAt: now,
     })

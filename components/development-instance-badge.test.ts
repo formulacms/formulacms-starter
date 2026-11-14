@@ -6,7 +6,7 @@ describe("development instance badge", () => {
     expect(
       describeDevelopmentInstance({
         NODE_ENV: "development",
-        BETTER_AUTH_URL: "http://localhost:3000",
+        NEXT_PUBLIC_SITE_URL: "http://localhost:3000",
         CONVEX_DEPLOYMENT: "dev:watchful-opossum-441",
       })
     ).toBe("Local development · localhost:3000 · watchful-opossum-441")
@@ -16,7 +16,7 @@ describe("development instance badge", () => {
     expect(
       describeDevelopmentInstance({
         NODE_ENV: "production",
-        BETTER_AUTH_URL: "https://cms.example.com",
+        NEXT_PUBLIC_SITE_URL: "https://cms.example.com",
         CONVEX_DEPLOYMENT: "prod:example",
       })
     ).toBeNull()

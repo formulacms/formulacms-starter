@@ -7,7 +7,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useQuery } from "convex/react"
 import { useTranslations } from "next-intl"
-import { authClient } from "@/lib/auth-client"
+import { useSignOut } from "@/lib/auth/client"
 import { api } from "@/convex/_generated/api"
 import { ADMIN_FORMS_BROWSER_BINDING } from "./contributions/forms"
 import { ADMIN_NAVIGATION, type AdminNavItem } from "./navigation"
@@ -22,6 +22,7 @@ function AdminSidebarContent() {
   const router = useRouter()
   const t = useTranslations("sidebar")
   const owner = useQuery(api.cms.owner.getOwnerSession)
+  const signOut = useSignOut()
   // The Submissions badge is a Forms (M08) sidebar status; the participant
   // owns its query, and without one the sidebar reads nothing optional.
   const formsBinding = ADMIN_FORMS_BROWSER_BINDING
@@ -38,7 +39,7 @@ function AdminSidebarContent() {
   )
 
   async function handleLogout() {
-    await authClient.signOut()
+    await signOut()
     router.push("/sign-in")
     router.refresh()
   }
@@ -93,7 +94,7 @@ function AdminSidebarContent() {
               {t("role.admin")}
             </p>
             <p className="truncate text-xs text-muted-foreground">
-              {owner.email ?? owner.authId}
+              {owner.username ?? owner.displayName}
             </p>
           </div>
         )}

@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { readFile } from "node:fs/promises"
-import { convexTest } from "convex-test"
+import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import { describe, expect, test } from "vitest"
 import { api } from "./_generated/api"
 import schema from "./schema"
@@ -9,12 +9,12 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const owner = {
   subject: "f03b-owner",
-  tokenIdentifier: "https://issuer.test|f03b-owner",
+  tokenIdentifier: "f03b-owner",
   email: "owner@example.test",
 }
 const unrelated = {
   subject: "f03b-unrelated",
-  tokenIdentifier: "https://issuer.test|f03b-unrelated",
+  tokenIdentifier: "f03b-unrelated",
   email: "unrelated@example.test",
 }
 
@@ -120,7 +120,7 @@ describe("F03b owner boundary", () => {
     expectBefore(
       exportBlock(email, "sendTestEmail"),
       "internal.email.assertSettingsUpdate",
-      "ctx.auth.getUserIdentity"
+      "getActor(ctx)"
     )
     expectBefore(
       exportBlock(email, "sendTestEmail"),

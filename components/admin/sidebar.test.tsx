@@ -18,7 +18,9 @@ const mocks = vi.hoisted(() => ({
   owner: null as {
     ownerId: string
     authId: string
-    email: string
+    email: null
+    displayName: string
+    username: string | null
   } | null,
   push: vi.fn(),
   refresh: vi.fn(),
@@ -36,8 +38,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => ({ get: () => null }),
 }))
 
-vi.mock("@/lib/auth-client", () => ({
-  authClient: { signOut: mocks.signOut },
+vi.mock("@/lib/auth/client", () => ({
+  useSignOut: () => mocks.signOut,
 }))
 
 describe("AdminSidebar submission authorization", () => {
@@ -48,7 +50,9 @@ describe("AdminSidebar submission authorization", () => {
     mocks.owner = {
       ownerId: "owner-1",
       authId: "owner-1",
-      email: "owner@example.com",
+      email: null,
+      displayName: "Ada Owner",
+      username: "ada",
     }
     mocks.useQuery.mockImplementation((reference, args) => {
       const name = getFunctionName(reference)
@@ -94,11 +98,13 @@ describe("AdminSidebar submission authorization", () => {
     expect(screen.queryByText("Reference")).not.toBeInTheDocument()
   })
 
-  test("shows the fixed Admin identity", () => {
+  test("shows the fixed Admin identity with the owner's username", () => {
     renderSidebar()
 
     expect(screen.getByText("Admin")).toBeInTheDocument()
-    expect(screen.getByText("owner@example.com")).toBeInTheDocument()
+    expect(screen.getByText("ada")).toBeInTheDocument()
+    expect(screen.queryByText("Ada Owner")).not.toBeInTheDocument()
+    expect(screen.queryByText("owner-1")).not.toBeInTheDocument()
   })
 
   test("does not render an identity for an unrelated signed-in account", () => {

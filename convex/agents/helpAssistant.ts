@@ -53,7 +53,7 @@ import {
 } from "./auditedGenerate"
 
 /** Resolved help-agent config for one run: model + editable prompt templates +
- *  the caller's Better Auth `_id` (threaded through so the action can attribute
+ *  the caller's Convex Auth user id (threaded through so the action can attribute
  *  an aiAuditLog row without a second auth round-trip). */
 interface HelpConfig {
   assistant?: RuntimeAssistant

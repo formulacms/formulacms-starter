@@ -13,7 +13,7 @@ import { heroWithImageDef } from "./lib/slices/heroWithImage"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "f08a-corrective-owner",
-  tokenIdentifier: "https://convex.test|f08a-corrective-owner",
+  tokenIdentifier: "f08a-corrective-owner",
 }
 
 const bodySlice = (id: string, text: string) => ({
@@ -134,7 +134,7 @@ describe("F08a corrective authority and ownership proof", () => {
         t.run((ctx) =>
           ctx.db
             .query("pagePublicationMediaReferences")
-            .withIndex("by_mediaId", (q) => q.eq("mediaId", media.mediaId))
+            .withIndex("by_mediaId_and_sourceKind", (q) => q.eq("mediaId", media.mediaId))
             .take(20)
         )
       const draft = (locale: string) =>
@@ -194,7 +194,7 @@ describe("F08a corrective authority and ownership proof", () => {
           }),
         ])
       )
-      const snapshot = await t.run((ctx) => ctx.db.get(published.snapshotId))
+      const snapshot = await t.run((ctx) => ctx.db.get("pagePublishedSnapshots", published.snapshotId))
       await save(3, [])
       expect(
         (await refs()).some((ref) => ref.sourceKind === "locale_draft")
@@ -328,7 +328,7 @@ describe("F08a corrective authority and ownership proof", () => {
     const configured = await t.query(api.cms.settings.getSiteConfig, {})
     expect(configured.homePageId).not.toBeNull()
     const homeId = configured.homePageId!
-    expect(await t.run((ctx) => ctx.db.get(homeId))).toMatchObject({
+    expect(await t.run((ctx) => ctx.db.get("pages", homeId))).toMatchObject({
       status: "draft",
       pageType: "landing-page",
       slug: "home",
@@ -754,7 +754,7 @@ describe("F08a corrective authority and ownership proof", () => {
         t
           .withIdentity({
             subject: "other",
-            tokenIdentifier: "https://convex.test|other",
+            tokenIdentifier: "other",
           })
           .query(api.cms.pages.getStagedPreviewById, { id: pageId })
       ).rejects.toThrow()
@@ -925,7 +925,7 @@ describe("F08a corrective authority and ownership proof", () => {
   test("candidate is exact canonical UTF-8 SHA-256 and lifecycle restores the same pointer", async () => {
     const { t, owner, pageId } = await activeFixture()
     const published = await publishEn(owner, pageId)
-    const candidate = await t.run((ctx) => ctx.db.get(published.candidateId))
+    const candidate = await t.run((ctx) => ctx.db.get("pageLocalePublicationCandidates", published.candidateId))
     expect(candidate).not.toBeNull()
     const parsed = JSON.parse(candidate!.payloadJson)
     expect(Object.keys(parsed).sort()).toEqual([
@@ -1030,7 +1030,7 @@ describe("F08a corrective authority and ownership proof", () => {
     const sharedRefs = await t.run((ctx) =>
       ctx.db
         .query("pagePublicationMediaReferences")
-        .withIndex("by_mediaId", (q) => q.eq("mediaId", media.mediaId))
+        .withIndex("by_mediaId_and_sourceKind", (q) => q.eq("mediaId", media.mediaId))
         .collect()
     )
     expect(sharedRefs).toEqual([
@@ -1046,7 +1046,7 @@ describe("F08a corrective authority and ownership proof", () => {
     const refs = await t.run((ctx) =>
       ctx.db
         .query("pagePublicationMediaReferences")
-        .withIndex("by_mediaId", (q) => q.eq("mediaId", media.mediaId))
+        .withIndex("by_mediaId_and_sourceKind", (q) => q.eq("mediaId", media.mediaId))
         .collect()
     )
     expect(
@@ -1087,7 +1087,7 @@ describe("F08a corrective authority and ownership proof", () => {
         image: { url: expect.any(String) },
       })
     )
-    await t.run((ctx) => ctx.db.delete(media.mediaId))
+    await t.run((ctx) => ctx.db.delete("media", media.mediaId))
     expect(
       await t.query(api.cms.pages.getPublicRelationCardsByIds, {
         languageVersion: 0,
@@ -1168,7 +1168,7 @@ describe("F08a corrective authority and ownership proof", () => {
         await t.run((ctx) =>
           ctx.db
             .query("pagePublicationDocumentReferences")
-            .withIndex("by_targetId", (q) => q.eq("targetId", authorId))
+            .withIndex("by_targetId_and_sourceKind_and_locale", (q) => q.eq("targetId", authorId))
             .collect()
         )
       ).toEqual([
@@ -1180,7 +1180,7 @@ describe("F08a corrective authority and ownership proof", () => {
       const enRefs = await t.run((ctx) =>
         ctx.db
           .query("pagePublicationDocumentReferences")
-          .withIndex("by_targetId", (q) => q.eq("targetId", authorId))
+          .withIndex("by_targetId_and_sourceKind_and_locale", (q) => q.eq("targetId", authorId))
           .collect()
       )
       expect(enRefs).toEqual(
@@ -1365,7 +1365,7 @@ describe("F08a corrective authority and ownership proof", () => {
           q.eq("sessionToken", session.sessionToken)
         )
         .unique()
-      if (row) await ctx.db.patch(row._id, { expiresAt: Date.now() - 1 })
+      if (row) await ctx.db.patch("pagePublicationPreviewSessions", row._id, { expiresAt: Date.now() - 1 })
     })
     await expect(
       owner.mutation(api.cms.preview.getPreviewPage, {
@@ -1731,15 +1731,15 @@ describe("CVX-REPRO-1 ordinary publication", () => {
             .unique())!,
         }))()
         if (kind === "missing")
-          await ctx.db.patch(state._id, { draftBaseSnapshotId: undefined })
+          await ctx.db.patch("pageLocalePublicationStates", state._id, { draftBaseSnapshotId: undefined })
         else {
-          const snapshot = (await ctx.db.get(published.snapshotId))!
+          const snapshot = (await ctx.db.get("pagePublishedSnapshots", published.snapshotId))!
           if (kind === "wrong-page")
-            await ctx.db.patch(snapshot._id, {
+            await ctx.db.patch("pagePublishedSnapshots", snapshot._id, {
               pageId: (await ctx.db.query("siteSettings").unique())!
                 .homePageId!,
             })
-          else await ctx.db.patch(snapshot.candidateId, { payloadJson: "{}" })
+          else await ctx.db.patch("pageLocalePublicationCandidates", snapshot.candidateId, { payloadJson: "{}" })
         }
       })
       const before = await reproRows(t)

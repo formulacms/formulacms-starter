@@ -30,8 +30,12 @@ vi.mock("next-intl/server", () => ({
     }),
 }))
 vi.mock("@/lib/i18n/config", () => ({ getLocaleDirection }))
-vi.mock("@/components/providers", () => ({
-  Providers: ({ children }: { children: React.ReactNode }) => children,
+vi.mock("@/lib/auth/convexAuth", () => ({
+  ConvexAuthNextjsServerProvider: ({
+    children,
+  }: {
+    children: React.ReactNode
+  }) => children,
 }))
 vi.mock("@/components/theme-provider", () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => children,

@@ -1,4 +1,4 @@
-import { fetchAuthQuery } from "@/lib/auth-server";
+import { fetchAuthQuery } from "@/lib/auth/server";
 import { api } from "@/convex/_generated/api";
 import { getCachedSiteConfig } from "./site-config";
 import { SUPPORTED_LOCALES, FALLBACK_LOCALE, type Locale } from "./config";

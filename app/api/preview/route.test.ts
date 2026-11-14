@@ -17,7 +17,7 @@ vi.mock("next/headers", () => ({
   draftMode: vi.fn(async () => ({ enable: mocks.enable, disable: mocks.disable })),
 }))
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }))
-vi.mock("@/lib/auth-server", () => ({
+vi.mock("@/lib/auth/server", () => ({
   fetchAuthMutation: mocks.fetchAuthMutation,
   safeIsAuthenticated: mocks.safeIsAuthenticated,
 }))

@@ -1,5 +1,4 @@
 import { describe, expect, test, vi } from "vitest"
-import { verifyAuthIpProof } from "@/convex/lib/authIpProof"
 
 vi.mock("server-only", () => ({}))
 
@@ -29,22 +28,5 @@ describe("contact IP proof pairing issuer", () => {
     expect(result.status === "issued" && Object.keys(result.proof).sort()).toEqual(
       ["expiresAt", "signature"]
     )
-  })
-
-  test("cannot be reused as a real authentication IP proof", async () => {
-    const secret = "next-pairing-secret"
-    const result = await issueContactIpProofPairing({ secret })
-    if (result.status !== "issued") throw new Error("Expected a proof")
-
-    await expect(
-      verifyAuthIpProof(
-        {
-          ipHash: "a".repeat(64),
-          expiresAt: result.proof.expiresAt,
-          signature: result.proof.signature,
-        },
-        { secret }
-      )
-    ).resolves.toBeNull()
   })
 })

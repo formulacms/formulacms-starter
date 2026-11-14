@@ -2,7 +2,7 @@ import { getTranslations } from "next-intl/server"
 
 type DevelopmentEnvironment = {
   NODE_ENV?: string
-  BETTER_AUTH_URL?: string
+  NEXT_PUBLIC_SITE_URL?: string
   CONVEX_DEPLOYMENT?: string
   NEXT_PUBLIC_CONVEX_URL?: string
 }
@@ -50,7 +50,7 @@ export function describeDevelopmentInstance(
   if (environment.NODE_ENV !== "development") return null
   return [
     labels.caption,
-    hostLabel(environment.BETTER_AUTH_URL),
+    hostLabel(environment.NEXT_PUBLIC_SITE_URL),
     deploymentLabel(environment, labels.unidentified),
   ].join(" · ")
 }

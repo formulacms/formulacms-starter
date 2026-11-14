@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   requireAuth: vi.fn(),
 }))
 
-vi.mock("@/lib/auth-server", () => ({
+vi.mock("@/lib/auth/server", () => ({
   fetchAuthQuery: mocks.fetchAuthQuery,
   requireAuth: mocks.requireAuth,
 }))

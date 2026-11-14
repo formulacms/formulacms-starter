@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as account from "../account.js";
 import type * as agents_auditedGenerate from "../agents/auditedGenerate.js";
 import type * as agents_contentWriter from "../agents/contentWriter.js";
 import type * as agents_helpAssistant from "../agents/helpAssistant.js";
@@ -15,7 +16,6 @@ import type * as agents_localGeneration from "../agents/localGeneration.js";
 import type * as agents_localizer from "../agents/localizer.js";
 import type * as agents_pageJobWorker from "../agents/pageJobWorker.js";
 import type * as auth from "../auth.js";
-import type * as cms_adminPassword from "../cms/adminPassword.js";
 import type * as cms_agents from "../cms/agents.js";
 import type * as cms_ai from "../cms/ai.js";
 import type * as cms_aiAuditLog from "../cms/aiAuditLog.js";
@@ -32,9 +32,9 @@ import type * as cms_multilingual from "../cms/multilingual.js";
 import type * as cms_openRouterCatalog from "../cms/openRouterCatalog.js";
 import type * as cms_owner from "../cms/owner.js";
 import type * as cms_pages from "../cms/pages.js";
-import type * as cms_passwordRecovery from "../cms/passwordRecovery.js";
 import type * as cms_preview from "../cms/preview.js";
 import type * as cms_publication from "../cms/publication.js";
+import type * as cms_recovery from "../cms/recovery.js";
 import type * as cms_redirects from "../cms/redirects.js";
 import type * as cms_relations from "../cms/relations.js";
 import type * as cms_revalidate from "../cms/revalidate.js";
@@ -48,6 +48,7 @@ import type * as edition_workflow from "../edition/workflow.js";
 import type * as email from "../email.js";
 import type * as emailNode from "../emailNode.js";
 import type * as http from "../http.js";
+import type * as lib_access_actor from "../lib/access/actor.js";
 import type * as lib_access_owner from "../lib/access/owner.js";
 import type * as lib_access_policy from "../lib/access/policy.js";
 import type * as lib_agents_contentWriterContract from "../lib/agents/contentWriterContract.js";
@@ -148,6 +149,7 @@ import type * as lib_richtext_strict from "../lib/richtext/strict.js";
 import type * as lib_richtext_transitions from "../lib/richtext/transitions.js";
 import type * as lib_richtext_write from "../lib/richtext/write.js";
 import type * as lib_semaphore from "../lib/semaphore.js";
+import type * as lib_sessions from "../lib/sessions.js";
 import type * as lib_slices_authoringState from "../lib/slices/authoringState.js";
 import type * as lib_slices_faqSimple from "../lib/slices/faqSimple.js";
 import type * as lib_slices_featuresIconGrid from "../lib/slices/featuresIconGrid.js";
@@ -175,6 +177,7 @@ import type * as lib_urlGuard from "../lib/urlGuard.js";
 import type * as lib_versions from "../lib/versions.js";
 import type * as menuCanonicalCutover from "../menuCanonicalCutover.js";
 import type * as menuReferences from "../menuReferences.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -183,6 +186,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  account: typeof account;
   "agents/auditedGenerate": typeof agents_auditedGenerate;
   "agents/contentWriter": typeof agents_contentWriter;
   "agents/helpAssistant": typeof agents_helpAssistant;
@@ -190,7 +194,6 @@ declare const fullApi: ApiFromModules<{
   "agents/localizer": typeof agents_localizer;
   "agents/pageJobWorker": typeof agents_pageJobWorker;
   auth: typeof auth;
-  "cms/adminPassword": typeof cms_adminPassword;
   "cms/agents": typeof cms_agents;
   "cms/ai": typeof cms_ai;
   "cms/aiAuditLog": typeof cms_aiAuditLog;
@@ -207,9 +210,9 @@ declare const fullApi: ApiFromModules<{
   "cms/openRouterCatalog": typeof cms_openRouterCatalog;
   "cms/owner": typeof cms_owner;
   "cms/pages": typeof cms_pages;
-  "cms/passwordRecovery": typeof cms_passwordRecovery;
   "cms/preview": typeof cms_preview;
   "cms/publication": typeof cms_publication;
+  "cms/recovery": typeof cms_recovery;
   "cms/redirects": typeof cms_redirects;
   "cms/relations": typeof cms_relations;
   "cms/revalidate": typeof cms_revalidate;
@@ -223,6 +226,7 @@ declare const fullApi: ApiFromModules<{
   email: typeof email;
   emailNode: typeof emailNode;
   http: typeof http;
+  "lib/access/actor": typeof lib_access_actor;
   "lib/access/owner": typeof lib_access_owner;
   "lib/access/policy": typeof lib_access_policy;
   "lib/agents/contentWriterContract": typeof lib_agents_contentWriterContract;
@@ -323,6 +327,7 @@ declare const fullApi: ApiFromModules<{
   "lib/richtext/transitions": typeof lib_richtext_transitions;
   "lib/richtext/write": typeof lib_richtext_write;
   "lib/semaphore": typeof lib_semaphore;
+  "lib/sessions": typeof lib_sessions;
   "lib/slices/authoringState": typeof lib_slices_authoringState;
   "lib/slices/faqSimple": typeof lib_slices_faqSimple;
   "lib/slices/featuresIconGrid": typeof lib_slices_featuresIconGrid;
@@ -350,6 +355,7 @@ declare const fullApi: ApiFromModules<{
   "lib/versions": typeof lib_versions;
   menuCanonicalCutover: typeof menuCanonicalCutover;
   menuReferences: typeof menuReferences;
+  users: typeof users;
 }>;
 
 /**
@@ -379,7 +385,9 @@ export declare const internal: FilterApi<
 >;
 
 export declare const components: {
-  betterAuth: import("@convex-dev/better-auth/_generated/component.js").ComponentApi<"betterAuth">;
+  auth: import("@convex-dev/auth/_generated/component.js").ComponentApi<"auth">;
+  authPassword: import("@convex-dev/auth/components/password/_generated/component.js").ComponentApi<"authPassword">;
+  authUsername: import("@convex-dev/auth/components/username/_generated/component.js").ComponentApi<"authUsername">;
   migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
   rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
   actionRetrier: import("@convex-dev/action-retrier/_generated/component.js").ComponentApi<"actionRetrier">;

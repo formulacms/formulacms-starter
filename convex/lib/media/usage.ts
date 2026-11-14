@@ -57,7 +57,7 @@ export async function getMediaUsage(
   }
   const resolved = await Promise.all(
     uniquePageIds.map(async (pageId) => {
-      const page = await ctx.db.get(pageId)
+      const page = await ctx.db.get("pages", pageId)
       if (!page || page.deletedAt !== undefined) return null
       const staging =
         page.status === "published"
@@ -86,7 +86,7 @@ export async function assertMediaUnreferenced(
   // therefore must be checked before a physical storage delete.
   const snapshotReferences = await ctx.db
     .query("pagePublicationMediaReferences")
-    .withIndex("by_mediaId", (q) => q.eq("mediaId", media._id))
+    .withIndex("by_mediaId_and_sourceKind", (q) => q.eq("mediaId", media._id))
     .take(1)
   if (snapshotReferences.length > 0) {
     throw new ConvexError(

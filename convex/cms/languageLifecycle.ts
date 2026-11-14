@@ -121,14 +121,14 @@ export const claimLanguageLifecycleIntents = internalMutation({
         .take(2)
       if (sameOperation.length !== 1) {
         // A duplicate operation identity is corrupt state; never pick a row.
-        await ctx.db.patch(intent._id, {
+        await ctx.db.patch("siteLanguageLifecycleIntents", intent._id, {
           status: "failed",
           lastErrorCode: "LANGUAGE_LIFECYCLE_INTENT_DUPLICATE",
           updatedAt: now,
         })
         continue
       }
-      await ctx.db.patch(intent._id, {
+      await ctx.db.patch("siteLanguageLifecycleIntents", intent._id, {
         status: "running",
         attempts: intent.attempts + 1,
         updatedAt: now,
@@ -155,7 +155,7 @@ export const planLanguageLifecycleStep = internalQuery({
     })
   ),
   handler: async (ctx, { intentId, attempts }): Promise<Step | null> => {
-    const intent = await ctx.db.get(intentId)
+    const intent = await ctx.db.get("siteLanguageLifecycleIntents", intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -335,7 +335,7 @@ export const advanceLanguageLifecycleIntent = internalMutation({
   },
   returns: v.boolean(),
   handler: async (ctx, args): Promise<boolean> => {
-    const intent = await ctx.db.get(args.intentId)
+    const intent = await ctx.db.get("siteLanguageLifecycleIntents", args.intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -357,7 +357,7 @@ export const advanceLanguageLifecycleIntent = internalMutation({
         {}
       )
     }
-    await ctx.db.patch(intent._id, {
+    await ctx.db.patch("siteLanguageLifecycleIntents", intent._id, {
       phase: args.nextPhase,
       cursor: delivered ? undefined : (args.nextCursor ?? undefined),
       origin: args.origin,
@@ -374,7 +374,7 @@ export const restartLanguageLifecycleIntent = internalMutation({
   args: { ...claimArgs, origin: v.string() },
   returns: v.boolean(),
   handler: async (ctx, args): Promise<boolean> => {
-    const intent = await ctx.db.get(args.intentId)
+    const intent = await ctx.db.get("siteLanguageLifecycleIntents", args.intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -383,7 +383,7 @@ export const restartLanguageLifecycleIntent = internalMutation({
     ) {
       return false
     }
-    await ctx.db.patch(intent._id, {
+    await ctx.db.patch("siteLanguageLifecycleIntents", intent._id, {
       phase: "tags_and_layout",
       cursor: undefined,
       origin: args.origin,
@@ -397,7 +397,7 @@ export const markLanguageLifecycleIntentUnconfigured = internalMutation({
   args: claimArgs,
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const intent = await ctx.db.get(args.intentId)
+    const intent = await ctx.db.get("siteLanguageLifecycleIntents", args.intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -407,7 +407,7 @@ export const markLanguageLifecycleIntentUnconfigured = internalMutation({
     }
     // Terminal for this attempt and never delivered. The automatic re-arm
     // (A1) or the owner's requeue revives it once an origin exists.
-    await ctx.db.patch(intent._id, {
+    await ctx.db.patch("siteLanguageLifecycleIntents", intent._id, {
       status: "unconfigured",
       lastErrorCode: "REVALIDATION_UNCONFIGURED",
       updatedAt: Date.now(),
@@ -429,7 +429,7 @@ export const markLanguageLifecycleIntentLocalUnreachable = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const intent = await ctx.db.get(args.intentId)
+    const intent = await ctx.db.get("siteLanguageLifecycleIntents", args.intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -437,7 +437,7 @@ export const markLanguageLifecycleIntentLocalUnreachable = internalMutation({
     ) {
       return null
     }
-    await ctx.db.patch(intent._id, {
+    await ctx.db.patch("siteLanguageLifecycleIntents", intent._id, {
       status: "local_unreachable",
       origin: args.origin,
       lastErrorCode:
@@ -461,7 +461,7 @@ export const failLanguageLifecycleIntent = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const intent = await ctx.db.get(args.intentId)
+    const intent = await ctx.db.get("siteLanguageLifecycleIntents", args.intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -469,7 +469,7 @@ export const failLanguageLifecycleIntent = internalMutation({
     ) {
       return null
     }
-    await ctx.db.patch(intent._id, {
+    await ctx.db.patch("siteLanguageLifecycleIntents", intent._id, {
       status: "failed",
       lastErrorCode:
         args.errorCode === "http_error"
@@ -487,7 +487,7 @@ export const releaseLanguageLifecycleIntent = internalMutation({
   args: claimArgs,
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const intent = await ctx.db.get(args.intentId)
+    const intent = await ctx.db.get("siteLanguageLifecycleIntents", args.intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -495,7 +495,7 @@ export const releaseLanguageLifecycleIntent = internalMutation({
     ) {
       return null
     }
-    await ctx.db.patch(intent._id, { status: "pending", updatedAt: Date.now() })
+    await ctx.db.patch("siteLanguageLifecycleIntents", intent._id, { status: "pending", updatedAt: Date.now() })
     return null
   },
 })
@@ -621,7 +621,7 @@ export const readLanguageLifecycleClaim = internalQuery({
   args: claimArgs,
   returns: v.union(v.null(), v.object({ phase: phaseValidator })),
   handler: async (ctx, { intentId, attempts }) => {
-    const intent = await ctx.db.get(intentId)
+    const intent = await ctx.db.get("siteLanguageLifecycleIntents", intentId)
     if (
       !intent ||
       intent.status !== "running" ||
@@ -670,7 +670,7 @@ async function rearmRows(
 ): Promise<number> {
   const now = Date.now()
   for (const intent of rows) {
-    await ctx.db.patch(intent._id, {
+    await ctx.db.patch("siteLanguageLifecycleIntents", intent._id, {
       status: "pending",
       phase: "tags_and_layout",
       cursor: undefined,

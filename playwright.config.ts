@@ -17,7 +17,7 @@ import { projectsFor, selectE2ERun, serverModeFor } from "./e2e/selection"
 // - `convex-launch.sh <app> stop` runs at the end;
 // - `convex-launch.sh <app> reset` runs only for V01 attempts;
 // - PUBLIC_BASE_URL=http://localhost:3000, which matches the launcher app's
-//   BETTER_AUTH_URL and NEXT_PUBLIC_SITE_URL.
+//   NEXT_PUBLIC_SITE_URL.
 //
 // Run selection comes from the environment, never from argv: Playwright
 // re-imports this file in every worker without CLI arguments. With no

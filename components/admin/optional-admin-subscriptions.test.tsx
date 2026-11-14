@@ -65,8 +65,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 
-vi.mock("@/lib/auth-client", () => ({
-  authClient: { signOut: vi.fn() },
+vi.mock("@/lib/auth/client", () => ({
+  useSignOut: () => vi.fn(),
 }))
 
 vi.mock("@/components/ui/dialog", () => ({

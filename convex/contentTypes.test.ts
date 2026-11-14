@@ -11,14 +11,14 @@ const modules = import.meta.glob("./**/*.ts")
 /** The one durable Community owner; both identity fields are explicit. */
 const OWNER = {
   subject: "owner-1",
-  tokenIdentifier: "https://convex.test|owner-1",
+  tokenIdentifier: "owner-1",
   email: "owner@example.com",
 }
 
 /** Signed in, but bound to neither owner field — Community's only other tier. */
 const UNRELATED = {
   subject: "unrelated-1",
-  tokenIdentifier: "https://convex.test|unrelated-1",
+  tokenIdentifier: "unrelated-1",
   email: "unrelated@example.com",
 }
 

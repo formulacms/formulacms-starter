@@ -5,8 +5,8 @@
 
 export const DISPOSABLE_CASES = {
   ownership: { startState: "fresh-unclaimed", stages: [] },
-  v02: { startState: "owned-after-reset", stages: [] },
-  replacement: { startState: "owned-rotated-claim", stages: [] },
+  v02: { startState: "owned", stages: [] },
+  replacement: { startState: "owned-recovery-link", stages: [] },
   m05: {
     startState: "single-en",
     stages: [

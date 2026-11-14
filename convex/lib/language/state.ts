@@ -287,7 +287,7 @@ export async function readOpenTransition(
   if (state.kind !== "current" || !state.authority.activeTransitionId) {
     return null
   }
-  const transition = await ctx.db.get(state.authority.activeTransitionId)
+  const transition = await ctx.db.get("siteLanguageTransitions", state.authority.activeTransitionId)
   if (
     !transition ||
     !OPEN_TRANSITION_PHASES.has(transition.phase) ||
@@ -314,7 +314,7 @@ export async function readOpenDefaultMigration(
   ) {
     return null
   }
-  const migration = await ctx.db.get(state.authority.activeDefaultMigrationId)
+  const migration = await ctx.db.get("siteDefaultLanguageMigrations", state.authority.activeDefaultMigrationId)
   if (
     !migration ||
     !OPEN_DEFAULT_MIGRATION_PHASES.has(migration.phase) ||
@@ -646,7 +646,7 @@ async function readActiveTransitionForWrite(
     throw new ConvexError("SITE_LANGUAGE_AUTHORITY_INVALID")
   const activeId = rows[0]!.activeTransitionId
   if (!activeId) return null
-  const transition = await ctx.db.get(activeId)
+  const transition = await ctx.db.get("siteLanguageTransitions", activeId)
   if (!transition || !OPEN_TRANSITION_PHASES.has(transition.phase)) {
     throw new ConvexError("LANGUAGE_TRANSITION_STATE_INVALID")
   }
@@ -699,7 +699,7 @@ export async function recordSourcePublicChange(
           disposition: next.disposition ?? existing.disposition,
           status: next.status,
         })
-        await ctx.db.patch(existing._id, next)
+        await ctx.db.patch("siteLanguageTransitionPages", existing._id, next)
       }
     } else {
       const description = await describeSourcePage(ctx, transition, pageId)
@@ -720,7 +720,7 @@ export async function recordSourcePublicChange(
       }
     }
   }
-  await ctx.db.patch(transition._id, {
+  await ctx.db.patch("siteLanguageTransitions", transition._id, {
     ...counters,
     sourcePublicSetVersion: transition.sourcePublicSetVersion + 1,
     ...(transition.phase === "cancelling"
@@ -747,7 +747,7 @@ export async function patchTransition(
     fields?: Partial<Transition>
   }
 ): Promise<Transition> {
-  const transition = await ctx.db.get(transitionId)
+  const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
   if (!transition || !OPEN_TRANSITION_PHASES.has(transition.phase)) {
     throw new ConvexError("LANGUAGE_TRANSITION_STATE_INVALID")
   }
@@ -768,7 +768,7 @@ export async function patchTransition(
     ...change.fields,
     updatedAt: Date.now(),
   }
-  await ctx.db.patch(transition._id, patch)
+  await ctx.db.patch("siteLanguageTransitions", transition._id, patch)
   return { ...transition, ...patch }
 }
 
@@ -831,7 +831,7 @@ export async function recordTargetDraftWrite(
           }
         : undefined
     }
-    await ctx.db.patch(row._id, {
+    await ctx.db.patch("siteLanguageTransitionPages", row._id, {
       target: {
         ...row.target,
         draftGeneration: change.draftGeneration,
@@ -895,7 +895,7 @@ export async function recordTargetMenuTextChange(
   ) {
     return false
   }
-  await ctx.db.patch(transition._id, {
+  await ctx.db.patch("siteLanguageTransitions", transition._id, {
     preparedSetVersion: transition.preparedSetVersion + 1,
     carryInputVersion: (transition.carryInputVersion ?? 0) + 1,
     ...reopenPatch(transition),
@@ -922,12 +922,12 @@ export async function recordSharedDraftChange(
     disposition: row.disposition,
     status: "stale",
   })
-  await ctx.db.patch(row._id, {
+  await ctx.db.patch("siteLanguageTransitionPages", row._id, {
     status: "stale",
     generation: row.generation + 1,
     updatedAt: now,
   })
-  await ctx.db.patch(transition._id, {
+  await ctx.db.patch("siteLanguageTransitions", transition._id, {
     ...counters,
     preparedSetVersion: transition.preparedSetVersion + 1,
     ...reopenPatch(transition),

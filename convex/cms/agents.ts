@@ -248,7 +248,7 @@ export const updateAgent = mutation({
     }
 
     if (existing) {
-      await ctx.db.patch(existing._id, fields)
+      await ctx.db.patch("agentConfigs", existing._id, fields)
     } else {
       await ctx.db.insert("agentConfigs", { agent: args.agent, ...fields })
     }
@@ -272,7 +272,7 @@ export const clearRetiredSliceAgents = internalMutation({
     const toDelete = rows.filter((row) =>
       (RETIRED_AGENT_IDS as readonly string[]).includes(row.agent)
     )
-    await Promise.all(toDelete.map((row) => ctx.db.delete(row._id)))
+    await Promise.all(toDelete.map((row) => ctx.db.delete("agentConfigs", row._id)))
     return toDelete.length
   },
 })
@@ -294,7 +294,7 @@ export const clearStoredSystemPrompts = internalMutation({
         void _creationTime
         const replacement: typeof rest = { ...rest }
         delete replacement.systemPrompt
-        return ctx.db.replace(_id, replacement)
+        return ctx.db.replace("agentConfigs", _id, replacement)
       })
     )
     return toClear.length
@@ -327,7 +327,7 @@ export const resetAgentPresets = mutation({
     const replacement: typeof rest = { ...rest, updatedAt: Date.now() }
     if (args.writeBriefs) delete replacement.writeBriefs
     if (args.refinePresets) delete replacement.refinePresets
-    await ctx.db.replace(_id, replacement)
+    await ctx.db.replace("agentConfigs", _id, replacement)
     return null
   },
 })

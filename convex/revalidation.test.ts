@@ -16,7 +16,7 @@ const REVALIDATION_ATTEMPT_PURGE_BATCH_SIZE = 500
 /** The one durable Community owner; both identity fields are explicit. */
 const OWNER = {
   subject: "revalidation-owner",
-  tokenIdentifier: "https://convex.test|revalidation-owner",
+  tokenIdentifier: "revalidation-owner",
   name: "Owner",
   email: "owner@example.com",
 }
@@ -24,7 +24,7 @@ const OWNER = {
 /** Signed in, but bound to neither owner field — Community's only other tier. */
 const UNRELATED = {
   subject: "revalidation-unrelated",
-  tokenIdentifier: "https://convex.test|revalidation-unrelated",
+  tokenIdentifier: "revalidation-unrelated",
   name: "Unrelated",
   email: "unrelated@example.com",
 }
@@ -1132,7 +1132,7 @@ test("lifecycle preflight and the drain share origin precedence across runtime e
     await t.run(async (ctx) => {
       const settings = await ctx.db.query("siteSettings").first()
       if (!settings) throw new Error("Missing fixture settings")
-      await ctx.db.patch(settings._id, { siteUrl: siteUrl ?? "" })
+      await ctx.db.patch("siteSettings", settings._id, { siteUrl: siteUrl ?? "" })
     })
     fetchMock.mockClear()
 

@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { convexTest } from "convex-test"
+import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 import { api } from "./_generated/api"
@@ -16,7 +16,7 @@ const modules = import.meta.glob("./**/*.ts")
  */
 const OWNER = {
   subject: "owner-1",
-  tokenIdentifier: "https://convex.test|owner-1",
+  tokenIdentifier: "owner-1",
   email: "owner@example.test",
 }
 
@@ -228,7 +228,7 @@ describe("local generation preflight", () => {
 
     const asEditor = t.withIdentity({
       subject: "editor-1",
-      tokenIdentifier: "https://convex.test|editor-1",
+      tokenIdentifier: "editor-1",
       email: "editor@example.test",
     })
 

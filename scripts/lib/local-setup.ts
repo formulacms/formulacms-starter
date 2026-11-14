@@ -10,15 +10,17 @@ import { randomBytes } from "node:crypto"
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { parseEnv } from "node:util"
+import { resolveDevServerOrigin } from "./dev-server-origin"
 
 type Env = Record<string, string | undefined>
 
+// Convex Auth needs no key: the deployment signs its own access tokens
+// (convex/auth.config.ts, convexAuthProvider). These two are formulacms's own.
 export const PAIRED_SECRET_KEYS = [
-  "BETTER_AUTH_SECRET",
   "CONTACT_IP_PROOF_SECRET",
   "REVALIDATE_SECRET",
 ] as const
-type LocalKey = (typeof PAIRED_SECRET_KEYS)[number] | "BETTER_AUTH_URL"
+type LocalKey = (typeof PAIRED_SECRET_KEYS)[number]
 
 /** Any of these makes the Convex CLI pick a backend other than CONVEX_DEPLOYMENT. */
 export const HOSTED_BACKEND_KEYS = [
@@ -167,10 +169,10 @@ export function skipReason(files: EnvFiles): string | null {
   return `[formulacms] Automatic local setup skipped: this folder uses ${describeKind(deployment.kind)} Convex backend, and the automatic setup only sets up development backends. For a hosted site, follow docs/starter/hosting.md.`
 }
 
-/** A local check only: is a secret or BETTER_AUTH_URL missing for Next.js? */
+/** A local check only: is a secret missing for Next.js? */
 function localSetupIncomplete(processEnv: Env, envLocalText: string | null) {
   const file = parseEnvText(envLocalText ?? "")
-  return [...PAIRED_SECRET_KEYS, "BETTER_AUTH_URL" as const].some(
+  return PAIRED_SECRET_KEYS.some(
     (key) => !isRealValue(processEnv[key]) && !isRealValue(file.get(key))
   )
 }
@@ -235,28 +237,13 @@ export function planLocalEnv(options: {
     const fromConvex = convexValues.get(key)
     writeLine(key, isRealValue(fromConvex) ? fromConvex : generate())
   }
-  if (!keep("BETTER_AUTH_URL")) writeLine("BETTER_AUTH_URL", DEFAULT_ORIGIN)
 
   const changed = filled.length > 0 || envLocalText === null
   return { text: changed ? lines.join(eol) : null, filled, notCopied, effective }
 }
 
-function isLocalOrigin(value: string): boolean {
-  try {
-    const url = new URL(value)
-    return (
-      (url.protocol === "http:" || url.protocol === "https:") &&
-      (url.hostname === "localhost" || url.hostname === "127.0.0.1")
-    )
-  } catch {
-    return false
-  }
-}
-
 export type ConvexSyncPlan = {
   set: { key: string; value: string }[]
-  /** Plain lines for the person; never values. */
-  notes: string[]
 }
 
 export function planConvexSync(options: {
@@ -265,30 +252,12 @@ export function planConvexSync(options: {
 }): ConvexSyncPlan {
   const { effective, convexValues } = options
   const set: ConvexSyncPlan["set"] = []
-  const notes: string[] = []
   for (const key of PAIRED_SECRET_KEYS) {
     if (convexValues.get(key) !== effective[key]) {
       set.push({ key, value: effective[key] })
     }
   }
-  // BETTER_AUTH_URL is set only when Convex has none; an existing value is
-  // never changed (pnpm check:preflight reports a mismatch).
-  const url = effective.BETTER_AUTH_URL
-  const inConvex = convexValues.get("BETTER_AUTH_URL")
-  if (isRealValue(inConvex)) {
-    if (inConvex !== url) {
-      notes.push(
-        "[formulacms] BETTER_AUTH_URL in the Convex backend differs from .env.local. The automatic setup leaves it as it is; run pnpm check:preflight for details."
-      )
-    }
-  } else if (!isLocalOrigin(url)) {
-    notes.push(
-      "[formulacms] BETTER_AUTH_URL is not a localhost address, so the automatic setup did not copy it to Convex."
-    )
-  } else {
-    set.push({ key: "BETTER_AUTH_URL", value: url })
-  }
-  return { set, notes }
+  return { set }
 }
 
 export type OwnerCodeDecision =
@@ -410,9 +379,13 @@ function parseOwnerEstablished(result: ConvexRunResult): boolean | null {
   }
 }
 
-function originOf(value: string): string {
+/** The address `pnpm dev` binds (scripts/lib/dev-server-origin.ts). */
+function devOrigin(processEnv: Env, envLocalText: string | null): string {
+  const fromFile = parseEnvText(envLocalText ?? "").get("NEXT_PUBLIC_SITE_URL")
   try {
-    return new URL(value).origin
+    return resolveDevServerOrigin({
+      NEXT_PUBLIC_SITE_URL: processEnv.NEXT_PUBLIC_SITE_URL ?? fromFile,
+    }).origin
   } catch {
     return DEFAULT_ORIGIN
   }
@@ -447,11 +420,7 @@ function readTextFile(path: string): string | null {
 }
 
 /** What lib/env.ts validateNextRuntimeEnv requires before Next.js starts. */
-export const NEXT_START_KEYS = [
-  "BETTER_AUTH_SECRET",
-  "NEXT_PUBLIC_CONVEX_URL",
-  "NEXT_PUBLIC_CONVEX_SITE_URL",
-] as const
+export const NEXT_START_KEYS = ["NEXT_PUBLIC_CONVEX_URL"] as const
 
 /**
  * Whether Next.js has what lib/env.ts requires, from the process environment,
@@ -580,7 +549,7 @@ async function setUp(
   wroteKeys.push(...plan.filled)
   // `convex dev` loaded .env.local before this step fixed it, and Next's
   // loadEnvConfig never overrides a variable that is already set.
-  for (const key of [...PAIRED_SECRET_KEYS, "BETTER_AUTH_URL" as const]) {
+  for (const key of PAIRED_SECRET_KEYS) {
     if (!isRealValue(processEnv[key])) processEnv[key] = plan.effective[key]
   }
 
@@ -630,12 +599,11 @@ async function setUp(
   if (setInConvex.length > 0) {
     lines.push(`[formulacms] Local setup: set ${setInConvex.join(", ")} in the Convex backend.`)
   }
-  lines.push(...sync.notes)
   if (owner.kind === "unknown") {
     lines.push(
       "[formulacms] Could not check whether the site has an owner, so no owner setup code is shown. Run pnpm dev again."
     )
   }
-  const origin = originOf(plan.effective.BETTER_AUTH_URL)
+  const origin = devOrigin(processEnv, envLocalText)
   return done("ready", lines, code === null ? null : ownerCodeBox(code, origin))
 }

@@ -12,7 +12,7 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "f08a-review-blocker-owner",
-  tokenIdentifier: "https://convex.test|f08a-review-blocker-owner",
+  tokenIdentifier: "f08a-review-blocker-owner",
 }
 
 type TestApp = ReturnType<typeof convexTest>
@@ -126,7 +126,7 @@ describe("F08a review blockers on e181c632", () => {
     await counted.run(async (ctx) => {
       const cutover = await ctx.db.query("pagePublicationCutover").unique()
       if (!cutover) throw new Error("cutover missing")
-      await ctx.db.patch(cutover._id, { preparedPageCount: 1 })
+      await ctx.db.patch("pagePublicationCutover", cutover._id, { preparedPageCount: 1 })
     })
     const countedBefore = await dumpPublicationState(counted)
     await expect(
@@ -149,7 +149,7 @@ describe("F08a review blockers on e181c632", () => {
       content: { en: { title: "Parent", slices: [] } },
     })
     // The retained legacy row still carries a hierarchy value.
-    await t.run((ctx) => ctx.db.patch(pageId, { parentId }))
+    await t.run((ctx) => ctx.db.patch("pages", pageId, { parentId }))
     await owner.mutation(api.cms.publication.saveEditorDraft, {
       pageId,
       expectedLifecycleGeneration: 1,
@@ -319,7 +319,7 @@ describe("F08a review blockers on e181c632", () => {
     ).rejects.toThrow("LOCALE_HAS_PENDING_RELEASE")
     expect(await dumpPublicationState(t)).toEqual(before)
 
-    await t.run((ctx) => ctx.db.patch(heldId, { status: "cancelled" }))
+    await t.run((ctx) => ctx.db.patch("pageLocalePublicationReleases", heldId, { status: "cancelled" }))
     expect(
       await owner.mutation(api.cms.publication.deleteLocaleContent, deleteFr)
     ).toMatchObject({ pageId, locale: "fr", generation: 2 })
@@ -329,7 +329,7 @@ describe("F08a review blockers on e181c632", () => {
       pageId,
       expectedLifecycleGeneration: 1,
     })
-    expect(await t.run((ctx) => ctx.db.get(pendingId))).toMatchObject({
+    expect(await t.run((ctx) => ctx.db.get("pageLocalePublicationReleases", pendingId))).toMatchObject({
       status: "cancelled",
       cancelReason: "PAGE_SOFT_DELETED",
     })

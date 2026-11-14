@@ -225,9 +225,9 @@ export const softDelete = mutation({
   returns: v.null(),
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
-    const menu = await ctx.db.get(id)
+    const menu = await ctx.db.get("menus", id)
     if (!menu) throw new ConvexError("Menu not found")
-    await ctx.db.patch(id, { deletedAt: Date.now() })
+    await ctx.db.patch("menus", id, { deletedAt: Date.now() })
     await clearMenuReferences(ctx, id)
     await recordPublicChange(ctx, {
       scopes: [{ domains: ["publication_set"] }],
@@ -242,7 +242,7 @@ export const restore = mutation({
   returns: v.null(),
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
-    const menu = await ctx.db.get(id)
+    const menu = await ctx.db.get("menus", id)
     if (!menu) throw new ConvexError("Menu not found")
     const nav = normalizeOptionalMenuText(menu.nav)
     validateCanonicalMenu(nav)
@@ -253,7 +253,7 @@ export const restore = mutation({
       )
     }
     await ctx.db.patch("menus", id, { deletedAt: undefined, nav })
-    const restored = await ctx.db.get(id)
+    const restored = await ctx.db.get("menus", id)
     if (!restored) throw new ConvexError("Menu not found after restore")
     await refreshMenuReferences(ctx, restored)
     await recordPublicChange(ctx, {
@@ -269,10 +269,10 @@ export const remove = mutation({
   returns: v.null(),
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
-    const menu = await ctx.db.get(id)
+    const menu = await ctx.db.get("menus", id)
     if (!menu) throw new ConvexError("Menu not found")
     await clearMenuReferences(ctx, id)
-    await ctx.db.delete(id)
+    await ctx.db.delete("menus", id)
     await recordPublicChange(ctx, {
       scopes: [{ domains: ["publication_set"] }],
     })
@@ -299,7 +299,7 @@ async function publicPathForPage(
     if (pageId === homePageId) return prefix || "/"
     return `${prefix}${projection.path}`
   }
-  const page = await ctx.db.get(pageId)
+  const page = await ctx.db.get("pages", pageId)
   if (!page) return null
   // A Public Link exists only when the target has a current Published
   // Snapshot in this locale. Archived and draft rows may retain content for

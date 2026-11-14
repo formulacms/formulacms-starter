@@ -29,9 +29,9 @@ describe("starter feedback summary", () => {
             message: "REVALIDATE_SECRET is not set.",
           },
           {
-            name: "BETTER_AUTH_SECRET",
+            name: "CONTACT_IP_PROOF_SECRET",
             status: "failed",
-            message: "BETTER_AUTH_SECRET=sk-test-secret-value leaked.",
+            message: "CONTACT_IP_PROOF_SECRET=sk-test-secret-value leaked.",
           },
         ],
       })

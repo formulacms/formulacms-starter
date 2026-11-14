@@ -599,7 +599,7 @@ async function verifyFrozenSnapshotUncached(
   publicPage: PublicPage
   snapshot: Doc<"pagePublishedSnapshots">
 } | null> {
-  const snapshot = await ctx.db.get(snapshotId)
+  const snapshot = await ctx.db.get("pagePublishedSnapshots", snapshotId)
   if (
     !snapshot ||
     snapshot.pageId !== expected.pageId ||
@@ -612,8 +612,8 @@ async function verifyFrozenSnapshotUncached(
   if (snapshot.generation !== snapshot.sourcePublicGeneration + 1) return null
   const [candidate, release, byCandidate, byRelease, byGeneration] =
     await Promise.all([
-      ctx.db.get(snapshot.candidateId),
-      ctx.db.get(snapshot.releaseId),
+      ctx.db.get("pageLocalePublicationCandidates", snapshot.candidateId),
+      ctx.db.get("pageLocalePublicationReleases", snapshot.releaseId),
       ctx.db
         .query("pagePublishedSnapshots")
         .withIndex("by_candidateId", (q) =>
@@ -744,9 +744,9 @@ export async function readSnapshotDisplayTitle(
   ctx: PublicationReadCtx,
   snapshotId: Id<"pagePublishedSnapshots">
 ): Promise<string> {
-  const snapshot = await ctx.db.get(snapshotId)
+  const snapshot = await ctx.db.get("pagePublishedSnapshots", snapshotId)
   if (!snapshot) return ""
-  const candidate = await ctx.db.get(snapshot.candidateId)
+  const candidate = await ctx.db.get("pageLocalePublicationCandidates", snapshot.candidateId)
   if (!candidate) return ""
   const payload = await reconstructLocalePublicationCandidate(candidate)
   if (!payload) return ""
@@ -810,7 +810,7 @@ async function readCurrentSnapshotProjectionInner(
     const pageAndState =
       cache?.pages.get(pageId) ??
       Promise.all([
-        ctx.db.get(pageId),
+        ctx.db.get("pages", pageId),
         cache?.address
           ? addressPageLifecycle(ctx, pageId, cache.address).then((row) => [
               row,

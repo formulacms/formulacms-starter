@@ -1,25 +1,24 @@
 import { ConvexError, v } from "convex/values"
-import { components, internal } from "../_generated/api"
-import type { Doc } from "../_generated/dataModel"
+import type { Infer } from "convex/values"
+import type { SignUpResult } from "@convex-dev/auth/methods/username-password/server"
+import { api } from "../_generated/api"
 import {
   env,
-  internalMutation,
   internalQuery,
   mutation,
   query,
 } from "../_generated/server"
-import type { MutationCtx } from "../_generated/server"
 import {
   getOwnerIdentity,
-  insertOwnerForClaim,
+  ownerDisplayName,
+  ownerUsername,
   ownerPresenceValidator,
   ownerPrincipalValidator,
   ownerSessionValidator,
   readOwnerState,
-  replaceOwnerBinding,
   resolveOwnerPrincipal,
 } from "../lib/access/owner"
-import type { OwnerIdentity } from "../lib/access/owner"
+import { contactPayloadSchema } from "../../lib/forms/contact"
 import {
   requireInstallationOwner,
   requireOperationAccess,
@@ -29,14 +28,23 @@ import {
   hashOwnerClaim,
   resolveOwnerClaimTransition,
 } from "../lib/ownerClaim"
+import { getOwnerNotificationEmail } from "../lib/access/actor"
 import { rateLimiter } from "../lib/rateLimits"
 import { resolveOwnerClaim } from "../lib/environment"
 
-const ownerClaimResultValidator = v.object({
-  status: v.union(v.literal("claimed"), v.literal("unavailable")),
-})
+/**
+ * Typed result of `createOwnerAccount`. No error text crosses this boundary:
+ * `unavailable` covers every refusal that must not reveal why (wrong code,
+ * owner exists, rate limit), and `invalid_input` carries a
+ * stable code for a field the person can fix.
+ */
+const createOwnerAccountResultValidator = v.union(
+  v.object({ status: v.literal("created") }),
+  v.object({ status: v.literal("unavailable") }),
+  v.object({ status: v.literal("invalid_input"), error: v.string() })
+)
 
-const SESSION_CLEANUP_BATCH_SIZE = 100
+const OWNER_NAME_MAX_LENGTH = 100
 
 function configuredOwnerClaimHash(): Promise<string | null> {
   const claim = resolveOwnerClaim(env)
@@ -67,32 +75,6 @@ function isSanitizedOwnerState(error: unknown): boolean {
   )
 }
 
-/**
- * Commits the binding, replay-ledger update, and first cleanup schedule as one
- * transaction. The injectable scheduler is only for rollback proof.
- */
-export async function commitOwnerReplacement(
-  ctx: MutationCtx,
-  owner: Doc<"cmsOwner">,
-  ledger: Doc<"ownerClaimLedger">,
-  successor: OwnerIdentity,
-  claimHash: string,
-  scheduleCleanup: (authId: string) => Promise<unknown> = (authId) =>
-    ctx.scheduler.runAfter(0, internal.cms.owner.cleanupOutgoingOwnerSessions, {
-      authId,
-    })
-) {
-  const outgoingAuthId = owner.authId
-  await replaceOwnerBinding(ctx, owner, successor)
-  await ctx.db.patch(ledger._id, {
-    secretHash: claimHash,
-    claimedBy: successor.authId,
-    claimedAt: Date.now(),
-    recovery: true,
-  })
-  await scheduleCleanup(outgoingAuthId)
-}
-
 export const getOwnerEstablished = query({
   args: {},
   returns: ownerPresenceValidator,
@@ -108,149 +90,110 @@ export const getOwnerClaimAvailability = query({
   returns: v.object({ available: v.boolean() }),
   handler: async (ctx) => {
     const claimHash = await configuredOwnerClaimHash()
+    // Only a fresh installation can create the owner: a rotated code with an
+    // owner already present is no longer a recovery path here (ADR-0056 rule
+    // 4 moves recovery to a one-time link in B1b).
     return {
       available:
         claimHash !== null &&
-        (await resolveOwnerClaimTransition(ctx, claimHash)).kind !==
-          "unavailable",
+        (await resolveOwnerClaimTransition(ctx)).kind === "fresh",
     }
   },
 })
 
-/** Used by Better Auth before it creates a user. It has no authority effect. */
-export const canAdmitOwnerSignup = internalQuery({
-  args: { claimHash: v.string() },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const configuredHash = await configuredOwnerClaimHash()
-    return (
-      configuredHash !== null &&
-      equalOwnerClaimHashes(configuredHash, args.claimHash) &&
-      (await resolveOwnerClaimTransition(ctx, configuredHash)).kind !==
-        "unavailable"
-    )
-  },
-})
+/** A valid notification email, trimmed, or null. Same validator as the contact form. */
+function parseNotificationEmail(value: string): string | null {
+  const parsed = contactPayloadSchema.shape.email.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
 
 /**
- * Atomically establishes the durable owner. The identity is always read from
- * Convex auth; no client-supplied account, role, or membership participates.
+ * Creates the first owner account (ADR-0056 rule 1, owner-code grant). One
+ * transaction: the global owner-claim limit, owner-code check, a claiming
+ * grant, the library
+ * sign-up (which calls `users.createUser`, which consumes the grant and binds
+ * the durable owner), then the minted session is ended. The person signs in
+ * afterwards through the normal sign-in route.
+ *
+ * Every refusal returns normally so the rate-limit writes commit. A failed
+ * sign-up deletes the grant before returning, so no committed state holds one.
  */
-export const claimOwner = mutation({
-  args: { claim: v.string() },
-  returns: ownerClaimResultValidator,
-  handler: async (ctx, args) => {
-    const identity = await getOwnerIdentity(ctx)
-    if (!identity) throw new ConvexError("UNAUTHENTICATED")
+export const createOwnerAccount = mutation({
+  args: {
+    code: v.string(),
+    name: v.string(),
+    username: v.string(),
+    password: v.string(),
+    notificationEmail: v.optional(v.string()),
+  },
+  returns: createOwnerAccountResultValidator,
+  handler: async (
+    ctx,
+    args
+  ): Promise<Infer<typeof createOwnerAccountResultValidator>> => {
+    const unavailable = { status: "unavailable" as const }
 
-    const [perIdentity, global] = await Promise.all([
-      rateLimiter.limit(ctx, "ownerClaimPerIdentity", {
-        key: identity.tokenIdentifier,
-      }),
-      rateLimiter.limit(ctx, "ownerClaimGlobal"),
-    ])
-    if (!perIdentity.ok || !global.ok) {
-      return { status: "unavailable" as const }
-    }
+    // The grants cannot be guessed; this one global limit bounds code guessing.
+    const claimGlobal = await rateLimiter.limit(ctx, "ownerClaimGlobal")
+    if (!claimGlobal.ok) return unavailable
 
-    const claimHash = await submittedClaimMatchesConfigured(args.claim)
+    const claimHash = await submittedClaimMatchesConfigured(args.code)
     if (
       !claimHash ||
-      (await resolveOwnerClaimTransition(ctx, claimHash)).kind !== "fresh"
+      (await resolveOwnerClaimTransition(ctx)).kind !== "fresh"
     ) {
-      return { status: "unavailable" as const }
+      return unavailable
     }
 
-    await insertOwnerForClaim(ctx, identity)
-    await ctx.db.insert("ownerClaimLedger", {
-      key: "owner",
-      secretHash: claimHash,
-      claimedBy: identity.authId,
-      claimedAt: Date.now(),
-      recovery: false,
-    })
-    return { status: "claimed" as const }
-  },
-})
-
-/**
- * Rebinds the existing durable owner to a different signed-in account after a
- * rotated claim. The binding cutover and cleanup scheduling are one mutation;
- * session deletion itself remains bounded and retryable.
- */
-export const replaceOwner = mutation({
-  args: { claim: v.string() },
-  returns: ownerClaimResultValidator,
-  handler: async (ctx, args) => {
-    const successor = await getOwnerIdentity(ctx)
-    if (!successor) throw new ConvexError("UNAUTHENTICATED")
-
-    const [perIdentity, global] = await Promise.all([
-      rateLimiter.limit(ctx, "ownerClaimPerIdentity", {
-        key: successor.tokenIdentifier,
-      }),
-      rateLimiter.limit(ctx, "ownerClaimGlobal"),
-    ])
-    if (!perIdentity.ok || !global.ok) {
-      return { status: "unavailable" as const }
+    const name = args.name.trim()
+    if (name.length === 0 || name.length > OWNER_NAME_MAX_LENGTH) {
+      return { status: "invalid_input" as const, error: "NAME_INVALID" }
     }
 
-    const claimHash = await submittedClaimMatchesConfigured(args.claim)
-    if (!claimHash) return { status: "unavailable" as const }
-    const transition = await resolveOwnerClaimTransition(ctx, claimHash)
-    if (
-      transition.kind !== "replacement" ||
-      successor.authId === transition.owner.authId
-    ) {
-      return { status: "unavailable" as const }
-    }
-
-    await commitOwnerReplacement(
-      ctx,
-      transition.owner,
-      transition.ledger,
-      successor,
-      claimHash
-    )
-    return { status: "claimed" as const }
-  },
-})
-
-/** Deletes one fixed session page without starting a continuation itself. */
-export const deleteOwnerSessionBatch = internalMutation({
-  args: { authId: v.string() },
-  returns: v.object({ deleted: v.number(), complete: v.boolean() }),
-  handler: async (ctx, args) => {
-    const result = await ctx.runMutation(
-      components.betterAuth.adapter.deleteMany,
-      {
-        input: {
-          model: "session",
-          where: [{ field: "userId", operator: "eq", value: args.authId }],
-        },
-        paginationOpts: { numItems: SESSION_CLEANUP_BATCH_SIZE, cursor: null },
+    let notificationEmail: string | undefined
+    if (args.notificationEmail !== undefined && args.notificationEmail.trim()) {
+      const parsed = parseNotificationEmail(args.notificationEmail)
+      if (!parsed) {
+        return { status: "invalid_input" as const, error: "EMAIL_INVALID" }
       }
-    )
-    const complete = result.isDone || result.count === 0
-    return { deleted: result.count, complete }
-  },
-})
-
-/** Deletes one fixed outgoing-session page and schedules the next if needed. */
-export const cleanupOutgoingOwnerSessions = internalMutation({
-  args: { authId: v.string() },
-  returns: v.object({ deleted: v.number(), complete: v.boolean() }),
-  handler: async (ctx, args) => {
-    const result: { deleted: number; complete: boolean } =
-      await ctx.runMutation(internal.cms.owner.deleteOwnerSessionBatch, args)
-    if (!result.complete) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.cms.owner.cleanupOutgoingOwnerSessions,
-        args
-      )
+      notificationEmail = parsed
     }
-    return result
+
+    const grantId = await ctx.db.insert("signupGrants", {
+      kind: "owner",
+      claimHash,
+      name,
+      ...(notificationEmail !== undefined ? { notificationEmail } : {}),
+    })
+    let result: SignUpResult
+    try {
+      result = await ctx.runMutation(api.auth.signUpWithUsernamePassword, {
+        username: args.username,
+        password: args.password,
+      })
+    } catch (error) {
+      // The nested sign-up rolled back; drop the grant and commit nothing else.
+      // Log the cause: the person only sees "unavailable".
+      console.error("createOwnerAccount: sign-up threw", error)
+      await ctx.db.delete("signupGrants", grantId)
+      return unavailable
+    }
+    if (result.status !== "complete") {
+      await ctx.db.delete("signupGrants", grantId)
+      return {
+        status: "invalid_input" as const,
+        error: result.userError.error,
+      }
+    }
+    // `createUser` consumed the grant. Fail loudly if it did not, so nothing
+    // commits with a dangling grant.
+    if ((await ctx.db.get("signupGrants", grantId)) !== null) {
+      throw new ConvexError("CMS_OWNER_GRANT_NOT_CONSUMED")
+    }
+    await ctx.runMutation(api.auth.signOut, {
+      refreshToken: result.tokens.refreshToken,
+    })
+    return { status: "created" as const }
   },
 })
 
@@ -268,6 +211,8 @@ export const getOwnerSession = query({
         ownerId: principal.ownerId,
         authId: principal.authId,
         email: principal.email,
+        displayName: await ownerDisplayName(ctx, principal.authId),
+        username: await ownerUsername(ctx, principal.authId),
         role: principal.role,
       }
     } catch (error) {
@@ -289,4 +234,42 @@ export const assertInstallationOwnerInternal = internalQuery({
   args: {},
   returns: ownerPrincipalValidator,
   handler: async (ctx) => requireInstallationOwner(ctx),
+})
+
+const setNotificationEmailResultValidator = v.union(
+  v.object({ status: v.literal("saved") }),
+  v.object({ status: v.literal("invalid_email") })
+)
+
+/** The owner's notification email, or null. Owner only. */
+export const getNotificationEmail = query({
+  args: {},
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx) => {
+    await requireInstallationOwner(ctx)
+    return await getOwnerNotificationEmail(ctx)
+  },
+})
+
+/**
+ * Saves the owner's notification email (ADR-0056 rule 5), or clears it with
+ * null. Used only for contact-form messages and the test email.
+ */
+export const setNotificationEmail = mutation({
+  args: { email: v.union(v.string(), v.null()) },
+  returns: setNotificationEmailResultValidator,
+  handler: async (ctx, { email }) => {
+    const principal = await requireInstallationOwner(ctx)
+    let value: string | undefined
+    if (email !== null && email.trim()) {
+      const parsed = parseNotificationEmail(email)
+      if (!parsed) return { status: "invalid_email" as const }
+      value = parsed
+    }
+    await ctx.db.patch("cmsOwner", principal.ownerId, {
+      notificationEmail: value,
+      updatedAt: Date.now(),
+    })
+    return { status: "saved" as const }
+  },
 })

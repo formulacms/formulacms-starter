@@ -17,7 +17,7 @@ import {
 const modules = import.meta.glob("./**/*.ts")
 const owner = {
   subject: "error-owner",
-  tokenIdentifier: "https://convex.test|error-owner",
+  tokenIdentifier: "error-owner",
   email: "owner@example.com",
 }
 function app() {

@@ -31,7 +31,7 @@ vi.mock("./lib/slices/heroPresentationDefinitions", async (original) => {
 const modules = import.meta.glob("./**/*.ts")
 const owner = {
   subject: "presentation-expansion-owner",
-  tokenIdentifier: "https://issuer.test|presentation-expansion-owner",
+  tokenIdentifier: "presentation-expansion-owner",
   email: "owner@example.test",
 }
 

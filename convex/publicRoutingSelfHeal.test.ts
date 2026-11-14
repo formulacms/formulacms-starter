@@ -14,7 +14,7 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "u3-owner",
-  tokenIdentifier: "https://convex.test|u3-owner",
+  tokenIdentifier: "u3-owner",
 }
 const FIXED_NOW = Date.UTC(2026, 10, 2, 12, 0, 0)
 
@@ -151,7 +151,7 @@ async function site() {
   await publish(s, homeId, "en")
   await t.run(async (ctx) => {
     for (const row of await ctx.db.query("cmsModuleState").collect()) {
-      await ctx.db.delete(row._id)
+      await ctx.db.delete("cmsModuleState", row._id)
     }
   })
   await owner.mutation(api.cms.modules.commit, {
@@ -369,7 +369,7 @@ describe("U3 resolveHistoricalPublishedPath: self-heal", () => {
     await publishTranslated(s, soloId, "fr", "seulement")
     const state = await localeState(s.t, soloId, "fr")
     await s.t.run((ctx) =>
-      ctx.db.patch(state._id, { hasCurrentSnapshot: false })
+      ctx.db.patch("pageLocalePublicationStates", state._id, { hasCurrentSnapshot: false })
     )
     expect(await resolve(s.t, "en", "/seulement")).toEqual({
       authority: "snapshot_active",
@@ -466,7 +466,7 @@ describe("U3 continuity: temporary status and D3a for pointed rows", () => {
           createdAt: FIXED_NOW,
         })
       }
-      await ctx.db.patch(authority._id, {
+      await ctx.db.patch("siteLanguageAuthority", authority._id, {
         continuityPointer: { migrationId, generation: 1 },
       })
     })

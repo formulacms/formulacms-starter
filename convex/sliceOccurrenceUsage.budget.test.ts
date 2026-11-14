@@ -43,9 +43,9 @@ function registeredHandler<
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "occurrence-budget-owner",
-  tokenIdentifier: "https://convex.test|occurrence-budget-owner",
+  tokenIdentifier: "occurrence-budget-owner",
 }
-const phase = process.env.FORMULACMS_OCCURRENCE_BUDGET_PHASE ?? "head"
+const phase = import.meta.env.FORMULACMS_OCCURRENCE_BUDGET_PHASE ?? "head"
 const WORDS =
   "A useful service guide gives people clear choices and practical examples in their own language before publication".split(
     " "
@@ -503,7 +503,7 @@ describe("real occurrence consumer transaction budgets", () => {
           "sliceOccurrenceCountState",
         ] as const)
           for (const row of await ctx.db.query(table).collect())
-            await ctx.db.delete(row._id)
+            await ctx.db.delete(table, row._id)
       })
       await f.owner.mutation((ctx) =>
         beginSliceOccurrenceMaintenance(ctx, "backfill", true)
@@ -530,7 +530,7 @@ describe("real occurrence consumer transaction budgets", () => {
         label: "not applicable",
         reason: "new HEAD worker; no historical runner executed",
       }
-    const destination = process.env.FORMULACMS_OCCURRENCE_BUDGET_REPORT
+    const destination = import.meta.env.FORMULACMS_OCCURRENCE_BUDGET_REPORT
     if (destination)
       await writeFile(destination, JSON.stringify(report, null, 2) + "\n")
     expect(articleText.split(/\s+/)).toHaveLength(2520)
@@ -603,7 +603,7 @@ describe("real occurrence consumer transaction budgets", () => {
       expect(sizes[1].documentsRead).toBe(sizes[0].documentsRead)
       expect(sizes[1].approximateBytesRead).toBe(sizes[0].approximateBytesRead)
       expect(sizes[1].indexRanges).toBe(sizes[0].indexRanges)
-      const destination = process.env.FORMULACMS_OCCURRENCE_COUNT_BUDGET_REPORT
+      const destination = import.meta.env.FORMULACMS_OCCURRENCE_COUNT_BUDGET_REPORT
       if (destination)
         await writeFile(
           destination,

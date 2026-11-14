@@ -30,7 +30,7 @@ export type AdminAiSettingsServerBinding = Readonly<{
 async function resolveSliceCreatorReady(): Promise<boolean> {
   if (!isLocalDevelopment()) return false
   try {
-    const { fetchAuthQuery } = await import("@/lib/auth-server")
+    const { fetchAuthQuery } = await import("@/lib/auth/server")
     const saved = await fetchAuthQuery(api.cms.aiSettings.sliceCreator, {})
     return resolveSliceCreatorSelection(saved.tuple, localProviderKeyPresence())
       .keyPresent

@@ -361,7 +361,7 @@ export async function commitModuleTransitionInTransaction(
       enabledModules,
     })
   } else {
-    await ctx.db.patch(existingRows[0]!._id, {
+    await ctx.db.patch("cmsModuleState", existingRows[0]!._id, {
       configurationVersion: nextConfigurationVersion,
       enabledModules,
     })

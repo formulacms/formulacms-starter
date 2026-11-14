@@ -20,7 +20,7 @@ import schema from "./schema"
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "c5-owner",
-  tokenIdentifier: "https://convex.test|c5-owner",
+  tokenIdentifier: "c5-owner",
 }
 const FIXED_NOW = Date.UTC(2026, 8, 23, 12, 0, 0)
 
@@ -141,16 +141,16 @@ async function markNoIndex(site: Site, pageId: Id<"pages">, locale: string) {
         q.eq("pageId", pageId).eq("locale", locale)
       )
       .unique())!
-    const snapshot = (await ctx.db.get(state.currentSnapshotId!))!
-    const candidate = (await ctx.db.get(snapshot.candidateId))!
+    const snapshot = (await ctx.db.get("pagePublishedSnapshots", state.currentSnapshotId!))!
+    const candidate = (await ctx.db.get("pageLocalePublicationCandidates", snapshot.candidateId))!
     const payload = (await reconstructLocalePublicationCandidate(candidate))!
     const system = payload.shared.system as { seo?: Record<string, unknown> }
     system.seo = { ...(system.seo ?? {}), noIndex: true }
     const { payloadJson, payloadBytes } =
       serializeLocalePublicationCandidate(payload)
     const digest = await digestLocalePublicationCandidate(payloadJson)
-    await ctx.db.patch(candidate._id, { payloadJson, payloadBytes, digest })
-    await ctx.db.patch(snapshot._id, { candidateDigest: digest })
+    await ctx.db.patch("pageLocalePublicationCandidates", candidate._id, { payloadJson, payloadBytes, digest })
+    await ctx.db.patch("pagePublishedSnapshots", snapshot._id, { candidateDigest: digest })
   })
 }
 
@@ -219,7 +219,7 @@ describe("M05 C5 getPublicLocaleAlternates (P13a, P20)", () => {
     const draftOnly = await publishedPage(site, "draft-only", ["en"])
     await site.t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, { enabledLocales: ["en", "de"] })
+      await ctx.db.patch("siteSettings", settings._id, { enabledLocales: ["en", "de"] })
     })
 
     await expect(alternatesOf(site, pageId)).resolves.toEqual([
@@ -273,7 +273,7 @@ describe("M05 C5 getPublicLocaleAlternates (P13a, P20)", () => {
         .query("pagePublicationPageStates")
         .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
         .unique())!
-      await ctx.db.patch(state._id, { lifecycleState: "archived" })
+      await ctx.db.patch("pagePublicationPageStates", state._id, { lifecycleState: "archived" })
     })
 
     await expect(alternatesOf(site, pageId)).resolves.toEqual([])
@@ -290,7 +290,7 @@ describe("M05 C5 getPublicLocaleAlternates (P13a, P20)", () => {
           q.eq("pageId", parentId).eq("locale", "fr")
         )
         .unique())!
-      await ctx.db.patch(parent._id, {
+      await ctx.db.patch("pageLocalePublicationStates", parent._id, {
         hasCurrentSnapshot: false,
         currentSnapshotId: undefined,
         currentPath: undefined,
@@ -334,7 +334,7 @@ describe("M05 C5 getPublicLocaleAlternates (P13a, P20)", () => {
     const site = await snapshotSite(["en"])
     await site.t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
-      await ctx.db.patch(settings._id, {
+      await ctx.db.patch("siteSettings", settings._id, {
         enabledLocales: [...SUPPORTED_LOCALES, "xx"],
       })
     })

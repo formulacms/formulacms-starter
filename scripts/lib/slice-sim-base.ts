@@ -21,7 +21,7 @@ const LAST_RESORT_ORIGIN = "http://localhost:3000"
  * Read the origin through the same env cascade `pnpm dev` uses.
  *
  * `start-next-dev.ts` calls `loadEnvConfig` before it picks its port, so a
- * checkout that sets `BETTER_AUTH_URL` in `.env.local` — the ordinary way to
+ * checkout that sets `NEXT_PUBLIC_SITE_URL` in `.env.local` — the ordinary way to
  * move the dev port — binds that port. Reading `process.env` alone would miss
  * it and send the capture to 3000 while the server sat on 3001. `loadEnvConfig`
  * does not overwrite variables already in the environment, so an explicitly
@@ -38,21 +38,11 @@ export function sliceSimBaseUrl(
   const explicit = env.SLICE_SIM_BASE?.trim()
   if (explicit) return explicit.replace(/\/$/, "")
 
-  // A deployed origin is a legitimate value for BETTER_AUTH_URL but not
-  // something a dev server binds. Fall back rather than refusing to run.
-  return resolveDevServerOriginOrDefault(env.BETTER_AUTH_URL)
-}
-
-function resolveDevServerOriginOrDefault(betterAuthUrl?: string): string {
-  return resolveDevServerOriginSafely(betterAuthUrl) ?? LAST_RESORT_ORIGIN
-}
-
-function resolveDevServerOriginSafely(
-  betterAuthUrl?: string
-): string | undefined {
+  // A deployed origin in NEXT_PUBLIC_SITE_URL already resolves to the default;
+  // a malformed local one falls back rather than refusing to run.
   try {
-    return resolveDevServerOrigin({ BETTER_AUTH_URL: betterAuthUrl }).origin
+    return resolveDevServerOrigin(env).origin
   } catch {
-    return undefined
+    return LAST_RESORT_ORIGIN
   }
 }

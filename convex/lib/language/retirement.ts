@@ -40,7 +40,7 @@ export async function retireContinuityRowForClaim(
   if (rows.length !== 1 || rows[0]!.shadow || rows[0]!.retiredAt !== undefined)
     return
 
-  await ctx.db.patch(rows[0]!._id, {
+  await ctx.db.patch("siteDefaultLanguageRoutes", rows[0]!._id, {
     retiredAt: claim.retiredAt,
     retiredReason: claim.retiredReason,
   })

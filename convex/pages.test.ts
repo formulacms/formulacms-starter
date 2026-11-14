@@ -34,7 +34,7 @@ const activeTestimonialTest = testimonialActive ? test : test.skip
 
 const TEST_USER = {
   subject: "test-user",
-  tokenIdentifier: "https://convex.test|test-user",
+  tokenIdentifier: "test-user",
   name: "Test User",
   email: "test@example.com",
 }
@@ -289,7 +289,7 @@ describe("pages — slug uniqueness", () => {
           status: "draft",
           title,
         })
-        const page = await t.run((ctx) => ctx.db.get(id))
+        const page = await t.run((ctx) => ctx.db.get("pages", id))
         expect(page?.slug, title).toBe(slug)
       }
     }
@@ -313,7 +313,7 @@ describe("pages — slug uniqueness", () => {
           status: "draft",
           title,
         })
-        const page = await t.run((ctx) => ctx.db.get(id))
+        const page = await t.run((ctx) => ctx.db.get("pages", id))
         expect(page?.slug, title).toBe(slug)
       }
     }
@@ -338,7 +338,7 @@ describe("pages — slug uniqueness", () => {
             title,
           })
         ).rejects.toThrow("already taken")
-        const first = await t.run((ctx) => ctx.db.get(firstId))
+        const first = await t.run((ctx) => ctx.db.get("pages", firstId))
         expect(first?.slug).not.toBe("")
         const sameAddress = await t.run((ctx) =>
           ctx.db
@@ -695,7 +695,7 @@ describe("pages — public sitemap listing", () => {
         en: { title: "Deleted", slices: [] },
       },
     })
-    await t.run((ctx) => ctx.db.patch(deletedId, { deletedAt: Date.now() }))
+    await t.run((ctx) => ctx.db.patch("pages", deletedId, { deletedAt: Date.now() }))
     await t.run((ctx) =>
       ctx.db.insert("siteSettings", {
         siteName: "Site",
@@ -918,7 +918,7 @@ describe("pages — public read boundaries", () => {
       title: "Private Deleted",
       content: { en: { title: "Private Deleted", slices: [] } },
     })
-    await t.run((ctx) => ctx.db.patch(deletedId, { deletedAt: Date.now() }))
+    await t.run((ctx) => ctx.db.patch("pages", deletedId, { deletedAt: Date.now() }))
 
     await expect(
       t.query(api.cms.pages.getById, { id: draftId })
@@ -1203,7 +1203,7 @@ describe("pages — public read boundaries", () => {
       title: "Deleted Helper",
       content: { en: { title: "Deleted Helper", slices: [] } },
     })
-    await t.run((ctx) => ctx.db.patch(deletedId, { deletedAt: Date.now() }))
+    await t.run((ctx) => ctx.db.patch("pages", deletedId, { deletedAt: Date.now() }))
 
     await expect(
       t.query(api.cms.pages.getBySlug, { slug: "published-helper" })
@@ -2702,7 +2702,7 @@ describe("pages — revisions and restore", () => {
       })
       await scheduleViaDraft(asUser, id, Date.now() - 1_000)
       await t.run(async (ctx) => {
-        await ctx.db.patch(id, { cardExcerpt: "x".repeat(300_000) })
+        await ctx.db.patch("pages", id, { cardExcerpt: "x".repeat(300_000) })
       })
       ids.push(id)
     }
@@ -3152,7 +3152,8 @@ describe("pages — owner presence and locks", () => {
       pageId,
     })
     expect(editors).toHaveLength(1)
-    expect(editors[0].email).toBe(TEST_USER.email)
+    // Convex Auth tokens carry no email (ADR-0056); the label returns in B1b.
+    expect(editors[0].email).toBeUndefined()
   })
 
   test("active editors expire quickly by heartbeat age", sliceProfile([]), async () => {
@@ -3214,13 +3215,13 @@ describe("pages — owner presence and locks", () => {
       asOwner.mutation(api.cms.pages.heartbeatPageEditor, { pageId })
     ).resolves.toMatchObject({
       status: "acquired",
-      lock: { email: TEST_USER.email },
+      lock: expect.objectContaining({ userId: TEST_USER.subject }),
     })
 
     const editors = await asOwner.query(api.cms.pages.listActiveEditors, {
       pageId,
     })
-    expect(editors.map((editor) => editor.email)).toEqual([TEST_USER.email])
+    expect(editors.map((editor) => editor.email)).toEqual([undefined])
 
     await expect(
       asOwner.query(api.cms.pages.getPageEditorLock, { pageId })
@@ -3241,14 +3242,14 @@ describe("pages — owner presence and locks", () => {
       asOwner.mutation(api.cms.pages.acquirePageEditorLock, { pageId })
     ).resolves.toMatchObject({
       status: "acquired",
-      lock: { email: TEST_USER.email },
+      lock: expect.objectContaining({ userId: TEST_USER.subject }),
     })
     await expect(
       asOwner.query(api.cms.pages.getPageEditorLock, { pageId })
     ).resolves.toMatchObject({
       status: "locked",
       isMine: true,
-      lock: { email: TEST_USER.email },
+      lock: expect.objectContaining({ userId: TEST_USER.subject }),
     })
 
     await asOwner.mutation(api.cms.pages.acquirePageEditorLock, { pageId })
@@ -3256,7 +3257,7 @@ describe("pages — owner presence and locks", () => {
       pageId,
     })
     expect(lock.status).toBe("locked")
-    expect(lock.lock?.email).toBe(TEST_USER.email)
+    expect(lock.lock?.email).toBeUndefined()
   })
 
   test("soft lock expires by last active time", sliceProfile([]), async () => {
@@ -3706,7 +3707,7 @@ describe("pages — sibling Slice identity", () => {
         .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
         .unique()
       if (!staging) throw new Error("Expected a staging row")
-      await ctx.db.patch(staging._id, {
+      await ctx.db.patch("pageStaging", staging._id, {
         content: {
           en: {
             title: "Publish identity",
@@ -3802,7 +3803,7 @@ describe("pages — sibling Slice identity", () => {
     ] as Slice[]
     const sourceBytes = JSON.stringify(legacyRows)
     await t.run(async (ctx) => {
-      await ctx.db.patch(pageId, {
+      await ctx.db.patch("pages", pageId, {
         content: {
           en: {
             title: "Legacy live identity",
@@ -3815,7 +3816,7 @@ describe("pages — sibling Slice identity", () => {
         .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
         .unique()
       if (!staging) throw new Error("Expected a staging row")
-      await ctx.db.patch(staging._id, {
+      await ctx.db.patch("pageStaging", staging._id, {
         content: undefined,
         slug: "legacy-live-identity-published",
       })
@@ -3912,7 +3913,7 @@ describe("pages — sibling Slice identity", () => {
         .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
         .unique()
       if (!staging) throw new Error("Expected a staging row")
-      await ctx.db.patch(staging._id, {
+      await ctx.db.patch("pageStaging", staging._id, {
         scheduledAt: Date.now() - 1_000,
         content: {
           en: {
@@ -4057,7 +4058,7 @@ describe("pages — rich-text write-path gate", () => {
         .query("pageStaging")
         .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
         .unique()
-      await ctx.db.patch(staging!._id, { content: authored.content })
+      await ctx.db.patch("pageStaging", staging!._id, { content: authored.content })
     })
     const opened = await asUser.query(api.cms.pages.getStagedPreviewById, {
       id: pageId,
@@ -4587,7 +4588,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
     // required-field check; the mutation path defends against this
     // (name.trim() must be non-empty) so we simulate legacy data.
     await t.run(async (ctx) => {
-      await ctx.db.patch(authorId, { name: "" })
+      await ctx.db.patch("pages", authorId, { name: "" })
     })
     const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
       pageId: authorId,

@@ -5,16 +5,17 @@ import type { FunctionArgs } from "convex/server"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
+import { env } from "./_generated/server"
 import schema from "./schema"
 
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
   subject: "unit3-publication-owner",
-  tokenIdentifier: "https://convex.test|unit3-publication-owner",
+  tokenIdentifier: "unit3-publication-owner",
 }
 const UNRELATED = {
   subject: "unit3-publication-unrelated",
-  tokenIdentifier: "https://convex.test|unit3-publication-unrelated",
+  tokenIdentifier: "unit3-publication-unrelated",
 }
 type Authority = "legacy" | "snapshot"
 type App = ReturnType<typeof convexTest>
@@ -202,8 +203,8 @@ describe("Unit3 selected publication and write authorization", () => {
   beforeEach(() => {
     // The runner must establish these values before importing any application
     // module. Never inherit an ambient revalidation secret or target origin.
-    expect(process.env.REVALIDATE_SECRET).toBe("")
-    expect(process.env.SITE_URL).toBe("")
+    expect(env.REVALIDATE_SECRET).toBe("")
+    expect(env.SITE_URL).toBe("")
     apps.length = 0
     scheduledExpectations.clear()
     unexpectedFetch.mockClear()
