@@ -45,7 +45,9 @@ describe("armLocalizedContentValidatorNoSlices (plan 029 C8 dark-ship)", () => {
   it("omits `slices` from the produced object shape", () => {
     const arm = armLocalizedContentValidatorNoSlices(testimonialDescriptor)
     // Convex `v.object({...})` exposes its shape via `.fields`.
-    expect(Object.keys(arm.fields)).toEqual(["quote"])
+    // `seo` and `cardExcerpt` are the per-language fields every arm carries
+    // (ADR-0037 amendment, 2026-11-17).
+    expect(Object.keys(arm.fields)).toEqual(["quote", "seo", "cardExcerpt"])
     expect(arm.fields).not.toHaveProperty("slices")
   })
 

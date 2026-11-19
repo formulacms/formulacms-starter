@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values"
+import { nextUpdatedAt } from "../lib/versions"
 import { mutation, query } from "../_generated/server"
 import {
   requireInstallationOwner,
@@ -167,7 +168,7 @@ export const setPresentationArchived = mutation({
     assertAvailableDefault(proposed, args.type)
     await ctx.db.patch("siteSettings", settings._id, {
       archivedSlicePresentationsV1: next,
-      updatedAt: Date.now(),
+      updatedAt: nextUpdatedAt(settings.updatedAt, Date.now()),
     })
     return catalogValue(proposed)
   },

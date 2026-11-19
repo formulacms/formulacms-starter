@@ -1,5 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
+import { localStateDirectory } from "@/lib/local-state/directory"
 
 export type SetupBootstrapHandoff = {
   adminEmail?: string
@@ -21,7 +22,7 @@ export async function readSetupBootstrapHandoff(
 ): Promise<SetupBootstrapHandoff | null> {
   try {
     const raw = await fs.readFile(
-      path.join(cwd, ".nextcms", "bootstrap.json"),
+      path.join(localStateDirectory(cwd), "bootstrap.json"),
       "utf8"
     )
     const parsed = JSON.parse(raw) as BootstrapMetadata

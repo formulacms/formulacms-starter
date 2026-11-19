@@ -78,6 +78,42 @@ describe("FormulaCMS email provider state", () => {
     ).toThrow("CMS_EMAIL_PROVIDER_STATE_INVALID")
   })
 
+  test("accepts SMTP state and keeps old Resend rows valid", () => {
+    const smtp = createRegisteredEmailProviderState({
+      providerId: "smtp",
+      isRegistered: isRegisteredEmailProviderId,
+      configuration: {},
+      sender: { address: "sender@example.test" },
+      configurationVersion: 2,
+      updatedAt: 100,
+    })
+    expect(toEmailProviderClientState(smtp, "ready")).toMatchObject({
+      configuredProviderId: "smtp",
+      activeProviderId: "smtp",
+      readiness: "ready",
+    })
+    expect(emailProviderStateFromRows([smtp])).toEqual(smtp)
+
+    // A row written before SMTP existed has no category and a Resend id.
+    const oldResend: PersistedEmailProviderState = {
+      key: "owner",
+      provider: { kind: "configured", providerId: "resend", configuration: {} },
+      sender: { address: "sender@example.test" },
+      configurationVersion: 1,
+      lastTest: {
+        providerId: "resend",
+        configurationVersion: 1,
+        state: "failed",
+        reason: "provider_rejected",
+        updatedAt: 90,
+      },
+      updatedAt: 100,
+    }
+    expect(emailProviderStateFromRows([oldResend])).toEqual(oldResend)
+    expect(isRegisteredEmailProviderId("smtp")).toBe(true)
+    expect(isRegisteredEmailProviderId("postmark")).toBe(false)
+  })
+
   test("projects only bounded non-secret state", () => {
     const state = createRegisteredEmailProviderState({
       providerId: "resend",

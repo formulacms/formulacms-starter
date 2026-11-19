@@ -1,4 +1,8 @@
-import { McpServer } from "@modelcontextprotocol/server"
+import {
+  McpServer,
+  ResourceNotFoundError,
+  ResourceTemplate,
+} from "@modelcontextprotocol/server"
 import * as z from "zod/v4"
 import { catalogAssets } from "@/lib/catalog/assets"
 import {
@@ -29,52 +33,70 @@ function jsonText(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }
 
+function jsonContents(uri: URL, value: unknown) {
+  return {
+    contents: [
+      { uri: uri.href, mimeType: "application/json", text: jsonText(value) },
+    ],
+  }
+}
+
+const catalogIndexMetadata = {
+  title: "formulacms catalog",
+  description:
+    "Index of public formulacms reference assets available to agent clients.",
+  mimeType: "application/json",
+}
+
 export function createCatalogMcpServer(): McpServer {
   const server = new McpServer({
-    name: "nextcms-catalog",
+    name: "formulacms-catalog",
     version: "0.1.0",
   })
 
   server.registerResource(
-    "nextcms-catalog",
-    "nextcms://catalog",
-    {
-      title: "formulacms catalog",
-      description:
-        "Index of public formulacms reference assets available to agent clients.",
-      mimeType: "application/json",
-    },
-    async (uri) => ({
-      contents: [
-        {
-          uri: uri.href,
-          mimeType: "application/json",
-          text: jsonText(listCatalog()),
-        },
-      ],
-    })
+    "formulacms-catalog",
+    "formulacms://catalog",
+    catalogIndexMetadata,
+    async (uri) => jsonContents(uri, listCatalog())
   )
 
   for (const asset of catalogAssets) {
     server.registerResource(
-      `nextcms-catalog-${asset.slug}`,
-      `nextcms://catalog/${asset.kind}/${asset.slug}`,
+      `formulacms-catalog-${asset.slug}`,
+      `formulacms://catalog/${asset.kind}/${asset.slug}`,
       {
         title: asset.name,
         description: asset.summary,
         mimeType: "application/json",
       },
-      async (uri) => ({
-        contents: [
-          {
-            uri: uri.href,
-            mimeType: "application/json",
-            text: jsonText(asset),
-          },
-        ],
-      })
+      async (uri) => jsonContents(uri, asset)
     )
   }
+
+  // The old nextcms:// URIs stay readable, but unlisted, so owners' agents
+  // configured before the rename keep working. Planned removal: the release
+  // after 0.3.0 (ADR-0048 amendment, 2026-11-16).
+  server.registerResource(
+    "nextcms-catalog",
+    new ResourceTemplate("nextcms://catalog", { list: undefined }),
+    catalogIndexMetadata,
+    async (uri) => jsonContents(uri, listCatalog())
+  )
+  server.registerResource(
+    "nextcms-catalog-asset",
+    new ResourceTemplate("nextcms://catalog/{kind}/{slug}", {
+      list: undefined,
+    }),
+    { mimeType: "application/json" },
+    async (uri, { kind, slug }) => {
+      const asset = catalogAssets.find(
+        (candidate) => candidate.kind === kind && candidate.slug === slug
+      )
+      if (!asset) throw new ResourceNotFoundError(uri.href)
+      return jsonContents(uri, asset)
+    }
+  )
 
   server.registerTool(
     "search_catalog",

@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values"
+import { nextUpdatedAt } from "../lib/versions"
 import {
   paginationOptsValidator,
   paginationResultValidator,
@@ -131,7 +132,7 @@ export const setSliceArchived = mutation({
     const next = [...set].sort()
     await ctx.db.patch("siteSettings", settings._id, {
       archivedSliceTypes: next,
-      updatedAt: Date.now(),
+      updatedAt: nextUpdatedAt(settings.updatedAt, Date.now()),
     })
     await recordPublicChange(ctx, { scopes: [] })
     return next
@@ -163,7 +164,7 @@ export const cleanupDeletedSliceTypeArchive = mutation({
     ) {
       await ctx.db.patch("siteSettings", settings._id, {
         archivedSliceTypes: next,
-        updatedAt: Date.now(),
+        updatedAt: nextUpdatedAt(settings.updatedAt, Date.now()),
       })
       await recordPublicChange(ctx, { scopes: [] })
     }

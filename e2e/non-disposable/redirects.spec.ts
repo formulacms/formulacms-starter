@@ -29,9 +29,14 @@ async function setRedirects(page: Page, enabled: boolean) {
   await expect(toggle).toBeChecked({ checked: enabled })
 }
 
+/** Outcome of turning Redirects off: the Apply progress panel's result, or the stale alert. */
 async function moduleSaveOutcome(page: Page) {
-  const saved = page.getByText((await pageTranslator(page))("settings.modules.saved"), { exact: true })
-  const stale = page.getByText((await pageTranslator(page))("settings.modules.stale"), { exact: true })
+  const t = await pageTranslator(page)
+  const saved = page.getByText(
+    t("settings.modules.progress.doneOff", { id: "redirects", name: t("settings.modules.items.redirects.name") }),
+    { exact: true }
+  )
+  const stale = page.getByText(t("settings.modules.stale"), { exact: true })
   await expect(saved.or(stale)).toBeVisible()
   return (await saved.isVisible()) ? "saved" : "stale"
 }

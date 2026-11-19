@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest"
-import { localProviderKeyPresence } from "./local-api-keys"
+import {
+  localApiKeysFrom,
+  localProviderKeyPresence,
+} from "./local-api-keys"
 
 const NONE = { anthropic: false, openai: false, openrouter: false }
 
@@ -37,5 +40,22 @@ describe("localProviderKeyPresence", () => {
     })
     expect(Object.values(result).every((value) => value === true)).toBe(true)
     expect(JSON.stringify(result)).not.toContain("sk-secret")
+  })
+})
+
+describe("localApiKeysFrom", () => {
+  test("the current name wins over the legacy one; values are trimmed", () => {
+    expect(
+      localApiKeysFrom({
+        FORMULACMS_DEV_OPENROUTER_API_KEY: " sk-or-test-current ",
+        NEXTCMS_DEV_OPENROUTER_API_KEY: "sk-or-test-legacy",
+        NEXTCMS_DEV_OPENAI_API_KEY: "sk-proj-test-legacy",
+        FORMULACMS_DEV_ANTHROPIC_API_KEY: "  ",
+      })
+    ).toEqual({
+      anthropic: undefined,
+      openai: "sk-proj-test-legacy",
+      openrouter: "sk-or-test-current",
+    })
   })
 })

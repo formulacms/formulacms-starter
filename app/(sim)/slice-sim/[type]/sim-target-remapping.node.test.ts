@@ -78,7 +78,7 @@ async function expectRefusedWithoutWrites(
   originalHash: string
 ) {
   const root = await mkdtemp(join(tmpdir(), "sim-pending-revision-"))
-  const checkpointDir = join(root, ".nextcms/visual-tweak-checkpoints/example")
+  const checkpointDir = join(root, ".formulacms/local/visual-tweak-checkpoints/example")
   try {
     await mkdir(dirname(join(root, file)), { recursive: true })
     await mkdir(checkpointDir, { recursive: true })

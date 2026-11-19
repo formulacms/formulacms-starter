@@ -4,11 +4,19 @@ import { getFunctionName } from "convex/server"
 import { ConvexError } from "convex/values"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, test, vi } from "vitest"
+
+// The local job server actions are fakes: the screens decide the route.
+vi.mock("@/app/(core)/admin/(authenticated)/pages/local-ai-job-actions", () => ({
+  startLocalPageJob: vi.fn(),
+  resumeLocalPageJob: vi.fn(),
+  generatePageOutlineLocal: vi.fn(),
+}))
 import en from "../../../messages/admin/en.json"
 import fr from "../../../messages/admin/fr.json"
 import type { Locale } from "@/lib/i18n/config"
 import type { AdminAiTranslationHostResult } from "../contributions/ai-translation"
 import type { ModuleGate } from "../module-gate"
+import { startLocalPageJob } from "@/app/(core)/admin/(authenticated)/pages/local-ai-job-actions"
 import { PageEditorTranslationSlot } from "./page-editor-participant"
 
 const mocks = vi.hoisted(() => ({
@@ -161,6 +169,8 @@ type SlotOptions = {
     complete: (generation: number) => void
   }
   ensureSaved?: () => Promise<boolean>
+  /** Translation's route data: `{ engine }` on this computer, null elsewhere. */
+  route?: { engine: "claude" | "codex" | null } | null
 }
 
 function slot(options: SlotOptions = {}) {
@@ -172,7 +182,10 @@ function slot(options: SlotOptions = {}) {
       messages={language === "fr" ? fr : en}
     >
       <PageEditorTranslationSlot
-        routeData={{ mechanicalTranslation: null, brandTranslation: null }}
+        routeData={{
+          mechanicalTranslation: options.route ?? null,
+          brandTranslation: options.route ?? null,
+        }}
         page={
           {
             _id: "page-1",
@@ -281,7 +294,9 @@ describe("gate", () => {
     const notice = screen.getByTestId("api-key-notice")
     expect(notice).toHaveTextContent("Not configured: API key is missing")
     expect(screen.getByTestId("header")).toContainElement(notice)
-    expect(mocks.queryNames).not.toContain(PROGRESS)
+    // Jobs are read whatever Translation's setup; with none, no panel shows.
+    expect(mocks.queryNames).toContain(PROGRESS)
+    expect(screen.queryByTestId("translate-panel")).not.toBeInTheDocument()
   })
 
   test("a refused key names the provider and variable", () => {
@@ -449,6 +464,10 @@ describe("Translate from EN", () => {
     [
       "AI_JOB_SOURCE_TOO_LARGE",
       "This page is too long to translate in one job.",
+    ],
+    [
+      "CONTENT_TYPE_TRANSLATION_OFF",
+      "Not shown on the site: translation is off for Pages.",
     ],
   ])("refusal %s shows its line", async (code, text) => {
     mocks.calls[START] = vi.fn().mockRejectedValue(new ConvexError(code))
@@ -783,5 +802,108 @@ describe("no cost anywhere", () => {
     expect(text).not.toMatch(
       /\$|€|estimat|\bcap\b|reserved|réserv|limite|coût|cost/i
     )
+  })
+})
+
+// Approved image 4(a), Translation line (owner, 2026-11-16).
+describe("Translation on a local tool", () => {
+  const marked = { aiRuntime: { assistants: { translation: { localTool: true } } } }
+
+  test("on this computer with no API connection: Start runs the local action", async () => {
+    mocks.gates.ai = { state: "needs_setup", setup: ["required"] }
+    mocks.data["cms/aiSettings:status"] = status(false)
+    mocks.data["cms/settings:getSettings"] = marked
+    vi.mocked(startLocalPageJob).mockResolvedValue({ ok: true, value: "job-3" } as never)
+    renderSlot({ route: { engine: "codex" } })
+    fireEvent.click(translateButton()!)
+    fireEvent.click(screen.getByTestId("start-job"))
+    await waitFor(() =>
+      expect(startLocalPageJob).toHaveBeenCalledWith({
+        kind: "translation",
+        pageId: "page-1",
+        sourceLocale: "en",
+        targetLocale: "fr",
+      })
+    )
+    expect(mocks.calls[START]).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    ["en", "Translation runs with a local tool. Open the admin on the computer that runs formulacms, or choose an API connection in Settings › AI.", "Settings › AI"],
+    ["fr", "La traduction utilise un outil local. Ouvrez l'administration sur l'ordinateur qui exécute formulacms, ou choisissez une connexion API dans Paramètres › IA.", "Paramètres › IA"],
+  ] as const)("another device (%s): the message replaces the button", (language, text, link) => {
+    mocks.data["cms/settings:getSettings"] = marked
+    renderSlot({ language })
+    expect(translateButton()).not.toBeInTheDocument()
+    const notice = screen.getByTestId("local-tool-elsewhere")
+    expect(notice).toHaveTextContent(text)
+    // Same notice as Help's (image 4): one component, one role.
+    expect(notice).toHaveAttribute("data-slot", "amber-notice")
+    expect(notice).toHaveAttribute("role", "status")
+    expect(screen.getByRole("link", { name: link })).toHaveAttribute("href", "/admin/settings/ai")
+  })
+
+  test("a stale tab: Convex refuses the API start and the panel says why", async () => {
+    mocks.calls[START] = vi.fn().mockRejectedValue(new ConvexError("AI_ASSISTANT_RUNS_ON_LOCAL_TOOL"))
+    renderSlot()
+    fireEvent.click(translateButton()!)
+    fireEvent.click(screen.getByTestId("start-job"))
+    expect(await screen.findByTestId("local-tool-elsewhere")).toHaveTextContent("Translation runs with a local tool.")
+    expect(screen.queryByTestId("start-job")).not.toBeInTheDocument()
+  })
+
+  test.each([
+    ["canceled", "resume-job"],
+    ["done", "review-translation"],
+  ] as const)("guard: back on an API service with no key, a %s local job keeps its card and controls", (state, control) => {
+    // This computer, Translation's local choice removed, no key and no marker.
+    mocks.gates.ai = { state: "needs_setup", setup: ["required"] }
+    mocks.data["cms/aiSettings:status"] = status(false)
+    const units = state === "done" ? [segment(0), segment(1)] : [segment(0), segment(1, "waiting")]
+    mocks.data[PROGRESS] = [
+      job("job-1", { state, canResume: state === "canceled", units, localTool: { engine: "codex" } }),
+    ]
+    renderSlot({ route: { engine: null } })
+    expect(screen.getByTestId("job-progress")).toBeInTheDocument()
+    expect(screen.getByTestId(control)).toBeInTheDocument()
+    if (state === "canceled") expect(screen.getByTestId("dismiss-job")).toBeInTheDocument()
+    // Starting a new job still needs a ready service.
+    expect(translateButton()).not.toBeInTheDocument()
+    expect(screen.getByTestId("api-key-notice")).toBeInTheDocument()
+  })
+
+  test("guard: a running local job holds the editor after Translation leaves its local tool", () => {
+    mocks.gates.ai = { state: "needs_setup", setup: ["required"] }
+    mocks.data["cms/aiSettings:status"] = status(false)
+    mocks.data[PROGRESS] = [job("job-1", { localTool: { engine: "codex" } })]
+    renderSlot({ route: { engine: null } })
+    expect(lastResult().busy).toBe(true)
+    expect(screen.getByTestId("job-progress")).toBeInTheDocument()
+  })
+
+  test("no marker: no local message", () => {
+    renderSlot()
+    expect(translateButton()).toBeInTheDocument()
+    expect(screen.queryByTestId("local-tool-elsewhere")).not.toBeInTheDocument()
+  })
+})
+
+// Round 2, S4: AI off (a null status) closes Start, even with a local tool.
+describe("AI off with a local tool", () => {
+  test.each(["claude", "codex"] as const)("%s: ready → null with the gate on hides an open Start; another language's job keeps its card", (engine) => {
+    vi.mocked(startLocalPageJob).mockClear()
+    mocks.data["cms/aiSettings:status"] = status(false)
+    mocks.data[PROGRESS] = [
+      job("job-de", { locale: "de", targetLocale: "de", state: "done", units: [segment(0), segment(1)], localTool: { engine } }),
+    ]
+    const view = renderSlot({ route: { engine } })
+    fireEvent.click(translateButton()!)
+    expect(screen.getByTestId("start-job")).toBeInTheDocument()
+    mocks.data["cms/aiSettings:status"] = null
+    view.rerender(slot({ route: { engine } }))
+    expect(screen.queryByTestId("start-job")).not.toBeInTheDocument()
+    expect(translateButton()).not.toBeInTheDocument()
+    expect(screen.getByTestId("job-progress")).toBeInTheDocument()
+    expect(startLocalPageJob).not.toHaveBeenCalled()
   })
 })

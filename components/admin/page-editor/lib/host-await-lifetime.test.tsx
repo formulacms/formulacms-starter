@@ -361,7 +361,9 @@ function mount(snapshot = false, copyFields = false) {
   const publicationState = snapshot ? publication() : undefined
   const source = {
     ...page(),
-    ...(copyFields ? { pageType: "post", category: "News" } : {}),
+    // `featured` is a shared descriptor field; the category moved into each
+    // language (ADR-0037 amendment, 2026-11-17).
+    ...(copyFields ? { pageType: "post", featured: true } : {}),
     content: {
       en: { title: "About", slices: [] },
       fr: { title: "À propos", slices: [] },
@@ -504,7 +506,7 @@ test.each(
       )?.[1]
       expect(copied).toMatchObject({ pageId: "new-page" })
       expect(JSON.parse(copied.sharedFieldsJson)).toMatchObject({
-        category: "News",
+        featured: true,
       })
       expect(
         mocks.mutation.mock.calls.filter(
@@ -830,7 +832,7 @@ test.each(
         },
       })
       expect(JSON.parse(args.shared.sharedFieldsJson)).toMatchObject({
-        category: "News",
+        featured: true,
       })
     } else {
       expect(name).toBe("cms/pages:updateDraft")
@@ -839,7 +841,7 @@ test.each(
         `Copy ${locale}`
       )
       expect(JSON.parse(args.sharedFieldsJson)).toMatchObject({
-        category: "News",
+        featured: true,
       })
     }
     expect(toast.success).toHaveBeenCalledExactlyOnceWith(
@@ -980,7 +982,7 @@ test("host conflict ignores stale descriptor-write completion", async () => {
   )?.[1]
   expect(copied).toMatchObject({ pageId: "new-page" })
   expect(JSON.parse(copied.sharedFieldsJson)).toMatchObject({
-    category: "News",
+    featured: true,
   })
   view.unmount()
 })

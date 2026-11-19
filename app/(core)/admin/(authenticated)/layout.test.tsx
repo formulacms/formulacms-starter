@@ -16,6 +16,12 @@ vi.mock("@/lib/auth/server", () => ({
   safeIsAuthenticated: mocks.safeIsAuthenticated,
 }))
 
+// The live site: the Help route reads nothing (no local file, no request).
+vi.mock("@/lib/assert-local-dev", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/assert-local-dev")>()),
+  isLocalDevelopment: () => false,
+}))
+
 vi.mock("@/components/admin/admin-shell", () => ({
   AdminShell: ({ children }: { children: React.ReactNode }) => children,
 }))
@@ -43,11 +49,15 @@ describe("AuthenticatedAdminShell", () => {
     const children = <p>Owner content</p>
 
     await expect(AuthenticatedAdminShell({ children })).resolves.toMatchObject({
-      props: { children, aiHelpRouteData: null, moduleStateFailed: false },
+      props: {
+        children,
+        aiHelpRouteData: { kind: "production" },
+        moduleStateFailed: false,
+      },
     })
 
     // The owner check, then the one module-state read the installed Help
-    // participant needs; its route data carries nothing.
+    // participant needs; its route data is which engine answers Help.
     expect(mocks.fetchAuthQuery).toHaveBeenCalledTimes(2)
   })
 

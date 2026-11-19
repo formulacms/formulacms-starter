@@ -1,9 +1,15 @@
 import { ConvexError, type Infer, v } from "convex/values"
 import {
   isRegisteredEmailProviderId,
+  registeredEmailProviderIdValidator,
   type RegisteredEmailProviderId,
 } from "./providerMetadata"
-import { emailDeliveryFailureReasonValidator } from "./delivery"
+import {
+  emailDeliveryFailureCategoryValidator,
+  emailDeliveryFailureReasonValidator,
+} from "./delivery"
+
+export { registeredEmailProviderIdValidator }
 
 export const emailSenderIdentityValidator = v.object({
   address: v.string(),
@@ -16,35 +22,36 @@ const inactiveEmailProviderStateValidator = v.object({
   kind: v.literal("fallback"),
 })
 
-const resendEmailProviderStateValidator = v.object({
+const activeEmailProviderStateValidator = v.object({
   kind: v.literal("active"),
-  providerId: v.literal("resend"),
-  // Resend has no provider-specific non-secret fields in E02. Sender identity
-  // remains a state field shared by every registered provider.
+  providerId: registeredEmailProviderIdValidator,
+  // No registered provider has provider-specific non-secret fields: SMTP and
+  // Resend both read their connection values from the deployment environment.
+  // Sender identity remains a state field shared by every registered provider.
   configuration: v.object({}),
 })
 
-const configuredResendEmailProviderStateValidator = v.object({
+const configuredEmailProviderStateValidator = v.object({
   kind: v.literal("configured"),
-  providerId: v.literal("resend"),
+  providerId: registeredEmailProviderIdValidator,
   configuration: v.object({}),
 })
 
 export const registeredEmailProviderStateValidator = v.union(
   inactiveEmailProviderStateValidator,
-  configuredResendEmailProviderStateValidator,
-  resendEmailProviderStateValidator
+  configuredEmailProviderStateValidator,
+  activeEmailProviderStateValidator
 )
 
 export const emailProviderTestStateValidator = v.union(
   v.object({
-    providerId: v.literal("resend"),
+    providerId: registeredEmailProviderIdValidator,
     configurationVersion: v.number(),
     state: v.literal("queued"),
     updatedAt: v.number(),
   }),
   v.object({
-    providerId: v.literal("resend"),
+    providerId: registeredEmailProviderIdValidator,
     configurationVersion: v.number(),
     state: v.literal("provider_accepted"),
     activationReceiptId: v.id("emailProviderActivationReceipts"),
@@ -52,10 +59,11 @@ export const emailProviderTestStateValidator = v.union(
     updatedAt: v.number(),
   }),
   v.object({
-    providerId: v.literal("resend"),
+    providerId: registeredEmailProviderIdValidator,
     configurationVersion: v.number(),
     state: v.union(v.literal("failed"), v.literal("unknown")),
     reason: emailDeliveryFailureReasonValidator,
+    category: v.optional(emailDeliveryFailureCategoryValidator),
     updatedAt: v.number(),
   })
 )
@@ -116,6 +124,11 @@ function validateTestState(test: EmailProviderTestState | undefined): void {
   ) {
     invalidState()
   }
+}
+
+/** True when the value looks like an email address: one @, no spaces, a dot in the domain. */
+export function isEmailAddress(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
 /** Missing state is the fresh-install, non-delivering Console fallback. */
@@ -242,7 +255,7 @@ export function toEmailProviderClientState(
 export const EMAIL_PROVIDER_ACTIVATION_RECEIPT_TTL_MS = 15 * 60 * 1000
 
 export const emailProviderActivationReceiptFields = {
-  providerId: v.literal("resend"),
+  providerId: registeredEmailProviderIdValidator,
   configurationVersion: v.number(),
   deliveryEventId: v.id("emailDeliveryEvents"),
   issuedAt: v.number(),

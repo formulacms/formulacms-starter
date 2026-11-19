@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { revalidatePath } from "next/cache"
 import { requireInstallationOwner } from "@/lib/owner-server"
+import { DESIGN_SYSTEM_ROUTE } from "@/config/slice-simulator"
 import { INSTALLED_SLICE_TYPES } from "@/convex/lib/slices"
 import {
   applySpacingTweak,
@@ -131,10 +132,12 @@ export async function applyVisualTweakAction(
     if (input.kind !== "spacing") {
       return {
         ok: false,
-        error:
-          "Text sizes and line heights are changed on the design-system page " +
-          "now, where you can see what else moves and undo it. Open " +
-          "/admin/design-system.",
+        error: DESIGN_SYSTEM_ROUTE
+          ? "Text sizes and line heights are changed on the design-system page " +
+            "now, where you can see what else moves and undo it. Open " +
+            `${DESIGN_SYSTEM_ROUTE}.`
+          : "Text sizes and line heights are site-wide settings and " +
+            "cannot be changed in the block simulator.",
       }
     }
     if (!isSpacingAxis(input.axis) || !isSpacingSuffix(input.suffix)) {

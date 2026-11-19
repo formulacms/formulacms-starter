@@ -33,12 +33,22 @@ import {
 } from "./_generated/server"
 import { requireInstallationOwner } from "./lib/access/policy"
 import { readEmailProviderStateDuringMigration } from "./lib/email/providerMigration"
-import { EMAIL_PROVIDER_CATALOGUE } from "./lib/email/providerMetadata"
-import { emailProviderEnvironmentReadiness } from "./lib/email/providerReadiness"
+import {
+  EMAIL_DEFAULT_PROVIDER_ID,
+  EMAIL_PROVIDER_CATALOGUE,
+  isRegisteredEmailProviderId,
+  registeredEmailProviderIdValidator,
+  type RegisteredEmailProviderId,
+} from "./lib/email/providerMetadata"
+import {
+  emailProviderEnvironmentReadiness,
+  emailProviderEnvironmentStatus,
+} from "./lib/email/providerReadiness"
 import {
   assertEmailDeliveryRequest,
   emailDeliveryConsumerValidator,
   emailDeliveryExpiresAt,
+  emailDeliveryFailureCategoryValidator,
   emailDeliveryFailureReasonValidator,
   emailDeliveryStateValidator,
   emailMessageFingerprint,
@@ -50,9 +60,9 @@ import {
   type TerminalEmailDeliveryResult,
 } from "./lib/email/delivery"
 import {
-  EMAIL_PROVIDER_ACTIVATION_RECEIPT_TTL_MS,
   emailProviderStateValidator,
   emailSenderIdentityValidator,
+  isEmailAddress,
   type EmailProviderTestState,
   type PersistedEmailProviderState,
 } from "./lib/email/providerState"
@@ -115,7 +125,20 @@ export const emailSendResultValidator = v.union(
   })
 )
 
-const registeredProviderIdValidator = v.literal("resend")
+const registeredProviderIdValidator = registeredEmailProviderIdValidator
+
+// Names and presence flags only. A variable value never leaves the server,
+// nor its length, prefix or suffix.
+const emailEnvironmentVariableValidator = v.object({
+  name: v.string(),
+  required: v.boolean(),
+  present: v.boolean(),
+})
+
+const providerReadinessValidator = v.union(
+  v.literal("needs_setup"),
+  v.literal("ready")
+)
 
 const providerCatalogueEntryValidator = v.object({
   id: v.string(),
@@ -124,28 +147,34 @@ const providerCatalogueEntryValidator = v.object({
   registered: v.boolean(),
   bundled: v.boolean(),
   documentationUrl: v.string(),
+  // Registered entries only.
+  environment: v.optional(v.array(emailEnvironmentVariableValidator)),
+  readiness: v.optional(providerReadinessValidator),
 })
 
 const emailProviderClientTestStateValidator = v.union(
   v.object({
+    providerId: registeredProviderIdValidator,
     state: v.literal("queued"),
     updatedAt: v.number(),
   }),
   v.object({
-    state: v.literal("provider_accepted"),
-    receiptExpiresAt: v.number(),
-    updatedAt: v.number(),
-  }),
-  v.object({
+    providerId: registeredProviderIdValidator,
     state: v.union(v.literal("failed"), v.literal("unknown")),
     reason: emailDeliveryFailureReasonValidator,
+    category: v.optional(emailDeliveryFailureCategoryValidator),
     updatedAt: v.number(),
   })
 )
 
 const emailProviderSettingsValidator = v.object({
   catalogue: v.array(providerCatalogueEntryValidator),
-  configuredProviderId: v.union(registeredProviderIdValidator, v.null()),
+  // The provider the owner screen opens: the enabled one, else the default.
+  preselectedProviderId: registeredProviderIdValidator,
+  // The owner's choice: the one enabled provider, or none.
+  enabledProviderId: v.union(registeredProviderIdValidator, v.null()),
+  // The result: the enabled provider once the mail server accepted a test of
+  // the current configuration, else null.
   activeProviderId: v.union(registeredProviderIdValidator, v.null()),
   readiness: v.union(
     v.literal("fallback"),
@@ -159,17 +188,35 @@ const emailProviderSettingsValidator = v.object({
 
 type EmailProviderSettings = Infer<typeof emailProviderSettingsValidator>
 
-const emailProviderConfigurationResultValidator = v.object({
-  providerId: registeredProviderIdValidator,
+// Result of save, enable and disable. `status` is the state of the enabled
+// provider: `disabled` when none is enabled, `inactive` when it is enabled but
+// no accepted test of the current configuration exists, else `active`.
+const emailProviderStateResultValidator = v.object({
+  enabledProviderId: v.union(registeredProviderIdValidator, v.null()),
   configurationVersion: v.number(),
-  status: v.union(v.literal("configured"), v.literal("active")),
+  status: v.union(
+    v.literal("disabled"),
+    v.literal("inactive"),
+    v.literal("active")
+  ),
 })
 
-const activationResultValidator = v.object({
-  providerId: registeredProviderIdValidator,
-  configurationVersion: v.number(),
-  status: v.literal("active"),
-})
+type EmailProviderStateResult = Infer<typeof emailProviderStateResultValidator>
+
+function emailProviderStateResult(
+  state: PersistedEmailProviderState
+): EmailProviderStateResult {
+  return {
+    enabledProviderId: enabledProviderIdOf(state),
+    configurationVersion: state.configurationVersion,
+    status:
+      state.provider.kind === "fallback"
+        ? "disabled"
+        : state.provider.kind === "configured"
+          ? "inactive"
+          : "active",
+  }
+}
 
 type EmailProviderReadCtx = QueryCtx | MutationCtx
 
@@ -184,9 +231,9 @@ async function readPersistedEmailProviderStateRow(ctx: EmailProviderReadCtx) {
   return rows[0] ?? null
 }
 
-function configuredProviderId(
+function enabledProviderIdOf(
   state: PersistedEmailProviderState
-): "resend" | null {
+): RegisteredEmailProviderId | null {
   return state.provider.kind === "fallback" ? null : state.provider.providerId
 }
 
@@ -196,42 +243,64 @@ function projectClientTestState(
 ): EmailProviderSettings["lastTest"] {
   if (
     !test ||
-    test.providerId !== configuredProviderId(state) ||
+    test.providerId !== enabledProviderIdOf(state) ||
     test.configurationVersion !== state.configurationVersion
   ) {
     return undefined
   }
-  if (test.state === "provider_accepted") {
+  // An accepted test is never shown. Today an accepted result makes the
+  // provider active at once; a row written before that change may still hold
+  // one with a live receipt, and it stays hidden.
+  if (test.state === "provider_accepted") return undefined
+  if (test.state === "queued") {
     return {
+      providerId: test.providerId,
       state: test.state,
-      receiptExpiresAt: test.receiptExpiresAt,
       updatedAt: test.updatedAt,
     }
   }
-  if (test.state === "queued") {
-    return { state: test.state, updatedAt: test.updatedAt }
-  }
   return {
+    providerId: test.providerId,
     state: test.state,
     reason: test.reason,
+    ...(test.category ? { category: test.category } : {}),
     updatedAt: test.updatedAt,
   }
+}
+
+function currentEnvironment(): Readonly<Record<string, string | undefined>> {
+  return env as unknown as Readonly<Record<string, string | undefined>>
+}
+
+function projectCatalogue(): EmailProviderSettings["catalogue"] {
+  return EMAIL_PROVIDER_CATALOGUE.map((entry) => {
+    if (!entry.registered || !isRegisteredEmailProviderId(entry.id)) {
+      return { ...entry }
+    }
+    const { readiness, variables } = emailProviderEnvironmentStatus(
+      entry.id,
+      currentEnvironment()
+    )
+    return {
+      ...entry,
+      environment: variables.map((variable) => ({ ...variable })),
+      readiness,
+    }
+  })
 }
 
 function projectEmailProviderSettings(
   state: PersistedEmailProviderState
 ): EmailProviderSettings {
-  const providerId = configuredProviderId(state)
+  const providerId = enabledProviderIdOf(state)
   const readiness = providerId
-    ? emailProviderEnvironmentReadiness(
-        providerId,
-        env as unknown as Readonly<Record<string, string | undefined>>
-      )
+    ? emailProviderEnvironmentReadiness(providerId, currentEnvironment())
     : "fallback"
   const lastTest = projectClientTestState(state.lastTest, state)
   return {
-    catalogue: EMAIL_PROVIDER_CATALOGUE.map((entry) => ({ ...entry })),
-    configuredProviderId: providerId,
+    catalogue: projectCatalogue(),
+    preselectedProviderId: providerId ?? EMAIL_DEFAULT_PROVIDER_ID,
+    enabledProviderId: providerId,
     activeProviderId:
       state.provider.kind === "active" ? state.provider.providerId : null,
     readiness,
@@ -251,7 +320,7 @@ function normalizeSender(input: { address: string; name?: string }): {
   if (
     address.length === 0 ||
     address.length > 320 ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) ||
+    !isEmailAddress(address) ||
     (name !== undefined && name.length > 120)
   ) {
     throw new ConvexError("CMS_EMAIL_PROVIDER_CONFIGURATION_INVALID")
@@ -281,7 +350,11 @@ function nextConfigurationVersion(current: number): number {
 }
 
 const resolvedSettingsValidator = v.object({
-  provider: v.union(v.literal("console"), v.literal("resend")),
+  provider: v.union(
+    v.literal("console"),
+    v.literal("smtp"),
+    v.literal("resend")
+  ),
   fromAddress: v.optional(v.string()),
   fromName: v.optional(v.string()),
 })
@@ -299,7 +372,7 @@ export const getResolvedSettings = internalQuery({
   handler: async (
     ctx
   ): Promise<{
-    provider: "console" | "resend"
+    provider: "console" | RegisteredEmailProviderId
     fromAddress?: string
     fromName?: string
   }> => {
@@ -324,7 +397,7 @@ const preparedEmailDeliveryValidator = v.union(
   }),
   v.object({
     kind: v.literal("ready"),
-    providerId: v.literal("resend"),
+    providerId: registeredProviderIdValidator,
     configuration: v.object({}),
     sender: emailSenderIdentityValidator,
     message: queuedEmailMessageValidator,
@@ -349,6 +422,7 @@ function terminalResultFromEvent(
     state: "failed",
     ...(event.providerId ? { providerId: event.providerId } : {}),
     reason: event.failureReason ?? "internal_error",
+    ...(event.failureCategory ? { category: event.failureCategory } : {}),
   }
 }
 
@@ -415,12 +489,6 @@ export async function queueFormulaCmsEmail(
   if (input.consumer.kind === "contact") {
     await ctx.db.patch("formSubmissions", input.consumer.submissionId, {
       notifyRunId: runId as string,
-    })
-  } else if (input.consumer.kind === "invitation") {
-    await ctx.db.patch("invites", input.consumer.inviteId, {
-      deliveryRunId: runId as string,
-      deliveryState: "queued",
-      deliveryError: undefined,
     })
   }
   return { eventId, runId: runId as string, state: "queued" }
@@ -557,10 +625,13 @@ function completionResult(
       reason: "canceled",
     }
   }
+  // Every retried attempt stored its category on the event before it threw,
+  // so the reason the owner sees survives Action Retrier's exhaustion.
   return {
     state: "failed",
     ...(event.providerId ? { providerId: event.providerId } : {}),
     reason: "retry_exhausted",
+    ...(event.failureCategory ? { category: event.failureCategory } : {}),
   }
 }
 
@@ -585,31 +656,16 @@ async function recordOwnerTestCompletion(
     terminal.state === "provider_accepted" &&
     terminal.providerId === event.consumer.providerId
   ) {
-    const expiresAt = now + EMAIL_PROVIDER_ACTIVATION_RECEIPT_TTL_MS
-    const activationReceiptId = await ctx.db.insert(
-      "emailProviderActivationReceipts",
-      {
-        providerId: event.consumer.providerId,
-        configurationVersion: event.consumer.configurationVersion,
-        deliveryEventId: event._id,
-        issuedAt: now,
-        expiresAt,
-      }
-    )
-    await ctx.scheduler.runAt(
-      expiresAt,
-      internal.email._expireActivationReceipt,
-      { activationReceiptId }
-    )
+    // An accepted test of the current provider and configuration version
+    // makes the enabled provider active, in this same transaction. Any such
+    // test qualifies, even if a later test of the same version failed.
     await ctx.db.patch("emailProviderState", stateRow._id, {
-      lastTest: {
+      provider: {
+        kind: "active",
         providerId: event.consumer.providerId,
-        configurationVersion: event.consumer.configurationVersion,
-        state: "provider_accepted",
-        activationReceiptId,
-        receiptExpiresAt: expiresAt,
-        updatedAt: now,
+        configuration: stateRow.provider.configuration,
       },
+      lastTest: undefined,
       updatedAt: now,
     })
     return
@@ -621,12 +677,14 @@ async function recordOwnerTestCompletion(
       : terminal.state === "unknown"
         ? "delivery_unknown"
         : terminal.reason
+  const category = terminal.state === "failed" ? terminal.category : undefined
   await ctx.db.patch("emailProviderState", stateRow._id, {
     lastTest: {
       providerId: event.consumer.providerId,
       configurationVersion: event.consumer.configurationVersion,
       state: terminal.state === "unknown" ? "unknown" : "failed",
       reason,
+      ...(category ? { category } : {}),
       updatedAt: now,
     },
     updatedAt: now,
@@ -649,6 +707,8 @@ export const _recordDeliveryResult = internalMutation({
       ...(terminal.providerId ? { providerId: terminal.providerId } : {}),
       failureReason:
         terminal.state === "provider_accepted" ? undefined : terminal.reason,
+      failureCategory:
+        terminal.state === "failed" ? terminal.category : undefined,
       message: undefined,
       updatedAt: Date.now(),
     })
@@ -670,19 +730,32 @@ export const _recordDeliveryResult = internalMutation({
           notifyAttempts: event.attempts,
         })
       }
-    } else if (event.consumer.kind === "invitation") {
-      const invite = await ctx.db.get("invites", event.consumer.inviteId)
-      if (invite) {
-        await ctx.db.patch("invites", invite._id, {
-          deliveryState: terminal.state,
-          deliveryError:
-            terminal.state === "provider_accepted"
-              ? undefined
-              : terminal.reason,
-        })
-      }
     } else if (event.consumer.kind === "owner_test") {
       await recordOwnerTestCompletion(ctx, event, terminal)
+    }
+    return null
+  },
+})
+
+/**
+ * Called by the delivery action just before it throws for a retry. Action
+ * Retrier turns the throw into "retry_exhausted" after the last attempt and
+ * drops the reason, so the bounded category is kept on the event here and
+ * read back when the run completes. Best effort: the caller ignores a
+ * failure, because a missing category only hides the detail.
+ */
+export const _recordDeliveryAttemptCategory = internalMutation({
+  args: {
+    eventId: v.id("emailDeliveryEvents"),
+    category: emailDeliveryFailureCategoryValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, { eventId, category }) => {
+    const event = await ctx.db.get("emailDeliveryEvents", eventId)
+    if (event && event.state === "queued") {
+      await ctx.db.patch("emailDeliveryEvents", eventId, {
+        failureCategory: category,
+      })
     }
     return null
   },
@@ -745,71 +818,157 @@ export const getOwnerEmailProviderConfiguration = internalQuery({
   },
 })
 
+/**
+ * Reads the successor state for a provider-state write. A legacy source must
+ * migrate first. A successor source without its row is invalid.
+ */
+async function readProviderStateForWrite(ctx: MutationCtx) {
+  const current = await readEmailProviderStateDuringMigration(ctx)
+  if (current.source === "legacy") {
+    throw new ConvexError("CMS_EMAIL_PROVIDER_MIGRATION_REQUIRED")
+  }
+  const row = await readPersistedEmailProviderStateRow(ctx)
+  if (current.source === "successor" && !row) {
+    throw new ConvexError("CMS_EMAIL_PROVIDER_STATE_INVALID")
+  }
+  return { state: current.state, row }
+}
+
+/**
+ * Saving takes only the sender. It never enables or disables a provider. A
+ * changed sender keeps the owner's choice, makes an active provider inactive
+ * until a new test is accepted, bumps the version and clears the last test.
+ */
 export const saveEmailProviderConfiguration = mutation({
   args: {
-    providerId: registeredProviderIdValidator,
     senderAddress: v.string(),
     senderName: v.optional(v.string()),
   },
-  returns: emailProviderConfigurationResultValidator,
+  returns: emailProviderStateResultValidator,
   handler: async (ctx, args) => {
     await requireInstallationOwner(ctx)
-    const current = await readEmailProviderStateDuringMigration(ctx)
-    if (current.source === "legacy") {
-      throw new ConvexError("CMS_EMAIL_PROVIDER_MIGRATION_REQUIRED")
-    }
-    const row = await readPersistedEmailProviderStateRow(ctx)
-    if (current.source === "successor" && !row) {
-      throw new ConvexError("CMS_EMAIL_PROVIDER_STATE_INVALID")
-    }
+    const { state, row } = await readProviderStateForWrite(ctx)
 
     const sender = normalizeSender({
       address: args.senderAddress,
       ...(args.senderName !== undefined ? { name: args.senderName } : {}),
     })
-    if (
-      configuredProviderId(current.state) === args.providerId &&
-      sendersEqual(current.state.sender, sender)
-    ) {
-      return {
-        providerId: args.providerId,
-        configurationVersion: current.state.configurationVersion,
-        status:
-          current.state.provider.kind === "active"
-            ? ("active" as const)
-            : ("configured" as const),
-      }
+    if (sendersEqual(state.sender, sender)) {
+      return emailProviderStateResult(state)
     }
 
     const configurationVersion = nextConfigurationVersion(
-      current.state.configurationVersion
+      state.configurationVersion
     )
-    const nextState: PersistedEmailProviderState = {
+    const provider: PersistedEmailProviderState["provider"] =
+      state.provider.kind === "active"
+        ? {
+            kind: "configured",
+            providerId: state.provider.providerId,
+            configuration: state.provider.configuration,
+          }
+        : state.provider
+    const next: PersistedEmailProviderState = {
       key: "owner",
-      provider: {
-        kind: "configured",
-        providerId: args.providerId,
-        configuration: {},
-      },
+      provider,
       sender,
       configurationVersion,
       updatedAt: Date.now(),
     }
     if (row) {
       await ctx.db.patch("emailProviderState", row._id, {
-        provider: nextState.provider,
+        provider,
         sender,
         configurationVersion,
         lastTest: undefined,
-        updatedAt: nextState.updatedAt,
+        updatedAt: next.updatedAt,
       })
     } else {
-      await ctx.db.insert("emailProviderState", nextState)
+      await ctx.db.insert("emailProviderState", next)
     }
-    return {
-      providerId: args.providerId,
+    return emailProviderStateResult(next)
+  },
+})
+
+/**
+ * The owner's choice: enable one provider. It needs no sender and no ready
+ * environment. Enabling a provider that is already enabled writes nothing.
+ * Enabling another one disables the current one. Either way the provider
+ * starts inactive, the version increases and the last test is cleared, so a
+ * test still in flight for an older version can never activate it.
+ */
+export const enableEmailProvider = mutation({
+  args: { providerId: registeredProviderIdValidator },
+  returns: emailProviderStateResultValidator,
+  handler: async (ctx, { providerId }) => {
+    await requireInstallationOwner(ctx)
+    const { state, row } = await readProviderStateForWrite(ctx)
+    if (enabledProviderIdOf(state) === providerId) {
+      return emailProviderStateResult(state)
+    }
+
+    const configurationVersion = nextConfigurationVersion(
+      state.configurationVersion
+    )
+    const provider: PersistedEmailProviderState["provider"] = {
+      kind: "configured",
+      providerId,
+      configuration: {},
+    }
+    const next: PersistedEmailProviderState = {
+      key: "owner",
+      provider,
+      ...(state.sender ? { sender: state.sender } : {}),
       configurationVersion,
-      status: "configured" as const,
+      updatedAt: Date.now(),
+    }
+    if (row) {
+      await ctx.db.patch("emailProviderState", row._id, {
+        provider,
+        configurationVersion,
+        lastTest: undefined,
+        updatedAt: next.updatedAt,
+      })
+    } else {
+      await ctx.db.insert("emailProviderState", next)
+    }
+    return emailProviderStateResult(next)
+  },
+})
+
+/**
+ * Disable the enabled provider. Nothing is enabled afterwards and the site
+ * uses the Console fallback. The sender stays. A call for a provider that is
+ * not the enabled one writes nothing and reports the stored state.
+ */
+export const disableEmailProvider = mutation({
+  args: { providerId: registeredProviderIdValidator },
+  returns: emailProviderStateResultValidator,
+  handler: async (ctx, { providerId }) => {
+    await requireInstallationOwner(ctx)
+    const current = await readEmailProviderStateDuringMigration(ctx)
+    const row = await readPersistedEmailProviderStateRow(ctx)
+    if (
+      !row ||
+      current.source !== "successor" ||
+      enabledProviderIdOf(current.state) !== providerId
+    ) {
+      return emailProviderStateResult(current.state)
+    }
+
+    const configurationVersion = nextConfigurationVersion(
+      current.state.configurationVersion
+    )
+    await ctx.db.patch("emailProviderState", row._id, {
+      provider: { kind: "fallback" },
+      configurationVersion,
+      lastTest: undefined,
+      updatedAt: Date.now(),
+    })
+    return {
+      enabledProviderId: null,
+      configurationVersion,
+      status: "disabled" as const,
     }
   },
 })
@@ -818,16 +977,19 @@ export const checkEmailProviderConfiguration = action({
   args: { providerId: registeredProviderIdValidator },
   returns: v.object({
     providerId: registeredProviderIdValidator,
-    readiness: v.union(v.literal("needs_setup"), v.literal("ready")),
+    readiness: providerReadinessValidator,
+    environment: v.array(emailEnvironmentVariableValidator),
   }),
   handler: async (ctx, { providerId }) => {
     await ctx.runQuery(internal.email.assertSettingsUpdate, {})
+    const environment = currentEnvironment()
     return {
       providerId,
-      readiness: emailProviderEnvironmentReadiness(
+      readiness: emailProviderEnvironmentReadiness(providerId, environment),
+      environment: emailProviderEnvironmentStatus(
         providerId,
-        env as unknown as Readonly<Record<string, string | undefined>>
-      ),
+        environment
+      ).variables.map((variable) => ({ ...variable })),
     }
   },
 })
@@ -885,131 +1047,6 @@ export const enqueueOwnerTestDelivery = internalMutation({
       updatedAt: Date.now(),
     })
     return queued
-  },
-})
-
-export const activateEmailProvider = mutation({
-  args: { providerId: registeredProviderIdValidator },
-  returns: activationResultValidator,
-  handler: async (ctx, { providerId }) => {
-    await requireInstallationOwner(ctx)
-    const current = await readEmailProviderStateDuringMigration(ctx)
-    const row = await readPersistedEmailProviderStateRow(ctx)
-    if (!row || current.source !== "successor") {
-      throw new ConvexError("CMS_EMAIL_PROVIDER_CONFIGURATION_REQUIRED")
-    }
-    if (
-      current.state.provider.kind === "active" &&
-      current.state.provider.providerId === providerId
-    ) {
-      return {
-        providerId,
-        configurationVersion: current.state.configurationVersion,
-        status: "active" as const,
-      }
-    }
-    if (
-      current.state.provider.kind !== "configured" ||
-      current.state.provider.providerId !== providerId ||
-      !current.state.sender
-    ) {
-      throw new ConvexError("CMS_EMAIL_PROVIDER_CONFIGURATION_REQUIRED")
-    }
-    if (
-      emailProviderEnvironmentReadiness(
-        providerId,
-        env as unknown as Readonly<Record<string, string | undefined>>
-      ) !== "ready"
-    ) {
-      throw new ConvexError("CMS_EMAIL_PROVIDER_NEEDS_SETUP")
-    }
-
-    const test = current.state.lastTest
-    if (
-      test?.state !== "provider_accepted" ||
-      test.providerId !== providerId ||
-      test.configurationVersion !== current.state.configurationVersion
-    ) {
-      throw new ConvexError("CMS_EMAIL_PROVIDER_TEST_REQUIRED")
-    }
-    const receipt = await ctx.db.get("emailProviderActivationReceipts", test.activationReceiptId)
-    const now = Date.now()
-    if (
-      !receipt ||
-      receipt.providerId !== providerId ||
-      receipt.configurationVersion !== current.state.configurationVersion ||
-      receipt.consumedAt !== undefined ||
-      receipt.expiresAt <= now
-    ) {
-      throw new ConvexError("CMS_EMAIL_PROVIDER_TEST_REQUIRED")
-    }
-
-    await ctx.db.patch("emailProviderActivationReceipts", receipt._id, { consumedAt: now })
-    await ctx.db.patch("emailProviderState", row._id, {
-      provider: {
-        kind: "active",
-        providerId,
-        configuration: current.state.provider.configuration,
-      },
-      lastTest: undefined,
-      updatedAt: now,
-    })
-    return {
-      providerId,
-      configurationVersion: current.state.configurationVersion,
-      status: "active" as const,
-    }
-  },
-})
-
-export const deactivateEmailProvider = mutation({
-  args: { providerId: registeredProviderIdValidator },
-  returns: emailProviderConfigurationResultValidator,
-  handler: async (ctx, { providerId }) => {
-    await requireInstallationOwner(ctx)
-    const current = await readEmailProviderStateDuringMigration(ctx)
-    const row = await readPersistedEmailProviderStateRow(ctx)
-    if (!row || current.source !== "successor") {
-      throw new ConvexError("CMS_EMAIL_PROVIDER_CONFIGURATION_REQUIRED")
-    }
-    // Same stale-call convention as activation: a call for a provider that is
-    // not the stored one is refused, and a call that finds the requested
-    // provider already off is a no-op that reports the stored state.
-    if (
-      current.state.provider.kind === "fallback" ||
-      current.state.provider.providerId !== providerId
-    ) {
-      throw new ConvexError("CMS_EMAIL_PROVIDER_CONFIGURATION_REQUIRED")
-    }
-    if (current.state.provider.kind === "configured") {
-      return {
-        providerId,
-        configurationVersion: current.state.configurationVersion,
-        status: "configured" as const,
-      }
-    }
-
-    // Back to `configured` for the same provider and sender. The accepted
-    // test is cleared and the version is bumped, so turning the provider on
-    // again needs a new accepted test. Credentials stay in the environment.
-    const configurationVersion = nextConfigurationVersion(
-      current.state.configurationVersion
-    )
-    await ctx.db.patch("emailProviderState", row._id, {
-      provider: {
-        kind: "configured",
-        providerId,
-        configuration: current.state.provider.configuration,
-      },
-      configurationVersion,
-      lastTest: undefined,
-      updatedAt: Date.now(),
-    })
-    return {
-      providerId,
-      configurationVersion,
-      status: "configured" as const,
-    }
   },
 })
 

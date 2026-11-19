@@ -1,7 +1,8 @@
-import type {
-  ApiModelCapability,
-  InputModality,
-  ReasoningEffort,
+import {
+  REASONING_EFFORTS,
+  type ApiModelCapability,
+  type InputModality,
+  type ReasoningEffort,
 } from "./execution-contract"
 
 export const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -32,9 +33,33 @@ export interface OpenRouterCatalogModel {
   readonly ceilingOutputPerM?: number
 }
 
+/** One feed row with the extra facts the merged model catalog uses. Every
+ * extra field is optional: rows stored before they existed lack them. */
+export interface OpenRouterFeedModel extends OpenRouterCatalogModel {
+  /** Feed `created`, in epoch milliseconds. */
+  readonly releasedAt?: number
+  /** Feed `expiration_date` (start of that UTC day), in epoch milliseconds. */
+  readonly expiresAt?: number
+  /** Whether the feed row has a `reasoning` object. Absent means unknown. */
+  readonly hasReasoning?: boolean
+  /** `reasoning.supported_efforts` within the closed effort union; absent
+   * when the feed gives no list, which means unknown. */
+  readonly vendorEfforts?: ReasoningEffort[]
+  readonly defaultEffort?: ReasoningEffort
+  readonly reasoningMandatory?: boolean
+  readonly contextLength?: number
+  readonly maxOutputTokens?: number
+}
+
 type OpenRouterModelResponse = {
   id?: unknown
   name?: unknown
+  created?: unknown
+  context_length?: unknown
+  expiration_date?: unknown
+  alias_target?: unknown
+  top_provider?: { max_completion_tokens?: unknown }
+  reasoning?: unknown
   pricing?: {
     prompt?: unknown
     completion?: unknown
@@ -175,10 +200,70 @@ function priceCeilings(
   return { ceilingInputPerM, ceilingOutputPerM }
 }
 
-/** Normalize and bound the public OpenRouter model response before storage. */
-export function parseOpenRouterCatalog(
+/** Rolling aliases (`~…`, `…-latest`, or a set `alias_target`) let OpenRouter
+ * switch the model behind a saved id; `:batch` rows are half-price variants.
+ * The merged model catalog never offers either. */
+export function isOpenRouterAliasOrBatch(
+  modelId: string,
+  aliasTarget?: unknown
+): boolean {
+  return (
+    (aliasTarget !== undefined && aliasTarget !== null) ||
+    modelId.startsWith("~") ||
+    modelId.endsWith("-latest") ||
+    modelId.endsWith(":batch")
+  )
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined
+}
+
+function effort(value: unknown): ReasoningEffort | undefined {
+  return (REASONING_EFFORTS as readonly unknown[]).includes(value)
+    ? (value as ReasoningEffort)
+    : undefined
+}
+
+function feedDetails(model: OpenRouterModelResponse) {
+  const created = positiveInteger(model.created)
+  const expires =
+    typeof model.expiration_date === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(model.expiration_date)
+      ? Date.parse(`${model.expiration_date}T00:00:00Z`)
+      : NaN
+  const reasoning = isRecord(model.reasoning) ? model.reasoning : undefined
+  const mandatory =
+    typeof reasoning?.mandatory === "boolean" ? reasoning.mandatory : undefined
+  const listed = Array.isArray(reasoning?.supported_efforts)
+    ? REASONING_EFFORTS.filter(
+        (name) =>
+          (reasoning.supported_efforts as unknown[]).includes(name) &&
+          !(mandatory && name === "none")
+      )
+    : []
+  const defaultEffort = effort(reasoning?.default_effort)
+  const contextLength = positiveInteger(model.context_length)
+  const maxOutputTokens = positiveInteger(
+    model.top_provider?.max_completion_tokens
+  )
+  return {
+    ...(created === undefined ? {} : { releasedAt: created * 1000 }),
+    ...(Number.isFinite(expires) ? { expiresAt: expires } : {}),
+    hasReasoning: reasoning !== undefined,
+    ...(listed.length > 0 ? { vendorEfforts: listed } : {}),
+    ...(defaultEffort === undefined ? {} : { defaultEffort }),
+    ...(mandatory === undefined ? {} : { reasoningMandatory: mandatory }),
+    ...(contextLength === undefined ? {} : { contextLength }),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+  }
+}
+
+function parseFeed(
   value: unknown
-): OpenRouterCatalogModel[] {
+): { row: OpenRouterFeedModel; aliasOrBatch: boolean }[] {
   if (!isRecord(value) || !Array.isArray(value.data)) {
     throw new Error("OpenRouter returned an invalid model catalog.")
   }
@@ -192,7 +277,7 @@ export function parseOpenRouterCatalog(
   }
 
   const seen = new Set<string>()
-  const models: OpenRouterCatalogModel[] = []
+  const rows: { row: OpenRouterFeedModel; aliasOrBatch: boolean }[] = []
   for (const raw of value.data) {
     if (!isRecord(raw)) {
       throw new Error("OpenRouter returned a malformed model entry.")
@@ -220,29 +305,75 @@ export function parseOpenRouterCatalog(
     const inputPerM = pricePerMillion(model.pricing?.prompt)
     const outputPerM = pricePerMillion(model.pricing?.completion)
 
-    models.push({
-      modelId,
-      name:
-        typeof model.name === "string" && model.name.trim()
-          ? model.name.trim()
-          : modelId,
-      inputModalities: inputs.length > 0 ? inputs : ["text"],
-      structuredOutput:
-        parameters.has("structured_outputs") ||
-        parameters.has("response_format"),
-      reasoningEfforts: supportsReasoning
-        ? [...OPENROUTER_PORTABLE_EFFORTS]
-        : [],
-      ...priceCeilings(model.pricing),
-      ...(inputPerM === undefined ? {} : { inputPerM }),
-      ...(outputPerM === undefined ? {} : { outputPerM }),
+    rows.push({
+      aliasOrBatch: isOpenRouterAliasOrBatch(modelId, model.alias_target),
+      row: {
+        modelId,
+        name:
+          typeof model.name === "string" && model.name.trim()
+            ? model.name.trim()
+            : modelId,
+        inputModalities: inputs.length > 0 ? inputs : ["text"],
+        structuredOutput:
+          parameters.has("structured_outputs") ||
+          parameters.has("response_format"),
+        reasoningEfforts: supportsReasoning
+          ? [...OPENROUTER_PORTABLE_EFFORTS]
+          : [],
+        ...priceCeilings(model.pricing),
+        ...(inputPerM === undefined ? {} : { inputPerM }),
+        ...(outputPerM === undefined ? {} : { outputPerM }),
+        ...feedDetails(model),
+      },
     })
   }
 
-  if (models.length === 0) {
+  if (rows.length === 0) {
     throw new Error("OpenRouter returned no text-output models.")
   }
-  return models.sort((a, b) => a.modelId.localeCompare(b.modelId))
+  return rows.sort((a, b) => a.row.modelId.localeCompare(b.row.modelId))
+}
+
+/** Normalize and bound the public OpenRouter model response before storage.
+ * Returns exactly the stored row shape (`catalogModelValidator` in Convex), so
+ * the existing refresh is unchanged; the merged catalog uses
+ * `parseOpenRouterRows`. */
+export function parseOpenRouterCatalog(
+  value: unknown
+): OpenRouterCatalogModel[] {
+  return parseFeed(value).map(
+    ({
+      row: {
+        modelId,
+        name,
+        inputModalities,
+        structuredOutput,
+        reasoningEfforts,
+        inputPerM,
+        outputPerM,
+        ceilingInputPerM,
+        ceilingOutputPerM,
+      },
+    }) => ({
+      modelId,
+      name,
+      inputModalities,
+      structuredOutput,
+      reasoningEfforts,
+      ...(ceilingInputPerM === undefined ? {} : { ceilingInputPerM }),
+      ...(ceilingOutputPerM === undefined ? {} : { ceilingOutputPerM }),
+      ...(inputPerM === undefined ? {} : { inputPerM }),
+      ...(outputPerM === undefined ? {} : { outputPerM }),
+    })
+  )
+}
+
+/** The feed rows the merged model catalog may use: rolling aliases and
+ * `:batch` variants dropped, extra facts kept. */
+export function parseOpenRouterRows(value: unknown): OpenRouterFeedModel[] {
+  return parseFeed(value)
+    .filter(({ aliasOrBatch }) => !aliasOrBatch)
+    .map(({ row }) => row)
 }
 
 export function openRouterCatalogCapability(

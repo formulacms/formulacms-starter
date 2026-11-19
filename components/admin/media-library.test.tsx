@@ -120,13 +120,13 @@ describe("MediaLibrary admin i18n", () => {
       locale: "en" as const,
       trash: "Trash",
       description:
-        "It will leave the library. Restoring images from the trash is not available yet.",
+        "It will leave the library. You can restore it later from the trash.",
     },
     {
       locale: "fr" as const,
       trash: "Corbeille",
       description:
-        "Elle quittera la bibliothèque. La restauration des images depuis la corbeille n’est pas encore disponible.",
+        "Elle quittera la bibliothèque. Vous pourrez la restaurer plus tard depuis la corbeille.",
     },
   ])("asks about an unused image ($locale)", async (fixture) => {
     mocks.query.mockResolvedValue({ settings: [], pages: [] })

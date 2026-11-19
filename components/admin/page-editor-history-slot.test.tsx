@@ -2866,14 +2866,14 @@ describe("E1 a tab never saves over content it has not loaded", () => {
         updatedAt: 101,
         sharedDraftGeneration: 5,
       })
-      act(() => mocks.seoProps!.onSeoOgTitleChange("Our social title"))
+      act(() => mocks.seoProps!.onSeoOgImageChange("/our-social.png"))
       await save()
       expect(sent()).toMatchObject({ shared: { expectedGeneration: 4 } })
       expect(sent().localized).toBeUndefined()
       // The refresh after that save carries B's en 3 and B's shared 8.
       view.rerender(tab(pageOf("Their title"), states({ en: 3, shared: 8 })))
       type("Page title", "Our body edit")
-      act(() => mocks.seoProps!.onSeoOgTitleChange("Our second social title"))
+      act(() => mocks.seoProps!.onSeoOgImageChange("/our-second-social.png"))
       mocks.saveDraft.mockClear()
       await save()
       // Both halves keep the generations this tab loaded or saved to.
@@ -3073,9 +3073,9 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       slices: [],
       seoNoIndex: false,
       seoNoFollow: false,
-      seoOgTitle: "Recovered social",
+      seoOgTitle: "",
       seoOgDescription: "",
-      seoOgImage: "",
+      seoOgImage: "/recovered-social.png",
       sharedFieldValues: {},
       localizedFieldValues: {},
       base,
@@ -3172,7 +3172,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
           },
           shared: {
             expectedGeneration: c.shared,
-            seo: { ogTitle: "Recovered social" },
+            seo: { ogImage: "/recovered-social.png" },
           },
         })
         expect(mocks.confirm).toHaveBeenCalledOnce()
@@ -3615,7 +3615,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
           }),
           savedAt: 1500,
           title: which === 6 ? "Their title" : "My recovered words",
-          seoOgTitle: "",
+          seoOgImage: "",
         } as never)
         if (which === 5)
           writeRecoveryDraft(id, {
@@ -3628,7 +3628,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
             locale: "fr",
             title: "French recovered",
             slug: "bonjour",
-            seoOgTitle: "Recovered social",
+            seoOgImage: "/recovered-social.png",
           } as never)
         let view = render(<PageEditor {...props()} />)
         const language = (name: RegExp) =>
@@ -4011,7 +4011,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
   })
 
   describe("recovery after a conflict", () => {
-    const copy = (title: string, seoOgTitle = "") => ({
+    const copy = (title: string, seoOgImage = "") => ({
       base: {
         draftGeneration: 2,
         sharedDraftGeneration: 4,
@@ -4030,9 +4030,9 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       slices: [],
       seoNoIndex: false,
       seoNoFollow: false,
-      seoOgTitle,
+      seoOgTitle: "",
       seoOgDescription: "",
-      seoOgImage: "",
+      seoOgImage,
       sharedFieldValues: {},
       localizedFieldValues: {},
     })
@@ -4067,10 +4067,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       async () => {
         // The copy also differs in a shared field (SEO), so the save has a
         // shared half whose base must be the recorded one, never the reload's.
-        writeRecoveryDraft(
-          pageId,
-          copy("My unsaved words", "Copy social title")
-        )
+        writeRecoveryDraft(pageId, copy("My unsaved words", "/copy-social.png"))
         render(tab(pageOf("Their title"), states({ en: 5, shared: 6 })))
         await act(async () =>
           fireEvent.click(screen.getByRole("button", { name: "Restore" }))
@@ -4086,7 +4083,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
           },
           shared: {
             expectedGeneration: 4,
-            seo: { ogTitle: "Copy social title" },
+            seo: { ogImage: "/copy-social.png" },
           },
         })
         expect(Object.keys(sent()).sort()).toEqual([
@@ -4102,10 +4099,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       "E1-7c a restore without a reload keeps the old base, so the save is refused",
       sliceProfile([]),
       async () => {
-        writeRecoveryDraft(
-          pageId,
-          copy("My unsaved words", "Copy social title")
-        )
+        writeRecoveryDraft(pageId, copy("My unsaved words", "/copy-social.png"))
         const view = render(tab(pageOf("About"), states({})))
         // B saved; this tab refreshed but did not reload.
         view.rerender(tab(pageOf("Their title"), states({ en: 7, shared: 9 })))
@@ -4694,7 +4688,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       async () => {
         const view = mount()
         fireEvent.click(screen.getByTitle("SEO"))
-        act(() => mocks.seoProps!.onSeoOgTitleChange("Our social title"))
+        act(() => mocks.seoProps!.onSeoOgImageChange("/our-social.png"))
         mocks.saveDraft.mockResolvedValueOnce({
           updatedAt: 101,
           sharedDraftGeneration: 5,
@@ -4706,17 +4700,17 @@ describe("E1 a tab never saves over content it has not loaded", () => {
           editor(
             {
               ...pageOf("About", "Traduit"),
-              seo: { ogTitle: "Our social title" },
+              seo: { ogImage: "/our-social.png" },
             } as Page,
             states({ fr: 1, shared: 5 })
           )
         )
         expect(openLocale()).toBe("fr")
         fireEvent.click(screen.getByTitle("SEO"))
-        expect(mocks.seoProps!.seoOgTitle).toBe("Our social title")
+        expect(mocks.seoProps!.seoOgImage).toBe("/our-social.png")
         expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument()
         // The shared half now saves on the generation its save returned.
-        act(() => mocks.seoProps!.onSeoOgTitleChange("Our social title 2"))
+        act(() => mocks.seoProps!.onSeoOgImageChange("/our-social-2.png"))
         mocks.saveDraft.mockClear()
         await save()
         expect(sent().shared).toMatchObject({ expectedGeneration: 5 })

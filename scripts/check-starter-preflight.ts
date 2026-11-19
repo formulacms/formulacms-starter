@@ -1,7 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname } from "node:path"
+import { dirname, join } from "node:path"
 import { spawnSync } from "node:child_process"
 import { chromium } from "playwright"
+import {
+  findGeneratedFileProblems,
+  generatedFilesFailureMessage,
+} from "../lib/modules/generated-files"
+import { checkStoredModuleIds } from "./lib/stored-module-state"
 
 type CheckStatus = "passed" | "warning" | "failed"
 
@@ -9,6 +14,8 @@ type CheckResult = {
   name: string
   status: CheckStatus
   message: string
+  /** The check could not run (for example, the backend could not be read). */
+  inconclusive?: true
 }
 
 const startedAt = new Date()
@@ -20,8 +27,17 @@ const expectedPublicOrigin = new URL(
 ).origin
 const checks: CheckResult[] = []
 
-function addCheck(name: string, status: CheckStatus, message: string) {
-  checks.push({ name, status, message })
+function addCheck(
+  name: string,
+  status: CheckStatus,
+  message: string,
+  inconclusive = false
+) {
+  checks.push(
+    inconclusive
+      ? { name, status, message, inconclusive: true }
+      : { name, status, message }
+  )
 }
 
 function readEnvFile(filePath: string) {
@@ -233,7 +249,8 @@ function checkPairedSecret(
     addCheck(
       key,
       "warning",
-      `${key} is set in .env.local but could not be checked against the active Convex deployment: ${convex.reason}.`
+      `${key} is set in .env.local but could not be checked against the active Convex deployment: ${convex.reason}.`,
+      true
     )
     return
   }
@@ -282,7 +299,8 @@ function checkConvexOwnerClaim(
     addCheck(
       label,
       "warning",
-      `${label} could not be checked against the active Convex deployment: ${convex.reason}.`
+      `${label} could not be checked against the active Convex deployment: ${convex.reason}.`,
+      true
     )
     return
   }
@@ -320,6 +338,10 @@ function writeReport(status: "passed" | "failed") {
     allowRemote,
     strict,
     checks,
+    // Names of the checks that could not run, in check order.
+    inconclusiveChecks: checks
+      .filter((check) => check.inconclusive)
+      .map((check) => check.name),
   }
   try {
     mkdirSync(dirname(reportPath), { recursive: true })
@@ -332,7 +354,37 @@ function writeReport(status: "passed" | "failed") {
   }
 }
 
-function main() {
+// The same check as the starter build (scripts/check-generated-files.ts).
+function checkGeneratedFiles() {
+  const findings = findGeneratedFileProblems((file) => {
+    const path = join(process.cwd(), file)
+    return existsSync(path) ? readFileSync(path, "utf8") : null
+  })
+  if (findings.length > 0) {
+    addCheck("Generated files", "failed", generatedFilesFailureMessage(findings))
+    return
+  }
+  addCheck(
+    "Generated files",
+    "passed",
+    "Generated files match the formulacms release."
+  )
+}
+
+// Loaded at run time so that a missing or broken module list is reported as
+// a check result instead of stopping the preflight.
+async function releaseModuleIds(): Promise<string[] | undefined> {
+  try {
+    const { GENERATED_MODULE_CATALOG } = await import(
+      "../lib/modules/catalog.generated"
+    )
+    return GENERATED_MODULE_CATALOG.map(({ id }) => id)
+  } catch {
+    return undefined
+  }
+}
+
+async function main() {
   checkMajorVersion("Node.js", process.versions.node, 22)
   checkMajorVersion("pnpm", commandOutput("pnpm", ["--version"]), 11)
 
@@ -346,6 +398,8 @@ function main() {
     addCheck("dependencies", "passed", "node_modules exists.")
     checkPlaywrightChromium()
   }
+
+  checkGeneratedFiles()
 
   if (existsSync(".env")) {
     addCheck(
@@ -419,6 +473,17 @@ function main() {
       checkPairedSecret(env, convex, pairing)
     }
     checkConvexOwnerClaim(env, convex)
+
+    const stored = checkStoredModuleIds({
+      root: process.cwd(),
+      knownIds: await releaseModuleIds(),
+    })
+    addCheck(
+      "Stored modules",
+      stored.status,
+      stored.message,
+      stored.inconclusive === true
+    )
   }
 
   if (!existsSync(".convex/local")) {
@@ -458,9 +523,24 @@ function main() {
   for (const warning of warnings) {
     console.log(`Warning: ${warning.name}: ${warning.message}`)
   }
+  // A check that could not run is never reported as passed.
+  const notRun = warnings.filter((warning) => warning.inconclusive)
+  if (notRun.length > 0) {
+    const verified = checks.filter((check) => check.status === "passed").length
+    const otherWarnings = warnings.length - notRun.length
+    console.log(
+      `Starter preflight finished: ${verified} verified, ${notRun.length} could not run${otherWarnings > 0 ? `, ${otherWarnings} other warnings` : ""}.`
+    )
+    for (const check of notRun) {
+      console.log(
+        `- ${check.name} could not run. Start "pnpm dev", then run "pnpm check:preflight" again.`
+      )
+    }
+    return
+  }
   console.log(
     `Starter preflight passed (${checks.length - warnings.length} checks, ${warnings.length} warnings).`
   )
 }
 
-main()
+void main()

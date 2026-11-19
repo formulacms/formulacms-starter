@@ -8,6 +8,7 @@ import {
 import { memoryAdapter } from "@opencoredev/email-sdk/testing"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import {
+  FormulaCmsClassifiedAdapterError,
   createFormulaCmsEmailService,
   type EmailProviderAdapter,
   type FormulaCmsEmailMessage,
@@ -163,6 +164,57 @@ describe("FormulaCMS direct Email SDK boundary", () => {
     expect(notSent).toHaveBeenCalledTimes(1)
   })
 
+  test("carries the bounded category of a classified failure to the failed result", async () => {
+    const service = createFormulaCmsEmailService({
+      id: "smtp",
+      idempotency: "message_id",
+      send: vi.fn(async () => {
+        throw new FormulaCmsClassifiedAdapterError({
+          adapter: "smtp",
+          delivery: "not_sent",
+          retryable: false,
+          category: "sign_in_refused",
+        })
+      }),
+    })
+
+    const result = await service.dispatch({
+      message,
+      idempotencyKey: "event:classified:1",
+    })
+    expect(result).toEqual({
+      state: "failed",
+      providerId: "smtp",
+      reason: "provider_rejected",
+      retry: "never",
+      category: "sign_in_refused",
+    })
+    expect(JSON.stringify(result)).not.toContain("FormulaCMS email provider")
+  })
+
+  test("never attaches a category to an unknown delivery", async () => {
+    const service = createFormulaCmsEmailService({
+      id: "smtp",
+      idempotency: "message_id",
+      send: vi.fn(async () => {
+        throw new FormulaCmsClassifiedAdapterError({
+          adapter: "smtp",
+          delivery: "unknown",
+          retryable: false,
+        })
+      }),
+    })
+
+    await expect(
+      service.dispatch({ message, idempotencyKey: "event:classified:2" })
+    ).resolves.toEqual({
+      state: "unknown",
+      providerId: "smtp",
+      reason: "delivery_unknown",
+      retry: "never",
+    })
+  })
+
   test("keeps unknown delivery terminal even when the provider marks it retryable", async () => {
     const unknown = vi.fn(async () => {
       throw new EmailAdapterError("response lost", {
@@ -190,7 +242,10 @@ describe("FormulaCMS direct Email SDK boundary", () => {
 
   test("exports no raw SDK client and registers no client-reachable Convex function", async () => {
     const runtimeExports = await import("./successor")
-    expect(Object.keys(runtimeExports)).toEqual([
+    // The error class is not an SDK client; the service factory is the only
+    // send surface.
+    expect(Object.keys(runtimeExports).sort()).toEqual([
+      "FormulaCmsClassifiedAdapterError",
       "createFormulaCmsEmailService",
     ])
 

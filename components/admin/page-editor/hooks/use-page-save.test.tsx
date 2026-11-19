@@ -56,6 +56,8 @@ vi.mock("@/app/(core)/admin/(authenticated)/pages/actions", () => ({
 }))
 
 const pageId = "page_1" as Id<"pages">
+const IMAGE_MISSING =
+  "An image on this page was deleted from the media library. Remove or replace it, then try again."
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -1139,7 +1141,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
         captureDraft: (draft) => draft,
         refuseDraft,
       })
-      hook.rerender({ draft: makeDraft({ title: "", seoNoIndex: true }) })
+      hook.rerender({ draft: makeDraft({ title: "", seoOgImage: "/shared.png" }) })
       await act(async () => {
         expect(await hook.result.current.ensureSaved()).toBe(true)
       })
@@ -1148,6 +1150,208 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       const args = saveSnapshotDraft.mock.calls[0][0]
       expect(args.localized).toBeUndefined()
       expect(args.shared).toBeDefined()
+    })
+
+    // ADR-0037 amendment (2026-11-17): each language holds its own seo values.
+    // A French save that changed none of French's values sends no seo block.
+    it("does not copy another language's seo values into the language being saved", async () => {
+      const saveSnapshotDraft = snapshotSave()
+      const english = {
+        seoNoIndex: true,
+        seoOgTitle: "English social",
+        seoOgDescription: "English description",
+      }
+      const hook = renderSaveHook({
+        page: makePage({
+          content: {
+            en: {
+              title: "Home",
+              slices: [],
+              seo: {
+                noIndex: true,
+                ogTitle: "English social",
+                ogDescription: "English description",
+              },
+            },
+            fr: { title: "Accueil", slices: [] },
+          },
+        }),
+        initialDraft: makeDraft(english),
+        saveSnapshotDraft,
+        captureDraft: (draft) => draft,
+      })
+      // The owner opens French (its own, empty seo values) and changes only
+      // its title.
+      hook.rerender({
+        draft: makeDraft({ title: "Accueil modifié", slug: "accueil" }),
+        locale: "fr",
+      })
+      await act(async () => {
+        expect(await hook.result.current.ensureSaved()).toBe(true)
+      })
+      const args = saveSnapshotDraft.mock.calls[0][0]
+      expect(args.localized?.locale).toBe("fr")
+      expect(args.localized?.draft).not.toHaveProperty("seo")
+      expect(args.shared).toBeUndefined()
+    })
+
+    it("saves a changed seo value into the language being saved only", async () => {
+      const saveSnapshotDraft = snapshotSave()
+      const hook = renderSaveHook({
+        page: makePage({
+          content: {
+            en: {
+              title: "Home",
+              slices: [],
+              seo: { ogTitle: "English social", structuredData: "{}" },
+            },
+          },
+        }),
+        initialDraft: makeDraft({ seoOgTitle: "English social" }),
+        saveSnapshotDraft,
+        captureDraft: (draft) => draft,
+      })
+      hook.rerender({
+        draft: makeDraft({ seoOgTitle: "New social", seoNoIndex: true }),
+      })
+      await act(async () => {
+        expect(await hook.result.current.ensureSaved()).toBe(true)
+      })
+      const args = saveSnapshotDraft.mock.calls[0][0]
+      // Stored values the panel does not edit are kept.
+      expect(args.localized?.draft).toMatchObject({
+        seo: { ogTitle: "New social", noIndex: true, structuredData: "{}" },
+      })
+      expect(args.shared).toBeUndefined()
+    })
+
+    // The editor's `page` prop is not refetched after a save: a second save
+    // must still send the value the first one saved.
+    it("keeps a saved seo value in the next save of the same language", async () => {
+      const saveSnapshotDraft = snapshotSave()
+      const hook = renderSaveHook({
+        saveSnapshotDraft,
+        captureDraft: (draft) => draft,
+      })
+      hook.rerender({ draft: makeDraft({ seoOgTitle: "First social" }) })
+      await act(async () => {
+        expect(await hook.result.current.ensureSaved()).toBe(true)
+      })
+      hook.rerender({
+        draft: makeDraft({ seoOgTitle: "First social", seoNoIndex: true }),
+      })
+      await act(async () => {
+        expect(await hook.result.current.ensureSaved()).toBe(true)
+      })
+      expect(saveSnapshotDraft.mock.calls[1][0].localized?.draft).toMatchObject(
+        { seo: { ogTitle: "First social", noIndex: true } }
+      )
+    })
+
+    it("sends copied values the editor has no field for, with the card excerpt", async () => {
+      const saveSnapshotDraft = snapshotSave()
+      const hook = renderSaveHook({
+        page: makePage({
+          content: {
+            en: {
+              title: "Home",
+              slices: [],
+              seo: { structuredData: "{\"old\":true}", keywords: ["old"] },
+            },
+          },
+        }),
+        saveSnapshotDraft,
+        captureDraft: (draft) => draft,
+      })
+      hook.rerender({
+        draft: makeDraft({
+          copiedLanguageValues: {
+            structuredData: "{\"copied\":true}",
+            cardExcerpt: "Copied excerpt",
+          },
+        }),
+      })
+      await act(async () => {
+        expect(await hook.result.current.ensureSaved()).toBe(true)
+      })
+      const draft = saveSnapshotDraft.mock.calls[0][0].localized?.draft
+      expect(draft).toMatchObject({
+        seo: { structuredData: "{\"copied\":true}" },
+        cardExcerpt: "Copied excerpt",
+      })
+      // A value the copied language did not have is cleared, as a copy does.
+      expect((draft as { seo: object }).seo).not.toHaveProperty("keywords")
+    })
+
+    // Round 1 (finding 1): the pure-form arm (no slice body) carries the same
+    // per-language fields; Copy -> Save -> Reload must not lose them there.
+    it("a pure-form type (testimonial) sends copied values and the card excerpt, and clears what the copied language lacks", async () => {
+      const saveSnapshotDraft = snapshotSave()
+      const hook = renderSaveHook({
+        page: makePage({
+          pageType: "testimonial",
+          content: {
+            en: {
+              title: "Home",
+              seo: { structuredData: "{\"old\":true}", keywords: ["old"] },
+              cardExcerpt: "Old excerpt",
+            },
+          },
+        } as never),
+        initialDraft: makeDraft({
+          pageType: "testimonial",
+          copiedLanguageValues: {
+            structuredData: "{\"old\":true}",
+            keywords: ["old"],
+            cardExcerpt: "Old excerpt",
+          },
+        }),
+        saveSnapshotDraft,
+        captureDraft: (draft) => draft,
+      })
+      // Copy from a language that has a different structured data and an excerpt.
+      hook.rerender({
+        draft: makeDraft({
+          pageType: "testimonial",
+          seoOgTitle: "Copied social",
+          copiedLanguageValues: {
+            structuredData: "{\"copied\":true}",
+            cardExcerpt: "Copied excerpt",
+          },
+        }),
+      })
+      await act(async () => {
+        expect(await hook.result.current.ensureSaved()).toBe(true)
+      })
+      const sent = saveSnapshotDraft.mock.calls[0][0].localized?.draft as Record<
+        string,
+        unknown
+      >
+      expect(sent.pageType).toBe("testimonial")
+      expect(sent).not.toHaveProperty("slices")
+      expect(sent).toMatchObject({
+        seo: { structuredData: "{\"copied\":true}", ogTitle: "Copied social" },
+        cardExcerpt: "Copied excerpt",
+      })
+      // The copied language had no keywords: they are cleared, as a copy does.
+      expect(sent.seo).not.toHaveProperty("keywords")
+      // Copy from a language with neither: both are cleared on the save.
+      hook.rerender({
+        draft: makeDraft({
+          pageType: "testimonial",
+          seoOgTitle: "Copied social",
+          copiedLanguageValues: {},
+        }),
+      })
+      await act(async () => {
+        expect(await hook.result.current.ensureSaved()).toBe(true)
+      })
+      const cleared = saveSnapshotDraft.mock.calls[1][0].localized?.draft as Record<
+        string,
+        unknown
+      >
+      expect(cleared.cardExcerpt).toBe("")
+      expect(cleared.seo).not.toHaveProperty("structuredData")
     })
 
     it("refuses a localized change before any write and stays dirty", async () => {
@@ -1470,7 +1674,8 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
         },
       }),
     })
-    hook.rerender({ draft: makeDraft({ seoOgTitle: "Saved shared title" }) })
+    const image = "https://example.com/saved-shared.jpg"
+    hook.rerender({ draft: makeDraft({ seoOgImage: image }) })
     await act(async () => {
       await hook.result.current.save()
     })
@@ -1478,8 +1683,31 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       draft: makeDraft({
         title: "Accueil",
         slug: "accueil",
-        seoOgTitle: "Saved shared title",
+        seoOgImage: image,
       }),
+      locale: "fr",
+    })
+    expect(hook.result.current.hasUnsaved).toBe(false)
+  })
+
+  // ADR-0037 amendment (2026-11-17): a language's own seo values are not
+  // shared fields. Saving English's social title leaves French's baseline as
+  // French stored it.
+  it("keeps each language's own seo baseline after a save", async () => {
+    const hook = renderSaveHook({
+      page: makePage({
+        content: {
+          en: { title: "Home", slices: [] },
+          fr: { title: "Accueil", slices: [] },
+        },
+      }),
+    })
+    hook.rerender({ draft: makeDraft({ seoOgTitle: "English social" }) })
+    await act(async () => {
+      await hook.result.current.save()
+    })
+    hook.rerender({
+      draft: makeDraft({ title: "Accueil", slug: "accueil" }),
       locale: "fr",
     })
     expect(hook.result.current.hasUnsaved).toBe(false)
@@ -1969,6 +2197,22 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     expect(toast.error).not.toHaveBeenCalledWith(raw)
   })
 
+  it("explains a deleted image when saving fails", async () => {
+    const hook = renderSaveHook({
+      updateDraft: vi.fn(async () => {
+        throw new ConvexError("PUBLICATION_MEDIA_REFERENCE_MISSING")
+      }),
+    })
+    hook.rerender({ draft: makeDraft({ title: "Unsaved change" }) })
+    await waitFor(() => expect(hook.result.current.hasUnsaved).toBe(true))
+
+    await act(async () => {
+      await hook.result.current.save()
+    })
+
+    expect(toast.error).toHaveBeenCalledWith(IMAGE_MISSING)
+  })
+
   it.each([
     [
       "PUBLICATION_REFERENCE_TARGET_LOCALE_UNAVAILABLE",
@@ -1982,6 +2226,12 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       "PUBLICATION_REFERENCE_LIMIT",
       "This page has too many linked items to publish. Remove some links or related pages, then try again.",
     ],
+    ...(
+      [
+        "PUBLICATION_MEDIA_REFERENCE_MISSING",
+        "PUBLICATION_MEDIA_STORAGE_MISSING",
+      ] as const
+    ).map((code): [string, string] => [code, IMAGE_MISSING]),
   ])("maps %s to plain publish copy", async (code, expected) => {
     const hook = renderSaveHook({
       publishPage: vi.fn(async () => {
@@ -1999,7 +2249,30 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     )
   })
 
-  it.each(["constructor", "__proto__", "PUBLICATION_UNKNOWN"])(
+  it("names the content type when its translation switch refuses Publish", async () => {
+    const hook = renderSaveHook({
+      page: makePage({ pageType: "post" }),
+      publishPage: vi.fn(async () => {
+        throw new ConvexError("CONTENT_TYPE_TRANSLATION_OFF")
+      }),
+    })
+
+    await act(async () => {
+      await hook.result.current.publish()
+    })
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Not shown on the site: translation is off for Posts."
+    )
+  })
+
+  it.each([
+    "constructor",
+    "__proto__",
+    "PUBLICATION_UNKNOWN",
+    // A mismatched media identity is not a deleted image.
+    "PUBLICATION_MEDIA_REFERENCE_IDENTITY_MISMATCH",
+  ])(
     "uses plain publish fallback for non-allowlisted local Convex code %s",
     async (code) => {
       const hook = renderSaveHook({
@@ -2888,16 +3161,20 @@ it.each(
     const original = renderSaveHook({ stagingUpdatedAt })
     const base = original.result.current.captureSaveBase("en")
     expect(original.result.current.captureSharedDraft(base)).toBeUndefined()
-    const dirty = makeDraft({ seoOgTitle: "Newer social" })
+    // The social image is the shared search and social value.
+    const dirty = makeDraft({ seoOgImage: "https://example.com/newer.jpg" })
     original.rerender({ draft: dirty })
     const retained = original.result.current.captureSharedDraft(base)!
-    expect(retained.values.seoOgTitle).toBe("Newer social")
-    expect(retained.baseline.seoOgTitle).toBe("")
+    expect(retained.values.seoOgImage).toBe("https://example.com/newer.jpg")
+    expect(retained.baseline.seoOgImage).toBe("")
     original.unmount()
     writeRecoveryDraft(pageId, { base: null, ...{ ...dirty, locale: "en", savedAt: Date.now() } })
     const hook = renderSaveHook({
       retainedSharedDraft: retained,
-      page: makePage({ updatedAt: 500, seo: { ogTitle: "Restored social" } }),
+      page: makePage({
+        updatedAt: 500,
+        seo: { ogImage: "https://example.com/restored.jpg" },
+      }),
       initialDraft: dirty,
       hasStaging: true,
       stagingUpdatedAt: 500,
@@ -2912,7 +3189,7 @@ it.each(
         locale,
         currentPage: makePage({
           updatedAt: 600,
-          seo: { ogTitle: "Restored social" },
+          seo: { ogImage: "https://example.com/restored.jpg" },
         }),
       })
       expect(hook.result.current.captureSaveBase(locale)).toMatchObject({

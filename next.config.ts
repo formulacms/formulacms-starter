@@ -31,7 +31,10 @@ const nextConfig: NextConfig = {
   // an 8 GB host (2026-11-04): about 11% less total first-visit compile time
   // over five admin routes, 23% smaller server output in `pnpm dev`, and more
   // routes compiled before Next's dev memory-threshold restart.
-  serverExternalPackages: ["@typescript/typescript6"],
+  // The Claude Agent SDK (Settings › AI on localhost: the Claude Code model
+  // list) is imported only dynamically and runs the owner's installed `claude`;
+  // keep it out of the server bundle too.
+  serverExternalPackages: ["@typescript/typescript6", "@anthropic-ai/claude-agent-sdk"],
   // In `next dev`, Next serves its dev resources (`/_next/*`, hot reload) only
   // to localhost and the hostname the server was started with. These are the
   // other loopback names that scripts/lib/dev-server-origin.ts and

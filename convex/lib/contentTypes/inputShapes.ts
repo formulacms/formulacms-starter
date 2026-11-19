@@ -9,6 +9,14 @@ import { testimonialContentType } from "./testimonial"
 import { jobContentType } from "./job"
 // @content-type-codegen:content-draft-imports:end
 import { REGISTERED_CONTENT_TYPES, type ContentType } from "./index"
+import { perLanguageDraftValidatorFields } from "./perLanguageFields"
+
+/**
+ * ADR-0037 amendment (2026-11-17): the per-language search, social and card
+ * values travel beside `localized` in every arm. An absent key keeps the
+ * language's stored value; a present key sets it (an empty `seo` clears it).
+ */
+const perLanguageInput = perLanguageDraftValidatorFields
 
 /**
  * Typed per-descriptor content-save input (plan 029 C8 Phase 2).
@@ -41,35 +49,41 @@ const landingPageDraftInput = v.object({
   pageType: v.literal("landing-page"),
   localized: landingPageContentType.localizedValidator,
   slices: v.array(sliceValidator),
+  ...perLanguageInput,
 })
 
 const pageDraftInput = v.object({
   pageType: v.literal("page"),
   localized: pageContentType.localizedValidator,
   slices: v.array(sliceValidator),
+  ...perLanguageInput,
 })
 
 const postDraftInput = v.object({
   pageType: v.literal("post"),
   localized: postContentType.localizedValidator,
   slices: v.array(sliceValidator),
+  ...perLanguageInput,
 })
 
 const authorDraftInput = v.object({
   pageType: v.literal("author"),
   localized: authorContentType.localizedValidator,
   slices: v.array(sliceValidator),
+  ...perLanguageInput,
 })
 
 const testimonialDraftInput = v.object({
   pageType: v.literal("testimonial"),
   localized: testimonialContentType.localizedValidator,
+  ...perLanguageInput,
 })
 
 const jobDraftInput = v.object({
   pageType: v.literal("job"),
   localized: jobContentType.localizedValidator,
   slices: v.array(sliceValidator),
+  ...perLanguageInput,
 })
 // @content-type-codegen:content-draft-arms:end
 

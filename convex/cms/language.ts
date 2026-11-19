@@ -2,6 +2,7 @@ import {
   readLiveAddressRows,
   readHeldHistoricalRows,
 } from "../lib/publishing/snapshots"
+import { nextUpdatedAt } from "../lib/versions"
 import { ConvexError, v } from "convex/values"
 import {
   paginationOptsValidator,
@@ -19,6 +20,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server"
 import { SUPPORTED_LOCALES } from "../../lib/i18n/config"
 import { transitionSiteDescriptionFields } from "../../lib/i18n/site-description"
 import { requireInstallationOwner } from "../lib/access/policy"
+import { assertNoPagePurgeInProgress } from "../lib/publishing/pagePurge"
 import { walkCanonicalMenuTargets, type NavItem } from "../lib/menu"
 import { validateCanonicalWrite } from "../lib/menu/canonicalWrite"
 import { refreshMenuReferences } from "../lib/menu/references"
@@ -52,6 +54,10 @@ import {
   extendCarryDecisionDigest,
 } from "../lib/language/carryDecisionDigest"
 import { crossedReserve } from "../lib/language/impactPreview"
+import {
+  mergedSeoForProjection,
+  recordLegacyLocalePatch,
+} from "../lib/contentTypes/perLanguageFields"
 import {
   createTransitionTargetDraft,
   deleteCancelledRetainedTargetDraft,
@@ -1671,7 +1677,14 @@ export const listLanguageTransitionPages = query({
           (state) => state.pageId !== row.pageId
         )
       }
-      const seo = frozen?.payload.shared.system.seo
+      // The language's own seo values sit in its content (ADR-0037 amendment,
+      // 2026-11-17); the shared block keeps the social image.
+      const seo = frozen
+        ? mergedSeoForProjection(
+            frozen.payload.shared.system.seo,
+            frozen.payload.localized.content
+          )
+        : undefined
       const [pageStates, sourceState, targetState, targetDraft, sharedRows] =
         await Promise.all([
           ctx.db
@@ -1739,8 +1752,21 @@ export const listLanguageTransitionPages = query({
                         ? selection.payload.localized.content.title
                         : "",
                     path: selection.path,
-                    seoTitle: selectedSeo?.metaTitle ?? null,
-                    seoDescription: selectedSeo?.metaDescription ?? null,
+                    // The meta text is stored in each language (ADR-0037
+                    // amendment, 2026-11-17); the shared seo block is the
+                    // fallback for a snapshot that predates it.
+                    seoTitle:
+                      (selection.payload.localized.content.metaTitle as
+                        | string
+                        | undefined) ??
+                      selectedSeo?.metaTitle ??
+                      null,
+                    seoDescription:
+                      (selection.payload.localized.content.metaDescription as
+                        | string
+                        | undefined) ??
+                      selectedSeo?.metaDescription ??
+                      null,
                     contentKeys: Object.keys(
                       selection.payload.localized.content
                     ).sort(),
@@ -2034,6 +2060,8 @@ export const startLanguageTransition = mutation({
     // 1. Owner and snapshot authority.
     const owner = await requireInstallationOwner(ctx)
     await requireSnapshotLanguageAuthority(ctx)
+    // A permanent Page purge in flight would make enumeration read half-deleted Pages.
+    await assertNoPagePurgeInProgress(ctx)
     // 2. Settings and authority.
     const state = await readSiteLanguageState(ctx)
     if (state.kind === "multi_locale") {
@@ -2584,7 +2612,10 @@ export async function copyMenuTextToTarget(
     transition.sourceLocale
   )
   if (canonicalJson(next) === canonicalJson(menu.nav)) return
-  await ctx.db.patch("menus", menu._id, { nav: next, updatedAt: Date.now() })
+  await ctx.db.patch("menus", menu._id, {
+    nav: next,
+    updatedAt: nextUpdatedAt(menu.updatedAt, Date.now()),
+  })
   const saved = await ctx.db.get("menus", menu._id)
   if (!saved) fail("LANGUAGE_TRANSITION_MENU_INVALID")
   await refreshMenuReferences(ctx, saved)
@@ -4170,6 +4201,7 @@ export async function activateLanguageTransitionInTransaction(
   const version = state.version + 1
   await ctx.db.patch("siteSettings", state.settings._id, {
     defaultLocale: transition.targetLocale,
+    ...recordLegacyLocalePatch(state.settings),
     enabledLocales: [transition.targetLocale],
     ...transitionSiteDescriptionFields(
       state.settings,
@@ -4177,7 +4209,7 @@ export async function activateLanguageTransitionInTransaction(
       transition.targetLocale,
       relabel
     ),
-    updatedAt: now,
+    updatedAt: nextUpdatedAt(state.settings.updatedAt, now),
   })
   await ctx.db.patch("siteLanguageAuthority", state.authority._id, {
     version,

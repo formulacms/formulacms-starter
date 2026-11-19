@@ -1,20 +1,4 @@
 import {
-  ANTHROPIC_API_CATALOG,
-  isAnthropicApiModel,
-  isAnthropicEffort,
-} from "./capabilities/anthropic-api"
-import {
-  isOpenAIApiModel,
-  isOpenAIEffort,
-  OPENAI_API_CATALOG,
-} from "./capabilities/openai-api"
-import {
-  isOpenRouterApiModel,
-  isOpenRouterEffort,
-  openRouterCapability,
-  OPENROUTER_API_CATALOG,
-} from "./capabilities/openrouter-api"
-import {
   API_PROVIDERS,
   type ApiModelCapability,
   type ApiModelTuple,
@@ -24,7 +8,7 @@ import {
   type TaskProfile,
   TASK_PROFILES,
 } from "./execution-contract"
-import { OPENROUTER_PORTABLE_EFFORTS } from "./openrouter-catalog"
+import type { ModelCatalog } from "./model-catalog"
 
 export const TASK_PROFILE_REQUIREMENTS = {
   "mechanical-translation": {
@@ -97,7 +81,7 @@ export const ASSISTANT_DEFAULT_INSTRUCTIONS = {
 
 /** Operator instructions precede the code-owned output contract. */
 export function prependAssistantInstructions(
-  instructions: string | undefined,
+  instructions: string | null | undefined,
   contract: string
 ): string {
   const preamble = instructions?.trim()
@@ -106,6 +90,17 @@ export function prependAssistantInstructions(
 
 export type AssistantId = keyof typeof ASSISTANT_PROFILES
 export const ASSISTANT_IDS = Object.keys(ASSISTANT_PROFILES) as AssistantId[]
+
+/** The Instructions every route sends for an assistant: the owner's saved text
+ *  (trimmed), or the code-owned default when nothing was ever saved. */
+export function resolveAssistantInstructions(
+  id: AssistantId,
+  saved: string | undefined
+): string {
+  return saved === undefined
+    ? ASSISTANT_DEFAULT_INSTRUCTIONS[id]
+    : saved.trim()
+}
 
 export function assistantForProfile(
   profile: TaskProfile
@@ -137,8 +132,8 @@ export const API_TASK_PROFILES = {
       "google/gemini-3-flash-preview",
       "medium"
     ),
-    "vision-spec": catalogTuple("openrouter", "openai/gpt-5.6-sol", "high"),
-    "renderer-jsx": catalogTuple("openrouter", "openai/gpt-5.6-sol", "high"),
+    "vision-spec": catalogTuple("openrouter", "openai/gpt-6.1-sol", "high"),
+    "renderer-jsx": catalogTuple("openrouter", "openai/gpt-6.1-sol", "high"),
     "grounded-help": catalogTuple(
       "openrouter",
       "google/gemini-2.5-flash-lite",
@@ -146,12 +141,12 @@ export const API_TASK_PROFILES = {
     ),
     "judgment-transform": catalogTuple(
       "openrouter",
-      "anthropic/claude-opus-4.8",
+      "anthropic/claude-opus-5.5",
       "high"
     ),
     "explicit-agentic-rescue": catalogTuple(
       "openrouter",
-      "anthropic/claude-opus-4.8",
+      "anthropic/claude-opus-5.5",
       "high"
     ),
   },
@@ -236,7 +231,13 @@ function reasoningEffort(value: unknown): ReasoningEffort | undefined {
     : undefined
 }
 
-export function validateApiModelTuple(value: unknown): Readonly<ApiModelTuple> {
+/** Shape check, then the catalog entry's efforts: an effort is required
+ * exactly when the entry has effort control. A model with no entry, or with
+ * unknown capabilities, is refused for every provider. */
+export function validateApiModelTuple(
+  value: unknown,
+  catalog: ModelCatalog
+): Readonly<ApiModelTuple> {
   if (!isRecord(value) || typeof value.provider !== "string") {
     throw new Error("Invalid API model tuple.")
   }
@@ -246,77 +247,26 @@ export function validateApiModelTuple(value: unknown): Readonly<ApiModelTuple> {
   if (value.mode !== "catalog" || typeof value.model !== "string") {
     throw new Error("Only catalog tuples are accepted by this validator.")
   }
+  const withEffort = hasExactKeys(value, ["mode", "provider", "model", "reasoning"])
+  if (!withEffort && !hasExactKeys(value, ["mode", "provider", "model"])) {
+    throw new Error("Invalid API model tuple.")
+  }
+  const effort = withEffort ? reasoningEffort(value.reasoning) : undefined
+  if (withEffort && !effort) throw new Error("Invalid reasoning effort tuple.")
 
-  if (
-    value.provider === "anthropic" &&
-    value.model === "claude-haiku-4-5-20251001"
-  ) {
-    if (!hasExactKeys(value, ["mode", "provider", "model"])) {
-      throw new Error("Claude Haiku 4.5 does not accept an effort field.")
-    }
+  const reasoning = catalog.get(value.provider as ApiProvider, value.model)
+    ?.capability?.reasoning
+  if (!reasoning) throw new Error("Unknown model or unknown model capabilities.")
+  if (reasoning.kind === "unsupported") {
+    if (effort) throw new Error("This model does not accept a reasoning effort.")
     return Object.freeze({ ...value }) as Readonly<ApiModelTuple>
   }
-
-  // OpenRouter catalog models with no reasoning support (≈140 of them) are
-  // stored as an effortless catalog tuple — mirror the Haiku path.
-  if (
-    value.provider === "openrouter" &&
-    isOpenRouterApiModel(value.model) &&
-    openRouterCapability(value.model)?.reasoning.kind === "unsupported"
-  ) {
-    if (!hasExactKeys(value, ["mode", "provider", "model"])) {
-      throw new Error(
-        "This OpenRouter model does not accept a reasoning effort."
-      )
-    }
-    return Object.freeze({ ...value }) as Readonly<ApiModelTuple>
-  }
-
-  // The synchronized OpenRouter catalog can be newer than the bundled
-  // bootstrap snapshot. Settings validates capabilities against the active
-  // database row before persistence; runtime keeps the provider's fail-loud
-  // behavior for a model added after this build was published.
-  if (value.provider === "openrouter" && !isOpenRouterApiModel(value.model)) {
-    if (hasExactKeys(value, ["mode", "provider", "model"])) {
-      return Object.freeze({ ...value }) as Readonly<ApiModelTuple>
-    }
-    if (!hasExactKeys(value, ["mode", "provider", "model", "reasoning"])) {
-      throw new Error("Invalid synchronized OpenRouter model tuple.")
-    }
-    const effort = reasoningEffort(value.reasoning)
-    if (
-      !effort ||
-      !(OPENROUTER_PORTABLE_EFFORTS as readonly ReasoningEffort[]).includes(
-        effort
-      )
-    ) {
-      throw new Error("Unsupported synchronized OpenRouter reasoning effort.")
-    }
-    return Object.freeze({
-      ...value,
-      reasoning: Object.freeze({ kind: "effort", effort }),
-    }) as Readonly<ApiModelTuple>
-  }
-
-  if (!hasExactKeys(value, ["mode", "provider", "model", "reasoning"])) {
+  if (!effort) {
     throw new Error("The model tuple requires one exact reasoning effort.")
   }
-  const effort = reasoningEffort(value.reasoning)
-  if (!effort) throw new Error("Invalid reasoning effort tuple.")
-
-  const valid =
-    (value.provider === "openrouter" &&
-      isOpenRouterApiModel(value.model) &&
-      isOpenRouterEffort(value.model, effort)) ||
-    (value.provider === "openai" &&
-      isOpenAIApiModel(value.model) &&
-      isOpenAIEffort(value.model, effort)) ||
-    (value.provider === "anthropic" &&
-      isAnthropicApiModel(value.model) &&
-      value.model !== "claude-haiku-4-5-20251001" &&
-      isAnthropicEffort(value.model, effort))
-
-  if (!valid) throw new Error("Unsupported model and reasoning tuple.")
+  if (!reasoning.supportedEfforts.includes(effort)) {
+    throw new Error("Unsupported model and reasoning tuple.")
+  }
   return Object.freeze({
     ...value,
     reasoning: Object.freeze({ kind: "effort", effort }),
@@ -343,14 +293,11 @@ export function taskProfileTuple(
 }
 
 export function capabilityForTuple(
-  tuple: ApiModelTuple
+  tuple: ApiModelTuple,
+  catalog: ModelCatalog
 ): ApiModelCapability | undefined {
   if (tuple.mode === "legacy") return undefined
-  if (tuple.provider === "openrouter") {
-    return OPENROUTER_API_CATALOG[tuple.model]
-  }
-  if (tuple.provider === "openai") return OPENAI_API_CATALOG[tuple.model]
-  return ANTHROPIC_API_CATALOG[tuple.model]
+  return catalog.get(tuple.provider, tuple.model)?.capability
 }
 
 export function tupleMatchesTaskProfile(
@@ -374,20 +321,12 @@ export function tupleMatchesTaskProfile(
  * authoring profiles also retain their minimum-high gate. */
 export function tupleSupportsTaskProfile(
   tuple: ApiModelTuple,
-  profile: TaskProfile
+  profile: TaskProfile,
+  catalog: ModelCatalog
 ): boolean {
   if (tuple.mode === "legacy") return false
-  const capability = capabilityForTuple(tuple)
-  if (!capability) {
-    if (tuple.provider !== "openrouter") return false
-    if (profile === "mechanical-translation") {
-      return "reasoning" in tuple && tuple.reasoning?.effort === "high"
-    }
-    if (profile === "vision-spec" || profile === "renderer-jsx") {
-      return "reasoning" in tuple && tuple.reasoning?.effort === "high"
-    }
-    return true
-  }
+  const capability = capabilityForTuple(tuple, catalog)
+  if (!capability) return false
   const requirements = TASK_PROFILE_REQUIREMENTS[profile]
   const inputModalities = new Set(capability.inputModalities)
   if (
@@ -415,10 +354,11 @@ export function tupleSupportsTaskProfile(
 
 export function validateTupleForProfiles(
   value: unknown,
-  profiles: readonly TaskProfile[]
+  profiles: readonly TaskProfile[],
+  catalog: ModelCatalog
 ): Readonly<ApiModelTuple> {
-  const tuple = validateApiModelTuple(value)
-  if (!profiles.every((profile) => tupleSupportsTaskProfile(tuple, profile))) {
+  const tuple = validateApiModelTuple(value, catalog)
+  if (!profiles.every((profile) => tupleSupportsTaskProfile(tuple, profile, catalog))) {
     throw new Error(
       "The model tuple does not satisfy every required task profile."
     )
@@ -426,10 +366,87 @@ export function validateTupleForProfiles(
   return tuple
 }
 
-export function assertTaskProfileCatalogComplete(): void {
+/** One model a menu offers, with the efforts every serving profile accepts. */
+export interface ModelChoice {
+  model: string
+  name: string
+  efforts: ReasoningEffort[]
+  providerDefault: ReasoningEffort | null
+  family?: string
+  releasedAt?: number
+  retiresAt?: number
+  priceSource?: "committed" | "openrouter"
+}
+
+/** Offer only tuples accepted by every profile an assistant serves.
+ *  `catalog.list` already drops not-offered, retired, absent, unpriced and
+ *  capability-unknown models, newest first. Settings and runs both use this. */
+export function assistantModelChoices(
+  profiles: readonly TaskProfile[],
+  catalog: ModelCatalog,
+  now: number
+): Record<ApiProvider, ModelChoice[]> {
+  const choices: Record<ApiProvider, ModelChoice[]> = {
+    anthropic: [], openrouter: [], openai: [],
+  }
+  for (const provider of API_PROVIDERS) {
+    for (const entry of catalog.list(provider, now)) {
+      const reasoning = entry.capability!.reasoning
+      const supports = (effort: ReasoningEffort | null) => {
+        const tuple = { mode: "catalog", provider, model: entry.model,
+          ...(effort === null ? {} : { reasoning: { kind: "effort", effort } }),
+        } as ApiModelTuple
+        try {
+          validateTupleForProfiles(tuple, profiles, catalog)
+          return true
+        } catch {
+          return false
+        }
+      }
+      const efforts = reasoning.kind === "effort"
+        ? reasoning.supportedEfforts.filter(supports) : []
+      if (efforts.length === 0 && (reasoning.kind !== "unsupported" || !supports(null))) continue
+      choices[provider].push({
+        model: entry.model, name: entry.name, efforts,
+        providerDefault: reasoning.kind === "effort" ? entry.defaultEffort : null,
+        ...(entry.family ? { family: entry.family } : {}),
+        ...(entry.releasedAt === undefined ? {} : { releasedAt: entry.releasedAt }),
+        ...(entry.retiresAt === undefined ? {} : { retiresAt: entry.retiresAt }),
+        ...(entry.priceSource ? { priceSource: entry.priceSource } : {}),
+      })
+    }
+  }
+  return choices
+}
+
+/** THE default rule, used by Settings and by every run with nothing saved:
+ *  the committed default when it is offered, else the first offered choice
+ *  (newest first) with its provider default effort when accepted, else its
+ *  first accepted effort. Null when the provider offers nothing. */
+export function defaultTupleFor(
+  provider: ApiProvider,
+  profile: TaskProfile,
+  choices: readonly ModelChoice[]
+): Exclude<ApiModelTuple, { mode: "legacy" }> | null {
+  const primary = taskProfileTuple(provider, profile)
+  const effort = "reasoning" in primary ? primary.reasoning?.effort : undefined
+  const offered = choices.some((choice) => choice.model === primary.model &&
+    (effort === undefined ? choice.efforts.length === 0 : choice.efforts.includes(effort)))
+  if (offered) return primary
+  const first = choices[0]
+  if (!first) return null
+  const fallbackEffort = first.providerDefault !== null && first.efforts.includes(first.providerDefault)
+    ? first.providerDefault : first.efforts[0]
+  return {
+    mode: "catalog", provider, model: first.model,
+    ...(fallbackEffort ? { reasoning: { kind: "effort", effort: fallbackEffort } } : {}),
+  } as Exclude<ApiModelTuple, { mode: "legacy" }>
+}
+
+export function assertTaskProfileCatalogComplete(catalog: ModelCatalog): void {
   for (const provider of API_PROVIDERS) {
     for (const profile of TASK_PROFILES) {
-      validateApiModelTuple(API_TASK_PROFILES[provider][profile])
+      validateApiModelTuple(API_TASK_PROFILES[provider][profile], catalog)
     }
   }
 }

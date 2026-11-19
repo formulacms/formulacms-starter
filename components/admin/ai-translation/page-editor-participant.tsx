@@ -6,8 +6,10 @@ import { ConvexError } from "convex/values"
 import { useTranslations } from "next-intl"
 import { Languages, Loader2 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
+import { startLocalPageJob } from "@/app/(core)/admin/(authenticated)/pages/local-ai-job-actions"
 import type { Locale } from "@/lib/i18n/config"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
+import { useTranslationOffMessage } from "@/components/admin/content-types/content-type-names"
 import { reportContainedModuleFailure } from "@/lib/modules/containment"
 import { useModuleGate } from "../admin-module-state-provider"
 import type {
@@ -18,10 +20,13 @@ import type {
 import { OptionalContribution } from "../optional-contribution"
 import { ApiKeyNotice } from "../ai-writing/new-page-participant"
 import {
+  LocalRouteProvider,
+  LocalToolElsewhereNotice,
   PageJobCard,
   RunningJobNotice,
   focusPageJobCard,
   isActive,
+  runsElsewhere,
   usePageJobState,
   type PageJob,
 } from "../ai-writing/page-jobs"
@@ -40,8 +45,10 @@ const NO_PARTICIPATION: AdminAiTranslationHostResult = {
 /** A refused Start: another job runs, or a line under the header. */
 type Refusal =
   | "active"
+  | "elsewhere"
   | "targetHasContent"
   | "sourceTooLarge"
+  | "translationOff"
   | { error: unknown }
 
 type Shared = Pick<
@@ -74,6 +81,7 @@ const notTranslated = ({
  */
 export function PageEditorTranslationSlot({
   children,
+  routeData,
   page,
   currentLocale,
   fieldSource,
@@ -102,7 +110,7 @@ export function PageEditorTranslationSlot({
       ? { page, currentLocale, fieldSource, getLocaleSummary, ensureSaved }
       : undefined
   return (
-    <>
+    <LocalRouteProvider assistant="translation" routeData={routeData.brandTranslation}>
       {shared && <BusyWatch pageId={page._id} onBusy={setBusy} />}
       {children(
         shared
@@ -134,7 +142,7 @@ export function PageEditorTranslationSlot({
                     setRefusal(null)
                   }}
                   onRefused={(next) => {
-                    setStartOpen(next !== "active")
+                    setStartOpen(next !== "active" && next !== "elsewhere")
                     setRefusal(next)
                   }}
                   onFollowed={() => setRefusal(null)}
@@ -143,7 +151,7 @@ export function PageEditorTranslationSlot({
             }
           : NO_PARTICIPATION
       )}
-    </>
+    </LocalRouteProvider>
   )
 }
 
@@ -155,8 +163,12 @@ function BusyWatch({
   pageId: string
   onBusy: (busy: boolean) => void
 }) {
-  const { status, jobs, ready, running } = usePageTranslation(pageId)
-  const busy = ready && running !== undefined
+  const { status, jobs, ready, runsLocally, running } = usePageTranslation(pageId)
+  // A running job holds the editor whatever Translation's current setup.
+  const busy = running !== undefined
+  // Without a ready service the jobs read may refuse (an API job needs its
+  // connection); that is not a failure to report, the cards just stay hidden.
+  const jobsFailed = jobs instanceof Error && (ready || runsLocally)
   useEffect(() => {
     onBusy(busy)
     return () => onBusy(false)
@@ -164,9 +176,9 @@ function BusyWatch({
   useEffect(() => {
     if (status instanceof Error)
       reportContainedModuleFailure("ai", "admin.contribution", status)
-    if (jobs instanceof Error)
+    if (jobsFailed)
       reportContainedModuleFailure("ai", "admin.contribution", jobs)
-  }, [status, jobs])
+  }, [status, jobs, jobsFailed])
   return null
 }
 
@@ -176,12 +188,13 @@ function TranslateControl({
   ...shared
 }: Shared & { onPress: (active: boolean) => void }) {
   const t = useTranslations("pages.aiTranslate")
-  const { loaded, ready, connection, active, pageJobs, running } =
+  const { loaded, ready, elsewhere, connection, active, pageJobs, running } =
     usePageTranslation(shared.page._id)
   if (!loaded) return null
   const empty = notTranslated(shared)
   // Every state (not ready, running, idle) shows only on an eligible language.
   if (!empty) return null
+  if (elsewhere) return <LocalToolElsewhereNotice messages="pages.aiTranslate" />
   if (!ready) return <ApiKeyNotice connection={connection} />
   if (running)
     return (
@@ -233,26 +246,40 @@ function TranslatePanel({
   const tShell = useTranslations("shell")
   const languageName = useLanguageName()
   const displayError = useCaughtError()
-  const startJob = useMutation(api.cms.aiJobs.startPageJob)
+  const translationOffMessage = useTranslationOffMessage()
+  const startApiJob = useMutation(api.cms.aiJobs.startPageJob)
   const [starting, setStarting] = useState(false)
-  const { ready, jobs, active, pageJobs, running } = usePageTranslation(
-    shared.page._id
-  )
-  if (!ready) return null
+  const { ready, runsLocally, localTool, jobs, active, pageJobs, running } =
+    usePageTranslation(shared.page._id)
+  // A local job's card shows on every device; it needs no API connection. A
+  // job that exists keeps its card when Translation moves to a service that is
+  // not set up: only a new job needs one.
+  if (!ready && !runsLocally && pageJobs.length === 0) return null
   const shownHere = (job: PageJob) =>
     job.kind === "translation" && job.pageId === shared.page._id
 
+  // Only a ready Translation starts a job: an open Start box hides while it is not ready.
+  const showStart = startOpen && ready
+
   async function start() {
+    if (!ready) return
     setStarting(true)
+    const input = {
+      kind: "translation" as const,
+      pageId: shared.page._id,
+      sourceLocale: shared.fieldSource,
+      targetLocale: shared.currentLocale,
+    }
+    // The route decision: Translation's local tool on this computer, else its
+    // API service (which Convex refuses while it runs with a local tool).
+    const run = localTool
+      ? startLocalPageJob(input).then((result) => {
+          if (!result.ok) throw new ConvexError(result.refusal)
+          return result.value
+        })
+      : startApiJob({ input })
     // .then with two arms, not try: the React Compiler skips some try blocks.
-    const outcome = await startJob({
-      input: {
-        kind: "translation",
-        pageId: shared.page._id,
-        sourceLocale: shared.fieldSource,
-        targetLocale: shared.currentLocale,
-      },
-    }).then(
+    const outcome = await run.then(
       () => ({ started: true as const, error: undefined }),
       (error: unknown) => ({ started: false as const, error })
     )
@@ -266,6 +293,8 @@ function TranslatePanel({
     if (code === "AI_JOB_ALREADY_ACTIVE") onRefused("active")
     else if (code === "AI_JOB_TARGET_HAS_CONTENT") onRefused("targetHasContent")
     else if (code === "AI_JOB_SOURCE_TOO_LARGE") onRefused("sourceTooLarge")
+    else if (code === "CONTENT_TYPE_TRANSLATION_OFF") onRefused("translationOff")
+    else if (runsElsewhere(error)) onRefused("elsewhere")
     else onRefused({ error })
   }
 
@@ -274,11 +303,13 @@ function TranslatePanel({
       ? t("targetHasContent")
       : refusal === "sourceTooLarge"
         ? t("sourceTooLarge")
-        : typeof refusal === "object" && refusal !== null
+        : refusal === "translationOff"
+          ? translationOffMessage(shared.page.pageType)
+          : typeof refusal === "object" && refusal !== null
           ? displayError(refusal.error, tWrite("wizard.startFailed"))
           : null
   const showCards = !(jobs instanceof Error) && pageJobs.length > 0
-  if (refusal === null && !startOpen && !showCards && !running) return null
+  if (refusal === null && !showStart && !showCards && !running) return null
 
   return (
     <div
@@ -295,7 +326,10 @@ function TranslatePanel({
           }}
         />
       )}
-      {refusal !== null && refusal !== "active" && (
+      {refusal === "elsewhere" && (
+        <LocalToolElsewhereNotice messages="pages.aiTranslate" />
+      )}
+      {refusal !== null && refusal !== "active" && refusal !== "elsewhere" && (
         <p
           role="alert"
           data-testid="start-error"
@@ -304,7 +338,7 @@ function TranslatePanel({
           {refusalLine}
         </p>
       )}
-      {startOpen && (
+      {showStart && (
         <div className="flex flex-col gap-3 rounded-md border p-3">
           <button
             type="button"
@@ -321,6 +355,7 @@ function TranslatePanel({
         <OptionalContribution
           moduleId="ai"
           slot="admin.ai-translation"
+          readyWithoutSetup={runsLocally || pageJobs.length > 0}
           fallbackText={tShell("modulesUnavailable")}
           finishSetup={{
             href: "/admin/settings/ai",

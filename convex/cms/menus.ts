@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values"
+import { nextUpdatedAt } from "../lib/versions"
 import { mutation, query } from "../_generated/server"
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { Id } from "../_generated/dataModel"
@@ -42,6 +43,7 @@ import {
   resolveDraftLocaleEligibility,
 } from "../lib/language/state"
 import { recordPublicChange } from "../lib/language/freshness"
+import { assertNavNotLinkingPurgingPage } from "../lib/publishing/pagePurge"
 
 async function getDefaultLocale(ctx: QueryCtx | MutationCtx): Promise<string> {
   const settings = await ctx.db.query("siteSettings").first()
@@ -123,12 +125,14 @@ export const saveCanonical = mutation({
     const nav = normalizeOptionalMenuText(submittedNav)
     validateCanonicalMenu(nav)
     validateCanonicalWrite(menu?.nav ?? [], nav, locale, defaultLocale)
+    // A Page being permanently deleted must not gain a new menu link.
+    await assertNavNotLinkingPurgingPage(ctx, nav)
     let id: Id<"menus">
     if (menu) {
       id = menu._id
       await ctx.db.patch("menus", id, {
         nav,
-        updatedAt: Math.max(Date.now(), menu.updatedAt + 1),
+        updatedAt: nextUpdatedAt(menu.updatedAt, Date.now()),
         // F01 invariant 8: authenticated token provenance, never an access key.
         updatedBy: auth.tokenIdentifier,
         schemaVersion: undefined,
@@ -246,13 +250,18 @@ export const restore = mutation({
     if (!menu) throw new ConvexError("Menu not found")
     const nav = normalizeOptionalMenuText(menu.nav)
     validateCanonicalMenu(nav)
+    await assertNavNotLinkingPurgingPage(ctx, nav)
     const existing = await getMenuBySlug(ctx, menu.slug)
     if (existing && existing._id !== id && existing.deletedAt === undefined) {
       throw new ConvexError(
         `Cannot restore menu because another live row exists for "${menu.slug}"`
       )
     }
-    await ctx.db.patch("menus", id, { deletedAt: undefined, nav })
+    await ctx.db.patch("menus", id, {
+      deletedAt: undefined,
+      nav,
+      updatedAt: nextUpdatedAt(menu.updatedAt, Date.now()),
+    })
     const restored = await ctx.db.get("menus", id)
     if (!restored) throw new ConvexError("Menu not found after restore")
     await refreshMenuReferences(ctx, restored)

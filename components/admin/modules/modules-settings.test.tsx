@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values"
-const moduleTestState = vi.hoisted(() => ({ redirects: "on", multilingual: "on", ai: "on", failed: false }))
-vi.mock("../admin-module-state-provider", () => ({ useModuleGate: (id: string) => ({ state: moduleTestState[id as "redirects" | "multilingual" | "ai"] }), useModuleStateFailure: () => moduleTestState.failed }))
+const moduleTestState = vi.hoisted(() => ({ redirects: "on", multilingual: "on", failed: false }))
+vi.mock("../admin-module-state-provider", () => ({ useModuleGate: (id: string) => ({ state: moduleTestState[id as "redirects" | "multilingual"] }), useModuleStateFailure: () => moduleTestState.failed }))
 import {
   act,
   fireEvent,
@@ -13,7 +13,7 @@ import { NextIntlClientProvider } from "next-intl"
 import { getFunctionName, type FunctionReturnType } from "convex/server"
 import type { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { beforeEach, describe, expect, test, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import en from "@/messages/admin/en.json"
 import fr from "@/messages/admin/fr.json"
 import { MODULE_CATALOG } from "@/lib/modules/catalog"
@@ -31,7 +31,6 @@ function deferred<T>() {
 
 const mocks = vi.hoisted(() => ({
   useQuery: vi.fn(),
-  useStatusQueries: vi.fn(),
   commit: vi.fn(),
   requeue: vi.fn(),
   lifecycleStatus: {
@@ -47,7 +46,6 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("convex/react", () => ({
-  useQueries: (queries: unknown) => mocks.useStatusQueries(queries),
   useQuery: (
     reference: Parameters<typeof getFunctionName>[0],
     args: unknown
@@ -143,8 +141,6 @@ beforeEach(() => {
   moduleTestState.redirects = "on"
   moduleTestState.multilingual = "on"
   moduleTestState.failed = false
-  moduleTestState.ai = "on"
-  mocks.useStatusQueries.mockReturnValue({})
   mocks.lifecycleStatus.updating = false
   mocks.lifecycleStatus.notDelivered = false
   mocks.useQuery.mockImplementation((_reference, args) => {
@@ -183,49 +179,49 @@ describe("ModulesSettings", () => {
     expect(mocks.requeue).not.toHaveBeenCalled()
   })
 
-  test("shows backend effective state, readiness, setup, and dependencies", () => {
+  test("groups the catalog: optional modules first, then Always on, collapsed", () => {
     renderSettings()
 
     expect(screen.getByRole("heading", { name: "Modules" })).toBeInTheDocument()
-    expect(screen.getByTestId("module-system")).toHaveTextContent("Active")
-    expect(screen.getByTestId("module-redirects")).toHaveTextContent("Inactive")
-    expect(screen.getByTestId("module-redirects")).toHaveTextContent(
-      "Not required"
-    )
-    expect(screen.getByTestId("module-redirects")).toHaveTextContent(
-      /Needs:.*System, Owner access, Publication/
-    )
+    const optional = MODULE_CATALOG.filter((entry) => !entry.required)
+    const alwaysOn = MODULE_CATALOG.filter((entry) => entry.required)
+    const optionalCard = screen.getByTestId("optional-modules")
+    expect(optionalCard).toHaveTextContent("Optional modules")
+    expect(within(optionalCard).getAllByRole("checkbox")).toHaveLength(optional.length)
+    for (const entry of optional)
+      expect(within(optionalCard).getByTestId(`module-${entry.id}`)).toBeInTheDocument()
+    expect(screen.getAllByRole("checkbox")).toHaveLength(optional.length)
+    expect(screen.queryByText(/Needs/)).not.toBeInTheDocument()
+    expect(screen.queryByText("Required")).not.toBeInTheDocument()
     expect(screen.getByText("No changes to review.")).toBeInTheDocument()
+
+    const group = screen.getByTestId("always-on")
+    expect(group).toHaveTextContent(`Always on (${alwaysOn.length})`)
+    expect(group).toHaveTextContent("Needed by every site, so they cannot be turned off.")
+    expect(screen.queryByTestId("always-on-list")).not.toBeInTheDocument()
+
+    fireEvent.click(within(group).getByRole("button", { name: "Show" }))
+    const list = screen.getByTestId("always-on-list")
+    expect(within(list).getAllByRole("listitem")).toHaveLength(alwaysOn.length)
     expect(screen.getByTestId("module-language")).toHaveTextContent(
-      "Every page and address has a language"
+      "Language: Every page and address has a language, so language support stays on."
     )
+    fireEvent.click(within(group).getByRole("button", { name: "Hide" }))
+    expect(screen.queryByTestId("always-on-list")).not.toBeInTheDocument()
   })
 
-  test("keeps required modules non-toggleable while the installed pilot remains owner-configurable", () => {
+  test("required modules have no switch; optional modules keep theirs", () => {
     renderSettings()
 
     expect(
-      screen.getByRole("checkbox", { name: "Turn System on or off" })
-    ).toBeDisabled()
+      screen.queryByRole("checkbox", { name: "Turn System on or off" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("checkbox", { name: "Turn Email on or off" })
+    ).not.toBeInTheDocument()
     expect(
       screen.getByRole("checkbox", { name: "Turn Redirects on or off" })
     ).not.toBeDisabled()
-  })
-
-  test("shows required Email as active but needing setup, distinct from disabled Redirects", () => {
-    mocks.useQuery.mockImplementation((_reference, args) => {
-      if (args === "skip") return undefined
-      return preview({
-        emailReadiness: "needs_setup",
-        emailSetup: "required",
-      })
-    })
-    renderSettings()
-
-    expect(screen.getByTestId("module-email")).toHaveTextContent("Active")
-    expect(screen.getByTestId("module-email")).toHaveTextContent("Needs setup")
-    expect(screen.getByTestId("module-redirects")).toHaveTextContent("Inactive")
-    expect(screen.getByTestId("module-redirects")).toHaveTextContent("Ready")
   })
 
   test("previews an optional toggle and commits only the exact reviewed changes", async () => {
@@ -238,10 +234,6 @@ describe("ModulesSettings", () => {
     expect(await screen.findByTestId("module-changes")).toHaveTextContent(
       /Redirects.*Disabled.*Enabled/
     )
-    expect(
-      screen.getAllByText("Owner access, Publication, System").length
-    ).toBeGreaterThan(0)
-
     fireEvent.click(
       screen.getByRole("button", { name: "Apply reviewed changes" })
     )
@@ -253,7 +245,8 @@ describe("ModulesSettings", () => {
         changes: [{ moduleId: "redirects", enabled: true }],
       })
     })
-    expect(mocks.success).toHaveBeenCalledWith("Module configuration updated.")
+    expect(screen.getByTestId("apply-title")).toHaveTextContent("Turning on Redirects")
+    expect(mocks.success).not.toHaveBeenCalled()
   })
 
   describe("turning Multilingual off", () => {
@@ -294,15 +287,9 @@ describe("ModulesSettings", () => {
       fireEvent.click(screen.getByRole("checkbox", { name: toggleName }))
       await screen.findByTestId("module-changes")
 
-      // "Current state" belongs to each card's Active/Inactive badge; the
-      // internal configuration version is never shown to the owner.
+      // The internal configuration version is never shown to the owner.
       expect(screen.queryByText(/Configuration version/)).not.toBeInTheDocument()
-      expect(screen.queryByText("Current state: 7")).not.toBeInTheDocument()
-      expect(
-        within(screen.getByTestId("module-multilingual")).getByText(
-          "Current state: Inactive"
-        )
-      ).toBeInTheDocument()
+      expect(screen.queryByText(/\b7\b/)).not.toBeInTheDocument()
     })
 
     test("one language and mixed changes use ONE atomic commit with the preview token", async () => {
@@ -316,7 +303,8 @@ describe("ModulesSettings", () => {
         changes: [{ moduleId: "redirects", enabled: true }, { moduleId: "multilingual", enabled: false }],
         multilingualCommandTokens: { settingsUpdatedAt: 1, authorityVersion: 4, moduleConfigurationVersion: 7 },
       }))
-      expect(mocks.success).toHaveBeenCalledWith(en.settings.modules.saved)
+      expect(screen.getByTestId("apply-title")).toHaveTextContent("Applying 2 changes")
+      expect(mocks.success).not.toHaveBeenCalled()
     })
     test.each(["en", "fr"] as const)("refused mixed Apply resets every draft to saved (%s)", async (locale) => {
       previewWithBlocker(["en"])
@@ -326,12 +314,13 @@ describe("ModulesSettings", () => {
       const multiName = locale === "en" ? toggleName : "Activer ou désactiver Multilingue"
       fireEvent.click(screen.getByRole("checkbox", { name: multiName }))
       fireEvent.click(screen.getByRole("button", { name: message.settings.modules.save }))
-      await waitFor(() => expect(mocks.error).toHaveBeenCalledWith(message.settings.modules.commitFailed))
+      const panel = screen.getByTestId("apply-progress")
+      await waitFor(() => expect(panel).toHaveAttribute("data-status", "failed"), { timeout: 2000 })
+      expect(within(panel).getByTestId("apply-step")).toHaveTextContent(message.settings.modules.commitFailed)
+      expect(within(panel).getByRole("button", { name: message.settings.modules.progress.close })).toBeInTheDocument()
+      expect(mocks.error).not.toHaveBeenCalled()
       expect(screen.getByRole("checkbox", { name: multiName })).toBeChecked()
       expect(screen.queryByTestId("module-changes")).not.toBeInTheDocument()
-      const error = screen.getByRole("alert")
-      expect(error).toHaveTextContent(message.settings.modules.commitFailed)
-      expect(error.parentElement).toContainElement(screen.getByRole("button", { name: message.settings.modules.save }))
     })
 
     test("two or more languages keep the blocker, disable Apply and call nothing", async () => {
@@ -412,7 +401,9 @@ describe("ModulesSettings", () => {
 
     expect(mocks.commit).toHaveBeenCalledOnce()
     expect(mocks.success).not.toHaveBeenCalled()
-    expect(mocks.error).toHaveBeenCalledWith(
+    expect(mocks.error).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("apply-progress")).not.toBeInTheDocument()
+    expect(screen.getByRole("alert")).toHaveTextContent(
       "This configuration changed while you were reviewing it. Review the changes again before applying them."
     )
     expect(screen.getByTestId("module-changes")).toBeInTheDocument()
@@ -437,8 +428,10 @@ describe("ModulesSettings", () => {
         name: "Activer ou désactiver Redirections",
       })
     ).toBeInTheDocument()
+    expect(screen.getByTestId("always-on")).toHaveTextContent("Toujours actifs (8)")
+    fireEvent.click(screen.getByRole("button", { name: "Afficher" }))
     expect(screen.getByTestId("module-content-model")).toHaveTextContent(
-      "Choisissez les types de contenu que votre site peut enregistrer."
+      "Types de contenu"
     )
   })
 
@@ -481,18 +474,16 @@ describe("ModulesSettings", () => {
     {
       locale: "en" as const,
       text: "Publish your site in more than one language.",
-      link: "Open Languages",
       toggle: "Turn Multilingual on or off",
     },
     {
       locale: "fr" as const,
       text: "Publiez votre site dans plusieurs langues.",
-      link: "Ouvrir les langues",
       toggle: "Activer ou désactiver Multilingue",
     },
   ])(
-    "Multilingual has the same switch as other optional modules, and Open Languages only while on ($locale)",
-    ({ locale, text, link, toggle }) => {
+    "Multilingual has the same switch as other optional modules and no Languages link ($locale)",
+    ({ locale, text, toggle }) => {
       mocks.useQuery.mockImplementation((_reference, args) => {
         if (args === "skip") return undefined
         return preview({ multilingualEnabled: true })
@@ -502,18 +493,7 @@ describe("ModulesSettings", () => {
       const row = screen.getByTestId("module-multilingual")
       expect(row).toHaveTextContent(text)
       expect(within(row).getByRole("checkbox", { name: toggle })).toBeChecked()
-      expect(within(row).getByRole("link", { name: link })).toHaveAttribute(
-        "href",
-        "/admin/settings/languages"
-      )
-      // Multilingual has no setup step: it shows the same generic badges as
-      // every other module, Ready and Not required (approved prototype).
-      const modules = (locale === "en" ? en : fr).settings.modules
-      expect(row).toHaveTextContent(`${modules.readiness}: ${modules.ready}`)
-      expect(row).toHaveTextContent(
-        `${modules.setup}: ${modules.notRequired}`
-      )
-      expect(row).not.toHaveTextContent(modules.needsSetup)
+      expect(within(row).queryByRole("link")).not.toBeInTheDocument()
       view.unmount()
 
       mocks.useQuery.mockImplementation((_reference, args) => {
@@ -522,11 +502,8 @@ describe("ModulesSettings", () => {
       })
       renderSettings(locale)
       const off = screen.getByTestId("module-multilingual")
-      expect(off).toHaveTextContent(`${modules.readiness}: ${modules.ready}`)
-      expect(off).toHaveTextContent(`${modules.setup}: ${modules.notRequired}`)
-      expect(off).not.toHaveTextContent(modules.needsSetup)
       expect(within(off).getByRole("checkbox", { name: toggle })).not.toBeChecked()
-      expect(within(off).queryByRole("link", { name: link })).not.toBeInTheDocument()
+      expect(within(off).queryByRole("link")).not.toBeInTheDocument()
     }
   )
 
@@ -925,13 +902,16 @@ describe("ModulesSettings", () => {
       })
     )
     await waitFor(() => {
-      expect(mocks.success).toHaveBeenCalledExactlyOnceWith(
+      expect(screen.getByTestId("apply-progress")).toHaveAttribute("data-status", "noop")
+      expect(screen.getByTestId("apply-step")).toHaveTextContent(
         "No changes to review."
       )
       expect(
         screen.getByRole("button", { name: "Apply reviewed changes" })
       ).toBeDisabled()
-    })
+    }, { timeout: 3000 })
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100")
+    expect(mocks.success).not.toHaveBeenCalled()
   })
 
   test("resets reviewed choices when transactional blockers refuse the commit", async () => {
@@ -945,8 +925,17 @@ describe("ModulesSettings", () => {
     )
 
     await waitFor(() =>
-      expect(mocks.error).toHaveBeenCalledWith(en.settings.modules.commitFailed)
+      expect(screen.getByTestId("apply-progress")).toHaveAttribute("data-status", "failed"),
+      { timeout: 2000 }
     )
+    expect(screen.getByTestId("apply-step")).toHaveTextContent(en.settings.modules.commitFailed)
+    // The bar stops where the save failed: 1 of 3 steps.
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "33")
+    expect(mocks.error).not.toHaveBeenCalled()
+    // A refused (non-stale) Apply resets the draft, as before.
+    expect(
+      screen.getByRole("checkbox", { name: "Turn Redirects on or off" })
+    ).not.toBeChecked()
     expect(screen.queryByTestId("module-changes")).not.toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Apply reviewed changes" })
@@ -975,84 +964,143 @@ test.each(["CMS_MODULE_CONFIGURATION_STALE", "LANGUAGE_OPERATION_STALE"])("exact
   renderSettings()
   fireEvent.click(screen.getByRole("checkbox", { name: "Turn Redirects on or off" }))
   fireEvent.click(screen.getByRole("button", { name: en.settings.modules.save }))
-  await waitFor(() => expect(mocks.error).toHaveBeenCalledWith(en.settings.modules.stale))
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(en.settings.modules.stale))
+  expect(screen.queryByTestId("apply-progress")).not.toBeInTheDocument()
+  expect(mocks.error).not.toHaveBeenCalled()
+  // The draft stays.
+  expect(screen.getByRole("checkbox", { name: "Turn Redirects on or off" })).toBeChecked()
   expect(screen.getByTestId("module-changes")).toBeInTheDocument()
   expect(screen.getByRole("button", { name: en.settings.modules.reviewAgain })).toBeInTheDocument()
 })
 
 
-describe("S3 AI card", () => {
-  function aiPreview(enabled: boolean): ModulePreview {
-    const value = preview({})
-    return { ...value, readiness: value.readiness.map((entry) => entry.moduleId === "ai" ? state("ai", enabled, enabled, "needs_setup", "required") : entry) }
+describe("Rows show only on/off", () => {
+  test("a row shows name, summary and the switch; offNote still renders in the review row", () => {
+    // Multilingual on and AI on but not set up: the states that used to add a link or a setup line.
+    mocks.useQuery.mockImplementation((_reference, args) => {
+      if (args === "skip") return undefined
+      const value = preview({
+        multilingualEnabled: true,
+        redirectsEnabled: args.changes.length === 0,
+        changes: args.changes.length
+          ? [{ moduleId: "redirects", fromEnabled: true, toEnabled: false }]
+          : [],
+      })
+      return {
+        ...value,
+        readiness: value.readiness.map((entry) =>
+          entry.moduleId === "ai" ? state("ai", true, true, "needs_setup", "required") : entry
+        ),
+      }
+    })
+    function OffNote() {
+      return <p data-testid="redirects-off-note">Rules stay saved.</p>
+    }
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <ModulesSettings slots={{ redirects: { offNote: OffNote } }} />
+      </NextIntlClientProvider>
+    )
+
+    for (const id of ["ai", "multilingual", "redirects"]) {
+      const row = screen.getByTestId(`module-${id}`)
+      expect(within(row).getAllByRole("checkbox")).toHaveLength(1)
+      expect(within(row).queryByRole("link")).not.toBeInTheDocument()
+      expect(within(row).queryByRole("button")).not.toBeInTheDocument()
+    }
+    expect(screen.getByTestId("module-ai")).toHaveTextContent(
+      `${en.settings.modules.items.ai.name}${en.settings.modules.items.ai.summary}${en.settings.modules.enabled}`
+    )
+    expect(screen.queryByTestId("redirects-off-note")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Turn Redirects on or off" }))
+    expect(
+      within(screen.getByTestId("module-changes")).getByTestId("redirects-off-note")
+    ).toBeInTheDocument()
+  })
+})
+
+describe("Apply progress panel", () => {
+  // Live module state: the commit flips it, as the reactive query would.
+  let savedAi = false
+  function aiLive(flipOnCommit: boolean) {
+    savedAi = false
+    mocks.useQuery.mockImplementation((_reference, args) => {
+      if (args === "skip") return undefined
+      const value = preview({})
+      const aiOn = args.changes.length ? args.changes[0].enabled : savedAi
+      return {
+        ...value,
+        changes: args.changes.length
+          ? [{ moduleId: "ai", fromEnabled: savedAi, toEnabled: aiOn }]
+          : [],
+        readiness: value.readiness.map((entry) =>
+          entry.moduleId === "ai" ? state("ai", aiOn) : entry
+        ),
+      }
+    })
+    mocks.commit.mockImplementation(async () => {
+      if (flipOnCommit) savedAi = true
+      return { ...preview({}), committed: true }
+    })
   }
-  function configure(enabled = true, card: { state: "missing" } | { state: "refused"; provider: "openrouter" } | { state: "active" } = { state: "missing" }) {
-    mocks.useQuery.mockImplementation((_reference, args) => args === "skip" ? undefined : aiPreview(args.changes.length ? args.changes[0].enabled : enabled))
-    mocks.useStatusQueries.mockImplementation((queries) => Object.keys(queries).length ? { status: { card } } : {})
+  async function wait(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms)
+    })
   }
-  test.each(["en", "fr"] as const)("saved-on missing shows Q's single box before the unchanged four badges (%s)", (locale) => {
-    configure()
-    renderSettings(locale)
-    const row = screen.getByTestId("module-ai")
-    const box = within(row).getByTestId("ai-finish-setup")
-    expect(box).toHaveTextContent(locale === "en" ? "Not configured: API key is missing" : "Non configuré : la clé API est absente")
-    expect(box).toHaveTextContent(locale === "en" ? "AI is on but cannot run yet." : "L'IA est activée mais ne peut pas encore fonctionner.")
-    expect(within(box).getByRole("link")).toHaveAttribute("href", "/admin/settings/ai")
-    expect(box.nextElementSibling).toHaveAttribute("aria-label", locale === "en" ? "AI status" : "État de IA")
-    expect(box.nextElementSibling?.children).toHaveLength(4)
-  })
-  test("refused wins over missing", () => {
-    configure(true, { state: "refused", provider: "openrouter" })
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  test("walks the real steps in order, each shown at least 400 ms, then ends with Close", async () => {
+    aiLive(true)
     renderSettings()
-    expect(screen.getByTestId("ai-finish-setup")).toHaveTextContent("Not configured: OpenRouter refused the key")
-    expect(screen.getByTestId("ai-finish-setup")).not.toHaveTextContent("API key is missing")
+    fireEvent.click(screen.getByRole("checkbox", { name: "Turn AI on or off" }))
+    fireEvent.click(screen.getByRole("button", { name: "Apply reviewed changes" }))
+
+    const panel = screen.getByTestId("apply-progress")
+    expect(panel).toHaveAttribute("role", "status")
+    expect(screen.getByTestId("apply-title")).toHaveTextContent("Turning on AI")
+    expect(screen.getByTestId("apply-step")).toHaveTextContent("Checking your changes…")
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0")
+    for (const checkbox of screen.getAllByRole("checkbox")) expect(checkbox).toBeDisabled()
+
+    await wait(399)
+    expect(screen.getByTestId("apply-step")).toHaveTextContent("Checking your changes…")
+    await wait(1)
+    expect(screen.getByTestId("apply-step")).toHaveTextContent("Saving…")
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "33")
+    await wait(400)
+    expect(screen.getByTestId("apply-step")).toHaveTextContent("Turning on AI…")
+    expect(screen.getByRole("checkbox", { name: "Turn AI on or off" })).toBeDisabled()
+    await wait(400)
+    expect(panel).toHaveAttribute("data-status", "done")
+    expect(screen.getByTestId("apply-step")).toHaveTextContent("AI is on.")
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100")
+    expect(screen.getByRole("checkbox", { name: "Turn AI on or off" })).toBeChecked()
+    expect(screen.getByRole("checkbox", { name: "Turn AI on or off" })).toBeEnabled()
+    expect(mocks.success).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }))
+    expect(screen.queryByTestId("apply-progress")).not.toBeInTheDocument()
   })
-  test.each(["any-ready", "unreachable", "refused-other-ready"])("%s suppresses the box", () => {
-    configure()
-    const mounted = renderSettings()
-    expect(screen.getByTestId("ai-finish-setup")).toBeInTheDocument()
-    configure(true, { state: "active" })
-    mounted.rerender(<NextIntlClientProvider locale="en" messages={en}><ModulesSettings /></NextIntlClientProvider>)
-    expect(screen.queryByTestId("ai-finish-setup")).not.toBeInTheDocument()
-  })
-  test.each(["loading", "error"])("AI gate %s suppresses the box", (gate) => {
-    configure()
-    const mounted = renderSettings()
-    expect(screen.getByTestId("ai-finish-setup")).toBeInTheDocument()
-    moduleTestState.ai = gate
-    mounted.rerender(<NextIntlClientProvider locale="en" messages={en}><ModulesSettings /></NextIntlClientProvider>)
-    expect(screen.queryByTestId("ai-finish-setup")).not.toBeInTheDocument()
-  })
-  test("off and pending-on never query status or show the box before Apply", () => {
-    configure()
-    const mounted = renderSettings()
-    expect(screen.getByTestId("ai-finish-setup")).toBeInTheDocument()
-    configure(false)
-    mocks.useStatusQueries.mockClear()
-    mounted.rerender(<NextIntlClientProvider locale="en" messages={en}><ModulesSettings /></NextIntlClientProvider>)
-    expect(screen.queryByTestId("ai-finish-setup")).not.toBeInTheDocument()
-    fireEvent.click(within(screen.getByTestId("module-ai")).getByRole("checkbox"))
-    expect(screen.queryByTestId("ai-finish-setup")).not.toBeInTheDocument()
-    expect(mocks.useStatusQueries.mock.calls.every(([queries]) => Object.keys(queries).length === 0)).toBe(true)
-  })
-  test("pending-off still follows saved-on while badges preview", () => {
-    configure()
+
+  test("finishes after 5 s when the live state never shows the change", async () => {
+    aiLive(false)
     renderSettings()
-    expect(screen.getByTestId("ai-finish-setup")).toBeInTheDocument()
-    fireEvent.click(within(screen.getByTestId("module-ai")).getByRole("checkbox"))
-    expect(screen.getByTestId("ai-finish-setup")).toBeInTheDocument()
-  })
-  test("status error is contained, reported and leaves the rest of Modules usable", () => {
-    configure()
-    const mounted = renderSettings()
-    expect(screen.getByTestId("ai-finish-setup")).toBeInTheDocument()
-    const report = vi.spyOn(console, "error").mockImplementation(() => {})
-    mocks.useStatusQueries.mockReturnValue({ status: new Error("AI unavailable") })
-    mocks.useStatusQueries.mockImplementation(() => ({ status: new Error("AI unavailable") }))
-    mounted.rerender(<NextIntlClientProvider locale="en" messages={en}><ModulesSettings /></NextIntlClientProvider>)
-    expect(screen.queryByTestId("ai-finish-setup")).not.toBeInTheDocument()
-    expect(screen.getByTestId("module-language")).toBeInTheDocument()
-    expect(report).toHaveBeenCalledWith(expect.stringContaining("module=ai boundary=admin.contribution"), expect.objectContaining({ cause: "AI unavailable" }))
-    report.mockRestore()
+    fireEvent.click(screen.getByRole("checkbox", { name: "Turn AI on or off" }))
+    fireEvent.click(screen.getByRole("button", { name: "Apply reviewed changes" }))
+
+    // Each act() turn flushes one state update; the next timer starts after it.
+    await wait(400)
+    await wait(400)
+    expect(screen.getByTestId("apply-step")).toHaveTextContent("Turning on AI…")
+    await wait(4000)
+    expect(screen.getByTestId("apply-progress")).toHaveAttribute("data-status", "running")
+    // The 5 s wait counts from the save (the commit settled at 400 ms here).
+    await wait(1000)
+    await wait(0)
+    expect(screen.getByTestId("apply-progress")).toHaveAttribute("data-status", "done")
+    expect(screen.getByTestId("apply-step")).toHaveTextContent("AI is on.")
   })
 })

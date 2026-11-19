@@ -165,79 +165,8 @@ describe("createSampleSlice", () => {
     expect(validate(sliceValidator, hero, { throw: true })).toBe(true)
   })
 
-  // A starter release ships a chosen subset of designs and unregisters the
-  // rest, so a test naming one directly has to say so — same guard the pricing
-  // case below uses.
-  const shipsNewsletters = (
-    ["newsletter-signup-band", "newsletter-signup-simple"] as const
-  ).every((type) => (SLICE_TYPES as readonly string[]).includes(type))
-
-  test.skipIf(!shipsNewsletters)(
-    "newsletter-signup-simple preview matches its committed design reference content",
-    () => {
-    const slice = createSampleSlice("newsletter-signup-simple")
-
-    expect(richTextToPlainText(slice.primary.heading)).toBe(
-      "Want product news and updates? Sign up for our newsletter."
-    )
-    expect(slice.primary.emailPlaceholder).toBe("Enter your email")
-    expect(slice.primary.submitLabel).toBe("Subscribe")
-    expect(slice.primary.privacyNote).toBe("We care about your data. Read our")
-    expect(slice.primary.privacyLinkLabel).toBe("privacy policy")
-  })
-
-  test.skipIf(!shipsNewsletters)(
-    "newsletter-signup-band preview renders two distinct benefits",
-    () => {
-      // The generic sampler has one placeholder per field, so it would repeat
-      // the same benefit twice; the design shows two different ones.
-      const slice = createSampleSlice("newsletter-signup-band")
-
-      expect(richTextToPlainText(slice.primary.heading)).toBe(
-        "Subscribe to our newsletter"
-      )
-      expect(
-        slice.items.map((item) => richTextToPlainText(item.title))
-      ).toEqual(["Weekly articles", "No spam"])
-      expect(new Set(slice.items.map((item) => item.description)).size).toBe(2)
-      expect(new Set(slice.items.map((item) => item.icon)).size).toBe(2)
-    }
-  )
-
-  test.skipIf(!shipsNewsletters).each([
-    "newsletter-signup-band",
-    "newsletter-signup-simple",
-  ] as const)(
-    "%s renders settled content the accepted design can be compared against",
-    (type) => {
-      expect(hasCuratedPreview(type)).toBe(true)
-    }
-  )
-
   test("a placeholder-filled design is not treated as settled content", sliceProfile([]), () => {
     // Guards the negative side of the check the verifier's rule 3 depends on.
     expect(hasCuratedPreview("faq-simple")).toBe(false)
   })
-
-  test.skipIf(
-    !(SLICE_TYPES as readonly string[]).includes("pricing-tier-cards")
-  )(
-    "renders a descriptor's curated preview instead of repeated placeholders",
-    () => {
-      // Pricing declares a `preview` (two distinct tiers). Without it the generic
-      // sampler would repeat one placeholder, giving identical "Hobby" rows — the
-      // low-fidelity preview that prompted this. The override must surface verbatim.
-      const slice = createSampleSlice("pricing-tier-cards" as SliceType) as {
-        items: Array<{ name: string; featured: boolean; features: unknown[] }>
-      }
-      expect(slice.items.map((tier) => richTextToPlainText(tier.name))).toEqual(
-        ["Hobby", "Enterprise"]
-      )
-      // Exactly one featured tier, and per-tier benefit lists differ in length.
-      expect(slice.items.filter((tier) => tier.featured)).toHaveLength(1)
-      expect(slice.items[0].features.length).not.toBe(
-        slice.items[1].features.length
-      )
-    }
-  )
 })

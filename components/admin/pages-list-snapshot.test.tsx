@@ -55,6 +55,7 @@ vi.mock("@/components/admin/duplicate-page-dialog", () => ({
 }))
 vi.mock("@/lib/admin/content-types", () => ({
   adminContentTypeSingularMessageKey: (type: string) => `${type}.singular`,
+  adminContentTypePluralMessageKey: (type: string) => `${type}.plural`,
   adminContentTypes: () => [{ routable: true, singular: "Page", type: "page" }],
 }))
 

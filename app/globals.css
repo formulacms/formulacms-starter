@@ -268,6 +268,19 @@
   }
 }
 
+/* shadcn's border and page-colour reset lives in Tailwind's own `base` layer.
+ * Tailwind declares `base` before `utilities`; the layers this file declares
+ * at the top come after `utilities`, so a reset there would beat every border,
+ * outline and background utility (for example a checked checkbox border). */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
 @layer admin-base {
   /* Selection controls are editor chrome even inside a public preview frame.
    * Do not let a site's brand overrides recolor those controls. */
@@ -287,12 +300,6 @@
     --ring: oklch(0.556 0 0);
   }
 
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
   /* Tailwind v4 buttons use the default cursor. Restore the hand for enabled
    * buttons; disabled ones keep the default. Documented snippet:
    * https://tailwindcss.com/docs/upgrade-guide#buttons-use-the-default-cursor */

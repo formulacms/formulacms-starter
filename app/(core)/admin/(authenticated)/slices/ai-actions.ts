@@ -8,8 +8,10 @@
 // authoring back to the developer's machine: this file drives the local API
 // engine (`scripts/lib/ai-api-engine.ts`) with the Slice
 // creator's saved settings (Convex `cms/aiSettings:sliceCreator`, owner-only,
-// AI module on) and the API key from the local environment. Convex never
-// makes the model call and never returns a key. It is unreachable from a
+// AI module on) and the API key from the local environment, or the local
+// tool (Claude Code, Codex) that Settings › AI chose for the Block creator
+// (`ai-local-tool.ts`, ADR-0057). Convex never makes the model call and never
+// returns a key. It is unreachable from a
 // deployed admin — `assertLocalDevelopment` guards every entry point and
 // `/admin/slices/create` already returns `notFound()` in production.
 //
@@ -19,7 +21,7 @@
 // refinement was removed from slice-sim by Plan 032 Phase 0.
 
 import { createLocalAccounting } from "@/lib/ai/local-accounting"
-import { localProviderKeyPresence } from "@/lib/local-api-keys"
+import { localProviderKeyPresenceNow } from "@/lib/local-api-keys-file"
 import { prependAssistantInstructions } from "@/lib/ai/task-profiles"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -96,38 +98,87 @@ async function assertProposedContentModel(specJson: string): Promise<void> {
   }
 }
 
-// The Slice creator runs with its saved provider, model and effort, or, with
-// nothing saved, with the first provider whose key is in the local
-// environment (each step then uses its own default model and effort). It
-// fails closed when the AI module is off or the chosen provider has no key;
-// it never switches to another provider on its own.
-async function resolveSliceCreatorOrThrow(): Promise<{
-  provider: import("@/scripts/lib/ai-api-engine").LocalApiRequest["provider"]
-  model?: string
-  effort?: import("@/lib/ai/execution-contract").ReasoningEffort
-  instructions?: string
-}> {
-  let saved
+// The Slice creator's saved settings (Convex, owner-only, AI module on).
+async function readSliceCreatorSettings() {
   try {
-    saved = await fetchAuthQuery(api.cms.aiSettings.sliceCreator, {})
+    return await fetchAuthQuery(api.cms.aiSettings.sliceCreator, {})
   } catch (error) {
     if (moduleFailureState(error) === "off") {
       throw new Error("AI is not enabled. You can enable it here.")
     }
     throw error
   }
+}
+
+type SliceCreatorProfile = "vision-spec" | "renderer-jsx"
+type SliceCreatorRun = (step: {
+  systemPrompt: string
+  prompt: string
+  images: import("@/scripts/lib/ai-api-engine").EngineImage[]
+}) => Promise<{ text: string; modelId: string }>
+
+const STEP_PHASES = {
+  "vision-spec": "slice-spec",
+  "renderer-jsx": "renderer-jsx",
+} as const
+
+// Which engine runs a Block creator step. A local tool chosen in Settings ›
+// AI runs it, with the saved model and effort, for a browser on this
+// computer only: from another device the route check refuses, and the step
+// never switches to an API service. Otherwise the Slice creator runs with its
+// saved provider, model and effort, or, with nothing saved, with the first
+// provider whose key is in the local environment (each step then uses its own
+// default model and effort, or the replacement Settings shows when that
+// default is no longer offered: `resolveLocalApiTuple`). It fails closed when the AI module is off or the
+// chosen provider has no key; it never switches to another provider on its
+// own. The saved Instructions apply to both.
+async function prepareSliceCreatorRun(
+  profile: SliceCreatorProfile
+): Promise<SliceCreatorRun> {
+  assertLocalDevelopment("Slice authoring in the admin")
+  const phase = STEP_PHASES[profile]
+  const { resolveLocalAiRoute } = await import("../pages/local-ai-routing")
+  const route = await resolveLocalAiRoute(profile)
+  const saved = await readSliceCreatorSettings()
+  const request = (step: Parameters<SliceCreatorRun>[0]) => ({
+    instructions: prependAssistantInstructions(
+      saved.instructions,
+      step.systemPrompt
+    ),
+    prompt: step.prompt,
+    images: step.images,
+    profile,
+    phase,
+  })
+  if (route.engine === "claude" || route.engine === "codex") {
+    const { runSliceCreatorStepOnLocalTool } = await import("./ai-local-tool")
+    const tool = {
+      engine: route.engine,
+      ...(route.model !== undefined ? { model: route.model } : {}),
+      ...(route.effort !== undefined ? { effort: route.effort } : {}),
+    }
+    return (step) => runSliceCreatorStepOnLocalTool(tool, request(step))
+  }
+
   const selection = resolveSliceCreatorSelection(
     saved.tuple,
-    localProviderKeyPresence()
+    localProviderKeyPresenceNow()
   )
   if (!selection.keyPresent || selection.provider === null) {
     throw new Error("The selected AI provider is not configured.")
   }
-  return {
-    provider: selection.provider,
-    model: selection.model,
-    effort: selection.effort,
-    instructions: saved.instructions,
+  const { provider, model, effort } = selection
+  const { generateWithLocalApi } = await loadEngineRuntime()
+  const { catalogFromEntries } = await import("@/lib/ai/model-catalog")
+  const catalog = catalogFromEntries(saved.catalog)
+  const accounting = createLocalAccounting()
+  return async (step) => {
+    const result = await generateWithLocalApi(
+      { provider, model, effort, catalog, ...request(step) },
+      accounting
+    )
+    // The requested model, as the retired Convex action reported it.
+    return { text: result.text, modelId: result.selected.model }
   }
 }
 
@@ -191,16 +242,6 @@ async function stageImages(inputs: ImageInput[]): Promise<StagedImages> {
       }
     },
   }
-}
-
-// The local API engine reports the provider's `finalStep.response.modelId` on
-// `actual` and the requested model on `selected.model`, which is what the
-// admin surface used to report — mirror the retired action's contract by
-// picking that.
-function reportedModelId(
-  result: import("@/lib/ai/execution-contract").GenerationResult<string>
-): string {
-  return result.selected.model
 }
 
 // The Create screen sends only the user's own text and suggested name; the
@@ -268,9 +309,7 @@ export async function createSliceProposalDev(
   }
 
   assertInlineImage(args)
-  const selection = await resolveSliceCreatorOrThrow()
-  const { generateWithLocalApi } = await loadEngineRuntime()
-  const accounting = createLocalAccounting()
+  const run = await prepareSliceCreatorRun("vision-spec")
 
   const markupBlock = markup
     ? buildMarkupBlockForLang(markup, args.markupLang ?? "html")
@@ -293,22 +332,11 @@ export async function createSliceProposalDev(
     { imageDataUrl: args.imageDataUrl, imageMediaType: args.imageMediaType },
   ])
   try {
-    const result = await generateWithLocalApi(
-      {
-        provider: selection.provider,
-        model: selection.model,
-        effort: selection.effort,
-        instructions: prependAssistantInstructions(
-          selection.instructions,
-          SLICE_CREATE_AUTHOR_AGENT.systemPrompt
-        ),
-        prompt,
-        images: staged.images,
-        profile: "vision-spec",
-        phase: "slice-spec",
-      },
-      accounting
-    )
+    const result = await run({
+      systemPrompt: SLICE_CREATE_AUTHOR_AGENT.systemPrompt,
+      prompt,
+      images: staged.images,
+    })
     const authored = extractAuthorResult(
       result.text,
       await readSlicePresentationCatalog()
@@ -321,7 +349,7 @@ export async function createSliceProposalDev(
       specJson: authored?.kind === "single-slice" ? authored.specJson : null,
       decomposition:
         authored?.kind === "decomposition" ? authored.sections : null,
-      modelId: reportedModelId(result),
+      modelId: result.modelId,
     }
   } finally {
     await staged.cleanup()
@@ -352,9 +380,7 @@ export async function createTextSliceProposalDev(
   }
   assertCreateInputWithinCaps(brief, args.suggestedName)
 
-  const selection = await resolveSliceCreatorOrThrow()
-  const { generateWithLocalApi } = await loadEngineRuntime()
-  const accounting = createLocalAccounting()
+  const run = await prepareSliceCreatorRun("vision-spec")
 
   const prompt =
     renderTemplate(SLICE_CREATE_AUTHOR_AGENT.userPromptTemplate, {
@@ -369,22 +395,11 @@ export async function createTextSliceProposalDev(
     "\n\n" +
     formatPresentationTriageContext(await readSlicePresentationCatalog())
 
-  const result = await generateWithLocalApi(
-    {
-      provider: selection.provider,
-      model: selection.model,
-      effort: selection.effort,
-      instructions: prependAssistantInstructions(
-        selection.instructions,
-        SLICE_CREATE_AUTHOR_AGENT.systemPrompt
-      ),
-      prompt,
-      images: [],
-      profile: "vision-spec",
-      phase: "slice-spec",
-    },
-    accounting
-  )
+  const result = await run({
+    systemPrompt: SLICE_CREATE_AUTHOR_AGENT.systemPrompt,
+    prompt,
+    images: [],
+  })
   const authored = extractAuthorResult(
     result.text,
     await readSlicePresentationCatalog()
@@ -397,7 +412,7 @@ export async function createTextSliceProposalDev(
     specJson: authored?.kind === "single-slice" ? authored.specJson : null,
     decomposition:
       authored?.kind === "decomposition" ? authored.sections : null,
-    modelId: reportedModelId(result),
+    modelId: result.modelId,
   }
 }
 
@@ -468,9 +483,7 @@ export async function tweakSliceProposalDev(
   if (!(await baseIsCurrent())) return refusal
 
   assertInlineImage(args)
-  const selection = await resolveSliceCreatorOrThrow()
-  const { generateWithLocalApi } = await loadEngineRuntime()
-  const accounting = createLocalAccounting()
+  const run = await prepareSliceCreatorRun("vision-spec")
 
   const prompt = [
     renderTemplate(SLICE_AUTHOR_AGENT.userPromptTemplate, { brief }),
@@ -489,28 +502,17 @@ export async function tweakSliceProposalDev(
     { imageDataUrl: args.imageDataUrl, imageMediaType: args.imageMediaType },
   ])
   try {
-    const result = await generateWithLocalApi(
-      {
-        provider: selection.provider,
-        model: selection.model,
-        effort: selection.effort,
-        instructions: prependAssistantInstructions(
-          selection.instructions,
-          SLICE_AUTHOR_AGENT.systemPrompt
-        ),
-        prompt,
-        images: staged.images,
-        profile: "vision-spec",
-        phase: "slice-spec",
-      },
-      accounting
-    )
+    const result = await run({
+      systemPrompt: SLICE_AUTHOR_AGENT.systemPrompt,
+      prompt,
+      images: staged.images,
+    })
     if (!(await baseIsCurrent())) return refusal
     return {
       proposal: result.text.trim(),
       specJson: extractSliceSpecJson(result.text),
       decomposition: null,
-      modelId: reportedModelId(result),
+      modelId: result.modelId,
     }
   } catch (error) {
     // An engine failure is also an obsolete result when its reviewed source
@@ -568,9 +570,7 @@ export async function createSliceRendererProposalDev(
   }
 
   assertInlineImage(args)
-  const selection = await resolveSliceCreatorOrThrow()
-  const { generateWithLocalApi } = await loadEngineRuntime()
-  const accounting = createLocalAccounting()
+  const run = await prepareSliceCreatorRun("renderer-jsx")
 
   const sections = [
     renderTemplate(SLICE_RENDERER_AGENT.userPromptTemplate, {
@@ -613,26 +613,15 @@ export async function createSliceRendererProposalDev(
     { imageDataUrl: args.imageDataUrl, imageMediaType: args.imageMediaType },
   ])
   try {
-    const result = await generateWithLocalApi(
-      {
-        provider: selection.provider,
-        model: selection.model,
-        effort: selection.effort,
-        instructions: prependAssistantInstructions(
-          selection.instructions,
-          SLICE_RENDERER_AGENT.systemPrompt
-        ),
-        prompt,
-        images: staged.images,
-        profile: "renderer-jsx",
-        phase: "renderer-jsx",
-      },
-      accounting
-    )
+    const result = await run({
+      systemPrompt: SLICE_RENDERER_AGENT.systemPrompt,
+      prompt,
+      images: staged.images,
+    })
     return {
       proposal: result.text.trim(),
       rendererBody: extractRendererJsxBody(result.text),
-      modelId: reportedModelId(result),
+      modelId: result.modelId,
     }
   } finally {
     await staged.cleanup()

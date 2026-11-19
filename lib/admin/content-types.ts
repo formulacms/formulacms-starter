@@ -83,6 +83,19 @@ export function adminContentTypeSingularMessageKey(
   }
 }
 
+/** The plural twin of {@link adminContentTypeSingularMessageKey}. */
+export function adminContentTypePluralMessageKey(
+  type: string
+): `${AdminContentTypeDictionaryKey}.plural` | null {
+  const singular = adminContentTypeSingularMessageKey(type)
+  return singular
+    ? (singular.replace(
+        /\.singular$/,
+        ".plural"
+      ) as `${AdminContentTypeDictionaryKey}.plural`)
+    : null
+}
+
 export type MenuContentTypeOptionKey =
   | "contentTypeOptions.author"
   | "contentTypeOptions.job"

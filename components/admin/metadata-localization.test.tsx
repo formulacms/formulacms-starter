@@ -94,7 +94,7 @@ vi.mock("convex/react", () => ({
             documentationUrl: "https://example.com",
           },
         ],
-        configuredProviderId: "resend",
+        enabledProviderId: "resend",
         activeProviderId: null,
         readiness: "fallback",
         configurationVersion: 0,
@@ -202,7 +202,7 @@ test("email settings translates bundled and custom catalogue copy at the consume
   expect(
     screen.getAllByText("Envoi d’e-mails transactionnels avec Resend.").length
   ).toBeGreaterThan(0)
-  expect(screen.getByText("Fournisseur personnalisé")).toBeInTheDocument()
+  expect(screen.getByText("Autres fournisseurs")).toBeInTheDocument()
   expect(screen.getByText("Owner words")).toBeInTheDocument()
   expect(
     screen.queryByRole("button", { name: "Ajouter un fournisseur d’e-mail" })

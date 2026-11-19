@@ -17,6 +17,7 @@ vi.mock("ai", () => ({
   generateText: mocks.generateText,
 }))
 
+import { UnsupportedAdapterInputError, type ReasoningEffort } from "../execution-contract"
 import { taskProfileTuple } from "../task-profiles"
 import { createAnthropicGenerationAdapter } from "./anthropic-api"
 
@@ -138,6 +139,24 @@ describe("Anthropic catalog adapter", () => {
         maxOutputTokens: 8192,
       })
     ).rejects.toThrow("different provider tuple")
+    expect(mocks.generateText).not.toHaveBeenCalled()
+  })
+
+  test("refuses an effort the Anthropic SDK does not accept before an SDK call", async () => {
+    const adapter = createAnthropicGenerationAdapter({ apiKey: "unit-test-key" })
+
+    await expect(
+      adapter.generate({
+        tuple: {
+          mode: "catalog", provider: "anthropic", model: "claude-opus-5-5",
+          reasoning: { kind: "effort", effort: "minimal" as ReasoningEffort },
+        },
+        input: { prompt: "PROMPT" },
+        abortSignal: new AbortController().signal,
+        maxRetries: 0,
+        maxOutputTokens: 8192,
+      })
+    ).rejects.toBeInstanceOf(UnsupportedAdapterInputError)
     expect(mocks.generateText).not.toHaveBeenCalled()
   })
 })

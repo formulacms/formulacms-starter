@@ -12,12 +12,27 @@ import { api } from "@/convex/_generated/api"
 import { ADMIN_FORMS_BROWSER_BINDING } from "./contributions/forms"
 import { ADMIN_NAVIGATION, type AdminNavItem } from "./navigation"
 import { LogOut } from "lucide-react"
+import type { ReactNode } from "react"
+import { cn } from "@/lib/utils"
 
-export function AdminSidebar() {
-  return <AdminSidebarContent />
+type AdminSidebarProps = {
+  /** "sheet": content-fit, inside the phone Sheet; "fixed": today's rail. */
+  variant?: "fixed" | "sheet"
+  /** Rendered at the right of the brand row (the phone toggle). */
+  headerAction?: ReactNode
+  /** Called when a navigation link is chosen (closes the phone Sheet). */
+  onNavigate?: () => void
 }
 
-function AdminSidebarContent() {
+export function AdminSidebar(props: AdminSidebarProps) {
+  return <AdminSidebarContent {...props} />
+}
+
+function AdminSidebarContent({
+  variant = "fixed",
+  headerAction,
+  onNavigate,
+}: AdminSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const t = useTranslations("sidebar")
@@ -47,10 +62,21 @@ function AdminSidebarContent() {
   return (
     <aside
       aria-label={t("brand")}
-      className="fixed top-0 left-0 z-30 flex h-screen w-60 flex-col border-r bg-background"
+      className={cn(
+        "flex flex-col bg-background",
+        variant === "sheet"
+          ? "h-full w-fit"
+          : "fixed top-0 left-0 z-30 hidden h-screen w-60 border-r md:flex"
+      )}
     >
-      <div className="border-b p-4">
+      <div
+        className={cn(
+          "border-b p-4",
+          headerAction && "flex items-center justify-between gap-4 py-3"
+        )}
+      >
         <p className="text-sm font-semibold tracking-tight">{t("brand")}</p>
+        {headerAction}
       </div>
 
       <nav
@@ -69,6 +95,7 @@ function AdminSidebarContent() {
             <div key={item.name}>
               <Link
                 href={item.href}
+                onClick={onNavigate}
                 className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-accent text-accent-foreground"

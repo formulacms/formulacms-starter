@@ -10,6 +10,7 @@ import {
   boolean as booleanField,
   date,
   datetime,
+  image,
   number,
   select,
   link,
@@ -223,6 +224,27 @@ describe("FieldsEditor", () => {
       subtitle: undefined,
     })
   })
+
+  it.each([
+    ["required", false, {}],
+    ["optional", true, undefined],
+  ] as const)(
+    "a removed %s image leaves a value the draft can save",
+    (_kind, optional, expected) => {
+      const onChange = vi.fn<(value: Record<string, unknown>) => void>()
+      render(
+        <FieldsEditor
+          fields={{ cover: optional ? image().optional() : image() }}
+          value={{ cover: { url: "/cover.jpg", alt: "Cover" } }}
+          onChange={onChange}
+          basePath="test"
+          locale="en"
+        />
+      )
+      fireEvent.click(screen.getByRole("button", { name: "Remove image" }))
+      expect(onChange).toHaveBeenCalledWith({ cover: expected })
+    }
+  )
 
   it("recurses into nested group / list primitives", () => {
     render(

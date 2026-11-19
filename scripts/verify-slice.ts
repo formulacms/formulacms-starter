@@ -1,6 +1,7 @@
 import { registerHooks } from "node:module"
 import { pathToFileURL } from "node:url"
 import { resolve as resolvePath } from "node:path"
+import { markLocalStateInUse } from "@/lib/local-state/directory"
 import { parseVerifySliceArgs } from "./lib/verify-slice-options"
 
 // Redirect next/image + next/link to local stubs BEFORE any import pulls
@@ -25,6 +26,10 @@ registerHooks({
     return nextResolve(specifier, context)
   },
 })
+
+// First: the server-start move must not rename local state this run uses
+// (diffs land in a fidelity run folder inside it).
+markLocalStateInUse(process.cwd())
 
 const [
   { INSTALLED_SLICE_TYPES },

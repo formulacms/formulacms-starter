@@ -78,6 +78,9 @@ describe("F03b owner boundary", () => {
     expect(exportBlock(email, "saveEmailProviderConfiguration")).toContain(
       "requireInstallationOwner(ctx)"
     )
+    for (const name of ["enableEmailProvider", "disableEmailProvider"]) {
+      expect(exportBlock(email, name)).toContain("requireInstallationOwner(ctx)")
+    }
     expect(exportBlock(email, "assertSettingsUpdate")).toContain(
       "requireInstallationOwner(ctx)"
     )
@@ -173,23 +176,21 @@ describe("F03b owner boundary", () => {
     ).resolves.toBeNull()
     await expect(
       asUnrelated.mutation(api.email.saveEmailProviderConfiguration, {
-        providerId: "resend",
         senderAddress: "sender@example.test",
       })
     ).rejects.toThrow("CMS_OWNER_REQUIRED")
     await expect(
       asOwner.mutation(api.email.saveEmailProviderConfiguration, {
-        providerId: "resend",
         senderAddress: "sender@example.test",
       })
-    ).resolves.toMatchObject({ status: "configured" })
+    ).resolves.toMatchObject({ status: "disabled" })
     await expect(
       asUnrelated.query(api.email.getEmailProviderSettings, {})
     ).rejects.toThrow("CMS_OWNER_REQUIRED")
     await expect(
       asOwner.query(api.email.getEmailProviderSettings, {})
     ).resolves.toMatchObject({
-      configuredProviderId: "resend",
+      enabledProviderId: null,
       activeProviderId: null,
     })
 

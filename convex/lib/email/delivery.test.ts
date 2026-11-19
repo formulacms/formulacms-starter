@@ -46,9 +46,34 @@ describe("E04 delivery envelope", () => {
     expect(emailDeliveryExpiresAt("contact", now)).toBe(
       now + 24 * 60 * 60 * 1000
     )
-    expect(emailDeliveryExpiresAt("invitation", now)).toBe(
-      now + 7 * 24 * 60 * 60 * 1000
-    )
+  })
+
+  test("keeps a valid failure category and drops an unknown one", () => {
+    expect(
+      parseTerminalEmailDeliveryResult({
+        state: "failed",
+        providerId: "smtp",
+        reason: "provider_rejected",
+        category: "sign_in_refused",
+      })
+    ).toEqual({
+      state: "failed",
+      providerId: "smtp",
+      reason: "provider_rejected",
+      category: "sign_in_refused",
+    })
+    expect(
+      parseTerminalEmailDeliveryResult({
+        state: "failed",
+        providerId: "smtp",
+        reason: "provider_rejected",
+        category: "535 5.7.8 raw server text",
+      })
+    ).toEqual({
+      state: "failed",
+      providerId: "smtp",
+      reason: "provider_rejected",
+    })
   })
 
   test("accepts only normalized terminal results", () => {

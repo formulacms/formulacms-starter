@@ -156,12 +156,13 @@ beforeEach(() => {
 })
 
 describe("useQueries requests keep their identity across renders", () => {
-  test("Writing not ready: the status and empty job requests", () => {
+  // Jobs are read whatever Writing's setup, so a job's card stays reachable.
+  test("Writing not ready: the status and job requests", () => {
     mocks.data["cms/aiSettings:status"] = status(false)
     const view = render(slot())
     view.rerender(slot(true))
-    expectOneIdentity("status")
-    expectOneIdentity("")
+    expectOneIdentity("status,settings")
+    expectOneIdentity("jobs")
   })
 
   test("Writing ready: the status, job and preset requests", () => {
@@ -171,7 +172,7 @@ describe("useQueries requests keep their identity across renders", () => {
     fireEvent.change(screen.getByLabelText("Brief"), {
       target: { value: "AB" },
     })
-    expectOneIdentity("status")
+    expectOneIdentity("status,settings")
     expectOneIdentity("jobs")
     expectOneIdentity("presets")
   })

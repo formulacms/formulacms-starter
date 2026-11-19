@@ -107,3 +107,42 @@ describe("ConfirmProvider effective French defaults", () => {
     if (variant === "dropdown") expect(screen.getByRole("combobox")).toHaveTextContent("Choisir un texte de départ…")
   })
 })
+
+function DestructiveHarness({ filled }: { filled?: boolean }) {
+  const confirm = useConfirm()
+  return (
+    <button
+      onClick={() => {
+        void confirm({
+          title: "Switch?",
+          confirmText: "Switch",
+          destructive: true,
+          filled,
+        })
+      }}
+    >
+      Open destructive
+    </button>
+  )
+}
+
+describe("ConfirmProvider destructive confirm button", () => {
+  it("stays a light red button by default", () => {
+    render(<ConfirmProvider><DestructiveHarness /></ConfirmProvider>)
+    fireEvent.click(screen.getByRole("button", { name: "Open destructive" }))
+    const button = screen.getByRole("button", { name: "Switch" })
+    expect(button).toHaveClass("bg-destructive/10", "text-destructive")
+    expect(button).not.toHaveClass("bg-destructive")
+  })
+  it("fills the button red in both themes when asked", () => {
+    render(<ConfirmProvider><DestructiveHarness filled /></ConfirmProvider>)
+    fireEvent.click(screen.getByRole("button", { name: "Open destructive" }))
+    const button = screen.getByRole("button", { name: "Switch" })
+    expect(button).toHaveClass(
+      "bg-destructive",
+      "text-primary-foreground",
+      "dark:bg-destructive"
+    )
+    expect(button).not.toHaveClass("bg-destructive/10", "text-destructive")
+  })
+})

@@ -1,7 +1,7 @@
 /** Required media boundary; implementation remains in focused media helpers. */
 export {
   assertMediaSoftDeleteAllowed,
-  assertMediaUnreferenced,
+  findMediaUses,
   formatUsageForError,
   getMediaUsage,
   type MediaUsage,

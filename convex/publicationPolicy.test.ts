@@ -191,7 +191,7 @@ describe("F08 publication policy composition", () => {
   })
 
   test("the real Community command allows publication without reading Team policy storage", async () => {
-    const { t, owner, pageId } = await activeFixture()
+    const { owner, pageId } = await activeFixture()
     await expect(publish(owner, pageId)).resolves.toMatchObject({
       pageId,
       locale: "en",
@@ -210,12 +210,6 @@ describe("F08 publication policy composition", () => {
     expect(publishBody).not.toMatch(
       /teamPublishing|teamReview|cmsMembership|entitlement|capacity/
     )
-    expect(
-      await t.run((ctx) => ctx.db.query("teamPublishingPolicies").collect())
-    ).toEqual([])
-    expect(
-      await t.run((ctx) => ctx.db.query("teamReviewRounds").collect())
-    ).toEqual([])
   })
 
   test("a participant receives the frozen persisted candidate projection through the real command", async () => {

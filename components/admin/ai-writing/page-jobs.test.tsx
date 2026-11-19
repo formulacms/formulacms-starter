@@ -1,6 +1,7 @@
 import {
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
   within,
@@ -8,9 +9,23 @@ import {
 import { getFunctionName } from "convex/server"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, test, vi } from "vitest"
+
+// The local job server actions are fakes: the screens decide the route.
+vi.mock("@/app/(core)/admin/(authenticated)/pages/local-ai-job-actions", () => ({
+  startLocalPageJob: vi.fn(),
+  resumeLocalPageJob: vi.fn(),
+  generatePageOutlineLocal: vi.fn(),
+}))
+import { resumeLocalPageJob } from "@/app/(core)/admin/(authenticated)/pages/local-ai-job-actions"
 import en from "../../../messages/admin/en.json"
 import fr from "../../../messages/admin/fr.json"
-import { PageJobCard, RunningJobNotice, type PageJob } from "./page-jobs"
+import {
+  LocalRouteProvider,
+  PageJobCard,
+  RunningJobNotice,
+  usePageJobState,
+  type PageJob,
+} from "./page-jobs"
 
 const mocks = vi.hoisted(() => ({
   data: {} as Record<string, unknown>,
@@ -513,5 +528,130 @@ describe("RunningJobNotice", () => {
       screen.getByRole("link", { name: "Open the running job" })
     ).toHaveAttribute("href", "/admin/pages/page-7#ai-page-job-job-1")
     expect(onFollow).not.toHaveBeenCalled()
+  })
+})
+
+// Approved images 2, 3 and 4(b) (owner, 2026-11-16): each text shows only for
+// a job that runs on a local tool, and only in its own state.
+describe("a job on a local tool", () => {
+  const local = (over: Partial<PageJob> = {}) =>
+    makeJob({ localTool: { engine: "claude" }, ...over })
+  const stoppedHere = { state: "failed", stopDetail: "local-app-stopped" } as const
+
+  function renderLocal(job: PageJob, here: boolean, locale: "en" | "fr" = "en") {
+    return render(
+      <NextIntlClientProvider locale={locale} messages={locale === "fr" ? fr : en}>
+        <LocalRouteProvider assistant="writing" routeData={here ? { engine: "claude" } : null}>
+          <PageJobCard job={job} otherJobActive={false} />
+        </LocalRouteProvider>
+      </NextIntlClientProvider>
+    )
+  }
+
+  test.each([
+    ["en", "Runs on this computer with Claude Code. Keep formulacms running until the job ends."],
+    ["fr", "S'exécute sur cet ordinateur avec Claude Code. Laissez formulacms tourner jusqu'à la fin de la tâche."],
+  ] as const)("running (%s): the line names the tool", (locale, text) => {
+    renderLocal(local(), true, locale)
+    expect(screen.getByTestId("local-running")).toHaveTextContent(text)
+  })
+
+  test("the running line is absent for an API job and once the job stopped", () => {
+    renderCard(makeJob())
+    expect(screen.queryByTestId("local-running")).not.toBeInTheDocument()
+    renderCard(local({ state: "failed" }))
+    expect(screen.queryByTestId("local-running")).not.toBeInTheDocument()
+  })
+
+  test.each([
+    ["en", "Stopped: formulacms stopped running on this computer. Start it again, then choose Resume."],
+    ["fr", "Arrêté : formulacms ne tourne plus sur cet ordinateur. Relancez-le, puis choisissez Reprendre."],
+  ] as const)("stopped with formulacms (%s): the heading replaces Failed", (locale, text) => {
+    renderLocal(local(stoppedHere), true, locale)
+    expect(screen.getByRole("status")).toHaveTextContent(text)
+  })
+
+  // Guard (review round 1, 2026-11-16): only a failed job offers Resume, so
+  // only a failed job shows a stop detail's text; every other state its own.
+  test.each([
+    ["expired", "Expired · saved results are gone"],
+    ["canceled", "Canceled"],
+    ["capped", "Failed"],
+  ] as const)("local-app-stopped on a %s job: the heading shows the state text", (state, text) => {
+    renderLocal(local({ state, stopDetail: "local-app-stopped" }), true)
+    expect(screen.getByRole("status")).toHaveTextContent(new RegExp(`^${text}$`))
+    expect(screen.getByRole("status")).not.toHaveTextContent(/Resume/)
+  })
+
+  test("a local job that failed for another reason still reads Failed", () => {
+    renderLocal(local({ state: "failed" }), true)
+    expect(screen.getByRole("status")).toHaveTextContent(/^Failed$/)
+  })
+
+  test("Resume on this computer calls the local action, not the API mutation", async () => {
+    vi.mocked(resumeLocalPageJob).mockResolvedValue({ ok: true, value: null })
+    renderLocal(local(stoppedHere), true)
+    expect(screen.queryByTestId("local-resume-elsewhere")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("resume-job"))
+    await waitFor(() => expect(resumeLocalPageJob).toHaveBeenCalledWith("job-1", "write"))
+    expect(mocks.mutations["cms/aiJobs:resumePageJob"]).not.toHaveBeenCalled()
+    expect(mocks.toast.error).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    ["en", "This job runs with a local tool. Resume it in a browser on the computer that runs formulacms."],
+    ["fr", "Cette tâche utilise un outil local. Reprenez-la dans un navigateur sur l'ordinateur qui exécute formulacms."],
+  ] as const)("another device (%s): the stopped card says where to resume", (locale, text) => {
+    renderLocal(local(stoppedHere), false, locale)
+    const notice = screen.getByTestId("local-resume-elsewhere")
+    expect(notice).toHaveTextContent(text)
+    // Same notice as Help's (image 4): one component, one role.
+    expect(notice).toHaveAttribute("data-slot", "amber-notice")
+    expect(notice).toHaveAttribute("role", "status")
+  })
+
+  test("the resume-elsewhere line is absent for an API job and for a running local job", () => {
+    renderLocal(makeJob({ state: "failed" }), false)
+    renderLocal(local(), false)
+    expect(screen.queryByTestId("local-resume-elsewhere")).not.toBeInTheDocument()
+  })
+
+  // LOCAL_TOOL_NOT_CHOSEN: the assistant is back on its API service.
+  test.each(["AI_JOB_NOT_RESUMABLE", "LOCAL_TOOL_NOT_CHOSEN"] as const)("a refused local Resume (%s) shows the generic error toast", async (refusal) => {
+    vi.mocked(resumeLocalPageJob).mockResolvedValue({ ok: false, refusal })
+    renderLocal(local(stoppedHere), true)
+    fireEvent.click(screen.getByTestId("resume-job"))
+    await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith("Something went wrong. Try again."))
+  })
+})
+
+// Round 2, finding 2: AI off (a null status) wins over a local tool (S3).
+describe("usePageJobState with AI off", () => {
+  test.each([
+    ["writing", "claude"],
+    ["writing", "codex"],
+    ["translation", "claude"],
+    ["translation", "codex"],
+  ] as const)("%s on %s: not ready, no local tool, not loaded; jobs still read", (assistant, engine) => {
+    const jobs = [makeJob()]
+    mocks.data["cms/aiSettings:status"] = null
+    mocks.data["cms/settings:getSettings"] = { aiRuntime: { assistants: { [assistant]: { localTool: true } } } }
+    mocks.data["cms/aiJobs:pageJobProgress"] = jobs
+    const { result } = renderHook(() => usePageJobState(assistant), {
+      wrapper: ({ children }) => (
+        <LocalRouteProvider assistant={assistant} routeData={{ engine }}>
+          {children}
+        </LocalRouteProvider>
+      ),
+    })
+    expect(result.current).toMatchObject({
+      ready: false,
+      localTool: undefined,
+      runsLocally: false,
+      elsewhere: false,
+      loaded: false,
+      jobs,
+    })
+    expect(result.current.writeJobs).toEqual(jobs)
   })
 })

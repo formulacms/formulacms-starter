@@ -245,6 +245,12 @@ export async function syncPageSearch(
   const byLocale = new Map(existing.map((row) => [row.locale, row]))
   const now = Date.now()
   const locales = Object.keys(workingCopy.content ?? {})
+  const settingsRows = await ctx.db.query("siteSettings").take(2)
+  const legacyLocale =
+    settingsRows.length === 1
+      ? (settingsRows[0]!.legacySharedFieldsLocale ??
+        settingsRows[0]!.defaultLocale)
+      : ""
 
   // Plan 029 C9a — descriptor bags fed into each locale's search blob.
   // Shared is row-level (one bag for all locales); localized reads
@@ -317,11 +323,20 @@ export async function syncPageSearch(
         slug,
         text: buildPageSearchText({
           title: titleIsPublic ? contentBag.title : undefined,
-          metaTitle: contentBag.metaTitle ?? workingCopy.seo?.metaTitle,
+          // The language's own text; the old shared text only for the
+          // language it belongs to (ADR-0037 amendment, 2026-11-17).
+          metaTitle:
+            contentBag.metaTitle ??
+            (locale === legacyLocale ? workingCopy.seo?.metaTitle : undefined),
           metaDescription:
-            contentBag.metaDescription ?? workingCopy.seo?.metaDescription,
+            contentBag.metaDescription ??
+            (locale === legacyLocale
+              ? workingCopy.seo?.metaDescription
+              : undefined),
           slug,
-          cardExcerpt: workingCopy.cardExcerpt,
+          cardExcerpt:
+            (content as { cardExcerpt?: string }).cardExcerpt ??
+            (locale === legacyLocale ? workingCopy.cardExcerpt : undefined),
           slices: contentBag.slices ?? [],
           descriptorShared,
           descriptorLocalized,

@@ -5,6 +5,15 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 const MAX_LINE_BYTES = 4 * 1024 * 1024
 const MAX_PENDING_REQUESTS = 256
 const CLOSE_WAIT_MS = 1_000
+const DEFAULT_COMMAND = "codex"
+
+function isTestRun() {
+  return (
+    Boolean(process.env.VITEST) ||
+    Boolean(process.env.NODE_TEST_CONTEXT) ||
+    process.execArgv.includes("--test")
+  )
+}
 
 function isRequestId(value) {
   return (
@@ -58,7 +67,7 @@ function killProcessGroup(child) {
 
 export class CodexClient {
   static async connect({
-    command = "codex",
+    command = DEFAULT_COMMAND,
     cwd,
     requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
     args,
@@ -90,6 +99,17 @@ export class CodexClient {
       throw new TypeError("signal must be an AbortSignal")
     }
     if (signal?.aborted) throw startupAbortedError()
+    // The real Codex never starts in a test run (the same check as
+    // scripts/lib/native-launch-guard.ts, kept inline so this plain Node tool
+    // imports no TypeScript). Fixture commands such as `node` still run.
+    if (command === DEFAULT_COMMAND && isTestRun()) {
+      const error = localError(
+        `A test tried to start the real "${command}". Inject a fake instead; tests never start a vendor tool.`,
+        "NATIVE_LAUNCH_BLOCKED"
+      )
+      error.name = "NativeLaunchBlockedError"
+      throw error
+    }
 
     let child
     try {

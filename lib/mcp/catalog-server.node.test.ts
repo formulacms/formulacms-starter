@@ -15,7 +15,7 @@ describe("formulacms catalog MCP stdio boundary", () => {
   })
 
   it("negotiates MCP and exposes readable resources and read-only tools", async () => {
-    client = new Client({ name: "nextcms-catalog-test", version: "0.1.0" })
+    client = new Client({ name: "formulacms-catalog-test", version: "0.1.0" })
     await client.connect(
       new StdioClientTransport({
         command: process.execPath,
@@ -26,16 +26,38 @@ describe("formulacms catalog MCP stdio boundary", () => {
     )
 
     const { resources } = await client.listResources()
-    expect(resources.map(({ uri }) => uri)).toContain("nextcms://catalog")
+    expect(resources.map(({ uri }) => uri)).toContain("formulacms://catalog")
     expect(resources).toHaveLength(4)
+    expect(resources.every(({ uri }) => uri.startsWith("formulacms://"))).toBe(
+      true
+    )
 
     const catalogResource = await client.readResource({
-      uri: "nextcms://catalog",
+      uri: "formulacms://catalog",
     })
     expect(catalogResource.contents[0]).toMatchObject({
-      uri: "nextcms://catalog",
+      uri: "formulacms://catalog",
       mimeType: "application/json",
     })
+
+    // The old URIs still read, unlisted, with the same JSON.
+    const text = async (uri: string) =>
+      (await client!.readResource({ uri })).contents[0]
+    const assetUri = resources.find(({ uri }) =>
+      uri.startsWith("formulacms://catalog/")
+    )!.uri
+    for (const uri of ["formulacms://catalog", assetUri]) {
+      const current = await text(uri)
+      expect(current).toHaveProperty("text")
+      expect(
+        await text(uri.replace("formulacms://", "nextcms://"))
+      ).toMatchObject({
+        text: (current as { text: string }).text,
+      })
+    }
+    await expect(text("nextcms://catalog/slice/not-real")).rejects.toThrow(
+      /not found/i
+    )
 
     const { tools } = await client.listTools()
     expect(tools.map(({ name }) => name).sort()).toEqual([

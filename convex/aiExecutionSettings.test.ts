@@ -1,6 +1,7 @@
 // @vitest-environment node
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
+import { BUNDLED_MODEL_CATALOG, catalogFromEntries } from "../lib/ai/model-catalog"
 import { convexTest, seedCommunityOwner } from "../convexTestWithExplicitAdmin"
 import schema from "./schema"
 import { api, internal } from "./_generated/api"
@@ -220,7 +221,7 @@ test("S2b legacy off is no preference and uses the same provider as status", asy
       aiRuntime: { selectedProvider: "off" },
     })
   )
-  const status = await owner.query(api.cms.aiSettings.status, {})
+  const status = (await owner.query(api.cms.aiSettings.status, {}))!
   const cfg = await owner.query(
     internal.agents.contentWriter.prepareGeneration,
     {}
@@ -451,13 +452,13 @@ test.each(["anthropic", "openrouter", "openai"] as const)(
         { moduleId: "multilingual", configVersion: 1 },
       ] })
     })
-    const status = await owner.query(api.cms.aiSettings.status, {})
+    const status = (await owner.query(api.cms.aiSettings.status, {}))!
     const writing = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
     const translation = await owner.query(internal.agents.localizer.prepareTranslation, {})
     const help = await owner.query(internal.agents.helpAssistant.prepareHelp, {})
     for (const [id, cfg] of [["writing", writing], ["translation", translation], ["help", help]] as const) {
       for (const profile of ASSISTANT_PROFILES[id]) {
-        expect(resolveAssistantRuntimeTuple(cfg.assistant, {
+        expect(resolveAssistantRuntimeTuple(cfg.assistant, { catalog: catalogFromEntries(cfg.catalog),
           profile, phase: "content-generation",
           legacyModelId: cfg.modelId ?? undefined,
           providerDefaults: cfg.providerDefaults ?? undefined,
@@ -490,14 +491,14 @@ test.each(["explicit", "legacy-chain", "legacy-off", "legacy-overrides"] as cons
           ...(mode === "legacy-overrides" ? { modelOverrides: { openai: { mode: "catalog", provider: "openai", model: "gpt-6.1-sol", reasoning: { kind: "effort", effort: "high" } } } } : {}), updatedAt: 1 })
       }
     })
-    const status = await owner.query(api.cms.aiSettings.status, {})
+    const status = (await owner.query(api.cms.aiSettings.status, {}))!
     const cfg = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
     const expected = mode === "legacy-chain" ? { mode: "legacy", provider: "openrouter", model: "legacy/agent-first" }
       : mode === "legacy-off" ? taskProfileTuple("anthropic", "editorial-copy")
       : mode === "explicit" ? taskProfileTuple("openai", "editorial-copy")
       : { mode: "catalog", provider: "openai", model: "gpt-6.1-sol", reasoning: { kind: "effort", effort: "high" } }
     expect(status.assistants.find((a) => a.id === "writing")!.effective).toEqual(expected)
-    expect(resolveAssistantRuntimeTuple(cfg.assistant, { profile: "editorial-copy", phase: "content-generation",
+    expect(resolveAssistantRuntimeTuple(cfg.assistant, { catalog: catalogFromEntries(cfg.catalog), profile: "editorial-copy", phase: "content-generation",
       legacyModelId: cfg.modelId ?? undefined, providerDefaults: cfg.providerDefaults ?? undefined,
       taskDefaults: cfg.taskDefaults ?? undefined, modelOverrides: cfg.modelOverrides ?? undefined,
     })).toEqual(expected)

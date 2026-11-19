@@ -1,6 +1,11 @@
 /// <reference types="vite/client" />
 
 import { sliceProfile } from "@/test-utils/slice-profile"
+import migrationsTest from "@convex-dev/migrations/test"
+import {
+  finishMediaUsageBackfill,
+  trashMediaDirectly,
+} from "@/test-utils/media-usage-backfill"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { api } from "./_generated/api"
@@ -29,12 +34,32 @@ const bodySlice = (id: string, text: string) => ({
 })
 
 function app() {
-  return convexTest({
+  const t = convexTest({
     schema,
     modules,
     ownerIdentity: OWNER,
     publicationAuthority: "missing",
   })
+  migrationsTest.register(t)
+  return t
+}
+
+/**
+ * Permanent delete refuses a referenced file. A used file cannot be trashed
+ * through the API, so put it in Trash directly, prove the refusal, then
+ * restore it.
+ */
+async function expectRemoveRefused(
+  t: ReturnType<typeof app>,
+  owner: ReturnType<ReturnType<typeof app>["withIdentity"]>,
+  mediaId: Id<"media">
+) {
+  await trashMediaDirectly(t, mediaId)
+  await finishMediaUsageBackfill(t)
+  await expect(
+    owner.mutation(api.cms.media.remove, { id: mediaId })
+  ).rejects.toThrow(/used by/i)
+  await t.run((ctx) => ctx.db.patch("media", mediaId, { deletedAt: undefined }))
 }
 
 async function activeFixture() {
@@ -166,9 +191,7 @@ describe("F08a corrective authority and ownership proof", () => {
       await expect(
         owner.mutation(api.cms.media.softDelete, { id: media.mediaId })
       ).rejects.toThrow("MEDIA_SOFT_DELETE_REFERENCED")
-      await expect(
-        owner.mutation(api.cms.media.remove, { id: media.mediaId })
-      ).rejects.toThrow("retained")
+      await expectRemoveRefused(t, owner, media.mediaId)
 
       const published = await owner.mutation(
         api.cms.publication.publishLocale,
@@ -207,9 +230,7 @@ describe("F08a corrective authority and ownership proof", () => {
       await expect(
         owner.mutation(api.cms.media.softDelete, { id: media.mediaId })
       ).rejects.toThrow("MEDIA_SOFT_DELETE_REFERENCED")
-      await expect(
-        owner.mutation(api.cms.media.remove, { id: media.mediaId })
-      ).rejects.toThrow("retained")
+      await expectRemoveRefused(t, owner, media.mediaId)
       expect(
         await t.run(async (ctx) =>
           (await ctx.storage.get(media.storageId))?.text()
@@ -653,6 +674,49 @@ describe("F08a corrective authority and ownership proof", () => {
     ).toMatchObject({ lifecycleState: "active", lifecycleGeneration: 1 })
   })
 
+  test(
+    "saving a draft keeps a removed required image as an empty image",
+    sliceProfile(["hero-with-image"]),
+    async () => {
+      const { t, owner, pageId } = await activeFixture()
+      // The editor writes `{}` when the owner removes a required image; the
+      // publish checklist, not Save, reports the missing image.
+      await owner.mutation(api.cms.publication.saveEditorDraft, {
+        pageId,
+        expectedLifecycleGeneration: 1,
+        localized: {
+          locale: "en",
+          slug: "no-image",
+          expectedGeneration: 1,
+          draft: {
+            pageType: "landing-page",
+            localized: { title: "No image" },
+            slices: [
+              {
+                id: "hero",
+                type: "hero-with-image" as const,
+                enabled: true,
+                primary: { ...heroWithImageDef.preview.primary, image: {} },
+                items: [],
+              },
+            ],
+          },
+        },
+      })
+      const draft = await t.run((ctx) =>
+        ctx.db
+          .query("pageLocaleDrafts")
+          .withIndex("by_pageId_and_locale", (q) =>
+            q.eq("pageId", pageId).eq("locale", "en")
+          )
+          .unique()
+      )
+      expect(draft?.content).toMatchObject({
+        slices: [{ primary: { image: {} } }],
+      })
+    }
+  )
+
   test("admin editor read model exposes successor generations and mutable locale drafts", async () => {
     const { owner, pageId } = await activeFixture()
     expect(
@@ -1039,9 +1103,7 @@ describe("F08a corrective authority and ownership proof", () => {
         sourceGeneration: 2,
       }),
     ])
-    await expect(
-      owner.mutation(api.cms.media.remove, { id: media.mediaId })
-    ).rejects.toThrow("retained")
+    await expectRemoveRefused(t, owner, media.mediaId)
     const published = await publishEn(owner, pageId, 2)
     const refs = await t.run((ctx) =>
       ctx.db
@@ -1593,7 +1655,9 @@ describe("CVX-REPRO-1 ordinary publication", () => {
               ? { sharedFieldsJson: JSON.stringify({ name: "After" }) }
               : kind === "parent"
                 ? { parentId }
-                : { seo: { noIndex: true } }),
+                : // The social image is the shared seo value left (ADR-0037
+                  // amendment, 2026-11-17); noindex is stored in each language.
+                  { seo: { ogImage: "/shared-social.png" } }),
           },
           ...(kind === "combined"
             ? {
@@ -1677,7 +1741,10 @@ describe("CVX-REPRO-1 ordinary publication", () => {
           expect(payload.shared.descriptor.name).toBe("After")
         else if (kind === "parent")
           expect(payload.shared.system.parentId).toBe(parentId)
-        else expect(payload.shared.system.seo).toEqual({ noIndex: true })
+        else
+          expect(payload.shared.system.seo).toEqual({
+            ogImage: "/shared-social.png",
+          })
         const baseSnapshot = before.snapshots.find(
           (row) => row._id === english.currentSnapshotId
         )!

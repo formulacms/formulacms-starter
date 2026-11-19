@@ -4,10 +4,19 @@ import {
   type AnthropicLanguageModelOptions,
 } from "@ai-sdk/anthropic"
 import { generateText } from "ai"
-import type {
-  AdapterGenerationRequest,
-  ApiGenerationAdapter,
+import {
+  UnsupportedAdapterInputError,
+  type AdapterGenerationRequest,
+  type ApiGenerationAdapter,
+  type ReasoningEffort,
 } from "../execution-contract"
+
+type AnthropicSdkEffort = NonNullable<AnthropicLanguageModelOptions["effort"]>
+const ANTHROPIC_SDK_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly AnthropicSdkEffort[]
+
+function isAnthropicSdkEffort(effort: ReasoningEffort): effort is AnthropicSdkEffort {
+  return (ANTHROPIC_SDK_EFFORTS as readonly ReasoningEffort[]).includes(effort)
+}
 
 export interface AnthropicAdapterOptions {
   readonly apiKey: string
@@ -26,14 +35,15 @@ export function createAnthropicGenerationAdapter(
           "Anthropic adapter received a different provider tuple."
         )
       }
-      const providerOptions =
-        "reasoning" in request.tuple && request.tuple.reasoning
-          ? {
-              anthropic: {
-                effort: request.tuple.reasoning.effort,
-              } satisfies AnthropicLanguageModelOptions,
-            }
-          : undefined
+      const effort = request.tuple.reasoning?.effort
+      if (effort !== undefined && !isAnthropicSdkEffort(effort)) {
+        throw new UnsupportedAdapterInputError("The Anthropic SDK does not accept this effort.")
+      }
+      const providerOptions = effort
+        ? {
+            anthropic: { effort } satisfies AnthropicLanguageModelOptions,
+          }
+        : undefined
       const result = await generateText({
         model: anthropic.messages(request.tuple.model),
         instructions: request.instructions,

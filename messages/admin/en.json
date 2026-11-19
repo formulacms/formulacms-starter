@@ -46,27 +46,64 @@
     },
     "trash": {
       "title": "Trash",
-      "subtitle": "Pages and other content in the trash can be restored, but not yet deleted for good.",
       "untitled": "Untitled",
       "lifecycleUnavailable": "Snapshot lifecycle state is unavailable",
       "authorityIncomplete": "Publication authority is incomplete. Run the supported bootstrap or cutover command before managing trash.",
       "restored": "“{title}” restored",
       "restoreFailed": "Restore failed",
       "referenceCheckFailed": "Could not check page references",
-      "childBlocker": "This page has {count, plural, one {# child page} other {# child pages}}. Re-parent or delete {count, plural, one {it} other {them}} first.",
-      "menuBlocker": "{count, plural, one {Menu {menus} links} other {Menus {menus} link}} to this page. Remove those links or delete the {count, plural, one {menu} other {menus}} before permanently deleting the page.",
-      "deleteDescription": "\"{title}\" will be gone for good. This cannot be undone.",
+      "childBlocker": "This page has {count, plural, one {# child page} other {# child pages}}. Move or delete {count, plural, one {it} other {them}} first.",
+      "menuBlocker": "{count, plural, one {Menu {menus} links} other {Menus {menus} link}} to this page. Remove those links or delete the {count, plural, one {menu} other {menus}} first.",
+      "deleteDescription": "“{title}” will be deleted permanently, in every language. This cannot be undone.",
       "redirectImpact": "Also deletes {count, plural, one {# redirect} other {# redirects}}.",
-      "confirmTitle": "Permanently delete?",
-      "confirm": "Delete permanently",
-      "deleted": "\"{title}\" permanently deleted",
+      "confirmTitle": "Delete permanently?",
+      "confirm": "Delete",
       "deleteFailed": "Delete failed",
       "loading": "Loading trash…",
       "empty": "Trash is empty.",
       "moved": "Moved {date}",
       "restore": "Restore",
-      "deleteForever": "Delete forever",
-      "loadMore": "Load more"
+      "loadMore": "Load more",
+      "selectAll": "Select all",
+      "restoreSelected": "{count, plural, =0 {Restore selected} other {Restore #}}",
+      "deleteSelected": "{count, plural, =0 {Delete selected} other {Delete #}}",
+      "selected": "{count} selected",
+      "delete": "Delete",
+      "tabPages": "Pages",
+      "tabImages": "Images",
+      "quoted": "“{title}”",
+      "namesTwo": "{a} and {b}",
+      "namesThree": "{a}, {b} and {c}",
+      "namesMore": "{a}, {b}, {c} and {count} more",
+      "confirmTitleMany": "Delete {count} pages permanently?",
+      "deleteDescriptionMany": "{names} will be deleted permanently, in every language. This cannot be undone.",
+      "confirmMany": "Delete {count} pages",
+      "deletedMany": "{count, plural, one {# page deleted permanently.} other {# pages deleted permanently.}}",
+      "notDeleted": "“{title}” was not deleted: {reason}",
+      "linkBlocker": "{others, plural, =0 {“{first}” links} one {“{first}” and # other page link} other {“{first}” and # other pages link}} to this page. Remove those links first.",
+      "removingBlocker": "This page is still being removed from the public site. Try again in a minute.",
+      "childReason": "it has {count, plural, one {# child page} other {# child pages}}. Move or delete {count, plural, one {it} other {them}} first.",
+      "menuReason": "{count, plural, one {menu {menus} links} other {menus {menus} link}} to it. Remove those links or delete the {count, plural, one {menu} other {menus}} first.",
+      "linkReason": "{others, plural, =0 {“{first}” links} one {“{first}” and # other page link} other {“{first}” and # other pages link}} to it. Remove those links first.",
+      "removingReason": "it is still being removed from the public site. Try again in a minute.",
+      "deleting": "Deleting…",
+      "restoredMany": "{count} pages restored",
+      "imageSize": "{width} × {height}",
+      "imageDeleteDescription": "“{title}” will be deleted permanently. This cannot be undone.",
+      "imageConfirmTitleMany": "Delete {count} images permanently?",
+      "imageDeleteDescriptionMany": "{names} will be deleted permanently. This cannot be undone.",
+      "imageConfirmMany": "Delete {count} images",
+      "imagesDeleted": "{count, plural, one {# image deleted permanently.} other {# images deleted permanently.}}",
+      "imageInUse": "This image is still used by {uses}. Remove it there first.",
+      "imageInUseReason": "it is still used by {uses}. Remove it there first.",
+      "imageMenuUse": "the {menu} menu",
+      "imagesRestored": "{count} images restored",
+      "imageOlderVersionOnly": "“{filename}” is used by an older published version of “{page}”. Delete that page permanently first, or keep the image.",
+      "imageDeletePending": "Image delete is getting ready. Try again in a few minutes.",
+      "changedRefusal": "“{title}” changed since this list loaded. Refresh the page and try again.",
+      "languageRefusal": "A language change is running. Try again when it is finished.",
+      "pagesDeleting": "{count, plural, one {# page is being deleted.} other {# pages are being deleted.}}",
+      "deleteStopped": "Delete stopped before it finished. Select Delete to try again."
     },
     "contentTypes": {
       "title": "Content Types",
@@ -151,6 +188,22 @@
         "starterDescription": "Adds this type to the starter configuration for future projects. It does not change this site. Regeneration and Git integration are separate.",
         "removeFromStarter": "Remove from starter",
         "addToStarter": "Add to starter"
+      },
+      "languages": {
+        "title": "Languages",
+        "toggle": "Translate {type}",
+        "on": "{type} can have a version in each language.",
+        "off": "{type} are written in {language} only.",
+        "turnOff": {
+          "title": "Write {type} in {language} only?",
+          "versions": "{count, plural, one {{shown} version in another language will be hidden from the site. It is kept, and comes back when you turn translation on.} other {{shown} versions in other languages will be hidden from the site. They are kept, and come back when you turn translation on.}}",
+          "links": "{count, plural, one {{shown} translated page will no longer show a link to these {type}.} other {{shown} translated pages will no longer show a link to these {type}.}}",
+          "children": "{count, plural, one {{shown} page under these {type} will be hidden in other languages.} other {{shown} pages under these {type} will be hidden in other languages.}}",
+          "confirm": "Turn off"
+        },
+        "errors": {
+          "purgeRunning": "A permanent delete is still running. Try again when it is done. Nothing was changed."
+        }
       }
     },
     "redirects": {
@@ -208,7 +261,7 @@
       "saveFailed": "Save failed",
       "usageFailed": "Could not check media usage",
       "confirmTitle": "Move this image to trash?",
-      "confirmUnreferenced": "It will leave the library. Restoring images from the trash is not available yet.",
+      "confirmUnreferenced": "It will leave the library. You can restore it later from the trash.",
       "confirm": "Move to trash",
       "movedToTrash": "Moved to trash",
       "deleteFailed": "Delete failed",
@@ -321,7 +374,7 @@
       "username": "Username",
       "usernameHint": "You’ll use it to sign in. Never shown on your site.",
       "notificationEmail": "Notification email (optional)",
-      "notificationEmailHint": "Contact form messages go here. Never used to sign in."
+      "notificationEmailHint": "Enter your email to receive formulacms automatic notifications."
     },
     "actions": {
       "openAdmin": "Open admin",
@@ -492,7 +545,8 @@
       "other": "Help could not answer this time. Ask again."
     },
     "screenPath": "{section} › {screen}",
-    "command": "Ask AI Help"
+    "command": "Ask AI Help",
+    "localElsewhere": "Help runs with a local tool. Open the admin on the computer that runs formulacms, or choose an API connection in <link>Settings › AI</link>."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -538,30 +592,14 @@
       "subtitle": "Review the parts of your site and choose which optional modules are available.",
       "loading": "Loading module configuration…",
       "error": "Module configuration could not be loaded. Refresh and try again.",
-      "availability": "Can be used",
-      "available": "Available",
-      "unavailable": "Unavailable",
-      "effective": "Current state",
-      "active": "Active",
       "inactive": "Inactive",
       "enabled": "Enabled",
       "disabled": "Disabled",
-      "readiness": "Setup status",
-      "ready": "Ready",
-      "needsSetup": "Needs setup",
-      "setup": "Setup",
-      "notRequired": "Not required",
-      "required": "Required",
-      "dependencies": "Needs",
-      "requiredDependencies": "Also needed for this change",
-      "none": "None",
       "exactChanges": "Changes to review",
       "noChanges": "No changes to review.",
       "reviewing": "Checking this change…",
-      "reviewBeforeSave": "The server checks these changes before saving them.",
       "save": "Apply reviewed changes",
       "saving": "Applying changes…",
-      "saved": "Module configuration updated.",
       "stale": "This configuration changed while you were reviewing it. Review the changes again before applying them.",
       "reviewAgain": "Review current configuration",
       "commitFailed": "The reviewed module configuration could not be applied. Review the blockers and try again.",
@@ -579,7 +617,6 @@
       "returnToOneLanguage": "Use one language",
       "languageOperationBlocker": "Finish or stop the open language change before turning Multilingual off.",
       "languageStateInvalid": "The language setup is inconsistent. Nothing changed. Fix it in Languages and try again.",
-      "statusLabel": "{name} status",
       "toggle": "Turn {name} on or off",
       "items": {
         "system": {
@@ -624,14 +661,32 @@
         },
         "ai": {
           "name": "AI",
-          "summary": "Writing, translation and help assistants in the admin. Providers, models and instructions are set in Settings › AI. Translation also requires Multilingual. Content sent to an assistant goes to its provider, which bills you per use."
+          "summary": "Writing, translation and help assistants in the admin."
         }
       },
       "aiSetup": {
         "missing": "Not configured: API key is missing",
-        "refused": "Not configured: {provider} refused the key",
-        "description": "AI is on but cannot run yet.",
         "finish": "Finish setup"
+      },
+      "optional": "Optional modules",
+      "alwaysOn": "Always on ({count})",
+      "alwaysOnLine": "Needed by every site, so they cannot be turned off.",
+      "show": "Show",
+      "hide": "Hide",
+      "itemWithNote": "{name}: {note}",
+      "progress": {
+        "turningOn": "Turning on {name}",
+        "turningOff": "Turning off {name}",
+        "applyingMany": "Applying {count} changes",
+        "stepCheck": "Checking your changes…",
+        "stepSave": "Saving…",
+        "stepOn": "Turning on {name}…",
+        "stepOff": "Turning off {name}…",
+        "doneOn": "{name} is on.",
+        "doneOff": "{name} is off.",
+        "doneMany": "{count} changes applied.",
+        "percent": "{percent}%",
+        "close": "Close"
       }
     },
     "languageLifecycle": {
@@ -932,7 +987,7 @@
       "switchConfirm": "Switch now",
       "switching": "Switching…",
       "notYet": "Not yet",
-      "sharedWarning": "Search settings, card text and other shared fields are the same in every language. If you type {target} text there, it goes live the next time this page is published in {source}.",
+      "sharedWarning": "The social share image, the card image and other shared fields are the same in every language. If you type {target} text there, it goes live the next time this page is published in {source}.",
       "cancel": "Stop the language change",
       "cancelTitle": "Stop the language change?",
       "cancelDescription": "Your live site stays exactly as it is. Choose what happens to {target} drafts created by this change. Adopted published versions you did not withdraw, and drafts that existed before this change, are kept unless the change must pause to protect newer content.",
@@ -1420,22 +1475,33 @@
       },
       "catalogue": {
         "heading": "Email providers",
-        "description": "Choose an included provider or open developer instructions for a custom one.",
-        "included": "Included",
-        "back": "Back to providers",
-        "developerDescription": "This opens developer instructions. It does not install code or change email delivery.",
-        "addProvider": "Add this provider"
+        "description": "Choose an included provider, or see how to add another.",
+        "back": "Back to providers"
       },
       "detail": {
         "emptyHeading": "Choose a provider",
         "emptyDescription": "Select a provider to view its setup details."
       },
+      "more": {
+        "description": "The email library in formulacms supports these services. A developer adds one in a few steps.",
+        "guide": "Open the developer guide",
+        "smtpNote": "Most of these services also work today through SMTP."
+      },
+      "panel": {
+        "disabled": "{provider} is disabled. Enable it to use it for your site's email.",
+        "inactive": "{provider} is enabled but not active yet. It becomes active when the mail server accepts a test email."
+      },
       "readiness": {
         "heading": "Server setup",
-        "description": "Checks whether the required Resend security setting is available. Its value is never shown here.",
+        "descriptionMany": "Set these on your server. Their values are never shown here.",
+        "descriptionOne": "Set this on your server. Its value is never shown here.",
         "detected": "Detected",
         "notDetected": "Not detected",
         "notChecked": "Not checked",
+        "optionalPort": "optional, 465 by default",
+        "portDefault": "Not set, 465 is used",
+        "howToMany": "How to set them",
+        "howToOne": "How to set it",
         "check": "Check configuration"
       },
       "sender": {
@@ -1449,14 +1515,21 @@
       },
       "test": {
         "heading": "Delivery test",
-        "description": "Send a fixed test only to {email}. A provider-accepted result is required before activation.",
+        "description": "Send a fixed test only to {email}. The provider becomes active when the test is accepted.",
         "ownerAccount": "the site owner's account",
         "send": "Send test email",
         "state": {
           "queued": "Test queued. Waiting for the provider result.",
-          "provider_accepted": "Provider accepted the test. Activation is available for a short time.",
+          "provider_accepted": "The mail server accepted the test. {provider} is active.",
           "failed": "The provider did not accept the test.",
           "unknown": "Delivery is uncertain. Send a new test before activation."
+        },
+        "reason": {
+          "sign_in_refused": "Sign-in refused. Check <code>EMAIL_SMTP_USER</code> and <code>EMAIL_SMTP_PASSWORD</code>.",
+          "could_not_connect": "Could not connect. Check <code>EMAIL_SMTP_HOST</code> and <code>EMAIL_SMTP_PORT</code>.",
+          "secure_connection_failed": "Could not make a secure connection. The mail server needs a trusted certificate.",
+          "sender_refused": "The mail server refused the From address. Use an address this server allows.",
+          "message_refused": "The mail server refused the message."
         },
         "blocked": {
           "not_configured": "Save the provider and sender before testing.",
@@ -1466,70 +1539,47 @@
         }
       },
       "activation": {
-        "status": "{provider} is on.",
-        "turnOff": "Turn off",
         "turnOffTitle": "Turn off {provider}?",
         "turnOffDescription": "Your site stops sending emails, including contact form messages and password resets. To turn it back on you'll send a new test.",
         "turnOffConfirm": "Turn off",
-        "activate": "Activate Resend",
-        "description": "Changing the provider or sender requires a new accepted test before activation."
+        "description": "After you change the sender or the server settings, send a new test."
+      },
+      "switch": {
+        "title": "Switch to {provider}?",
+        "description": "{active} is disabled now. Your site sends no email until {provider} passes a test.",
+        "confirm": "Switch to {provider}"
       },
       "toast": {
         "saved": "Email configuration saved",
         "failedSave": "Email configuration was not saved. Check the sender details and try again.",
-        "configurationReady": "Resend server setup detected",
-        "configurationMissing": "Resend server setup was not detected",
+        "configurationReady": "{provider} server setup detected",
+        "configurationMissing": "{provider} server setup was not detected",
         "failedCheck": "Could not check the server setup",
         "testQueued": "Test queued. Provider acceptance is still pending.",
         "failedTest": "Could not queue the delivery test",
-        "activated": "Resend activated",
-        "failedActivate": "Resend was not activated. Send a new successful test and try again.",
+        "activated": "{provider} activated",
         "deactivated": "{provider} is off",
         "failedDeactivate": "{provider} was not turned off. Try again."
       },
       "notifications": {
         "heading": "Notifications",
         "label": "Notification email (optional)",
-        "hint": "Contact form messages go here. Never used to sign in.",
+        "hint": "Enter your email to receive formulacms automatic notifications.",
         "save": "Save",
         "saved": "Saved"
       }
     },
     "aiScreen": {
       "title": "AI",
-      "connections": "Connections",
-      "connectionsDescription": "The AI services your assistants can run with. An assistant sends the content you ask it to work on to its provider. API providers bill you for each use.",
-      "apiKeys": "API keys",
-      "connected": "Connected · key found in your environment",
-      "replaceKey": "Replace {envVar} in your environment.",
-      "refusedAssistants": "Assistants that use {provider} show \"Key refused\" and can't run until it is fixed.",
-      "temporary": "Usually temporary. The key is fine; try the action again.",
-      "addKey": "Add {envVar} to your environment. formulacms never stores your key.",
-      "today": "today {time}",
-      "assistants": "Assistants",
-      "assistantsLocal": "Choose what each assistant runs with and how it behaves. These choices are saved for local development; your live site keeps its own.",
-      "assistantsLive": "Choose what each assistant runs with and how it behaves on your live site.",
-      "ready": "Ready",
-      "needsAttention": "Needs attention",
-      "keysConnected": "{connected} of {total} API keys connected",
-      "keyRefused": "Key refused",
-      "finishConnection": "Finish setup: its connection is not set up",
-      "runsWith": "Runs with",
-      "notSetUp": " · not set up",
+      "chooseAnotherModel": "Choose another model",
       "model": "Model",
       "effort": "Effort",
       "effortNotSet": "Not set",
       "noEffort": "Not available for this model",
-      "instructions": "Instructions (system prompt)",
-      "instructionsNote": "Sent to the model before every request from this assistant.",
+      "instructions": "Instructions",
       "reset": "Reset to default",
-      "presetsNote": "Brief seeds and quick refine presets stay as they are today.",
       "save": "Save",
       "saved": "Saved",
-      "active": "Active",
-      "refusedCard": "Not configured: {provider} refused the key",
-      "missingCard": "Not configured: API key is missing",
-      "description": "Connect an AI service, then set up your assistants. To turn AI off, go to Modules.",
       "offNotice": "AI is not enabled. You can enable it here.",
       "errorTitle": "AI settings couldn't load",
       "errorDescription": "Something went wrong while loading your AI settings. The rest of the admin still works.",
@@ -1538,11 +1588,6 @@
         "anthropic": "Anthropic",
         "openrouter": "OpenRouter",
         "openai": "OpenAI"
-      },
-      "connection": {
-        "refused": "Key refused: {provider} rejected {envVar} on your last AI action ({at})",
-        "unreachable": "Couldn't reach {provider} on your last AI action ({at})",
-        "missing": "Not configured: {envVar} is missing"
       },
       "tasks": {
         "writing": {
@@ -1564,16 +1609,47 @@
       "sliceCreator": {
         "title": "Block creator",
         "summary": "Designs new block types with you: their fields, the rules for what can be entered, and how they look. Works on your project files during local development, never on the live site.",
-        "prompt": "You design block types for this site. Follow the project's block rules and design settings. Show every file change for review before writing it.",
-        "finishSetup": "Finish setup",
-        "keyMissing": "Not configured on this computer: {envVar} is missing",
-        "keyHelp": "The Block creator runs on your computer, so it uses a key stored there, separate from the connections above. Add {envVar} to your project's .env.local file. It is found automatically; formulacms never stores your key.",
-        "keyMissingAny": "No Block creator key on this computer",
-        "keyHelpAny": "The Block creator runs on your computer and uses a key stored there, separate from the connections above. Add one of {openrouter}, {anthropic} or {openai} to your project's .env.local file. It is found automatically; formulacms never stores your key."
+        "prompt": "You design block types for this site. Follow the project's block rules and design settings. Show every file change for review before writing it."
       },
       "picker": {
         "searchPlaceholder": "Search {count} models…",
-        "noneMatch": "No models match “{query}”"
+        "noneMatch": "No models match “{query}”",
+        "unavailable": {
+          "needsMaxOrUltra": "Needs Max or Ultra",
+          "needsMaxOrUltraPlanUnknown": "Needs Max or Ultra · plan not detected"
+        },
+        "retires": "Retires {date}",
+        "listsUpdated": "Lists updated {when}",
+        "todayAt": "today at {time}",
+        "refresh": "Refresh",
+        "updated": "Updated",
+        "refreshTooSoon": "The model lists were just updated. Try again in a few minutes."
+      },
+      "local": {
+        "tools": {
+          "claude": "Claude Code",
+          "codex": "Codex"
+        }
+      },
+      "rail": {
+        "label": "AI sections",
+        "assistants": "Assistants",
+        "apiKeys": "API keys"
+      },
+      "provider": "Provider",
+      "fableNeedsPlan": "Fable needs a Claude Max or Ultra plan.",
+      "off": "AI is off. Turn it on in <link>Modules</link>.",
+      "yourProviders": "Your AI providers",
+      "noProvider": "No AI provider is set up.",
+      "subscriptions": "Subscriptions",
+      "subscriptionsNote": "Uses Claude Code or Codex signed in on this computer.",
+      "keysNote": "Assistants use the keys set on your Convex deployment. The Block creator uses its own key from .env.local.",
+      "plan": "{plan, select, pro {Claude Pro plan} max {Claude Max plan} ultra {Claude Ultra plan} team {Claude Team plan} enterprise {Claude Enterprise plan} chatgpt {ChatGPT plan} other {}}",
+      "words": {
+        "ready": "Ready",
+        "signedOut": "Signed out",
+        "notSetUp": "Not set up",
+        "invalidKey": "Invalid key"
       }
     }
   },
@@ -2015,7 +2091,10 @@
         "resume": "Resume",
         "dismiss": "Dismiss",
         "reviewSections": "Review sections",
-        "actionFailed": "Something went wrong. Try again."
+        "actionFailed": "Something went wrong. Try again.",
+        "localRunning": "Runs on this computer with {tool}. Keep formulacms running until the job ends.",
+        "localStopped": "Stopped: formulacms stopped running on this computer. Start it again, then choose Resume.",
+        "localResumeElsewhere": "This job runs with a local tool. Resume it in a browser on the computer that runs formulacms."
       },
       "review": {
         "heading": "Sections to review",
@@ -2033,7 +2112,8 @@
         "confirm": "Dismiss",
         "movedToTrash": "Moved to Trash",
         "dismissed": "Dismissed"
-      }
+      },
+      "localElsewhere": "Writing runs with a local tool. Open the admin on the computer that runs formulacms, or choose an API connection in <link>Settings › AI</link>."
     },
     "aiTranslate": {
       "button": "Translate from {source}",
@@ -2062,7 +2142,8 @@
       "dismiss": {
         "title": "Dismiss this translation?",
         "description": "Nothing is saved."
-      }
+      },
+      "localElsewhere": "Translation runs with a local tool. Open the admin on the computer that runs formulacms, or choose an API connection in <link>Settings › AI</link>."
     },
     "columns": {
       "title": "Title",
@@ -2350,12 +2431,12 @@
       "metaDescription": "Meta description",
       "metaDescriptionPlaceholder": "Describe this page for search engines…",
       "socialAndIndexing": "Social & indexing",
-      "sharedHint": "(applies to all locales)",
       "socialTitle": "Social title (OG)",
       "socialDescription": "Social description (OG)",
       "socialDescriptionPlaceholder": "Shown when shared on social media",
       "socialImage": "Social image URL (OG)",
       "socialImagePlaceholder": "https://…/share-image.jpg",
+      "sameEverywhere": "Same in every language.",
       "noIndex": "Hide from search engines (<code>noindex</code>)",
       "noFollow": "Don't follow links on this page (<code>nofollow</code>)"
     },
@@ -2778,11 +2859,11 @@
       "copiedContent": "Copied {locale} content — review and save",
       "languageChange": {
         "sourceNotice": "Your site is changing to {target}.",
-        "sharedFields": "Search settings, card text and other shared fields are the same in every language, so anything typed there also goes live in {source} the next time this page is published.",
+        "sharedFields": "The social share image, the card image and other shared fields are the same in every language, so anything typed there also goes live in {source} the next time this page is published.",
         "targetNotice": "You are writing the {target} version of this page. It stays private until your site switches to {target}.",
         "confirmAgain": "After saving, confirm the text again on the language change page.",
         "publishTitle": "Publish while your site changes language?",
-        "publishDescription": "Search settings, card text and other shared fields changed since this page was last published. They are the same in every language, so any {target} text typed there goes live now in {source}.",
+        "publishDescription": "The social share image, the card image or other shared fields changed since this page was last published. They are the same in every language, so any {target} text typed there goes live now in {source}.",
         "publishAnyway": "Publish anyway"
       },
       "retainedTargetRemedy": {
@@ -2965,7 +3046,9 @@
       "publication": {
         "targetLocaleUnavailable": "A referenced page isn't published in this language. Publish it first, then try again.",
         "targetMissing": "A referenced page no longer exists. Replace the reference, then try again.",
-        "referenceLimit": "This page has too many linked items to publish. Remove some links or related pages, then try again."
+        "referenceLimit": "This page has too many linked items to publish. Remove some links or related pages, then try again.",
+        "imageMissing": "An image on this page was deleted from the media library. Remove or replace it, then try again.",
+        "translationOff": "Not shown on the site: translation is off for {type}."
       },
       "recoveryDiscarded": "Recovered draft discarded",
       "contentTypeChangeUnavailable": "You can't change the content type of this page yet",
@@ -3484,8 +3567,9 @@
     },
     "email": {
       "resendDescription": "Transactional email delivery through Resend.",
-      "customLabel": "Custom provider",
-      "customDescription": "Register a reviewed provider implementation in this application build."
+      "smtpDescription": "Send through any mail server: a Gmail account, your own host or a mail service.",
+      "moreLabel": "More providers",
+      "moreDescription": "Add another provider with a small code change."
     }
   },
   "accessibility": {

@@ -3152,12 +3152,20 @@ describe("F09a preparation", () => {
     const homeId = await bootstrap(t, owner)
     await publish(t, owner, homeId)
     const about = await createPage(owner, "about")
-    const { shared } = await generations(t, about, "en")
-    await owner.mutation(api.cms.publication.saveSharedDraft, {
+    // The social title is stored in the language (ADR-0037 amendment).
+    const { state: aboutState } = await generations(t, about, "en")
+    await owner.mutation(api.cms.publication.saveLocaleDraft, {
       pageId: about,
-      expectedSharedDraftGeneration: shared!.generation,
+      locale: "en",
+      slug: "about",
+      draft: {
+        pageType: "landing-page",
+        localized: { title: "about" },
+        slices: [],
+        seo: { ogTitle: "About us" },
+      } as never,
+      expectedDraftGeneration: aboutState?.draftGeneration ?? 0,
       expectedLifecycleGeneration: 1,
-      seo: { metaTitle: "About us" },
     })
     await publish(t, owner, about)
     await saveDraft(t, owner, about, "en", "about", "Unpublished edit")
@@ -3252,7 +3260,7 @@ describe("F09a preparation", () => {
       sourceSlug: "about",
       targetRouteConflict: false,
     })
-    expect(aboutReport!.contentKeys).toEqual(["slices", "title"])
+    expect(aboutReport!.contentKeys).toEqual(["seo", "slices", "title"])
     expect(aboutReport!.seoJson).toContain("About us")
     expect(report.page.map((entry) => entry.pageId).sort()).toEqual(
       [homeId, about].sort()
@@ -3738,14 +3746,15 @@ describe("F09a freshness and coverage", () => {
     // Row 31: a Page first published after enumeration gets its own row.
     const late = await createPage(owner, "late")
     await publish(t, owner, late)
+    // Creating the Page already gave it a row, so publishing stales it.
     expect(await rowOf(t, id, late)).toMatchObject({
       kind: "public_route",
       disposition: "target",
-      status: "unready",
+      status: "stale",
     })
     const afterLate = await transitionOf(t, id)
     expect(afterLate).toMatchObject({
-      sourcePublicSetVersion: 1,
+      sourcePublicSetVersion: 2, // create, then publish
       unresolvedCount: 1,
     })
     await owner.mutation(api.cms.language.confirmTransitionPreview, {
@@ -3810,6 +3819,105 @@ describe("F09a freshness and coverage", () => {
     })
     await drain(t)
     expect((await transitionOf(t, id)).manifest?.readinessVersion).toBe(3)
+  })
+
+  test("a draft-only Page created while a correction is ready joins the change and gets a French draft", async () => {
+    const t = app()
+    const owner = t.withIdentity(OWNER)
+    const { id, ready } = await readyCorrection(t, owner)
+    expect(ready.phase).toBe("ready")
+
+    // New page after the enumeration phase, never published.
+    const fresh = await createPage(owner, "fresh")
+    expect(await rowOf(t, id, fresh)).toMatchObject({ status: "unready" })
+    expect((await transitionOf(t, id)).phase).toBe("preparing")
+
+    await drain(t)
+    const afterNew = await transitionOf(t, id)
+    await owner.mutation(api.cms.language.confirmTransitionPreview, {
+      transitionId: id,
+      expectedPreparedSetVersion: afterNew.preparedSetVersion,
+    })
+    const confirmedPreview = await transitionOf(t, id)
+    await owner.mutation(api.cms.language.continueLanguageTransition, {
+      transitionId: id,
+      expectedGeneration: confirmedPreview.generation,
+    })
+    await drain(t)
+    expect(await rowOf(t, id, fresh)).toMatchObject({ status: "ready" })
+    const revalidated = await confirmAndValidate(t, owner, id)
+    expect(revalidated.phase).toBe("ready")
+    await activate(t, owner, id)
+    const draft = await t.run((ctx) =>
+      ctx.db
+        .query("pageLocalePublicationStates")
+        .withIndex("by_pageId_and_locale", (q) =>
+          q.eq("pageId", fresh).eq("locale", "fr")
+        )
+        .unique()
+    )
+    expect(draft).not.toBeNull()
+  })
+
+  test("a draft-only Page published during a correction review gets a public selection in the new language", async () => {
+    const t = app()
+    const owner = t.withIdentity(OWNER)
+    await englishSite(t, owner)
+    const draftOnly = await createPage(owner, "later")
+    const id = await startTransition(t, owner, "correct_label", "fr")
+    await drain(t)
+    expect(await rowOf(t, id, draftOnly)).toMatchObject({
+      kind: "private_draft",
+    })
+
+    await publish(t, owner, draftOnly)
+    expect(await rowOf(t, id, draftOnly)).toMatchObject({
+      kind: "public_route",
+      disposition: "target",
+      status: "stale",
+    })
+    const afterPublish = await transitionOf(t, id)
+    await owner.mutation(api.cms.language.confirmTransitionPreview, {
+      transitionId: id,
+      expectedPreparedSetVersion: afterPublish.preparedSetVersion,
+    })
+    const confirmedPreview = await transitionOf(t, id)
+    await owner.mutation(api.cms.language.continueLanguageTransition, {
+      transitionId: id,
+      expectedGeneration: confirmedPreview.generation,
+    })
+    await drain(t)
+    const ready = await confirmAndValidate(t, owner, id)
+    expect(ready.phase).toBe("ready")
+    await activate(t, owner, id)
+
+    const fr = (await generations(t, draftOnly, "fr")).state
+    expect(fr?.hasCurrentSnapshot).toBe(true)
+    expect(await publicProjection(t, draftOnly, "fr")).not.toBeNull()
+  })
+
+  test("a retained_target row keeps its kind and disposition across a source draft save", async () => {
+    const t = app()
+    const owner = t.withIdentity(OWNER)
+    await englishSite(t, owner)
+    const page = await createPage(owner, "kept")
+    const id = await startTransition(t, owner, "correct_label", "fr")
+    await drain(t)
+    const row = (await rowOf(t, id, page))!
+    await t.run((ctx) =>
+      ctx.db.patch("siteLanguageTransitionPages", row._id, {
+        kind: "retained_target",
+        disposition: "undecided",
+      })
+    )
+    // A draft-only source Page would describe as private_draft here, so only
+    // the retained_target guard keeps the row as it is.
+    await saveDraft(t, owner, page, "en", "kept", "Kept again")
+    expect(await rowOf(t, id, page)).toMatchObject({
+      kind: "retained_target",
+      disposition: "undecided",
+      status: "stale",
+    })
   })
 })
 

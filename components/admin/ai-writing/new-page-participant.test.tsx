@@ -2,6 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { getFunctionName } from "convex/server"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, test, vi } from "vitest"
+
+// The local job server actions are fakes: the screens decide the route.
+vi.mock("@/app/(core)/admin/(authenticated)/pages/local-ai-job-actions", () => ({
+  startLocalPageJob: vi.fn(),
+  resumeLocalPageJob: vi.fn(),
+  generatePageOutlineLocal: vi.fn(),
+}))
 import en from "../../../messages/admin/en.json"
 import fr from "../../../messages/admin/fr.json"
 import type { ContentType } from "@/convex/lib/contentTypes"
@@ -106,6 +113,8 @@ type SlotOptions = {
   isCreating?: boolean
   canCreateSelected?: boolean
   language?: "en" | "fr"
+  /** Writing's route data: `{ engine }` on this computer, null elsewhere. */
+  route?: { engine: "claude" | "codex" | null } | null
 }
 
 function slot(options: SlotOptions = {}) {
@@ -116,7 +125,10 @@ function slot(options: SlotOptions = {}) {
       messages={language === "fr" ? fr : en}
     >
       <NewPageWritingSlot
-        routeData={{ editorialCopy: null, structuredOutlineMeta: null }}
+        routeData={{
+          editorialCopy: options.route ?? null,
+          structuredOutlineMeta: options.route ?? null,
+        }}
         title=""
         locale={options.locale ?? "en"}
         pageType={options.pageType ?? "page"}
@@ -196,7 +208,7 @@ describe("module off", () => {
 })
 
 describe("module on, Writing not ready", () => {
-  test("the key notice replaces the button; no card and no job read", () => {
+  test("the key notice replaces the button; an existing job keeps its card", () => {
     mocks.data["cms/aiSettings:status"] = status(false)
     mocks.data["cms/aiJobs:pageJobProgress"] = [job("job-1")]
     renderSlot()
@@ -217,8 +229,19 @@ describe("module on, Writing not ready", () => {
     expect(
       screen.getByRole("link", { name: "Go to Settings › AI" })
     ).toHaveAttribute("href", "/admin/settings/ai")
+    // Jobs are read whatever Writing's setup: only a new job needs it.
+    expect(screen.getByTestId("job-progress")).toBeInTheDocument()
+    expect(mocks.queryNames).toContain("cms/aiJobs:pageJobProgress")
+  })
+
+  test("no job: nothing above the form, and a refused jobs read reports nothing", () => {
+    mocks.gate = { state: "needs_setup", setup: ["required"] }
+    mocks.data["cms/aiSettings:status"] = status(false)
+    mocks.data["cms/aiJobs:pageJobProgress"] = new Error("CMS_MODULE_NOT_READY")
+    renderSlot({ route: { engine: null } })
     expect(screen.queryByTestId("job-progress")).not.toBeInTheDocument()
-    expect(mocks.queryNames).not.toContain("cms/aiJobs:pageJobProgress")
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByTestId("api-key-notice")).toBeInTheDocument()
   })
 
   test("a refused key names the provider and its variable", () => {
@@ -414,5 +437,71 @@ describe("module on, Writing ready", () => {
     expect(screen.getByRole("button", { name: "Create page" })).toBeEnabled()
     expect(writeButton()).not.toBeInTheDocument()
     signal.mockRestore()
+  })
+})
+
+// Approved image 4(a) and ADR-0057 readiness (owner, 2026-11-16).
+describe("Writing on a local tool", () => {
+  const marked = { brandVoice: "", aiRuntime: { assistants: { writing: { localTool: true } } } }
+
+  test("on this computer with no API connection: the button shows, with no notice", () => {
+    mocks.gate = { state: "needs_setup", setup: ["required"] }
+    mocks.data["cms/aiSettings:status"] = status(false)
+    mocks.data["cms/settings:getSettings"] = marked
+    renderSlot({ route: { engine: "claude" } })
+    expect(writeButton()).toBeInTheDocument()
+    expect(screen.queryByTestId("api-key-notice")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("local-tool-elsewhere")).not.toBeInTheDocument()
+  })
+
+  test.each([
+    ["en", "Writing runs with a local tool. Open the admin on the computer that runs formulacms, or choose an API connection in Settings › AI.", "Settings › AI"],
+    ["fr", "La rédaction utilise un outil local. Ouvrez l'administration sur l'ordinateur qui exécute formulacms, ou choisissez une connexion API dans Paramètres › IA.", "Paramètres › IA"],
+  ] as const)("another device (%s): the button stays hidden and the message shows in its place", (language, text, link) => {
+    // Even with a working API key: Convex refuses the API run while marked.
+    mocks.data["cms/settings:getSettings"] = marked
+    renderSlot({ language })
+    expect(screen.queryByRole("button", { name: /Write page with AI|Écrire la page avec l'IA/ })).not.toBeInTheDocument()
+    const notice = screen.getByTestId("local-tool-elsewhere")
+    expect(notice).toHaveTextContent(text)
+    // Same notice as Help's (image 4): one component, one role.
+    expect(notice).toHaveAttribute("data-slot", "amber-notice")
+    expect(notice).toHaveAttribute("role", "status")
+    expect(screen.getByRole("link", { name: link })).toHaveAttribute("href", "/admin/settings/ai")
+    expect(screen.getByRole("form", { name: "New page" })).not.toContainElement(notice)
+  })
+
+  test("another device: the local job's card still shows", () => {
+    mocks.gate = { state: "needs_setup", setup: ["required"] }
+    mocks.data["cms/aiSettings:status"] = status(false)
+    mocks.data["cms/settings:getSettings"] = marked
+    mocks.data["cms/aiJobs:pageJobProgress"] = [job("job-1", { state: "running", localTool: { engine: "codex" } })]
+    renderSlot()
+    expect(screen.getByTestId("job-progress")).toBeInTheDocument()
+  })
+
+  test.each([
+    ["canceled", "resume-job"],
+    ["done", "review-sections"],
+  ] as const)("guard: back on an API service with no key, a %s local job keeps its card and controls", (state, control) => {
+    // This computer, Writing's local choice removed, no key and no marker.
+    mocks.gate = { state: "needs_setup", setup: ["required"] }
+    mocks.data["cms/aiSettings:status"] = status(false)
+    mocks.data["cms/aiJobs:pageJobProgress"] = [
+      job("job-1", { state, canResume: state === "canceled", localTool: { engine: "claude" } }),
+    ]
+    renderSlot({ route: { engine: null } })
+    expect(screen.getByTestId("job-progress")).toBeInTheDocument()
+    expect(screen.getByTestId(control)).toBeInTheDocument()
+    if (state === "canceled") expect(screen.getByTestId("dismiss-job")).toBeInTheDocument()
+    // Starting a new job still needs a ready service.
+    expect(writeButton()).not.toBeInTheDocument()
+    expect(screen.getByTestId("api-key-notice")).toBeInTheDocument()
+  })
+
+  test("no marker: no local message on any device", () => {
+    renderSlot()
+    expect(writeButton()).toBeInTheDocument()
+    expect(screen.queryByTestId("local-tool-elsewhere")).not.toBeInTheDocument()
   })
 })

@@ -1,0 +1,2 @@
+# Generated files owned by the formulacms release (ADR-0059). On a merge conflict, save your local changes, then restore the files listed in the release notes from the release tag: git checkout <release-tag> -- <listed files>
+lib/modules/catalog.generated.ts -merge linguist-generated

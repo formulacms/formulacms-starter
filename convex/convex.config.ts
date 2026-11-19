@@ -15,6 +15,12 @@ const app = defineApp({
     OPENAI_API_KEY: v.optional(v.string()),
     CMS_AI_MODEL: v.optional(v.string()),
     RESEND_API_KEY: v.optional(v.string()),
+    // SMTP connection values (ADR-0054). The port is a string, as every
+    // declared value is; the SMTP provider parses it.
+    EMAIL_SMTP_HOST: v.optional(v.string()),
+    EMAIL_SMTP_PORT: v.optional(v.string()),
+    EMAIL_SMTP_USER: v.optional(v.string()),
+    EMAIL_SMTP_PASSWORD: v.optional(v.string()),
     CONTACT_IP_PROOF_SECRET: v.optional(v.string()),
     REVALIDATE_SECRET: v.optional(v.string()),
     SITE_URL: v.optional(v.string()),

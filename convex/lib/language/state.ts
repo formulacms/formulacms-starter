@@ -681,9 +681,17 @@ export async function recordSourcePublicChange(
       if (!keepBlocked) {
         const description = await describeSourcePage(ctx, transition, pageId)
         const next = {
+          // Re-derive across the private_draft boundary (a draft published
+          // during review, or a published Page that became draft-only) and
+          // for hidden selections. Other kind changes keep the stored
+          // disposition (it may be the owner's choice); retained_target rows
+          // carry target-side state that describeSourcePage never returns.
           ...(description &&
+          existing.kind !== "retained_target" &&
           (existing.kind === "hidden_selection" ||
-            description.kind === "hidden_selection")
+            description.kind === "hidden_selection" ||
+            (existing.kind === "private_draft") !==
+              (description.kind === "private_draft"))
             ? {
                 kind: description.kind,
                 disposition: description.disposition,

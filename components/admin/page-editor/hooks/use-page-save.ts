@@ -10,9 +10,11 @@ import { useTranslations } from "next-intl"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
 import { ConvexError } from "convex/values"
 import { hasErrorCode } from "../../pages-list-errors"
+import { useTranslationOffMessage } from "../../content-types/content-type-names"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
+import type { PerLanguageSeo } from "@/convex/lib/contentTypes/perLanguageFields"
 import type { FunctionArgs, FunctionReturnType } from "convex/server"
 import type { Slice } from "@/convex/lib/slices"
 import {
@@ -39,6 +41,7 @@ import {
   writeRecoveryDraft,
 } from "../lib/recovery"
 import {
+  type CopiedLanguageValues,
   type Page,
   type PageEditorRecoveryDraft,
   staleSaveMessage,
@@ -107,6 +110,9 @@ type RouterRefresh = {
   refresh(): void
 }
 
+const IMAGE_MISSING_MESSAGE =
+  "An image on this page was deleted from the media library. Remove or replace it, then try again."
+
 const PUBLICATION_ERROR_MESSAGES = {
   PUBLICATION_REFERENCE_TARGET_LOCALE_UNAVAILABLE:
     "A referenced page isn't published in this language. Publish it first, then try again.",
@@ -119,6 +125,14 @@ const PUBLICATION_ERROR_MESSAGES = {
   SLUG_REQUIRED: "Give the page an address before saving.",
   // The home page can be neither archived nor moved to trash.
   PAGE_HOME_LIFECYCLE_REFUSED: "The home page can’t be archived.",
+  // Save and Publish both refuse an image whose media item or file is gone.
+  // An identity mismatch is not a deletion, so it keeps the generic message.
+  PUBLICATION_MEDIA_REFERENCE_MISSING: IMAGE_MISSING_MESSAGE,
+  PUBLICATION_MEDIA_STORAGE_MISSING: IMAGE_MISSING_MESSAGE,
+  // ADR-0037 amendment (2026-11-17): publish and AI translation refuse a
+  // language that the content type's translation switch hides.
+  CONTENT_TYPE_TRANSLATION_OFF:
+    "Not shown on the site: translation is off for this content type.",
 } as const satisfies Readonly<Record<string, string>>
 
 type PublicationErrorCode = keyof typeof PUBLICATION_ERROR_MESSAGES
@@ -198,6 +212,8 @@ export type PageSaveDraft = {
    *  descriptor field name, filled from primitive defaults when unset. */
   sharedFieldValues: Record<string, unknown>
   localizedFieldValues: Record<string, unknown>
+  /** Values copied from another language that the editor has no field for. */
+  copiedLanguageValues?: CopiedLanguageValues
 }
 
 export type RetainedPageSaveBase = {
@@ -306,19 +322,18 @@ function snapshotForDraft(draft: PageSaveDraft): string {
     // detection so editing author roleTitle/bio flips the Save button.
     sharedFieldValues: draft.sharedFieldValues,
     localizedFieldValues: draft.localizedFieldValues,
+    copiedLanguageValues: draft.copiedLanguageValues,
   })
 }
 
+// The social image is the one shared search and social value; the others
+// belong to each language (ADR-0037 amendment, 2026-11-17).
 type SharedDraftValues = Pick<
   PageSaveDraft,
   | "pageType"
   | "parentId"
   | "authorIds"
   | "tags"
-  | "seoNoIndex"
-  | "seoNoFollow"
-  | "seoOgTitle"
-  | "seoOgDescription"
   | "seoOgImage"
   | "sharedFieldValues"
 >
@@ -329,10 +344,6 @@ export function sharedDraftValues(draft: SharedDraftValues) {
     parentId: draft.parentId,
     authorIds: draft.authorIds,
     tags: draft.tags,
-    seoNoIndex: draft.seoNoIndex,
-    seoNoFollow: draft.seoNoFollow,
-    seoOgTitle: draft.seoOgTitle,
-    seoOgDescription: draft.seoOgDescription,
     seoOgImage: draft.seoOgImage,
     sharedFieldValues: draft.sharedFieldValues,
   }
@@ -346,7 +357,12 @@ function savedBaselineSnapshot(
   // A cached or recovered draft is never evidence of persistence. Use the
   // same stored values and descriptor defaults as a fresh editor mount.
   const localeContent = page.content?.[currentLocale] as
-    | { metaTitle?: string; metaDescription?: string; slices?: Slice[] }
+    | {
+        metaTitle?: string
+        metaDescription?: string
+        slices?: Slice[]
+        seo?: PerLanguageSeo
+      }
     | undefined
   return snapshotForDraft({
     title: getTitle(page, currentLocale),
@@ -367,10 +383,10 @@ function savedBaselineSnapshot(
     metaTitle: localeContent?.metaTitle ?? "",
     metaDescription: localeContent?.metaDescription ?? "",
     slices: localeContent?.slices ?? [],
-    seoNoIndex: page.seo?.noIndex ?? false,
-    seoNoFollow: page.seo?.noFollow ?? false,
-    seoOgTitle: page.seo?.ogTitle ?? "",
-    seoOgDescription: page.seo?.ogDescription ?? "",
+    seoNoIndex: localeContent?.seo?.noIndex ?? false,
+    seoNoFollow: localeContent?.seo?.noFollow ?? false,
+    seoOgTitle: localeContent?.seo?.ogTitle ?? "",
+    seoOgDescription: localeContent?.seo?.ogDescription ?? "",
     seoOgImage: page.seo?.ogImage ?? "",
     sharedFieldValues: extractSharedFieldValues(
       page,
@@ -382,6 +398,68 @@ function savedBaselineSnapshot(
       currentLocale
     ),
   })
+}
+
+function setOrDelete(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown
+) {
+  if (value) target[key] = value
+  else delete target[key]
+}
+
+type LanguageSeoValues = Pick<
+  PageSaveDraft,
+  | "seoNoIndex"
+  | "seoNoFollow"
+  | "seoOgTitle"
+  | "seoOgDescription"
+  | "copiedLanguageValues"
+>
+
+/**
+ * The language's whole seo block, built from the language's own draft: the
+ * panel's four values, and the copied structured data, keywords and focus
+ * keyword when another language was copied in. Values the editor holds no
+ * field for keep their stored value otherwise. A save that sends `seo`
+ * replaces the stored block, so every value is always included.
+ */
+function languageSeoBlock(
+  stored: PerLanguageSeo | undefined,
+  draft: LanguageSeoValues
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...(stored ?? {}) }
+  const copied = draft.copiedLanguageValues
+  if (copied) {
+    setOrDelete(next, "structuredData", copied.structuredData)
+    setOrDelete(
+      next,
+      "keywords",
+      copied.keywords?.length ? copied.keywords : undefined
+    )
+    setOrDelete(next, "focusKeyword", copied.focusKeyword)
+  }
+  setOrDelete(next, "noIndex", draft.seoNoIndex)
+  setOrDelete(next, "noFollow", draft.seoNoFollow)
+  setOrDelete(next, "ogTitle", draft.seoOgTitle.trim())
+  setOrDelete(next, "ogDescription", draft.seoOgDescription.trim())
+  return next
+}
+
+/** True when the language's own seo values or copied values changed. */
+function languageSeoChanged(
+  values: LanguageSeoValues,
+  saved: LanguageSeoValues
+): boolean {
+  return (
+    values.seoNoIndex !== saved.seoNoIndex ||
+    values.seoNoFollow !== saved.seoNoFollow ||
+    values.seoOgTitle.trim() !== saved.seoOgTitle.trim() ||
+    values.seoOgDescription.trim() !== saved.seoOgDescription.trim() ||
+    JSON.stringify(values.copiedLanguageValues) !==
+      JSON.stringify(saved.copiedLanguageValues)
+  )
 }
 
 // Module-level so the component bodies hold no unsupported statements. React
@@ -437,6 +515,7 @@ export function usePageSave({
   const t = useTranslations("editor.pageSave")
   const addressMessages = usePageAddressMessages(defaultLocale)
   const displayError = useCaughtError()
+  const translationOffMessage = useTranslationOffMessage()
   const publicationErrorMessages: Readonly<
     Record<PublicationErrorCode, string>
   > = {
@@ -447,6 +526,9 @@ export function usePageSave({
     PUBLICATION_REFERENCE_LIMIT: t("publication.referenceLimit"),
     SLUG_REQUIRED: t("slugRequired"),
     PAGE_HOME_LIFECYCLE_REFUSED: t("homeArchiveRefused"),
+    PUBLICATION_MEDIA_REFERENCE_MISSING: t("publication.imageMissing"),
+    PUBLICATION_MEDIA_STORAGE_MISSING: t("publication.imageMissing"),
+    CONTENT_TYPE_TRANSLATION_OFF: translationOffMessage(page.pageType),
   }
   const currentSnapshot = snapshotForDraft(draft)
   const currentScope = `${page._id}:${currentLocale}`
@@ -838,6 +920,30 @@ export function usePageSave({
         // system-owned title/meta LAST so a tampered / stale-recovered bag
         // carrying a `title` (or metaTitle/metaDescription) can never clobber
         // the visible editor state.
+        // ADR-0037 amendment (2026-11-17): the language's own seo block and
+        // card excerpt travel beside `localized` in EVERY arm, a pure-form
+        // type such as testimonial included (its Copy from another language
+        // carries them too). They are sent only when they changed; the server
+        // keeps the stored ones when the key is absent. A copied card excerpt
+        // travels the same way ("" clears).
+        const perLanguageDraft = {
+          ...(languageSeoChanged(draft, persistedDraft)
+            ? {
+                seo: languageSeoBlock(
+                  (
+                    page.content?.[currentLocale] as
+                      { seo?: PerLanguageSeo } | undefined
+                  )?.seo,
+                  draft
+                ),
+              }
+            : {}),
+          ...(draft.copiedLanguageValues &&
+          JSON.stringify(draft.copiedLanguageValues) !==
+            JSON.stringify(persistedDraft.copiedLanguageValues)
+            ? { cardExcerpt: draft.copiedLanguageValues.cardExcerpt ?? "" }
+            : {}),
+        }
         const contentDraft = hasSliceBody(page)
           ? {
               pageType: page.pageType,
@@ -848,6 +954,7 @@ export function usePageSave({
                 metaDescription: draft.metaDescription || undefined,
               },
               slices: draft.slices,
+              ...perLanguageDraft,
             }
           : {
               pageType: page.pageType,
@@ -855,6 +962,7 @@ export function usePageSave({
                 ...draft.localizedFieldValues,
                 title: draft.title,
               },
+              ...perLanguageDraft,
             }
 
         const typeChanged = draft.pageType !== persistedDraft.pageType
@@ -919,29 +1027,31 @@ export function usePageSave({
           page.pageType === "post" &&
           (draft.tags.length !== currentTags.length ||
             draft.tags.some((tag, index) => tag !== currentTags[index]))
-        const seo: Record<string, unknown> = { ...(page.seo ?? {}) }
-        const setOrDel = (key: string, value: unknown) => {
-          if (value) seo[key] = value
-          else delete seo[key]
+        // ADR-0037 amendment (2026-11-17): the social title and description,
+        // noindex and nofollow belong to the language being saved; the social
+        // image stays shared. Values the panel does not edit (structured data,
+        // keywords) keep their stored value for this language unless another
+        // language was copied in.
+        const storedPerLanguageSeo = (
+          page.content?.[currentLocale] as { seo?: PerLanguageSeo } | undefined
+        )?.seo
+        const localeSeo = languageSeoBlock(storedPerLanguageSeo, draft)
+        const sharedSeo: Record<string, unknown> = { ...(page.seo ?? {}) }
+        const persistedSharedSeo: Record<string, unknown> = {
+          ...(page.seo ?? {}),
         }
-        setOrDel("noIndex", draft.seoNoIndex)
-        setOrDel("noFollow", draft.seoNoFollow)
-        setOrDel("ogTitle", draft.seoOgTitle.trim())
-        setOrDel("ogDescription", draft.seoOgDescription.trim())
-        setOrDel("ogImage", draft.seoOgImage.trim())
-        const persistedSeo: Record<string, unknown> = { ...(page.seo ?? {}) }
-        const savedSeoValues = {
-          noIndex: persistedDraft.seoNoIndex,
-          noFollow: persistedDraft.seoNoFollow,
-          ogTitle: persistedDraft.seoOgTitle.trim(),
-          ogDescription: persistedDraft.seoOgDescription.trim(),
-          ogImage: persistedDraft.seoOgImage.trim(),
-        }
-        for (const [key, value] of Object.entries(savedSeoValues)) {
-          if (value) persistedSeo[key] = value
-          else delete persistedSeo[key]
-        }
-        const seoChanged = JSON.stringify(seo) !== JSON.stringify(persistedSeo)
+        setOrDelete(sharedSeo, "ogImage", draft.seoOgImage.trim())
+        setOrDelete(
+          persistedSharedSeo,
+          "ogImage",
+          persistedDraft.seoOgImage.trim()
+        )
+        const localeSeoChanged = languageSeoChanged(draft, persistedDraft)
+        const ogImageChanged =
+          JSON.stringify(sharedSeo) !== JSON.stringify(persistedSharedSeo)
+        const seoChanged = localeSeoChanged || ogImageChanged
+        // The retained legacy-phase writer still takes one combined block.
+        const seo: Record<string, unknown> = { ...sharedSeo, ...localeSeo }
 
         // Slug delta — per-locale behavior: editing on the default locale
         // writes the base `slug`; editing on any other locale writes/clears
@@ -1006,7 +1116,8 @@ export function usePageSave({
             }) ||
           JSON.stringify(
             (contentDraft as { slices?: unknown }).slices ?? undefined
-          ) !== JSON.stringify(priorLocaleBag?.slices ?? undefined)
+          ) !== JSON.stringify(priorLocaleBag?.slices ?? undefined) ||
+          localeSeoChanged
         const anyStagedChange =
           contentActuallyChanged ||
           stagedSlug !== undefined ||
@@ -1041,7 +1152,7 @@ export function usePageSave({
         )
           return false
         const sharedChanged =
-          seoChanged ||
+          ogImageChanged ||
           authorsChanged ||
           tagsChanged ||
           sharedFieldsChanged ||
@@ -1067,7 +1178,7 @@ export function usePageSave({
             ...(sharedChanged
               ? {
                   shared: {
-                    ...(seoChanged ? { seo: seo as never } : {}),
+                    ...(ogImageChanged ? { seo: sharedSeo as never } : {}),
                     ...(authorsChanged ? { authorIds: draft.authorIds } : {}),
                     ...(tagsChanged ? { tags: draft.tags } : {}),
                     ...(sharedFieldsChanged

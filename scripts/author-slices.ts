@@ -1,4 +1,6 @@
+import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { markLocalStateInUse } from "../lib/local-state/directory"
 
 const HELP = `Review and maintain registered Slice Type models and shared renderers in your own site, on a local backend.
 
@@ -131,5 +133,8 @@ if (
   process.argv[1] &&
   pathToFileURL(process.argv[1]).href === import.meta.url
 ) {
+  // First: the server-start move must not rename local state this run uses.
+  // The app root is this script's own site (the CLI refuses any other).
+  markLocalStateInUse(resolve(dirname(fileURLToPath(import.meta.url)), ".."))
   void main()
 }

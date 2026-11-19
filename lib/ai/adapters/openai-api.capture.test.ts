@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { OPENAI_API_CATALOG } from "../capabilities/openai-api"
 import { validateApiModelTuple } from "../task-profiles"
+import { BUNDLED_MODEL_CATALOG } from "../model-catalog"
 import { createOpenAIGenerationAdapter } from "./openai-api"
 
 afterEach(() => vi.unstubAllGlobals())
@@ -35,7 +36,7 @@ describe("OpenAI product requests through the installed SDK", () => {
       tuple: validateApiModelTuple({
         mode: "catalog", provider: "openai", model,
         reasoning: { kind: "effort", effort },
-      }),
+      }, BUNDLED_MODEL_CATALOG),
       instructions: "Return a short answer.",
       input: { prompt: "PROMPT" },
       abortSignal: new AbortController().signal,

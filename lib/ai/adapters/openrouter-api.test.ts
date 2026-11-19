@@ -41,7 +41,7 @@ describe("OpenRouter catalog adapter", () => {
         },
       },
       finalStep: {
-        response: { modelId: "openai/gpt-5.6-sol" },
+        response: { modelId: "openai/gpt-6.1-sol" },
         providerMetadata: { openrouter: { provider: "openai" } },
       },
     })
@@ -88,12 +88,12 @@ describe("OpenRouter catalog adapter", () => {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
       },
-      actualModel: "openai/gpt-5.6-sol",
+      actualModel: "openai/gpt-6.1-sol",
       routedProvider: "openai",
     })
 
     expect(mocks.createOpenRouter).toHaveBeenCalledOnce()
-    expect(mocks.chat).toHaveBeenCalledWith("openai/gpt-5.6-sol", {
+    expect(mocks.chat).toHaveBeenCalledWith("openai/gpt-6.1-sol", {
       provider: {
         allow_fallbacks: false,
         require_parameters: true,
@@ -102,7 +102,7 @@ describe("OpenRouter catalog adapter", () => {
     })
     expect(mocks.generateText).toHaveBeenCalledWith({
       model: {
-        modelId: "openai/gpt-5.6-sol",
+        modelId: "openai/gpt-6.1-sol",
         settings: {
           provider: {
             allow_fallbacks: false,

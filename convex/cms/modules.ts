@@ -1,4 +1,5 @@
 import { ConvexError, v, type Infer } from "convex/values"
+import { assertNoPagePurgeInProgress } from "../lib/publishing/pagePurge"
 import { MODULE_CATALOG } from "../../lib/modules/catalog"
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 import { mutation, query } from "../_generated/server"
@@ -313,6 +314,9 @@ export async function commitModuleTransitionInTransaction(
     await resolveModuleReadiness(ctx, persisted.enabledModuleIds)
   )
   const preview = previewModuleTransition(current, input.changes)
+  // A permanent Page purge in flight must not meet a language-module change.
+  if (preview.changes.some((change) => change.moduleId === "multilingual"))
+    await assertNoPagePurgeInProgress(ctx)
   const moduleOwnedBlockers = await readModuleOwnedBlockers(ctx, preview)
   // M5: a `multilingual` toggle in invalid language state refuses with the
   // integrity code before any write.

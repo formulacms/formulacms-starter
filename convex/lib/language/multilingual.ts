@@ -1,4 +1,6 @@
 import { ConvexError, v, type Infer } from "convex/values"
+import { assertNoPagePurgeInProgress } from "../publishing/pagePurge"
+import { nextUpdatedAt } from "../versions"
 import type { Doc, Id } from "../../_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "../../_generated/server"
 import { SUPPORTED_LOCALES } from "../../../lib/i18n/config"
@@ -179,6 +181,7 @@ export async function adoptMultilingualAuthorityInTransaction(
   defaultLocale: string
   enabledLocales: string[]
 }> {
+  await assertNoPagePurgeInProgress(ctx)
   const validation = await validateAdoption(ctx)
   if (!validation.ok) fail(validation.code)
   const { state } = validation
@@ -231,6 +234,7 @@ export async function returnToSingleLanguageInTransaction(
   ctx: MutationCtx,
   expectedAuthorityVersion: number
 ): Promise<{ version: number; locale: string }> {
+  await assertNoPagePurgeInProgress(ctx)
   if ((await readPublicationAuthority(ctx)) !== "snapshot_active") {
     fail("LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY")
   }
@@ -364,7 +368,10 @@ export async function addLanguageInTransaction(
     version,
     updatedAt: now,
   })
-  await ctx.db.patch("siteSettings", state.settings._id, { enabledLocales, updatedAt: now })
+  await ctx.db.patch("siteSettings", state.settings._id, {
+    enabledLocales,
+    updatedAt: nextUpdatedAt(state.settings.updatedAt, now),
+  })
   if (preview) {
     await ctx.db.patch("siteLanguageImpactPreviews", preview._id, { phase: "consumed", updatedAt: now })
   }
@@ -638,7 +645,10 @@ export async function addLanguageSilentlyInTransaction(
     version,
     updatedAt: now,
   })
-  await ctx.db.patch("siteSettings", state.settings._id, { enabledLocales, updatedAt: now })
+  await ctx.db.patch("siteSettings", state.settings._id, {
+    enabledLocales,
+    updatedAt: nextUpdatedAt(state.settings.updatedAt, now),
+  })
   const operationKind = reveals ? "reveal" : "add"
   await insertLanguageLifecycleIntent(ctx, {
     operationId: `${operationKind}:v${version}`,
@@ -716,7 +726,10 @@ export async function removeLanguageInTransaction(
     version,
     updatedAt: now,
   })
-  await ctx.db.patch("siteSettings", state.settings._id, { enabledLocales, updatedAt: now })
+  await ctx.db.patch("siteSettings", state.settings._id, {
+    enabledLocales,
+    updatedAt: nextUpdatedAt(state.settings.updatedAt, now),
+  })
   await ctx.db.patch("siteLanguageImpactPreviews", preview._id, { phase: "consumed", updatedAt: now })
   await insertLanguageLifecycleIntent(ctx, {
     operationId: `remove:v${version}`,

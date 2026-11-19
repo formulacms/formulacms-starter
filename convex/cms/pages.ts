@@ -42,6 +42,7 @@ import {
 import {
   assertPrePublishAllowed,
   buildPrePublishChecklistWithReferences,
+  languageChecklistShape,
   prePublishChecklistValidator,
   projectPublicPage,
   projectPublicReferenceCard,
@@ -74,6 +75,7 @@ import {
   releasePageEditorLock as releasePageEditorLockRow,
 } from "../lib/publishing/locks"
 import { createPageRevision } from "../lib/publishing/revisions"
+import { nextUpdatedAt } from "../lib/versions"
 import { deletePageSearch, syncPageSearch } from "../lib/publishing/search"
 import {
   SCHEDULED_TRANSITION_BATCH_SIZE,
@@ -89,10 +91,12 @@ import {
   readLiveAddressRows,
   readHeldHistoricalRows,
   readFrozenSnapshotProjection,
+  isPageHiddenInLocaleOrAncestry,
   readPublicationAuthority,
   readPublicSnapshotLocaleAlternates,
 } from "../lib/publishing/snapshots"
 import { assertPublicLanguageVersion } from "../lib/language/state"
+import { recordPublicChange } from "../lib/language/freshness"
 import {
   initializeSuccessorPage,
   SITEMAP_PARTITION_CEILING,
@@ -102,6 +106,7 @@ import {
   type AdminLocaleSource,
 } from "./publication"
 import { pageTypeValidator } from "../lib/pages/types"
+import { assertNoPagePurge } from "../lib/publishing/pagePurge"
 import {
   assertBoundedPilotCanCreate,
   assertBoundedPilotCanPublish,
@@ -202,6 +207,11 @@ import {
   SYSTEM_OWNED_SHARED_FIELDS,
 } from "../lib/domains/contentModel"
 import { ensureTagsForLabels } from "./tags"
+import {
+  planDraftBackfill,
+  sanitizeLocalizedSeo,
+  stripMovedSharedValues,
+} from "../lib/contentTypes/perLanguageFields"
 
 // ============================================================
 // Validators
@@ -242,6 +252,15 @@ const publicSliceBodyContentValidator = v.object({
   slices: v.array(sliceValidator),
 })
 
+/** The post category is written in each language (ADR-0037 amendment, 2026-11-17). */
+const publicPostContentValidator = v.object({
+  title: v.string(),
+  metaTitle: v.optional(v.string()),
+  metaDescription: v.optional(v.string()),
+  category: v.optional(v.string()),
+  slices: v.array(sliceValidator),
+})
+
 /**
  * The response schema for `getPublicPageById`. Keep this separate from the
  * `pages` storage validator: a new storage field must not become public by
@@ -269,10 +288,9 @@ const publicPageValidator = v.union(
         })
       )
     ),
-    category: v.optional(v.string()),
     featured: v.boolean(),
     promoteToFront: v.boolean(),
-    content: v.record(v.string(), publicSliceBodyContentValidator),
+    content: v.record(v.string(), publicPostContentValidator),
   }),
   v.object({
     ...publicPageSystemFields,
@@ -715,7 +733,10 @@ async function autoUnsetOtherPromoteToFront(
     holders
       .filter((holder) => holder._id !== excludePageId)
       .map((holder) =>
-        occurrenceUsageWrites(ctx).patch("pages", holder._id, { promoteToFront: false })
+        occurrenceUsageWrites(ctx).patch("pages", holder._id, {
+          promoteToFront: false,
+          updatedAt: nextUpdatedAt(holder.updatedAt, Date.now()),
+        })
       )
   )
 }
@@ -1415,7 +1436,7 @@ async function rebuildDescendantAncestry(
       ancestryPath,
       hierarchyDepth,
       localizedAncestryPaths,
-      updatedAt: Date.now(),
+      updatedAt: nextUpdatedAt(child.updatedAt, Date.now()),
     })
     await rebuildDescendantAncestry(ctx, child._id, cfg)
   }
@@ -1669,6 +1690,29 @@ export const getForEdit = query({
           updatedAt = Math.max(updatedAt, drafts[0]!.updatedAt)
           slug = drafts[0]!.slug
           localized = drafts[0]!.content as unknown as Record<string, unknown>
+          // A page the one-time backfill has not reached yet shows the old
+          // shared values the way the backfill will write them.
+          if (!pageState.perLanguageFieldsBackfill) {
+            localized =
+              planDraftBackfill({
+                locale: state.locale,
+                legacyLocale:
+                  settings?.legacySharedFieldsLocale ??
+                  settings?.defaultLocale ??
+                  "",
+                content: localized,
+                sharedSeo: (shared.system as { seo?: Record<string, unknown> })
+                  .seo,
+                sharedCardExcerpt: (
+                  shared.system as { cardExcerpt?: unknown }
+                ).cardExcerpt,
+                sharedCategory: (
+                  shared.descriptor as unknown as { category?: unknown }
+                ).category,
+                hasCategoryField:
+                  "category" in contentTypeDefs[page.pageType].localizedFields,
+              }) ?? localized
+          }
           sources.set(state.locale, {
             hasWorkingDraft: true,
             hasVerifiedBase: false,
@@ -1708,6 +1752,12 @@ export const getForEdit = query({
             : latest,
         undefined
       )
+      // The values that moved into each language (ADR-0037 amendment,
+      // 2026-11-17) are read from `content[locale]`, never from the shared blocks.
+      const ownedShared = stripMovedSharedValues({
+        system: shared.system as unknown as Record<string, unknown>,
+        descriptor: shared.descriptor as unknown as Record<string, unknown>,
+      })
       // Identity shell only: every authored field comes from successor drafts,
       // so a value cleared there (e.g. `parentId`) cannot reappear from the
       // retained legacy Page row.
@@ -1717,8 +1767,8 @@ export const getForEdit = query({
         pageType: page.pageType,
         createdAt: page.createdAt,
         ...(page.createdBy === undefined ? {} : { createdBy: page.createdBy }),
-        ...shared.descriptor,
-        ...shared.system,
+        ...ownedShared.descriptor,
+        ...ownedShared.system,
         updatedAt,
         slug: defaultSlug,
         localizedSlugs,
@@ -1905,14 +1955,14 @@ export const getPrePublishChecklist = query({
         content = base?.payload.localized.content
       }
       if (!slug || !content) throw new ConvexError("PAGE_LOCALE_DRAFT_REQUIRED")
-      const shared = sharedRows[0]!
-      const shape = {
-        ...page,
-        ...shared.descriptor,
-        ...shared.system,
+      const shape = await languageChecklistShape(ctx, {
+        page,
+        shared: sharedRows[0]!,
+        locale: requestedLocale,
         slug,
-        content: { [requestedLocale]: content },
-      } as Doc<"pages">
+        content,
+        workingDraft: draftRows.length === 1,
+      })
       return buildPrePublishChecklistWithReferences(
         ctx,
         shape,
@@ -3788,7 +3838,11 @@ async function findSelfHealCandidate(
     if (!historicalRows) continue
     if (
       historicalRows.length === 1 &&
-      (await isValidHistoricalRow(ctx, historicalRows[0]!, locale))
+      (await isValidHistoricalRow(ctx, historicalRows[0]!, locale)) &&
+      // ADR-0037 amendment (2026-11-17): an old address of a version the
+      // translation switch hides (its own type or an ancestor's, from its
+      // frozen publication ancestry) is not a match.
+      !(await isPageHiddenInLocaleOrAncestry(ctx, historicalRows[0]!.pageId, locale))
     ) {
       match = { pageId: historicalRows[0]!.pageId, locale }
       break
@@ -3948,6 +4002,22 @@ export const resolveHistoricalPublishedPath = query({
           // revalidated: enabled, active, routable and currently selected
           // (ledger C3d.1). The proxy prefixes the destination with the
           // returned locale.
+          //
+          // ADR-0037 amendment (2026-11-17): an old address whose own
+          // language version is hidden by the translation switch answers
+          // not found, never a redirect into another language.
+          if (
+            await isPageHiddenInLocaleOrAncestry(
+              ctx,
+              continuity.pageId,
+              continuity.locale
+            )
+          ) {
+            return {
+              authority: "snapshot_active" as const,
+              disposition: "historical_unavailable" as const,
+            }
+          }
           for (const candidate of new Set([locale, continuity.locale])) {
             const destination = await readPublishedDestination(
               ctx,
@@ -3995,6 +4065,21 @@ export const resolveHistoricalPublishedPath = query({
           // the default away from it). Locale, path, snapshot and generation
           // all come from the same selection.
           const transition = await ctx.db.get("siteLanguageTransitions", transitionId)
+          // ADR-0037 amendment (2026-11-17): same rule as the M05 set above;
+          // the old address belongs to the transition's source language.
+          if (
+            transition &&
+            (await isPageHiddenInLocaleOrAncestry(
+              ctx,
+              continuity.pageId,
+              transition.sourceLocale
+            ))
+          ) {
+            return {
+              authority: "snapshot_active" as const,
+              disposition: "historical_unavailable" as const,
+            }
+          }
           const candidates = [
             locale,
             ...(transition && transition.targetLocale !== locale
@@ -4388,7 +4473,31 @@ export const create = mutation({
       defaultLocale,
       title
     )
+    // ADR-0037 amendment (2026-11-17): the search, social and card values and
+    // the post category belong to each language. A new page keeps the ones the
+    // caller sent in every language it is created with.
+    if (publicationAuthority === "snapshot_active") {
+      const seoValues = sanitizeLocalizedSeo(args.seo)
+      const excerpt = args.cardExcerpt ? stripHtml(args.cardExcerpt) : undefined
+      for (const block of Object.values(initialContent)) {
+        if (seoValues) block.seo = { ...seoValues }
+        if (excerpt) block.cardExcerpt = excerpt
+        if (args.pageType === "post" && args.category)
+          block.category = args.category
+        // The legacy shared meta text fills the language's empty meta.
+        for (const key of ["metaTitle", "metaDescription"] as const) {
+          const legacy = args.seo?.[key]
+          if (
+            legacy &&
+            !block[key] &&
+            Object.prototype.hasOwnProperty.call(descriptor.localizedFields, key)
+          )
+            block[key] = legacy
+        }
+      }
+    }
 
+    if (args.parentId) await assertNoPagePurge(ctx, args.parentId)
     const { ancestryPath, hierarchyDepth, localizedAncestryPaths } =
       args.parentId
         ? await buildAncestryPath(
@@ -4554,6 +4663,9 @@ export const create = mutation({
         initialContent as Record<string, Record<string, unknown>>,
         args.expectedPresentationCatalogRevision
       )
+      // An open language change must give this new Page a row (and stale a
+      // ready change). With no open change this is one read.
+      await recordPublicChange(ctx, { pageId, scopes: [] })
       return pageId
     }
     // Seed staging when the row is not being published on create. The
@@ -4937,7 +5049,8 @@ export const update = mutation({
     }
 
     const now = Date.now()
-    const patch: Record<string, unknown> = { updatedAt: now }
+    const editToken = nextUpdatedAt(existing.updatedAt, now)
+    const patch: Record<string, unknown> = { updatedAt: editToken }
 
     if (updates.slug !== undefined) patch.slug = updates.slug
     if (updates.pageType !== undefined) patch.pageType = updates.pageType
@@ -5232,7 +5345,7 @@ export const update = mutation({
         extraPaths: oldPublicUrls,
       })
     }
-    return { updatedAt: now }
+    return { updatedAt: editToken }
   },
 })
 
@@ -5311,14 +5424,14 @@ export const processScheduledTransitions = internalMutation({
       ) {
         await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
           scheduledAt: undefined,
-          updatedAt: now,
+          updatedAt: nextUpdatedAt(staging.updatedAt, now),
         })
         continue
       }
       if (!(await canBoundedPilotPublish(ctx, false))) {
         await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
           scheduledAt: undefined,
-          updatedAt: now,
+          updatedAt: nextUpdatedAt(staging.updatedAt, now),
         })
         continue
       }
@@ -5367,7 +5480,7 @@ export const processScheduledTransitions = internalMutation({
         // reschedule.
         await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
           scheduledAt: undefined,
-          updatedAt: now,
+          updatedAt: nextUpdatedAt(staging.updatedAt, now),
         })
         continue
       }
@@ -5379,7 +5492,7 @@ export const processScheduledTransitions = internalMutation({
       if (!workflowCheck.ok) {
         await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
           scheduledAt: undefined,
-          updatedAt: now,
+          updatedAt: nextUpdatedAt(staging.updatedAt, now),
         })
         await recordEditionScheduledPublishRejected(ctx, {
           pageId: page._id,
@@ -5405,10 +5518,13 @@ export const processScheduledTransitions = internalMutation({
       if (page.deletedAt !== undefined || page.expiresAt === undefined) {
         continue
       }
+      // The page may have been published earlier in this same run; read the
+      // stored row so the token moves past that write too.
+      const storedPage = await ctx.db.get("pages", page._id)
       const patch = {
         status: "archived" as const,
         expiresAt: undefined,
-        updatedAt: now,
+        updatedAt: nextUpdatedAt((storedPage ?? page).updatedAt, now),
       }
       await createPageRevision(ctx, page, "scheduled_expiry", undefined, [
         "Archived automatically from expiry time",
@@ -5481,10 +5597,14 @@ export const restore = mutation({
       ownerId: page.createdBy,
     })
     // Patch using db.patch with explicit undefined — removes the field
-    await occurrenceUsageWrites(ctx).patch("pages", id, { deletedAt: undefined })
+    const restored = {
+      deletedAt: undefined,
+      updatedAt: nextUpdatedAt(page.updatedAt, Date.now()),
+    }
+    await occurrenceUsageWrites(ctx).patch("pages", id, restored)
     // Restore the row's fan-out mirror to softDelete's clear above.
-    await refreshPageReferences(ctx, { ...page, deletedAt: undefined })
-    await syncPageSearch(ctx, { ...page, deletedAt: undefined })
+    await refreshPageReferences(ctx, { ...page, ...restored })
+    await syncPageSearch(ctx, { ...page, ...restored })
     return null
   },
 })
@@ -6060,7 +6180,8 @@ export const updateDraft = mutation({
     // Compose the staging patch. Each optional arg follows the
     // pages.update convention: `undefined` = untouched, `null` = clear.
     const now = Date.now()
-    const stagingPatch: Record<string, unknown> = { updatedAt: now }
+    const stagedAt = staging ? nextUpdatedAt(staging.updatedAt, now) : now
+    const stagingPatch: Record<string, unknown> = { updatedAt: stagedAt }
 
     if (args.slug !== undefined) stagingPatch.slug = args.slug
     if (args.localizedSlugs !== undefined)
@@ -6316,7 +6437,7 @@ export const updateDraft = mutation({
     // publish. This keeps autosave cheap (no O(locales) writes per
     // save) and preserves PR A's decision.
 
-    return { updatedAt: now }
+    return { updatedAt: stagedAt }
   },
 })
 
@@ -6448,8 +6569,9 @@ async function performPublish(
   // of prior draft/archived state (§7).
   const now = Date.now()
   const wasPublished = page.status === "published"
+  const editToken = nextUpdatedAt(page.updatedAt, now)
   const patch: Record<string, unknown> = {
-    updatedAt: now,
+    updatedAt: editToken,
     status: "published",
     publishedAt: wasPublished ? page.publishedAt : now,
   }
@@ -6554,7 +6676,7 @@ async function performPublish(
   // deterministic deletion paths).
   await occurrenceUsageWrites(ctx).delete("pageStaging", staging._id)
 
-  return { updatedAt: now }
+  return { updatedAt: editToken }
 }
 
 /**

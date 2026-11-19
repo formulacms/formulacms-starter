@@ -8,6 +8,11 @@ import type { Slice } from "./lib/slices"
 import { IMAGE_DIMENSION_FIXTURES } from "./lib/media/imageDimensions.testFixtures"
 import schema from "./schema"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
+import migrationsTest from "@convex-dev/migrations/test"
+import {
+  finishMediaUsageBackfill,
+  trashMediaDirectly,
+} from "@/test-utils/media-usage-backfill"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -19,11 +24,13 @@ const TEST_USER = {
 }
 
 function mediaTest() {
-  return convexTest({
+  const t = convexTest({
     schema,
     modules,
     ownerIdentity: TEST_USER,
   })
+  migrationsTest.register(t)
+  return t
 }
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -367,8 +374,16 @@ describe("public media storage URL resolution", () => {
       [media.storageId]: expect.any(String),
     })
 
-    await asUser.mutation(api.cms.media.remove, { id: media.mediaId })
-    await expect(resolve()).resolves.toEqual({})
+    await asUser.mutation(api.cms.media.softDelete, { id: media.mediaId })
+    await finishMediaUsageBackfill(t)
+    // Permanent delete is available on snapshot-authority sites only (the
+    // usage index covers nothing else); see mediaPurge.test.ts.
+    await expect(
+      asUser.mutation(api.cms.media.remove, { id: media.mediaId })
+    ).rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
+    await expect(resolve()).resolves.toEqual({
+      [media.storageId]: expect.any(String),
+    })
   })
 })
 
@@ -445,12 +460,19 @@ describe("media usage", () => {
     await expect(owner.mutation(api.cms.media.softDelete, { id: media.mediaId }))
       .rejects.toThrow("MEDIA_SOFT_DELETE_REFERENCED")
     await expect(owner.mutation(api.cms.media.remove, { id: media.mediaId }))
-      .rejects.toThrow(/used by/i)
+      .rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
+    await trashMediaDirectly(t, media.mediaId)
+    await finishMediaUsageBackfill(t)
+    await expect(owner.mutation(api.cms.media.remove, { id: media.mediaId }))
+      .rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
     expect(await t.run(async (ctx) => (await ctx.storage.get(media.storageId))?.text()))
       .toBe("test image")
     await owner.mutation(api.cms.pages.remove, { id: pageIds[1]! })
-    await owner.mutation(api.cms.media.remove, { id: media.mediaId })
-    expect(await t.run((ctx) => ctx.storage.get(media.storageId))).toBeNull()
+    await expect(owner.mutation(api.cms.media.remove, { id: media.mediaId }))
+      .rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
+    expect(
+      await t.run(async (ctx) => (await ctx.storage.get(media.storageId)) !== null)
+    ).toBe(true)
   })
 
   test.each(["items link", "primary image", "external link"] as const)(
@@ -509,9 +531,13 @@ describe("media usage", () => {
     await expect(owner.mutation(api.cms.media.softDelete, { id: media.mediaId }))
       .rejects.toThrow("MEDIA_SOFT_DELETE_REFERENCED")
     await expect(owner.mutation(api.cms.media.remove, { id: media.mediaId }))
-      .rejects.toThrow(/used by/i)
-    expect(await t.run((ctx) => ctx.db.get("media", media.mediaId))).toMatchObject({ storageId: media.storageId })
+      .rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
     expect((await t.run((ctx) => ctx.db.get("media", media.mediaId)))?.deletedAt).toBeUndefined()
+    await trashMediaDirectly(t, media.mediaId)
+    await finishMediaUsageBackfill(t)
+    await expect(owner.mutation(api.cms.media.remove, { id: media.mediaId }))
+      .rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
+    expect(await t.run((ctx) => ctx.db.get("media", media.mediaId))).toMatchObject({ storageId: media.storageId })
     expect(await t.run(async (ctx) => (await ctx.storage.get(media.storageId))?.text()))
       .toBe("test image")
   })
@@ -635,25 +661,35 @@ describe("media usage", () => {
       },
     })
 
+    await trashMediaDirectly(t, media.mediaId)
+    await finishMediaUsageBackfill(t)
     await expect(
       asUser.mutation(api.cms.media.remove, { id: media.mediaId })
-    ).rejects.toThrow(/used by/i)
+    ).rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
     const stillThere = await t.run((ctx) => ctx.db.get("media", media.mediaId))
     expect(stillThere).toBeDefined()
   })
 
-  test("remove succeeds for unused media", async () => {
+  test("remove refuses outside snapshot authority and deletes nothing", async () => {
     const t = mediaTest()
     const asUser = t.withIdentity(TEST_USER)
     const media = await createStoredMedia(t)
 
-    await asUser.mutation(api.cms.media.remove, { id: media.mediaId })
+    await asUser.mutation(api.cms.media.softDelete, { id: media.mediaId })
+    await finishMediaUsageBackfill(t)
+    await expect(
+      asUser.mutation(api.cms.media.remove, { id: media.mediaId })
+    ).rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
+    await expect(
+      asUser.mutation(api.cms.media.purgeTrashedMedia, { ids: [media.mediaId] })
+    ).rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
 
-    const deletedDoc = await t.run((ctx) => ctx.db.get("media", media.mediaId))
-    const deletedBlob = await t.run((ctx) =>
-      ctx.storage.get(media.storageId as Id<"_storage">)
+    const stillThere = await t.run((ctx) => ctx.db.get("media", media.mediaId))
+    const blobStored = await t.run(
+      async (ctx) =>
+        (await ctx.storage.get(media.storageId as Id<"_storage">)) !== null
     )
-    expect(deletedDoc).toBeNull()
-    expect(deletedBlob).toBeNull()
+    expect(stillThere).not.toBeNull()
+    expect(blobStored).toBe(true)
   })
 })

@@ -18,15 +18,16 @@ describe("requireInstallationOwner", () => {
     mocks.requireAuth.mockResolvedValue(undefined)
   })
 
-  test("allows only a verified sanitized owner session", async () => {
-    mocks.fetchAuthQuery.mockResolvedValue({
+  test("allows only a verified sanitized owner session, and returns it", async () => {
+    const owner = {
       ownerId: "owner-id",
       authId: "owner-auth-id",
       email: "owner@example.test",
       role: "admin",
-    })
+    }
+    mocks.fetchAuthQuery.mockResolvedValue(owner)
 
-    await expect(requireInstallationOwner()).resolves.toBeUndefined()
+    await expect(requireInstallationOwner()).resolves.toEqual(owner)
     expect(mocks.fetchAuthQuery).toHaveBeenCalledOnce()
   })
 

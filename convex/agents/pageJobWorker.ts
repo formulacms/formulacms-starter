@@ -4,6 +4,7 @@ import type { FunctionReturnType } from "convex/server"
 import { internalAction } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { createRuntimeAccounting } from "../lib/ai"
+import { catalogFromEntries } from "../../lib/ai/model-catalog"
 import { generatePageSliceCore, type ContentConfig } from "./contentWriter"
 import { createTranslationTraversal, type TranslationConfig } from "./localizer"
 import { flattenSliceText } from "../lib/agents/pageContext"
@@ -13,6 +14,7 @@ import {
 } from "../lib/agents/contentWriterContract"
 import { readSlice } from "../lib/slices/identity"
 import { Semaphore } from "../lib/semaphore"
+import { apiTupleOf } from "../cms/aiJobs"
 import { translateSegment } from "../lib/agents/translationWorkflow"
 
 export const runUnit = internalAction({
@@ -22,7 +24,9 @@ export const runUnit = internalAction({
     const claim: FunctionReturnType<typeof internal.cms.aiJobs.claimUnit> =
       await ctx.runMutation(internal.cms.aiJobs.claimUnit, { jobId, unitId })
     if (!claim) return null
-    const { job, unit, units, claimToken } = claim
+    const { job, unit, units, claimToken, catalog } = claim
+    // `claimUnit` only returns API jobs, which always have a tuple.
+    const tuple = apiTupleOf(job)
     const accounting = createRuntimeAccounting(ctx, job.authId, {
       reservationKey: job.reservationKey!,
       runId: jobId,
@@ -33,20 +37,21 @@ export const runUnit = internalAction({
     const common = {
       accounting,
       assistant: {
-        provider: job.tuple.provider,
-        tuple: job.tuple.mode === "legacy" ? null : job.tuple,
-        legacy: job.tuple.mode === "legacy",
+        provider: tuple.provider,
+        tuple: tuple.mode === "legacy" ? null : tuple,
+        legacy: tuple.mode === "legacy",
         // Old jobs have no preamble and retain their existing contract.
         instructions: job.assistantInstructions ?? "",
       },
       authId: job.authId,
-      modelId: job.tuple.model,
+      modelId: tuple.model,
       selectedProvider:
-        job.tuple.mode === "legacy" ? undefined : job.tuple.provider,
+        tuple.mode === "legacy" ? undefined : tuple.provider,
       providerDefaults: undefined,
       taskDefaults:
-        job.tuple.mode === "legacy" ? undefined : { [profile]: job.tuple },
+        tuple.mode === "legacy" ? undefined : { [profile]: tuple },
       modelOverrides: undefined,
+      catalog: catalogFromEntries(catalog),
       userPromptTemplate: job.userPromptTemplate!,
     }
     let output

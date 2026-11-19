@@ -206,6 +206,11 @@ export function verifyReleaseTransition(options: {
       `Unsupported transition: ${options.sourceTag} -> ${options.targetTag}.`
     )
   }
+  if (transition.class === "unsupported") {
+    throw new Error(
+      `Transition ${transition.id} (${transition.source.tag} -> ${transition.targetTag}) is unsupported: there is no supported upgrade path. Install the target release fresh instead.`
+    )
+  }
   const sourceVersion = parseSemVerTag(transition.source.tag)
   const targetVersion = parseSemVerTag(transition.targetTag)
   if (!sourceVersion || !targetVersion) {
@@ -219,13 +224,22 @@ export function verifyReleaseTransition(options: {
   const isPatch =
     sourceVersion.core[0] === targetVersion.core[0] &&
     sourceVersion.core[1] === targetVersion.core[1]
-  if (
-    isPatch &&
-    transition.class !== "update" &&
-    transition.class !== "unsupported"
-  ) {
+  // An unsupported patch transition is still a valid declaration; it was
+  // refused above, so only an update can reach this point as a patch.
+  if (isPatch && transition.class !== "update") {
     throw new Error(
       `Patch transition ${transition.source.tag} -> ${transition.targetTag} must be an update or unsupported.`
+    )
+  }
+  // Before 1.0.0 a minor release may carry a breaking upgrade; from 1.0.0 on,
+  // only a major release may.
+  if (
+    transition.class === "breaking-upgrade" &&
+    sourceVersion.core[0] >= 1n &&
+    sourceVersion.core[0] === targetVersion.core[0]
+  ) {
+    throw new Error(
+      `Breaking transition ${transition.source.tag} -> ${transition.targetTag} must change the major version from 1.0.0 on.`
     )
   }
   if (

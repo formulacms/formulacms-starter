@@ -57,8 +57,9 @@ export function describeDevelopmentInstance(
 
 export async function DevelopmentInstanceBadge() {
   const t = await getTranslations("development")
+  const caption = t("caption")
   const label = describeDevelopmentInstance(process.env, {
-    caption: t("caption"),
+    caption,
     unidentified: t("unidentified"),
   })
   if (!label) return null
@@ -68,7 +69,12 @@ export async function DevelopmentInstanceBadge() {
       aria-label={t("label")}
       className="fixed top-3 right-3 z-50 max-w-[calc(100vw-1.5rem)] rounded-lg border bg-background/95 px-3 py-1.5 text-center text-xs text-muted-foreground shadow-sm backdrop-blur-sm"
     >
-      {label}
+      {/* Phones show the caption alone; screen readers get the full text at
+          every width. */}
+      <span aria-hidden={true} className="md:hidden">
+        {caption}
+      </span>
+      <span className="sr-only md:not-sr-only">{label}</span>
     </aside>
   )
 }

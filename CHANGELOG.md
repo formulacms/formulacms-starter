@@ -7,6 +7,152 @@ Fixed. The format follows Keep a Changelog 1.1.0.
 The known limits of each release are on its release page:
 https://github.com/formulacms/formulacms-starter/releases
 
+## 0.3.0
+
+0.3.0 supports fresh installs only; there is no upgrade path from 0.2.0.
+Do not merge or pull 0.3.0 into a site made from 0.2.0. Start a new site from
+v0.3.0 instead. `scripts/check-release-transition.ts` refuses the 0.2.0 to
+0.3.0 hop as unsupported.
+
+### Added
+
+- During local development, Help, the Block creator, Writing and Translation
+  can run on your own Claude Code or Codex, signed in with your plan or key,
+  when you open the admin on the computer that runs formulacms. <!-- #138 #147 -->
+- The Claude Code and Codex menus in Settings > AI list the models that the
+  installed tool offers, with versioned names such as Opus 5.5 and
+  GPT-6.1 Sol. <!-- #139 #143 #144 -->
+- A Fable model needs a Claude Max or Ultra plan or an API key, and Settings >
+  AI shows "Needs Max or Ultra" on a Fable row when your plan does not allow
+  it. <!-- #144 -->
+- Claude Fable 5.2 is in the Anthropic API model list. <!-- #140 -->
+- SMTP is a bundled email provider next to Resend, with its connection values
+  `EMAIL_SMTP_HOST`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD` and the optional
+  `EMAIL_SMTP_PORT` set only in the Convex environment. <!-- #135 -->
+- Trash has a Pages tab and an Images tab, where you can restore or delete
+  items permanently, one at a time or with Select all. <!-- #165 -->
+- A Languages card on each content type page, shown when Multilingual is on,
+  has a "Translate {type}" switch that keeps the type in one language when you
+  turn it off. <!-- #167 -->
+- The social title and description, noindex, nofollow, structured data,
+  keywords, card excerpt and post category now have a value in each language.
+  <!-- #167 -->
+- `lib/modules/catalog.generated.ts`, the generated list of modules. The
+  release generates this file, and `.gitattributes` marks it `-merge`.
+  <!-- #171 -->
+- `.gitattributes`, which tells git not to merge
+  `lib/modules/catalog.generated.ts` line by line; on a conflict, restore that
+  file from the release tag. <!-- #171 53676b92 -->
+- Two runtime packages: `@anthropic-ai/claude-agent-sdk` 0.3.325, which reads
+  the Claude Code model list, and `dotenv` 16.6.1. <!-- faf5c7da 945ad464 -->
+- Two backfills that start by themselves each hour until they finish and need
+  no command: the per-language fields backfill (minute 40) and the rich-text
+  image usage backfill (minute 25). <!-- #167 #168 -->
+- Three more background jobs: page purge resume (daily, 04:20 UTC), the
+  Anthropic and OpenAI model list refresh (daily, 05:10 UTC) and a key check
+  for those lists (hourly). <!-- #168 #141 -->
+- `pnpm check:preflight` and `pnpm build` stop when a module file that the
+  release owns was changed by hand, and `pnpm check:preflight` stops when your
+  backend stores an enabled module that this release does not have.
+  `pnpm check:preflight:strict` fails when the backend cannot be read.
+  <!-- #173 -->
+
+### Changed
+
+- Settings > AI is rebuilt, with a rail for Assistants, Subscriptions and
+  API keys, a tab for each provider, and assistant cards that show the
+  provider, model and effort in use. <!-- #148 -->
+- Each provider in Settings > AI shows one status word: Ready, Signed out,
+  Not set up or Invalid key. <!-- #172 -->
+- An assistant card whose saved model the tool no longer offers says "Choose
+  another model" instead of "Ready". <!-- #164 -->
+- The Anthropic, OpenAI and OpenRouter model lists update daily with your own
+  keys, and a model appears only when it has a price. <!-- #141 -->
+- The OpenRouter model list refreshes daily instead of weekly. <!-- #141 -->
+- The OpenRouter defaults move to GPT-6.1 Sol and Claude Opus 5.5. <!-- #140 -->
+- The OpenRouter menu no longer offers GPT-6 Sol Pro. <!-- #149 -->
+- The Block creator reads its key from `.env.local` each time you use it, so a
+  changed key works without a restart. <!-- #172 -->
+- Settings > Modules shows the optional modules first, folds the modules every
+  site needs into "Always on", and shows a progress panel while it applies
+  your changes. <!-- #169 -->
+- A row in Settings > Modules shows only the module name, a one-line
+  description and its on/off switch; setup stays on each module's own page.
+  <!-- #170 -->
+- The SEO panel in the page editor works per language, and the social share
+  image and the card image stay shared by every language. <!-- #167 -->
+- AI translation also translates the new per-language text fields, except
+  structured data. <!-- #167 -->
+- Settings > Email lists SMTP first, and a provider becomes active when the
+  mail server accepts its test email. <!-- #135 -->
+- "More providers" in Settings > Email shows the bundled providers and a link
+  to the guide for adding another one. <!-- #135 #157 -->
+- The notification email hint, in `/setup` and Settings > Email, says "Enter
+  your email to receive formulacms automatic notifications." <!-- #164 -->
+- The site now tracks the images inside Rich text blocks, and it refuses to
+  save or publish content that still shows the address of a deleted image.
+  <!-- #165 -->
+- On a phone (below 768 px), the admin sidebar starts hidden and opens over
+  the page. <!-- #150 -->
+- Machine-local files move from `.nextcms/` to `.formulacms/local/` once, when
+  the server starts, and git ignores both folders. <!-- #158 #143 -->
+- The content catalog for agents is now `formulacms-catalog` with
+  `formulacms://` addresses, and the old `nextcms://` addresses still work in
+  this release. <!-- #158 -->
+- The border and page-colour reset in `app/globals.css` moves into Tailwind's
+  `base` layer, so borders can look different if you edited that reset.
+  <!-- #166 ba062a95 -->
+- `pnpm-workspace.yaml` stops the install of the Claude Agent SDK's native
+  binaries and ignores one audit advisory that has no fixed version.
+  <!-- faf5c7da #167 -->
+
+### Removed
+
+- 14 unused database tables from the retired invitation and team features,
+  among them `invites` and `authorMemberLinks`. <!-- #160 #161 #164 -->
+- The `roundId` field and its index in `pagePublicationReleases`. <!-- #161 -->
+- The `invitation` email type, which nothing created since 0.2.0. <!-- #157 -->
+- The status badges, the Required badge, the "Needs" rows and the toasts on
+  the Modules page. <!-- #169 -->
+- The AI setup line and the "Open Languages" button on Modules page rows.
+  <!-- #170 -->
+- Nine unused block screenshots in `public/slice-sim/`. <!-- #162 -->
+
+### Fixed
+
+- A save from an older browser tab can no longer overwrite a newer change to
+  a page, a draft, a menu or the settings. <!-- #153 #154 -->
+- Restoring a menu now counts as a change to it. <!-- #153 -->
+- A page created or published while a site language change is under review
+  now moves into the new language. <!-- #156 -->
+- Removing the image of a required Hero image field no longer breaks Save,
+  and Publish stays blocked until you choose an image. <!-- #166 -->
+- Save and Publish give a plain message when an image on the page was
+  deleted from the media library. <!-- #166 -->
+- Border, outline and background classes win over the base reset again.
+  <!-- #166 -->
+- The block simulator no longer shows a "Design system" link to a page that
+  the starter does not ship. <!-- #163 -->
+- Settings > AI shows a readable model name, not a raw id, when the local
+  tool no longer lists the saved model. <!-- #152 -->
+- The Effort select is disabled for a saved model that the tool does not
+  offer. <!-- #159 -->
+- Settings > AI reads the model list again after you update Claude Code or
+  Codex, without a restart. <!-- #159 -->
+- The Block creator card shows the newer-model line, as the other assistant
+  cards do. <!-- #150 -->
+- An OpenRouter key alone no longer runs the old Gemini 2.5 Flash default.
+  <!-- #141 -->
+- Turning AI off no longer logs an error, and Writing and Translation hide
+  their controls even when a local tool is present. <!-- #172 -->
+- The page job list keeps the local job cards visible when the AI module is
+  not ready. <!-- #151 -->
+- On a 390 px screen, the Modules progress panel no longer slides under the
+  menu button. <!-- #170 -->
+- Settings > AI: a long model name stays inside its field. <!-- #174 -->
+- The page job list no longer logs an error while the AI module is off.
+  <!-- #174 -->
+
 ## 0.2.0
 
 0.2.0 cannot be merged or pulled into a 0.1.x site. Before any `git pull` or

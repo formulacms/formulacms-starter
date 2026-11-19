@@ -903,7 +903,7 @@ describe("F08a Published Snapshots", () => {
     )
     for (const source of [publicationSource, policySource]) {
       expect(source).not.toMatch(
-        /ctx\.db\.(query|get)\("(?:teamReviewRounds|teamPublishingPolicies|cmsMemberships)"\)/
+        /ctx\.db\.(query|get)\("(?:cmsMemberships)"\)/
       )
       expect(source).not.toMatch(
         /from ["'][^"']*(?:\/team\/|\/memberships|\/entitlement)/

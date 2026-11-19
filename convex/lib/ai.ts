@@ -1,5 +1,6 @@
 import { accountingOperation } from "../../lib/ai/accounting-contract"
 import type { GenerationAccounting } from "../../lib/ai/accounting-contract"
+import type { Doc } from "../_generated/dataModel"
 import type { ActionCtx, QueryCtx, MutationCtx } from "../_generated/server"
 import {
   readModuleState,
@@ -7,9 +8,11 @@ import {
   type ModuleReadinessState,
 } from "./modules/state"
 import {
-  ASSISTANT_DEFAULT_INSTRUCTIONS,
+  resolveAssistantInstructions,
+  ASSISTANT_IDS,
   ASSISTANT_PROFILES,
   assistantForProfile,
+  type AssistantId,
   prependAssistantInstructions,
   validateApiModelTuple,
   tupleSupportsTaskProfile,
@@ -17,8 +20,10 @@ import {
 import type { Infer } from "convex/values"
 import type { aiRuntimeSettingsValidator, runtimeAssistantValidator } from "./aiValidators"
 import { hashOwnerClaim } from "./ownerClaim"
+import type { ModelCatalog } from "../../lib/ai/model-catalog"
 import {
   AI_CONNECTION_ORDER,
+  hasLegacyModelConfigured,
   resolveAssistantConfiguration,
   type AiSettingsStatus,
   type AiSettingsConfiguration,
@@ -50,6 +55,7 @@ import {
 import {
   resolveRuntimeSelection,
   resolveRuntimeTuple,
+  savedRuntimeSelection,
   type ProviderModelSelections,
   type RuntimeProviderAvailability,
   type RuntimeSelectedProvider,
@@ -102,8 +108,38 @@ export async function resolveAiSettingsStatus(
   return resolveAssistantConfiguration(
     settings?.aiRuntime,
     connections,
-    enabledModuleIds
+    enabledModuleIds,
+    await readLegacyModelAssistants(ctx, settings)
   )
+}
+
+const ASSISTANT_AGENT = {
+  writing: "content",
+  translation: "translation",
+  help: "help-assistant",
+} as const satisfies Record<AssistantId, string>
+
+/** Assistants for which the owner configured a legacy OpenRouter model: an
+ * agent model, the site default model, or the Convex env `CMS_AI_MODEL`. */
+export async function readLegacyModelAssistants(
+  ctx: QueryCtx | MutationCtx,
+  settings: Pick<Doc<"siteSettings">, "aiDefaultModel" | "aiRuntime"> | null | undefined
+): Promise<ReadonlySet<AssistantId>> {
+  const configured = new Set<AssistantId>()
+  // The legacy branch needs no saved selection and an OpenRouter key; skip the
+  // agent reads everywhere else so those paths read exactly what they did.
+  if (settings?.aiRuntime?.selectedProvider !== undefined ||
+      !runtimeProviderKey("openrouter")) return configured
+  for (const id of ASSISTANT_IDS) {
+    const agentConfig = await ctx.db
+      .query("agentConfigs")
+      .withIndex("by_agent", (q) => q.eq("agent", ASSISTANT_AGENT[id]))
+      .unique()
+    if (hasLegacyModelConfigured(agentConfig?.model, settings?.aiDefaultModel)) {
+      configured.add(id)
+    }
+  }
+  return configured
 }
 
 export type RuntimeAssistant = Infer<typeof runtimeAssistantValidator>
@@ -118,6 +154,22 @@ export async function requireAiTranslationModule(
   }
 }
 
+/**
+ * Writing and Translation can be set to run on the owner's local tool
+ * (`aiRuntime.assistants.<id>.localTool`, ADR-0057 decision 2). While the
+ * marker is set, every API-key run of that assistant is refused, so a stale
+ * tab or another device cannot spend API money the owner turned off.
+ */
+export async function assertAssistantNotOnLocalTool(
+  ctx: QueryCtx | MutationCtx,
+  assistant: "writing" | "translation"
+): Promise<void> {
+  const settings = await ctx.db.query("siteSettings").first()
+  if (settings?.aiRuntime?.assistants?.[assistant]?.localTool === true) {
+    throw new ConvexError("AI_ASSISTANT_RUNS_ON_LOCAL_TOOL")
+  }
+}
+
 /** Call only after the owner/module gate, in the same prepare transaction. */
 export async function resolveRuntimeAssistant(
   ctx: QueryCtx | MutationCtx,
@@ -126,6 +178,9 @@ export async function resolveRuntimeAssistant(
 ): Promise<RuntimeAssistant> {
   const id = assistantForProfile(profile)
   if (!id) throw new Error("No assistant owns this task profile.")
+  if (id === "writing" || id === "translation") {
+    await assertAssistantNotOnLocalTool(ctx, id)
+  }
   const { enabledModuleIds } = await readModuleState(ctx)
   const status = await resolveAiSettingsStatus(ctx, enabledModuleIds)
   const assistant = status.assistants.find((entry) => entry.id === id)!
@@ -157,7 +212,10 @@ export async function resolveRuntimeAssistant(
   return composeRuntimeAssistant(
     settings?.aiRuntime,
     assistant,
-    Boolean(runtimeProviderKey("openrouter"))
+    Boolean(runtimeProviderKey("openrouter")),
+    (await readLegacyModelAssistants(ctx, settings)).has(
+      assistant.id
+    )
   )
 }
 
@@ -165,7 +223,8 @@ export async function resolveRuntimeAssistant(
 export function composeRuntimeAssistant(
   runtime: Infer<typeof aiRuntimeSettingsValidator> | undefined,
   assistant: AiSettingsConfiguration["assistants"][number],
-  hasOpenRouterKey: boolean
+  hasOpenRouterKey: boolean,
+  legacyModelConfigured: boolean
 ): RuntimeAssistant {
   return {
     provider: assistant.provider,
@@ -173,12 +232,31 @@ export function composeRuntimeAssistant(
     legacy:
       runtime?.selectedProvider === undefined &&
       assistant.provider === "openrouter" &&
-      hasOpenRouterKey,
-    instructions:
-      assistant.instructions === undefined
-        ? ASSISTANT_DEFAULT_INSTRUCTIONS[assistant.id]
-        : assistant.instructions.trim(),
+      hasOpenRouterKey &&
+      legacyModelConfigured,
+    instructions: resolveAssistantInstructions(
+      assistant.id,
+      assistant.instructions
+    ),
   }
+}
+
+/** The plain refusal for a saved model that cannot serve this task. */
+export function selectionRefusal(
+  provider: ApiProvider,
+  model: string,
+  phase: WorkflowPhase
+): ConvexError<Value> {
+  const error: SafeGenerationError = {
+    category: "UNSUPPORTED_CAPABILITY",
+    message: "The assistant's model does not support this task.",
+    selected: { lane: "runtime", provider, model },
+    attempts: 0,
+    phase,
+    retryable: false,
+    nextAction: "choose-supported-input",
+  }
+  return new ConvexError(error as unknown as Value)
 }
 
 /** One tuple decision for instant requests and page-job freezing. */
@@ -186,26 +264,18 @@ export function resolveAssistantRuntimeTuple(
   assistant: RuntimeAssistant,
   options: Pick<
     RuntimeGenerationOptions,
-    "profile" | "phase" | "providerDefaults" | "taskDefaults" | "modelOverrides"
-  > & { legacyModelId?: string }
+    "profile" | "phase" | "providerDefaults" | "taskDefaults" | "modelOverrides" | "catalog"
+  > & { legacyModelId?: string; now?: number }
 ): Readonly<ApiModelTuple> {
   if (assistant.tuple) {
-    const tuple = validateApiModelTuple(assistant.tuple)
-    if (!tupleSupportsTaskProfile(tuple, options.profile)) {
-      const error: SafeGenerationError = {
-        category: "UNSUPPORTED_CAPABILITY",
-        message: "The assistant's model does not support this task.",
-        selected: {
-          lane: "runtime",
-          provider: assistant.provider,
-          model: tuple.model,
-        },
-        attempts: 0,
-        phase: options.phase,
-        retryable: false,
-        nextAction: "choose-supported-input",
-      }
-      throw new ConvexError(error as unknown as Value)
+    let tuple: Readonly<ApiModelTuple> | undefined
+    try {
+      tuple = validateApiModelTuple(assistant.tuple, options.catalog)
+    } catch {
+      tuple = undefined
+    }
+    if (!tuple || !tupleSupportsTaskProfile(tuple, options.profile, options.catalog)) {
+      throw selectionRefusal(assistant.provider, assistant.tuple.model, options.phase)
     }
     return tuple
   }
@@ -330,6 +400,8 @@ export type RuntimeGenerationOptions = RuntimePromptInput & {
   providerDefaults?: ProviderModelSelections
   taskDefaults?: TaskDefaults
   modelOverrides?: ProviderModelSelections
+  /** Entries for every candidate tuple, from the same prepare transaction. */
+  catalog: ModelCatalog
   instructions?: string
   system?: string
   deadlineMs?: number
@@ -386,14 +458,14 @@ export async function generateRuntimeText(
     ? { effectiveProvider: options.assistant.provider, status: "ready" }
     : resolveRuntimeSelection(
         preference,
-        availability
+        availability,
+        hasLegacyModelConfigured(legacyModelId)
       )
   if (!selection.effectiveProvider) throw aiOffError(options)
 
   const provider = selection.effectiveProvider
   if (selection.status === "selected-unavailable") {
-    const candidate =
-      options.modelOverrides?.[provider] ?? options.providerDefaults?.[provider]
+    const candidate = savedRuntimeSelection({ ...options, provider })?.tuple
     const error: SafeGenerationError = {
       category: "CONFIG_MISSING",
       message: "The selected Production AI provider is not configured.",
@@ -417,19 +489,23 @@ export async function generateRuntimeText(
           legacyModelId,
         })
       : resolveRuntimeTuple({
-          selection: resolveRuntimeSelection(preference, availability),
+          selection: resolveRuntimeSelection(
+            preference,
+            availability,
+            hasLegacyModelConfigured(legacyModelId)
+          ),
           profile: options.profile,
           legacyModelId,
           providerDefaults: options.providerDefaults,
           taskDefaults: options.taskDefaults,
           modelOverrides: options.modelOverrides,
+          catalog: options.catalog,
         }).tuple
   } catch (caught) {
     if (caught instanceof ConvexError) throw caught
     const candidate =
       options.assistant?.tuple ??
-      options.modelOverrides?.[provider] ??
-      options.providerDefaults?.[provider]
+      savedRuntimeSelection({ ...options, provider })?.tuple
     const error: SafeGenerationError = {
       category: "UNSUPPORTED_CAPABILITY",
       message:
@@ -479,6 +555,9 @@ export async function generateRuntimeText(
     output: { kind: "text" },
     deadlineMs: options.deadlineMs ?? RUNTIME_GENERATION_CEILING_MS,
     signal: options.signal,
+    ...(tuple.mode === "catalog"
+      ? { catalogEntry: options.catalog.get(tuple.provider, tuple.model) }
+      : {}),
   } as const
 
   try {

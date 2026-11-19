@@ -19,6 +19,22 @@ export const generationEngineValidator = v.union(
   v.literal("codex-cli")
 )
 
+/**
+ * Why a local job stopped, when "failed" alone would not say: the runner app
+ * stopped, or the installed Claude Code or Codex is too old for the job's model.
+ */
+export const localStopDetailValidator = v.union(
+  v.literal("local-app-stopped"),
+  v.literal("local-tool-outdated")
+)
+
+/** How a local tool run was billed: the owner's plan, an API key, or not verified (ADR-0057). */
+export const localToolFundingValidator = v.union(
+  v.literal("plan"),
+  v.literal("api-key"),
+  v.literal("unknown")
+)
+
 export const generationIdentityEvidenceValidator = v.union(
   v.literal("runtime-observed"),
   v.literal("transcript-observed"),
@@ -73,20 +89,15 @@ export const reasoningEffortValidator = v.union(
   v.literal("max")
 )
 
+/** The frozen route of a whole-page job that runs on the owner's local tool. */
+export const localJobRouteValidator = v.object({
+  engine: v.union(v.literal("claude"), v.literal("codex")),
+  model: v.string(),
+  effort: reasoningEffortValidator,
+})
+
 const reasoningValidator = <E extends string>(effort: Validator<E>) =>
   v.object({ kind: v.literal("effort"), effort })
-
-const catalogTuple = <P extends string, M extends string, E extends string>(
-  provider: P,
-  model: M,
-  efforts: Validator<E>
-) =>
-  v.object({
-    mode: v.literal("catalog"),
-    provider: v.literal(provider),
-    model: v.literal(model),
-    reasoning: reasoningValidator(efforts),
-  })
 
 // OpenRouter is the BYOK provider the operator picks from freely (admin
 // agency): the picker lists the full generated OpenRouter catalog, so the
@@ -102,45 +113,21 @@ export const openRouterModelTupleValidator = v.object({
   reasoning: v.optional(reasoningValidator(reasoningEffortValidator)),
 })
 
-const openAiEfforts = v.union(
-  v.literal("none"),
-  v.literal("low"),
-  v.literal("medium"),
-  v.literal("high"),
-  v.literal("xhigh"),
-  v.literal("max")
-)
-const requiredReasoningEfforts = v.union(
-  v.literal("low"),
-  v.literal("medium"),
-  v.literal("high"),
-  v.literal("xhigh"),
-  v.literal("max")
-)
-export const openAiModelTupleValidator = v.union(
-  catalogTuple("openai", "gpt-6.1-sol", requiredReasoningEfforts),
-  catalogTuple("openai", "gpt-6-astra", requiredReasoningEfforts),
-  catalogTuple("openai", "gpt-6.1-terra", openAiEfforts),
-  catalogTuple("openai", "gpt-6-sol", openAiEfforts),
-  catalogTuple("openai", "gpt-6-luna", openAiEfforts),
-  catalogTuple("openai", "gpt-5.6-luna", openAiEfforts),
-  catalogTuple("openai", "gpt-5.6-terra", openAiEfforts),
-  catalogTuple("openai", "gpt-5.6-sol", openAiEfforts)
-)
-
-export const anthropicModelTupleValidator = v.union(
-  catalogTuple("anthropic", "claude-sonnet-5-5", requiredReasoningEfforts),
-  catalogTuple("anthropic", "claude-opus-5-5", requiredReasoningEfforts),
-  catalogTuple("anthropic", "claude-haiku-5-5", requiredReasoningEfforts),
-  catalogTuple("anthropic", "claude-fable-5-1", requiredReasoningEfforts),
-  catalogTuple("anthropic", "claude-sonnet-5", requiredReasoningEfforts),
-  catalogTuple("anthropic", "claude-opus-4-8", requiredReasoningEfforts),
+// Direct Anthropic and OpenAI tuples have the OpenRouter shape: any vendor
+// model id, effort optional. Stored settings therefore never need a schema
+// change for a new model. Which ids and efforts a run or a Settings save
+// accepts is checked at run time against the catalog (validateApiModelTuple).
+// This is a strict superset of the old per-model literal unions, so every
+// stored tuple, including Haiku 4.5 with no reasoning field, still validates.
+const directModelTupleValidator = <P extends "anthropic" | "openai">(provider: P) =>
   v.object({
     mode: v.literal("catalog"),
-    provider: v.literal("anthropic"),
-    model: v.literal("claude-haiku-4-5-20251001"),
+    provider: v.literal(provider),
+    model: v.string(),
+    reasoning: v.optional(reasoningValidator(reasoningEffortValidator)),
   })
-)
+export const openAiModelTupleValidator = directModelTupleValidator("openai")
+export const anthropicModelTupleValidator = directModelTupleValidator("anthropic")
 
 export const apiModelTupleValidator = v.union(
   openRouterModelTupleValidator,
@@ -198,9 +185,14 @@ export const assistantSettingsValidator = v.object({
   tuple: v.optional(apiModelTupleValidator),
   instructions: v.optional(v.string()),
 })
+/** Writing and Translation only: `localTool` marks an assistant the owner runs
+ *  on a local tool, so Convex refuses API-key runs for it (ADR-0057 decision 2). */
+export const localToolAssistantSettingsValidator = assistantSettingsValidator.extend({
+  localTool: v.optional(v.literal(true)),
+})
 export const assistantsSettingsValidator = v.object({
-  writing: v.optional(assistantSettingsValidator),
-  translation: v.optional(assistantSettingsValidator),
+  writing: v.optional(localToolAssistantSettingsValidator),
+  translation: v.optional(localToolAssistantSettingsValidator),
   help: v.optional(assistantSettingsValidator),
   // Local-only fourth assistant; not an AssistantId (see SLICE_CREATOR_PROFILES).
   sliceCreator: v.optional(assistantSettingsValidator),
@@ -222,6 +214,21 @@ const assistantModelChoiceValidator = v.object({
   name: v.string(),
   efforts: v.array(reasoningEffortValidator),
   providerDefault: v.union(reasoningEffortValidator, v.null()),
+  // Live catalog details (AI-MODELS-1b); the current screen ignores them.
+  family: v.optional(v.string()),
+  releasedAt: v.optional(v.number()),
+  retiresAt: v.optional(v.number()),
+  priceSource: v.optional(v.union(v.literal("committed"), v.literal("openrouter"))),
+})
+const catalogSyncStatusValidator = v.object({
+  status: v.union(
+    v.literal("never"),
+    v.literal("running"),
+    v.literal("success"),
+    v.literal("failed")
+  ),
+  lastSuccessAt: v.optional(v.number()),
+  keyRefused: v.boolean(),
 })
 
 export const aiSettingsStatusValidator = v.object({
@@ -247,6 +254,18 @@ export const aiSettingsStatusValidator = v.object({
       openrouter: v.array(assistantModelChoiceValidator),
       openai: v.array(assistantModelChoiceValidator),
     }),
+    /** A newer offered model of the same family as the effective one. */
+    newerModel: v.optional(v.object({
+      provider: runtimeApiProviderValidator,
+      model: v.string(),
+      name: v.string(),
+    })),
+  })),
+  /** Per-provider model list refresh state; absent on readiness paths. */
+  catalogSync: v.optional(v.object({
+    anthropic: catalogSyncStatusValidator,
+    openrouter: catalogSyncStatusValidator,
+    openai: catalogSyncStatusValidator,
   })),
   card: v.union(
     v.object({ state: v.literal("active") }),

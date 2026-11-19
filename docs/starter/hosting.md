@@ -140,7 +140,7 @@ The pages and media you made on your computer stay there. The hosted site starts
 ## Later
 
 - New code: run `pnpm exec convex deploy`, then `vercel deploy --prod`, in that order. If the new code narrows the schema of a table that already holds data, read [`docs/starter/staged-schema-changes.md`](staged-schema-changes.md) first.
-- Email and AI keys on the hosted site: use the README commands with `--prod`, for example `pbpaste | pnpm exec convex env set RESEND_API_KEY --prod`.
+- Email and AI values on the hosted site: use the README commands with `--prod`, for example `pbpaste | pnpm exec convex env set EMAIL_SMTP_PASSWORD --prod` or `pbpaste | pnpm exec convex env set RESEND_API_KEY --prod`.
 - Your own domain: add it to the project in Vercel. Then repeat steps 8 to 10 with the new address, and run `vercel deploy --prod` again.
 - Locked out of the hosted site: run `pnpm owner:recover --prod`. It prints a one-time link to your site address that works once and expires after 15 minutes. See "Owner recovery" in [`docs/starter/operations.md`](operations.md#owner-recovery).
 - `pnpm check:preflight` checks the setup on your computer: `.env.local` and the Convex backend it points to, normally your development backend. It does not check the hosted site. It fails when `CONVEX_DEPLOYMENT` in `.env.local` points at production. `STARTER_PREFLIGHT_ALLOW_REMOTE=1` turns that failure off.
@@ -152,7 +152,7 @@ The table lists names only.
 
 | Place             | Values                                                                                                                                                               |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Convex production | `SITE_URL`, `CONTACT_IP_PROOF_SECRET`, `REVALIDATE_SECRET`, `FORMULACMS_OWNER_CLAIM`; optional `RESEND_API_KEY` and AI keys |
+| Convex production | `SITE_URL`, `CONTACT_IP_PROOF_SECRET`, `REVALIDATE_SECRET`, `FORMULACMS_OWNER_CLAIM`; optional `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD`, `RESEND_API_KEY` and AI keys |
 | Vercel production | `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_CONVEX_URL`, `CONTACT_IP_PROOF_SECRET`, `REVALIDATE_SECRET` |
 
 The two secrets must be equal on both sides. Sign-in needs no secret: Convex Auth signs its own tokens in the Convex backend (`convex/auth.ts`).

@@ -9,7 +9,9 @@ import {
   chargeMicros,
   estimateMicros,
   DIRECT_PRICES,
+  openRouterPriceQuote,
 } from "./price-quote"
+import { BUNDLED_MODEL_CATALOG } from "./model-catalog"
 import { taskProfileTuple } from "./task-profiles"
 import { ANTHROPIC_API_CATALOG } from "./capabilities/anthropic-api"
 import { OPENAI_API_CATALOG } from "./capabilities/openai-api"
@@ -42,7 +44,7 @@ describe("admission quotes and supported inputs", () => {
       ...Object.keys(OPENAI_API_CATALOG).map((id) => `openai:${id}`),
     ]
     expect(Object.keys(DIRECT_PRICES).sort()).toEqual(catalogKeys.sort())
-    expect(catalogKeys).toHaveLength(15)
+    expect(catalogKeys).toHaveLength(16)
   })
   test("new direct prices use USD rates, highest cache TTL and base input tier", () => {
     expect(Object.fromEntries(
@@ -53,6 +55,7 @@ describe("admission quotes and supported inputs", () => {
       "anthropic:claude-sonnet-5-5": [2_000_000, 100_000, 4_000_000, 10_000_000, 1_000_000],
       "anthropic:claude-opus-5-5": [4_000_000, 200_000, 8_000_000, 20_000_000, 1_000_000],
       "anthropic:claude-haiku-5-5": [100_000, 10_000, 200_000, 500_000, 100_000],
+      "anthropic:claude-fable-5-2": [8_000_000, 200_000, 16_000_000, 40_000_000, 1_000_000],
       "anthropic:claude-fable-5-1": [10_000_000, 250_000, 20_000_000, 50_000_000, 1_000_000],
       "openai:gpt-6.1-sol": [2_000_000, 100_000, 5_000_000, 10_000_000, 272_000],
       "openai:gpt-6-astra": [10_000_000, 1_000_000, 25_000_000, 50_000_000, 272_000],
@@ -60,8 +63,8 @@ describe("admission quotes and supported inputs", () => {
       "openai:gpt-6-sol": [2_000_000, 200_000, 5_000_000, 10_000_000, 272_000],
       "openai:gpt-6-luna": [100_000, 10_000, 250_000, 500_000, 272_000],
     })
-    expect(() => quote("anthropic", "claude-haiku-5-5", { inputTokens: 100_001 })).toThrow("base-price tier")
-    expect(quote("anthropic", "claude-haiku-5-5", { inputTokens: 100_000 }).revision).toBe("direct-2026-11-09-v1")
+    expect(() => quote(BUNDLED_MODEL_CATALOG.get("anthropic", "claude-haiku-5-5"), { inputTokens: 100_001 })).toThrow("base-price tier")
+    expect(quote(BUNDLED_MODEL_CATALOG.get("anthropic", "claude-haiku-5-5"), { inputTokens: 100_000 }).revision).toBe("direct-2026-11-15-v1")
   })
   test.each([1, 2])(
     "%i images add exactly 10000 input tokens each",
@@ -109,15 +112,15 @@ describe("admission quotes and supported inputs", () => {
     }
     expect(inputTokenEstimate(r)).toBe(272001)
     expect(() =>
-      quote("openai", "gpt-5.6-luna", { inputTokens: inputTokenEstimate(r) })
+      quote(BUNDLED_MODEL_CATALOG.get("openai", "gpt-5.6-luna"), { inputTokens: inputTokenEstimate(r) })
     ).toThrow("base-price tier")
   })
   test("unknown, expired, incomplete and non-default pricing modes refuse", () => {
     expect(() =>
-      quote("openai", "test/not-shipped", { inputTokens: 1 })
+      quote(BUNDLED_MODEL_CATALOG.get("openai", "test/not-shipped"), { inputTokens: 1 })
     ).toThrow("complete")
     expect(() =>
-      quote("openai", "gpt-5.6-sol", {
+      quote(BUNDLED_MODEL_CATALOG.get("openai", "gpt-5.6-sol"), {
         inputTokens: 1,
         now: Date.UTC(2026, 11, 1),
       })
@@ -129,23 +132,20 @@ describe("admission quotes and supported inputs", () => {
       { regional: true },
     ])
       expect(() =>
-        quote("openai", "gpt-5.6-luna", { inputTokens: 1, ...extra })
+        quote(BUNDLED_MODEL_CATALOG.get("openai", "gpt-5.6-luna"), { inputTokens: 1, ...extra })
       ).toThrow("processing mode")
     expect(() =>
-      quote("openrouter", "google/gemini-3-flash-preview", { inputTokens: 1 })
+      quote(BUNDLED_MODEL_CATALOG.get("openrouter", "fixture/not-listed"), { inputTokens: 1 })
     ).toThrow("complete")
     expect(() =>
-      quote("openrouter", "fixture/legacy", {
-        inputTokens: 1,
-        catalog: { syncedAt: 1 },
-      })
+      quote({ price: openRouterPriceQuote({ syncedAt: 1 }) }, { inputTokens: 1 })
     ).toThrow("complete")
   })
   test("OpenRouter stored ceilings govern reservation and fallback; reported cost wins", () => {
-    const p = quote("openrouter", "fixture/priced", {
-      inputTokens: 1000000,
-      catalog: { syncedAt: 1, ceilingInputPerM: 10, ceilingOutputPerM: 20 },
-    })
+    const p = quote(
+      { price: openRouterPriceQuote({ syncedAt: 1, ceilingInputPerM: 10, ceilingOutputPerM: 20 }) },
+      { inputTokens: 1000000 }
+    )
     expect(estimateMicros(p, 100, 100)).toBe(3000)
     const usage = {
       noCacheInputTokens: 10,
@@ -167,7 +167,7 @@ describe("admission quotes and supported inputs", () => {
     })
   })
   test("direct image reservation uses table input rate", () => {
-    const p = quote("openai", "gpt-5.6-luna", { inputTokens: 10000 })
+    const p = quote(BUNDLED_MODEL_CATALOG.get("openai", "gpt-5.6-luna"), { inputTokens: 10000 })
     expect(estimateMicros(p, 10000, 0, 10000)).toBe(2000)
   })
 })

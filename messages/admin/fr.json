@@ -46,27 +46,64 @@
     },
     "trash": {
       "title": "Corbeille",
-      "subtitle": "Les pages et autres contenus de la corbeille peuvent être restaurés, mais pas encore supprimés définitivement.",
       "untitled": "Sans titre",
       "lifecycleUnavailable": "Les informations de publication sont indisponibles",
       "authorityIncomplete": "Les informations nécessaires à la publication ne sont pas prêtes. Exécutez la commande de configuration ou de transition prévue avant de gérer la corbeille.",
       "restored": "« {title} » restauré",
       "restoreFailed": "Échec de la restauration",
       "referenceCheckFailed": "Impossible de vérifier les références de la page",
-      "childBlocker": "Cette page contient {count, plural, one {# page enfant} other {# pages enfants}}. Changez leur parent ou supprimez-{count, plural, one {la} other {les}} d’abord.",
-      "menuBlocker": "{count, plural, one {Le menu {menus} contient} other {Les menus {menus} contiennent}} un lien vers cette page. Retirez ces liens ou supprimez {count, plural, one {le menu} other {les menus}} avant de supprimer définitivement la page.",
-      "deleteDescription": "« {title} » sera supprimé définitivement. Cette action est irréversible.",
+      "childBlocker": "Cette page contient {count, plural, one {# page enfant} other {# pages enfants}}. Déplacez-{count, plural, one {la} other {les}} ou supprimez-{count, plural, one {la} other {les}} d’abord.",
+      "menuBlocker": "{count, plural, one {Le menu {menus} contient} other {Les menus {menus} contiennent}} un lien vers cette page. Retirez ces liens ou supprimez {count, plural, one {le menu} other {les menus}} d’abord.",
+      "deleteDescription": "La page « {title} » sera supprimée définitivement, dans toutes les langues. Cette action est irréversible.",
       "redirectImpact": "Supprime aussi {count, plural, one {# redirection} other {# redirections}}.",
       "confirmTitle": "Supprimer définitivement ?",
-      "confirm": "Supprimer définitivement",
-      "deleted": "« {title} » supprimé définitivement",
+      "confirm": "Supprimer",
       "deleteFailed": "Échec de la suppression",
       "loading": "Chargement de la corbeille…",
       "empty": "La corbeille est vide.",
       "moved": "Déplacé le {date}",
       "restore": "Restaurer",
-      "deleteForever": "Supprimer définitivement",
-      "loadMore": "Charger plus"
+      "loadMore": "Charger plus",
+      "selectAll": "Tout sélectionner",
+      "restoreSelected": "{count, plural, =0 {Restaurer la sélection} other {Restaurer #}}",
+      "deleteSelected": "{count, plural, =0 {Supprimer la sélection} other {Supprimer #}}",
+      "selected": "Sélection : {count}",
+      "delete": "Supprimer",
+      "tabPages": "Pages",
+      "tabImages": "Images",
+      "quoted": "« {title} »",
+      "namesTwo": "{a} et {b}",
+      "namesThree": "{a}, {b} et {c}",
+      "namesMore": "{a}, {b}, {c} et {count, plural, one {# autre} other {# autres}}",
+      "confirmTitleMany": "Supprimer définitivement {count} pages ?",
+      "deleteDescriptionMany": "{names} seront supprimées définitivement, dans toutes les langues. Cette action est irréversible.",
+      "confirmMany": "Supprimer {count} pages",
+      "deletedMany": "{count, plural, one {# page supprimée définitivement.} other {# pages supprimées définitivement.}}",
+      "notDeleted": "« {title} » n’a pas été supprimée : {reason}",
+      "linkBlocker": "{others, plural, =0 {« {first} » contient un lien} one {« {first} » et # autre page contiennent un lien} other {« {first} » et # autres pages contiennent un lien}} vers cette page. Retirez ces liens d’abord.",
+      "removingBlocker": "Cette page est encore en cours de retrait du site public. Réessayez dans une minute.",
+      "childReason": "elle contient {count, plural, one {# page enfant} other {# pages enfants}}. Déplacez-{count, plural, one {la} other {les}} ou supprimez-{count, plural, one {la} other {les}} d’abord.",
+      "menuReason": "{count, plural, one {le menu {menus} contient} other {les menus {menus} contiennent}} un lien vers elle. Retirez ces liens ou supprimez {count, plural, one {le menu} other {les menus}} d’abord.",
+      "linkReason": "{others, plural, =0 {« {first} » contient un lien} one {« {first} » et # autre page contiennent un lien} other {« {first} » et # autres pages contiennent un lien}} vers elle. Retirez ces liens d’abord.",
+      "removingReason": "elle est encore en cours de retrait du site public. Réessayez dans une minute.",
+      "deleting": "Suppression…",
+      "restoredMany": "{count} pages restaurées",
+      "imageSize": "{width} × {height}",
+      "imageDeleteDescription": "L’image « {title} » sera supprimée définitivement. Cette action est irréversible.",
+      "imageConfirmTitleMany": "Supprimer définitivement {count} images ?",
+      "imageDeleteDescriptionMany": "{names} seront supprimées définitivement. Cette action est irréversible.",
+      "imageConfirmMany": "Supprimer {count} images",
+      "imagesDeleted": "{count, plural, one {# image supprimée définitivement.} other {# images supprimées définitivement.}}",
+      "imageInUse": "Cette image est encore utilisée par {uses}. Retirez-la d’abord.",
+      "imageInUseReason": "elle est encore utilisée par {uses}. Retirez-la d’abord.",
+      "imageMenuUse": "le menu {menu}",
+      "imagesRestored": "{count} images restaurées",
+      "imageOlderVersionOnly": "« {filename} » est utilisée par une ancienne version publiée de « {page} ». Supprimez d’abord cette page définitivement, ou gardez l’image.",
+      "imageDeletePending": "La suppression des images se prépare. Réessayez dans quelques minutes.",
+      "changedRefusal": "« {title} » a changé depuis l’affichage de la liste. Rechargez la page et réessayez.",
+      "languageRefusal": "Un changement de langue est en cours. Réessayez quand il sera terminé.",
+      "pagesDeleting": "{count, plural, one {Suppression de # page en cours.} other {Suppression de # pages en cours.}}",
+      "deleteStopped": "La suppression s’est arrêtée avant la fin. Cliquez sur Supprimer pour réessayer."
     },
     "contentTypes": {
       "title": "Types de contenu",
@@ -151,6 +188,22 @@
         "starterDescription": "Ajoute ce type au modèle de départ des futurs projets, sans modifier ce site. La production et l’intégration d’un nouveau projet restent des étapes séparées.",
         "removeFromStarter": "Retirer du modèle de départ",
         "addToStarter": "Ajouter au modèle de départ"
+      },
+      "languages": {
+        "title": "Langues",
+        "toggle": "Traduire les {type}",
+        "on": "Les {type} peuvent avoir une version dans chaque langue.",
+        "off": "Les {type} sont en {language} seulement.",
+        "turnOff": {
+          "title": "Rédiger les {type} en {language} seulement ?",
+          "versions": "{count, plural, one {{shown} version dans une autre langue sera masquée sur le site. Elle est conservée et revient quand vous réactivez la traduction.} other {{shown} versions dans d’autres langues seront masquées sur le site. Elles sont conservées et reviennent quand vous réactivez la traduction.}}",
+          "links": "{count, plural, one {{shown} page traduite n’affichera plus de lien vers ces {type}.} other {{shown} pages traduites n’afficheront plus de lien vers ces {type}.}}",
+          "children": "{count, plural, one {{shown} page placée sous ces {type} sera masquée dans les autres langues.} other {{shown} pages placées sous ces {type} seront masquées dans les autres langues.}}",
+          "confirm": "Désactiver"
+        },
+        "errors": {
+          "purgeRunning": "Une suppression définitive est en cours. Réessayez quand elle sera terminée. Rien n’a été modifié."
+        }
       }
     },
     "redirects": {
@@ -208,7 +261,7 @@
       "saveFailed": "Échec de l’enregistrement",
       "usageFailed": "Impossible de vérifier l’utilisation du média",
       "confirmTitle": "Déplacer cette image dans la corbeille ?",
-      "confirmUnreferenced": "Elle quittera la bibliothèque. La restauration des images depuis la corbeille n’est pas encore disponible.",
+      "confirmUnreferenced": "Elle quittera la bibliothèque. Vous pourrez la restaurer plus tard depuis la corbeille.",
       "confirm": "Déplacer dans la corbeille",
       "movedToTrash": "Déplacée dans la corbeille",
       "deleteFailed": "Échec de la suppression",
@@ -321,7 +374,7 @@
       "username": "Nom d’utilisateur",
       "usernameHint": "Vous l’utiliserez pour vous connecter. Jamais affiché sur votre site.",
       "notificationEmail": "E-mail de notification (facultatif)",
-      "notificationEmailHint": "Les messages du formulaire de contact arrivent ici. Jamais utilisé pour se connecter."
+      "notificationEmailHint": "Saisissez votre e-mail pour recevoir les notifications automatiques de formulacms."
     },
     "actions": {
       "openAdmin": "Ouvrir l’administration",
@@ -492,7 +545,8 @@
       "other": "L'aide n'a pas pu répondre cette fois. Réessayez."
     },
     "screenPath": "{section} › {screen}",
-    "command": "Demander à l'aide IA"
+    "command": "Demander à l'aide IA",
+    "localElsewhere": "L'aide utilise un outil local. Ouvrez l'administration sur l'ordinateur qui exécute formulacms, ou choisissez une connexion API dans <link>Paramètres › IA</link>."
   },
   "dashboard": {
     "title": "Tableau de bord",
@@ -538,30 +592,14 @@
       "subtitle": "Consultez les fonctions de votre site et choisissez celles qui peuvent être activées.",
       "loading": "Chargement de la configuration des modules…",
       "error": "La configuration des modules n’a pas pu être chargée. Actualisez la page et réessayez.",
-      "availability": "Disponible à l’activation",
-      "available": "Disponible",
-      "unavailable": "Indisponible",
-      "effective": "État actuel",
-      "active": "Actif",
       "inactive": "Inactif",
       "enabled": "Activé",
       "disabled": "Désactivé",
-      "readiness": "État de configuration",
-      "ready": "Prêt",
-      "needsSetup": "Configuration nécessaire",
-      "setup": "Configuration",
-      "notRequired": "Non requise",
-      "required": "Requis",
-      "dependencies": "Besoins",
-      "requiredDependencies": "Autres modules nécessaires pour ce changement",
-      "none": "Aucune",
       "exactChanges": "Modifications à vérifier",
       "noChanges": "Aucune modification à examiner.",
       "reviewing": "Vérification de ce changement…",
-      "reviewBeforeSave": "Le serveur vérifie ces modifications avant de les enregistrer.",
       "save": "Appliquer les modifications examinées",
       "saving": "Application des modifications…",
-      "saved": "Configuration des modules mise à jour.",
       "stale": "Cette configuration a changé pendant son examen. Examinez à nouveau les modifications avant de les appliquer.",
       "reviewAgain": "Examiner la configuration actuelle",
       "commitFailed": "La configuration des modules examinée n’a pas pu être appliquée. Examinez les blocages et réessayez.",
@@ -579,7 +617,6 @@
       "returnToOneLanguage": "Utiliser une seule langue",
       "languageOperationBlocker": "Terminez ou arrêtez le changement de langue en cours avant de désactiver le multilingue.",
       "languageStateInvalid": "La configuration de langue est incohérente. Rien n’a changé. Corrigez-la dans Langues et réessayez.",
-      "statusLabel": "État de {name}",
       "toggle": "Activer ou désactiver {name}",
       "items": {
         "system": {
@@ -624,14 +661,32 @@
         },
         "ai": {
           "name": "IA",
-          "summary": "Assistants de rédaction, de traduction et d'aide dans l'administration. Fournisseurs, modèles et instructions se règlent dans Paramètres › IA. La traduction nécessite aussi Multilingue. Le contenu envoyé à un assistant part chez son fournisseur, qui vous facture à l'usage."
+          "summary": "Assistants de rédaction, de traduction et d'aide dans l'administration."
         }
       },
       "aiSetup": {
         "missing": "Non configuré : la clé API est absente",
-        "refused": "Non configuré : {provider} a refusé la clé",
-        "description": "L'IA est activée mais ne peut pas encore fonctionner.",
         "finish": "Terminer la configuration"
+      },
+      "optional": "Modules facultatifs",
+      "alwaysOn": "Toujours actifs ({count})",
+      "alwaysOnLine": "Indispensables à tout site, ils ne peuvent pas être désactivés.",
+      "show": "Afficher",
+      "hide": "Masquer",
+      "itemWithNote": "{name} : {note}",
+      "progress": {
+        "turningOn": "Activation {id, select, ai {de l’IA} redirects {des redirections} email {de l’e-mail} other {du module {name}}}",
+        "turningOff": "Désactivation {id, select, ai {de l’IA} redirects {des redirections} email {de l’e-mail} other {du module {name}}}",
+        "applyingMany": "Application de {count} modifications",
+        "stepCheck": "Vérification de vos modifications…",
+        "stepSave": "Enregistrement…",
+        "stepOn": "Activation {id, select, ai {de l’IA} redirects {des redirections} email {de l’e-mail} other {du module {name}}}…",
+        "stepOff": "Désactivation {id, select, ai {de l’IA} redirects {des redirections} email {de l’e-mail} other {du module {name}}}…",
+        "doneOn": "{id, select, ai {L’IA est activée.} redirects {Les redirections sont activées.} email {L’e-mail est activé.} other {Le module {name} est activé.}}",
+        "doneOff": "{id, select, ai {L’IA est désactivée.} redirects {Les redirections sont désactivées.} email {L’e-mail est désactivé.} other {Le module {name} est désactivé.}}",
+        "doneMany": "{count} modifications appliquées.",
+        "percent": "{percent} %",
+        "close": "Fermer"
       }
     },
     "languageLifecycle": {
@@ -932,7 +987,7 @@
       "switchConfirm": "Changer maintenant",
       "switching": "Changement en cours…",
       "notYet": "Pas maintenant",
-      "sharedWarning": "Les réglages de recherche, le texte des cartes et les autres champs partagés sont identiques dans toutes les langues. Si vous y saisissez du texte en {target}, il sera mis en ligne à la prochaine publication de cette page en {source}.",
+      "sharedWarning": "L’image de partage, l’image de la carte et les autres champs partagés sont identiques dans toutes les langues. Si vous y saisissez du texte en {target}, il sera mis en ligne à la prochaine publication de cette page en {source}.",
       "cancel": "Arrêter le changement de langue",
       "cancelTitle": "Arrêter le changement de langue ?",
       "cancelDescription": "Votre site en ligne reste tel quel. Choisissez ce qu’il advient des brouillons en {target} créés par ce changement. Les versions publiées adoptées que vous n’avez pas retirées et les brouillons antérieurs sont conservés, sauf si le changement doit s’interrompre pour protéger un contenu plus récent.",
@@ -1420,22 +1475,33 @@
       },
       "catalogue": {
         "heading": "Fournisseurs d’e-mail",
-        "description": "Choisissez un fournisseur inclus ou ouvrez les instructions destinées aux développeurs pour en ajouter un personnalisé.",
-        "included": "Inclus",
-        "back": "Retour aux fournisseurs",
-        "developerDescription": "Ce lien ouvre les instructions destinées aux développeurs. Il n’installe aucun code et ne modifie pas l’envoi des e-mails.",
-        "addProvider": "Ajouter ce fournisseur"
+        "description": "Choisissez un fournisseur inclus, ou voyez comment en ajouter un autre.",
+        "back": "Retour aux fournisseurs"
       },
       "detail": {
         "emptyHeading": "Choisissez un fournisseur",
         "emptyDescription": "Sélectionnez un fournisseur pour afficher sa configuration."
       },
+      "more": {
+        "description": "La bibliothèque d’envoi de formulacms prend en charge ces services. Un développeur en ajoute un en quelques étapes.",
+        "guide": "Ouvrir le guide du développeur",
+        "smtpNote": "La plupart de ces services fonctionnent déjà par SMTP."
+      },
+      "panel": {
+        "disabled": "{provider} est désactivé. Activez-le pour l’utiliser pour les e-mails de votre site.",
+        "inactive": "{provider} est activé mais pas encore actif. Il devient actif quand le serveur de messagerie accepte un e-mail de test."
+      },
       "readiness": {
         "heading": "Configuration du serveur",
-        "description": "Vérifie si le réglage de sécurité Resend requis est disponible. Sa valeur n’est jamais affichée ici.",
+        "descriptionMany": "Définissez-les sur votre serveur. Leurs valeurs ne sont jamais affichées ici.",
+        "descriptionOne": "Définissez-le sur votre serveur. Sa valeur n’est jamais affichée ici.",
         "detected": "Détecté",
         "notDetected": "Non détecté",
         "notChecked": "Non vérifié",
+        "optionalPort": "facultatif, 465 par défaut",
+        "portDefault": "Non défini, 465 est utilisé",
+        "howToMany": "Comment les définir",
+        "howToOne": "Comment le définir",
         "check": "Vérifier la configuration"
       },
       "sender": {
@@ -1449,14 +1515,21 @@
       },
       "test": {
         "heading": "Test d’envoi",
-        "description": "Envoyez un test fixe uniquement à {email}. Le fournisseur doit l’accepter avant l’activation.",
+        "description": "Envoyez un test fixe uniquement à {email}. Le fournisseur devient actif quand le test est accepté.",
         "ownerAccount": "l’adresse du propriétaire du site",
         "send": "Envoyer un e-mail de test",
         "state": {
           "queued": "Test en file d’attente. Résultat du fournisseur en attente.",
-          "provider_accepted": "Le fournisseur a accepté le test. L’activation est disponible pour une courte durée.",
+          "provider_accepted": "Le serveur de messagerie a accepté le test. {provider} est actif.",
           "failed": "Le fournisseur n’a pas accepté le test.",
           "unknown": "L’envoi est incertain. Envoyez un nouveau test avant l’activation."
+        },
+        "reason": {
+          "sign_in_refused": "Identifiants refusés. Vérifiez <code>EMAIL_SMTP_USER</code> et <code>EMAIL_SMTP_PASSWORD</code>.",
+          "could_not_connect": "Connexion impossible. Vérifiez <code>EMAIL_SMTP_HOST</code> et <code>EMAIL_SMTP_PORT</code>.",
+          "secure_connection_failed": "Connexion sécurisée impossible. Le serveur de messagerie doit avoir un certificat reconnu.",
+          "sender_refused": "Le serveur de messagerie a refusé l’adresse d’envoi. Utilisez une adresse que ce serveur accepte.",
+          "message_refused": "Le serveur de messagerie a refusé le message."
         },
         "blocked": {
           "not_configured": "Enregistrez le fournisseur et l’expéditeur avant le test.",
@@ -1466,70 +1539,47 @@
         }
       },
       "activation": {
-        "status": "{provider} est activé.",
-        "turnOff": "Désactiver",
         "turnOffTitle": "Désactiver {provider} ?",
         "turnOffDescription": "Votre site n’enverra plus d’e-mails, y compris les messages du formulaire de contact et les réinitialisations de mot de passe. Pour le réactiver, vous devrez envoyer un nouveau test.",
         "turnOffConfirm": "Désactiver",
-        "activate": "Activer Resend",
-        "description": "Toute modification du fournisseur ou de l’expéditeur exige un nouveau test accepté avant l’activation."
+        "description": "Après un changement de l’expéditeur ou des réglages du serveur, envoyez un nouveau test."
+      },
+      "switch": {
+        "title": "Passer à {provider} ?",
+        "description": "{active} est désactivé dès maintenant. Votre site n’envoie aucun e-mail tant que {provider} n’a pas réussi un test.",
+        "confirm": "Passer à {provider}"
       },
       "toast": {
         "saved": "Configuration e-mail enregistrée",
         "failedSave": "La configuration e-mail n’a pas été enregistrée. Vérifiez l’expéditeur et réessayez.",
-        "configurationReady": "Configuration serveur Resend détectée",
-        "configurationMissing": "Configuration serveur Resend non détectée",
+        "configurationReady": "Configuration serveur {provider} détectée",
+        "configurationMissing": "Configuration serveur {provider} non détectée",
         "failedCheck": "Impossible de vérifier la configuration du serveur",
         "testQueued": "Test en file d’attente. L’acceptation du fournisseur est toujours en attente.",
         "failedTest": "Impossible de mettre le test d’envoi en file d’attente",
-        "activated": "Resend activé",
-        "failedActivate": "Resend n’a pas été activé. Envoyez un nouveau test réussi, puis réessayez.",
+        "activated": "{provider} activé",
         "deactivated": "{provider} est désactivé",
         "failedDeactivate": "{provider} n’a pas été désactivé. Réessayez."
       },
       "notifications": {
         "heading": "Notifications",
         "label": "E-mail de notification (facultatif)",
-        "hint": "Les messages du formulaire de contact arrivent ici. Jamais utilisé pour se connecter.",
+        "hint": "Saisissez votre e-mail pour recevoir les notifications automatiques de formulacms.",
         "save": "Enregistrer",
         "saved": "Enregistré"
       }
     },
     "aiScreen": {
       "title": "IA",
-      "connections": "Connexions",
-      "connectionsDescription": "Les services d'IA que vos assistants peuvent utiliser. Un assistant envoie le contenu sur lequel vous le faites travailler à son fournisseur. Les fournisseurs d'API vous facturent chaque utilisation.",
-      "apiKeys": "Clés API",
-      "connected": "Connecté · clé trouvée dans votre environnement",
-      "replaceKey": "Remplacez {envVar} dans votre environnement.",
-      "refusedAssistants": "Les assistants qui utilisent {provider} affichent « Clé refusée » et ne peuvent pas fonctionner tant que le problème n'est pas résolu.",
-      "temporary": "C'est généralement temporaire. La clé est valide ; réessayez l'action.",
-      "addKey": "Ajoutez {envVar} à votre environnement. formulacms ne stocke jamais votre clé.",
-      "today": "aujourd'hui {time}",
-      "assistants": "Assistants",
-      "assistantsLocal": "Choisissez avec quoi chaque assistant fonctionne et comment il se comporte. Ces choix sont enregistrés pour le développement local ; votre site en ligne garde les siens.",
-      "assistantsLive": "Choisissez avec quoi chaque assistant fonctionne et comment il se comporte sur votre site en ligne.",
-      "ready": "Prêt",
-      "needsAttention": "Action requise",
-      "keysConnected": "{connected} clés API connectées sur {total}",
-      "keyRefused": "Clé refusée",
-      "finishConnection": "À terminer : sa connexion n'est pas configurée",
-      "runsWith": "Fonctionne avec",
-      "notSetUp": " · non configuré",
+      "chooseAnotherModel": "Choisissez un autre modèle",
       "model": "Modèle",
       "effort": "Effort",
       "effortNotSet": "Non défini",
       "noEffort": "Non disponible pour ce modèle",
-      "instructions": "Instructions (prompt système)",
-      "instructionsNote": "Envoyées au modèle avant chaque demande de cet assistant.",
+      "instructions": "Instructions",
       "reset": "Rétablir par défaut",
-      "presetsNote": "Les briefs d'exemple et les reformulations rapides restent comme aujourd'hui.",
       "save": "Enregistrer",
       "saved": "Enregistré",
-      "active": "Actif",
-      "refusedCard": "Non configuré : {provider} a refusé la clé",
-      "missingCard": "Non configuré : la clé API est absente",
-      "description": "Connectez un service d'IA, puis configurez vos assistants. Pour désactiver l'IA, allez dans Modules.",
       "offNotice": "L'IA n'est pas activée. Vous pouvez l'activer ici.",
       "errorTitle": "Impossible de charger les paramètres de l'IA",
       "errorDescription": "Une erreur s'est produite lors du chargement de vos paramètres d'IA. Le reste de l'administration fonctionne toujours.",
@@ -1538,11 +1588,6 @@
         "anthropic": "Anthropic",
         "openrouter": "OpenRouter",
         "openai": "OpenAI"
-      },
-      "connection": {
-        "refused": "Clé refusée : {provider} a rejeté {envVar} lors de votre dernière action d'IA ({at})",
-        "unreachable": "Impossible de joindre {provider} lors de votre dernière action d'IA ({at})",
-        "missing": "Non configuré : {envVar} est absente"
       },
       "tasks": {
         "writing": {
@@ -1564,16 +1609,47 @@
       "sliceCreator": {
         "title": "Créateur de blocs",
         "summary": "Conçoit avec vous de nouveaux types de blocs : leurs champs, les règles de saisie et leur apparence. Travaille sur les fichiers de votre projet pendant le développement local, jamais sur le site en ligne.",
-        "prompt": "Vous concevez des types de blocs pour ce site. Suivez les règles de blocs et les réglages de design du projet. Montrez chaque modification de fichier pour relecture avant de l'écrire.",
-        "finishSetup": "À terminer",
-        "keyMissing": "Non configuré sur cet ordinateur : {envVar} est manquante",
-        "keyHelp": "Le Créateur de blocs fonctionne sur votre ordinateur. Il utilise donc une clé enregistrée sur celui-ci, distincte des connexions ci-dessus. Ajoutez {envVar} au fichier .env.local de votre projet. Elle est détectée automatiquement ; formulacms ne stocke jamais votre clé.",
-        "keyMissingAny": "Aucune clé pour le Créateur de blocs sur cet ordinateur",
-        "keyHelpAny": "Le Créateur de blocs fonctionne sur votre ordinateur et utilise une clé enregistrée sur celui-ci, distincte des connexions ci-dessus. Ajoutez {openrouter}, {anthropic} ou {openai} au fichier .env.local de votre projet. Elle est détectée automatiquement ; formulacms ne stocke jamais votre clé."
+        "prompt": "Vous concevez des types de blocs pour ce site. Suivez les règles de blocs et les réglages de design du projet. Montrez chaque modification de fichier pour relecture avant de l'écrire."
       },
       "picker": {
         "searchPlaceholder": "Rechercher parmi {count} modèles…",
-        "noneMatch": "Aucun modèle ne correspond à « {query} »"
+        "noneMatch": "Aucun modèle ne correspond à « {query} »",
+        "unavailable": {
+          "needsMaxOrUltra": "Nécessite Max ou Ultra",
+          "needsMaxOrUltraPlanUnknown": "Nécessite Max ou Ultra · forfait non détecté"
+        },
+        "retires": "Retrait le {date}",
+        "listsUpdated": "Listes mises à jour {when}",
+        "todayAt": "aujourd'hui à {time}",
+        "refresh": "Actualiser",
+        "updated": "Mis à jour",
+        "refreshTooSoon": "Les listes de modèles viennent d'être mises à jour. Réessayez dans quelques minutes."
+      },
+      "local": {
+        "tools": {
+          "claude": "Claude Code",
+          "codex": "Codex"
+        }
+      },
+      "rail": {
+        "label": "Sections IA",
+        "assistants": "Assistants",
+        "apiKeys": "Clés API"
+      },
+      "provider": "Fournisseur",
+      "fableNeedsPlan": "Fable nécessite un forfait Claude Max ou Ultra.",
+      "off": "L’IA est désactivée. Activez-la dans <link>Modules</link>.",
+      "yourProviders": "Vos fournisseurs d’IA",
+      "noProvider": "Aucun fournisseur d’IA n’est configuré.",
+      "subscriptions": "Abonnements",
+      "subscriptionsNote": "Utilise votre session Claude Code ou Codex ouverte sur cet ordinateur.",
+      "keysNote": "Les assistants utilisent les clés définies sur votre déploiement Convex. Le créateur de blocs utilise sa propre clé dans .env.local.",
+      "plan": "{plan, select, pro {Forfait Claude Pro} max {Forfait Claude Max} ultra {Forfait Claude Ultra} team {Forfait Claude Team} enterprise {Forfait Claude Enterprise} chatgpt {Forfait ChatGPT} other {}}",
+      "words": {
+        "ready": "Prêt",
+        "signedOut": "Déconnecté",
+        "notSetUp": "Non configuré",
+        "invalidKey": "Clé non valide"
       }
     }
   },
@@ -2015,7 +2091,10 @@
         "resume": "Reprendre",
         "dismiss": "Ignorer",
         "reviewSections": "Relire les sections",
-        "actionFailed": "Une erreur s’est produite. Réessayez."
+        "actionFailed": "Une erreur s’est produite. Réessayez.",
+        "localRunning": "S'exécute sur cet ordinateur avec {tool}. Laissez formulacms tourner jusqu'à la fin de la tâche.",
+        "localStopped": "Arrêté : formulacms ne tourne plus sur cet ordinateur. Relancez-le, puis choisissez Reprendre.",
+        "localResumeElsewhere": "Cette tâche utilise un outil local. Reprenez-la dans un navigateur sur l'ordinateur qui exécute formulacms."
       },
       "review": {
         "heading": "Sections à relire",
@@ -2033,7 +2112,8 @@
         "confirm": "Ignorer",
         "movedToTrash": "Mise à la corbeille",
         "dismissed": "Ignoré"
-      }
+      },
+      "localElsewhere": "La rédaction utilise un outil local. Ouvrez l'administration sur l'ordinateur qui exécute formulacms, ou choisissez une connexion API dans <link>Paramètres › IA</link>."
     },
     "aiTranslate": {
       "button": "Traduire depuis {source}",
@@ -2062,7 +2142,8 @@
       "dismiss": {
         "title": "Ignorer cette traduction ?",
         "description": "Rien n'est enregistré."
-      }
+      },
+      "localElsewhere": "La traduction utilise un outil local. Ouvrez l'administration sur l'ordinateur qui exécute formulacms, ou choisissez une connexion API dans <link>Paramètres › IA</link>."
     },
     "columns": {
       "title": "Titre",
@@ -2350,12 +2431,12 @@
       "metaDescription": "Description pour les moteurs de recherche",
       "metaDescriptionPlaceholder": "Décrivez cette page pour les moteurs de recherche…",
       "socialAndIndexing": "Réseaux sociaux et indexation",
-      "sharedHint": "(s’applique à toutes les langues)",
       "socialTitle": "Titre lors du partage",
       "socialDescription": "Description lors du partage",
       "socialDescriptionPlaceholder": "Affichée lors du partage sur les réseaux sociaux",
       "socialImage": "URL de l’image lors du partage",
       "socialImagePlaceholder": "https://…/image-partage.jpg",
+      "sameEverywhere": "Identique dans toutes les langues.",
       "noIndex": "Masquer dans les moteurs de recherche (<code>noindex</code>)",
       "noFollow": "Ne pas suivre les liens de cette page (<code>nofollow</code>)"
     },
@@ -2778,11 +2859,11 @@
       "copiedContent": "Contenu {locale} copié — vérifiez-le et enregistrez",
       "languageChange": {
         "sourceNotice": "Votre site passe au {target}.",
-        "sharedFields": "Les paramètres de recherche, le texte des cartes et les autres champs partagés sont identiques dans toutes les langues. Tout texte saisi dans ces champs sera donc aussi publié en {source} lors de la prochaine publication de cette page.",
+        "sharedFields": "L’image de partage, l’image de la carte et les autres champs partagés sont identiques dans toutes les langues. Tout texte saisi dans ces champs sera donc aussi publié en {source} lors de la prochaine publication de cette page.",
         "targetNotice": "Vous rédigez la version en {target} de cette page. Elle reste privée jusqu’au passage de votre site au {target}.",
         "confirmAgain": "Après l’enregistrement, confirmez à nouveau le texte sur la page du changement de langue.",
         "publishTitle": "Publier pendant le changement de langue de votre site ?",
-        "publishDescription": "Les paramètres de recherche, le texte des cartes et les autres champs partagés ont changé depuis la dernière publication de cette page. Ils sont identiques dans toutes les langues : tout texte en {target} saisi dans ces champs sera donc publié immédiatement en {source}.",
+        "publishDescription": "L’image de partage, l’image de la carte ou les autres champs partagés ont changé depuis la dernière publication de cette page. Ils sont identiques dans toutes les langues : tout texte en {target} saisi dans ces champs sera donc publié immédiatement en {source}.",
         "publishAnyway": "Publier quand même"
       },
       "retainedTargetRemedy": {
@@ -2965,7 +3046,9 @@
       "publication": {
         "targetLocaleUnavailable": "Une page référencée n’est pas publiée dans cette langue. Publiez-la d’abord, puis réessayez.",
         "targetMissing": "Une page référencée n’existe plus. Remplacez la référence, puis réessayez.",
-        "referenceLimit": "Cette page contient trop d’éléments liés pour être publiée. Supprimez certains liens ou certaines pages associées, puis réessayez."
+        "referenceLimit": "Cette page contient trop d’éléments liés pour être publiée. Supprimez certains liens ou certaines pages associées, puis réessayez.",
+        "imageMissing": "Une image de cette page a été supprimée de la médiathèque. Retirez-la ou remplacez-la, puis réessayez.",
+        "translationOff": "Non affiché sur le site : la traduction est désactivée pour les {type}."
       },
       "recoveryDiscarded": "Brouillon récupéré abandonné",
       "contentTypeChangeUnavailable": "Vous ne pouvez pas encore modifier le type de contenu de cette page",
@@ -3484,8 +3567,9 @@
     },
     "email": {
       "resendDescription": "Envoi d’e-mails transactionnels avec Resend.",
-      "customLabel": "Fournisseur personnalisé",
-      "customDescription": "Ajoutez à cette application un fournisseur dont l’implémentation a été vérifiée."
+      "smtpDescription": "Envoyez par n’importe quel serveur de messagerie : un compte Gmail, votre hébergeur ou un service d’envoi.",
+      "moreLabel": "Autres fournisseurs",
+      "moreDescription": "Ajoutez un autre fournisseur avec une petite modification du code."
     }
   },
   "accessibility": {

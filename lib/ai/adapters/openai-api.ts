@@ -4,9 +4,11 @@ import {
   type OpenAILanguageModelResponsesOptions,
 } from "@ai-sdk/openai"
 import { generateText } from "ai"
-import type {
-  AdapterGenerationRequest,
-  ApiGenerationAdapter,
+import {
+  REASONING_EFFORTS,
+  UnsupportedAdapterInputError,
+  type AdapterGenerationRequest,
+  type ApiGenerationAdapter,
 } from "../execution-contract"
 
 export interface OpenAIAdapterOptions {
@@ -24,16 +26,23 @@ export function createOpenAIGenerationAdapter(
       if (request.tuple.provider !== "openai") {
         throw new Error("OpenAI adapter received a different provider tuple.")
       }
+      // The Responses options accept any effort string; only send one of ours.
+      const effort = request.tuple.reasoning?.effort
+      if (effort !== undefined && !(REASONING_EFFORTS as readonly string[]).includes(effort)) {
+        throw new UnsupportedAdapterInputError("The OpenAI SDK does not accept this effort.")
+      }
       const result = await generateText({
         model: openai.responses(request.tuple.model),
         instructions: request.instructions,
         system: request.system,
         ...request.input,
-        providerOptions: {
-          openai: {
-            reasoningEffort: request.tuple.reasoning.effort,
-          } satisfies OpenAILanguageModelResponsesOptions,
-        },
+        providerOptions: effort
+          ? {
+              openai: {
+                reasoningEffort: effort,
+              } satisfies OpenAILanguageModelResponsesOptions,
+            }
+          : undefined,
         abortSignal: request.abortSignal,
         maxRetries: request.maxRetries,
         maxOutputTokens: request.maxOutputTokens,

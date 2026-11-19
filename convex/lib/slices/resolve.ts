@@ -136,6 +136,19 @@ export async function resolveRelations(
   return result
 }
 
+function cardExcerptFor(
+  page: Doc<"pages">,
+  staging: { content?: Record<string, unknown> } | null,
+  locale: string
+): string | undefined {
+  const own = (
+    (staging?.content?.[locale] ?? page.content?.[locale]) as
+      | { cardExcerpt?: string }
+      | undefined
+  )?.cardExcerpt
+  return own || undefined
+}
+
 function projectRelationCard(
   page: Doc<"pages"> | null,
   mediaUrlById: Map<string, string>,
@@ -184,7 +197,10 @@ function projectRelationCard(
     pageId: page._id,
     pageType: page.pageType,
     title: localizedContent?.title ?? page.slug,
-    ...(page.cardExcerpt ? { excerpt: page.cardExcerpt } : {}),
+    // The card excerpt is written in each language; never another language's.
+    ...(cardExcerptFor(page, staging, locale)
+      ? { excerpt: cardExcerptFor(page, staging, locale) }
+      : {}),
     ...(cardImage ? { image: { url: cardImage } } : {}),
   }
 }

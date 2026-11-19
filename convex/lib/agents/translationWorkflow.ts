@@ -54,6 +54,11 @@ export interface PageTranslationContent {
   title: string
   metaTitle?: string
   metaDescription?: string
+  /** Per-language social share text and card excerpt (ADR-0037 amendment,
+   *  2026-11-17). Structured data is never translated. */
+  ogTitle?: string
+  ogDescription?: string
+  cardExcerpt?: string
   slices: readonly Slice[]
   translatables?: readonly TranslatableLeaf[]
 }
@@ -322,6 +327,9 @@ export async function translatePageContent(
   title: string
   metaTitle?: string
   metaDescription?: string
+  ogTitle?: string
+  ogDescription?: string
+  cardExcerpt?: string
   slices: Slice[]
   translatables: TranslatableLeaf[]
 }> {
@@ -339,39 +347,59 @@ export async function translatePageContent(
           fieldPath: "items",
         })
     }
-  const [title, metaTitle, metaDescription, slices, translatables] =
-    await Promise.all([
-      translatePlainText(page.title, { ...traversal, path: "title" }),
-      page.metaTitle !== undefined
-        ? translatePlainText(page.metaTitle, {
-            ...traversal,
-            path: "metaTitle",
-          })
-        : undefined,
-      page.metaDescription !== undefined
-        ? translatePlainText(page.metaDescription, {
-            ...traversal,
-            path: "metaDescription",
-          })
-        : undefined,
-      Promise.all(
-        page.slices.map((slice, index) =>
-          translateSlice(slice, { ...traversal, path: `slices[${index}]` })
-        )
-      ),
-      Promise.all(
-        (page.translatables ?? []).map((leaf, index) =>
-          translateTranslatableLeaf(leaf, {
-            ...traversal,
-            path: `translatables[${index}].${leaf.path}`,
-          })
-        )
-      ),
-    ])
+  const optionalText = (path: keyof PageTranslationContent) => {
+    const text = page[path]
+    return typeof text === "string"
+      ? translatePlainText(text, { ...traversal, path })
+      : undefined
+  }
+  const [
+    title,
+    metaTitle,
+    metaDescription,
+    ogTitle,
+    ogDescription,
+    cardExcerpt,
+    slices,
+    translatables,
+  ] = await Promise.all([
+    translatePlainText(page.title, { ...traversal, path: "title" }),
+    page.metaTitle !== undefined
+      ? translatePlainText(page.metaTitle, {
+          ...traversal,
+          path: "metaTitle",
+        })
+      : undefined,
+    page.metaDescription !== undefined
+      ? translatePlainText(page.metaDescription, {
+          ...traversal,
+          path: "metaDescription",
+        })
+      : undefined,
+    optionalText("ogTitle"),
+    optionalText("ogDescription"),
+    optionalText("cardExcerpt"),
+    Promise.all(
+      page.slices.map((slice, index) =>
+        translateSlice(slice, { ...traversal, path: `slices[${index}]` })
+      )
+    ),
+    Promise.all(
+      (page.translatables ?? []).map((leaf, index) =>
+        translateTranslatableLeaf(leaf, {
+          ...traversal,
+          path: `translatables[${index}].${leaf.path}`,
+        })
+      )
+    ),
+  ])
   return {
     title,
     ...(page.metaTitle !== undefined ? { metaTitle } : {}),
     ...(page.metaDescription !== undefined ? { metaDescription } : {}),
+    ...(page.ogTitle !== undefined ? { ogTitle } : {}),
+    ...(page.ogDescription !== undefined ? { ogDescription } : {}),
+    ...(page.cardExcerpt !== undefined ? { cardExcerpt } : {}),
     slices,
     translatables,
   }

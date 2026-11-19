@@ -83,12 +83,14 @@ export async function dispatchPreparedEmail(
         state: "retryable_failure",
         providerId: result.providerId,
         reason: "provider_rejected",
+        ...(result.category ? { category: result.category } : {}),
       }
     }
     return {
       state: "failed",
       providerId: result.providerId,
       reason: result.reason,
+      ...(result.category ? { category: result.category } : {}),
     }
   } catch (error) {
     const code = error instanceof Error ? error.message : ""

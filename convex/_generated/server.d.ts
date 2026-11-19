@@ -33,6 +33,10 @@ type Env = {
   readonly ANTHROPIC_API_KEY: string | undefined;
   readonly CMS_AI_MODEL: string | undefined;
   readonly CONTACT_IP_PROOF_SECRET: string | undefined;
+  readonly EMAIL_SMTP_HOST: string | undefined;
+  readonly EMAIL_SMTP_PASSWORD: string | undefined;
+  readonly EMAIL_SMTP_PORT: string | undefined;
+  readonly EMAIL_SMTP_USER: string | undefined;
   readonly FORMULACMS_OWNER_CLAIM: string | undefined;
   readonly NEXTCMS_OWNER_CLAIM: string | undefined;
   readonly OPENAI_API_KEY: string | undefined;

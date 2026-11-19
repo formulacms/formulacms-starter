@@ -705,7 +705,7 @@ describe("SetupWizard auth bridge", () => {
       "Owner setup code",
     ])
     expect(
-      screen.getByText("Contact form messages go here. Never used to sign in.")
+      screen.getByText("Enter your email to receive formulacms automatic notifications.")
     ).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText("Notification email (optional)"), {
       target: { value: " owner@example.com " },

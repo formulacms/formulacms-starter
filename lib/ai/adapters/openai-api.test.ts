@@ -17,6 +17,7 @@ vi.mock("ai", () => ({
   generateText: mocks.generateText,
 }))
 
+import { UnsupportedAdapterInputError, type ReasoningEffort } from "../execution-contract"
 import { taskProfileTuple } from "../task-profiles"
 import { createOpenAIGenerationAdapter } from "./openai-api"
 
@@ -107,6 +108,24 @@ describe("OpenAI catalog adapter", () => {
         maxOutputTokens: 8192,
       })
     ).rejects.toThrow("different provider tuple")
+    expect(mocks.generateText).not.toHaveBeenCalled()
+  })
+
+  test("refuses an effort the OpenAI SDK does not accept before an SDK call", async () => {
+    const adapter = createOpenAIGenerationAdapter({ apiKey: "unit-test-key" })
+
+    await expect(
+      adapter.generate({
+        tuple: {
+          mode: "catalog", provider: "openai", model: "gpt-6.1-sol",
+          reasoning: { kind: "effort", effort: "ultra" as ReasoningEffort },
+        },
+        input: { prompt: "PROMPT" },
+        abortSignal: new AbortController().signal,
+        maxRetries: 0,
+        maxOutputTokens: 8192,
+      })
+    ).rejects.toBeInstanceOf(UnsupportedAdapterInputError)
     expect(mocks.generateText).not.toHaveBeenCalled()
   })
 })

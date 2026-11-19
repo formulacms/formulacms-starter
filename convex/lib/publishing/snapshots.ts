@@ -24,13 +24,20 @@ import {
   readOpenTransition,
   readSiteLanguageState,
 } from "../language/state"
+import { isHiddenByTranslationSwitch } from "./translationSwitch"
+import {
+  hasLegacySharedValues,
+  mergedSeoForProjection,
+  normalizeSnapshotPayload,
+} from "../contentTypes/perLanguageFields"
 
 /**
  * Public readers gate on the enabled set. Only F09 preparation and validation
  * use the hidden gate, which accepts exactly the open transition's target.
  */
 type ProjectionLocaleGate =
-  { kind: "public" } | { kind: "hidden_target"; locale: string }
+  | { kind: "public"; ignoreTranslationSwitch?: true }
+  | { kind: "hidden_target"; locale: string }
 
 type PublicationReadCtx = QueryCtx | MutationCtx
 
@@ -550,6 +557,13 @@ function snapshotPageSource(
   payload: LocalePublicationCandidatePayload,
   publishedAt: number
 ): Doc<"pages"> {
+  // ADR-0037 amendment (2026-11-17): the language's own search, social and
+  // card values sit in its Localized Content; merge them over the shared seo
+  // block into the shape every projector reads.
+  const content = payload.localized.content
+  const seo = mergedSeoForProjection(payload.shared.system.seo, content)
+  const cardExcerpt =
+    typeof content.cardExcerpt === "string" ? content.cardExcerpt : undefined
   return {
     _id: pageId,
     _creationTime: publishedAt,
@@ -558,10 +572,38 @@ function snapshotPageSource(
     status: "published",
     ...payload.shared.system,
     ...payload.shared.descriptor,
+    seo,
+    cardExcerpt,
     content: { [payload.locale]: payload.localized.content },
     updatedAt: publishedAt,
     publishedAt,
   } as unknown as Doc<"pages">
+}
+
+/**
+ * The language the old shared search, social and card text belongs to. Until
+ * the upgrade records it, it is the default language (the language of the
+ * upgrade). Empty when the site has no settings, which applies the text to no
+ * language.
+ */
+export async function readLegacySharedFieldsLocale(
+  ctx: PublicationReadCtx
+): Promise<string> {
+  const rows = await ctx.db.query("siteSettings").take(2)
+  const settings = rows.length === 1 ? rows[0]! : null
+  return settings?.legacySharedFieldsLocale ?? settings?.defaultLocale ?? ""
+}
+
+/** Resolve an old snapshot into the per-language shape; new ones pass through. */
+async function normalizedFrozenPayload(
+  ctx: PublicationReadCtx,
+  payload: LocalePublicationCandidatePayload
+): Promise<LocalePublicationCandidatePayload> {
+  if (!hasLegacySharedValues(payload.shared)) return payload
+  return normalizeSnapshotPayload(
+    payload,
+    await readLegacySharedFieldsLocale(ctx)
+  )
 }
 
 function projectPayload(
@@ -669,7 +711,10 @@ async function verifyFrozenSnapshotUncached(
   )
     return null
 
-  const payload = await reconstructLocalePublicationCandidate(candidate)
+  const reconstructed = await reconstructLocalePublicationCandidate(candidate)
+  const payload = reconstructed
+    ? await normalizedFrozenPayload(ctx, reconstructed)
+    : reconstructed
   if (
     !payload ||
     payload.page.id !== String(snapshot.pageId) ||
@@ -779,8 +824,12 @@ function readCachedSnapshotProjection(
   gate: ProjectionLocaleGate,
   cache: ProjectionCache
 ): Promise<SnapshotPayload | null> {
-  const key = `${pageId}\0${locale}`
-  if (visiting.has(key)) return Promise.resolve(null)
+  // The gate is part of the key: the same Page+locale reads differently with
+  // and without the translation-switch condition.
+  const key = `${pageId}\0${locale}${
+    gate.kind === "public" && gate.ignoreTranslationSwitch ? "\0ignore-switch" : ""
+  }`
+  if (visiting.has(`${pageId}\0${locale}`)) return Promise.resolve(null)
   const cached = cache.current.get(key)
   if (cached) return cached
   const projection = readCurrentSnapshotProjectionInner(
@@ -846,7 +895,17 @@ async function readCurrentSnapshotProjectionInner(
       pageState.lifecycleState !== "active" ||
       !settings?.homePageId ||
       (gate.kind === "public"
-        ? !settings.enabledLocales?.includes(locale)
+        ? !settings.enabledLocales?.includes(locale) ||
+          // ADR-0037 amendment (2026-11-17): a content type switched to one
+          // language is not public in any other language. Every public
+          // reader passes this one condition. Only the question "hidden by
+          // the switch?" (isPageHiddenInLocaleOrAncestry) skips it.
+          (!gate.ignoreTranslationSwitch &&
+            isHiddenByTranslationSwitch(
+              settings,
+              { pageId, pageType: page.pageType },
+              locale
+            ))
         : gate.locale !== locale) ||
       !localeState ||
       !localeState.hasCurrentSnapshot ||
@@ -1005,6 +1064,53 @@ export async function createPublicSnapshotProjectionReader(
       { kind: "public" },
       cache
     )
+}
+
+/**
+ * ADR-0037 amendment (2026-11-17): true when a visitor must not see this page
+ * in `locale` because of the translation switch: its own content type is
+ * switched to another language, or the public reader hides it because an
+ * ancestor in its current publication chain is. The public reader is the one
+ * owner of that decision. The page is hidden by the switch exactly when the
+ * public read returns nothing and the same read without the switch condition
+ * returns the page. A genuinely missing translation fails both reads and
+ * stays "missing". Draft parents are never consulted.
+ */
+export async function isPageHiddenInLocaleOrAncestry(
+  ctx: PublicationReadCtx,
+  pageId: Id<"pages">,
+  locale: string
+): Promise<boolean> {
+  const settings = await ctx.db.query("siteSettings").first()
+  if (!settings?.untranslatedContentTypes?.length) return false
+  const page = await ctx.db.get("pages", pageId)
+  if (!page) return false
+  // The page's own type needs no snapshot: the publish guard refuses
+  // translating it, so a switched type has none in the hidden language.
+  if (
+    isHiddenByTranslationSwitch(
+      settings,
+      { pageId, pageType: page.pageType },
+      locale
+    )
+  )
+    return true
+  if (
+    await readCurrentSnapshotProjectionInner(
+      ctx,
+      pageId,
+      locale,
+      new Set(),
+      { kind: "public" }
+    )
+  )
+    return false
+  return (
+    (await readCurrentSnapshotProjectionInner(ctx, pageId, locale, new Set(), {
+      kind: "public",
+      ignoreTranslationSwitch: true,
+    })) !== null
+  )
 }
 
 /**

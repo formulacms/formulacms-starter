@@ -8,6 +8,12 @@ const notFound = vi.hoisted(() =>
 )
 
 vi.mock("next/navigation", () => ({ notFound }))
+// The page reads .env.local at each call; here the reader maps the stubbed
+// environment instead, so no test reads a real .env.local.
+vi.mock("@/lib/local-api-keys-file", async () => {
+  const { localProviderKeyPresence } = await import("@/lib/local-api-keys")
+  return { localProviderKeyPresenceNow: () => localProviderKeyPresence(process.env) }
+})
 
 import AiSettingsPage from "./page"
 

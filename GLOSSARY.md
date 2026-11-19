@@ -152,16 +152,45 @@ _Avoid_: Format set, toolbar config, level
 ## Module language
 
 **Module**:
-A contained piece of logic and UI that adds capabilities to formulacms; Core Modules are always on, and when an Optional Module is off its capabilities are absent. Contained means the module owns its capabilities and connects to the rest of formulacms only through declared interfaces, so turning it off removes just those capabilities (the admin offers none of its actions and the server refuses them) while the core keeps working and the module's data stays. _Example (future, not implemented)_: a Roles and Permissions module.
-_Avoid_: plugin, extension, add-on.
+A part of formulacms that owns a set of related features. It connects to the rest of formulacms only through declared interfaces. A module is either a Core Module or an Optional Module.
+_Avoid_: plugin, extension, add-on
+_Test_: Can formulacms work without it? No: it is a Core Module. Yes: it is an Optional Module.
 
-**Core Module**:
-An always-on module that makes up the core CMS: System, Owner access, Content model, Content editor, Publication, Media, Language or Email. It cannot be turned off and works without Optional Modules. Listed in Modules under "Core (always on)".
-_Avoid_: system module, required module (code term only).
+**Core Module** (also **System Module**):
+A module that formulacms cannot work without. It is always on, and the owner cannot turn it off. It works when every Optional Module is off. "Core Module" and "System Module" mean the same thing.
+_Avoid_: required module (code term only), using "core" and "system" as two categories
 
 **Optional Module**:
-A module that adds capabilities to the core. It starts off on new sites; the owner switches it in Modules, subject to safety checks, and configures it in Settings. When off, the admin sends no requests to use it and the server blocks that use.
-_Avoid_: "off means deleted", "on means ready".
+A module that formulacms can work without. Turning it off removes its features, and formulacms keeps working. It is off on new sites. The owner turns it on or off in Settings › Modules, subject to safety checks. When it is off, its data stays, the admin offers none of its actions, and the server refuses any use of it.
+_Avoid_: "off means deleted", "on means ready"
+
+**Module Definition**:
+One typed file that declares one module: its stable id, the modules it requires, and the integration parts the Module Factory generates for it. Every module is made from its definition.
+_Avoid_: module spec, module config
+
+**Module Factory**:
+The development tooling that makes every module from its Module Definition. It generates the integration parts, creates the behaviour files once, and checks that the generated parts are up to date. It is not a module and has no row in Settings › Modules.
+_Avoid_: module constructor, plugin system
+
+**Requires**:
+A module-to-module enablement edge. To enable a module, every module it requires must be enabled. A module cannot be disabled while a module that requires it is enabled.
+_Avoid_: depends on (loosely), Task Requirement
+
+**Task Requirement**:
+A condition of one task, not of a module. For example, AI translation needs Multilingual, but the AI module works without it.
+_Avoid_: Requires, module dependency
+
+**Selected Provider**:
+The one enabled email provider module, such as SMTP or Resend, that the owner chose to send the site's email. The owner selects it on Email's page. At most one provider is selected; with none, the site uses the Console fallback.
+_Avoid_: enabled provider (an enabled provider module is not always selected), default provider
+
+**Inbox**:
+The optional module that stores messages that reach the site, such as contact form submissions. It requires Email.
+_Avoid_: Submissions
+
+**Form**:
+The optional module for the site's contact form. It requires Email and Inbox; Inbox stores each submission.
+_Avoid_: Forms (as the module name), contact module
 
 ## Interface language
 

@@ -2,11 +2,15 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useAction, useMutation, useQueries, useQuery } from "convex/react"
-import type { FunctionReturnType } from "convex/server"
+import type { FunctionArgs, FunctionReturnType } from "convex/server"
 import { ConvexError } from "convex/values"
 import { useTranslations } from "next-intl"
 import { GripVertical, Loader2, Plus, Sparkles, X } from "lucide-react"
 import { api } from "@/convex/_generated/api"
+import {
+  generatePageOutlineLocal,
+  startLocalPageJob,
+} from "@/app/(core)/admin/(authenticated)/pages/local-ai-job-actions"
 import type { Id } from "@/convex/_generated/dataModel"
 import { INSTALLED_SLICE_TYPES } from "@/convex/lib/slices"
 import {
@@ -29,9 +33,11 @@ import { readSliceMetadata } from "@/lib/slices/builder"
 import { moveItem, useDragReorder } from "@/lib/use-drag-reorder"
 import { OptionalContribution } from "../optional-contribution"
 import {
+  LocalToolElsewhereNotice,
   PageJobCard,
   RunningJobNotice,
   focusPageJobCard,
+  runsElsewhere,
   useWritingState,
 } from "./page-jobs"
 
@@ -47,6 +53,17 @@ type Meta = {
 }
 const MAX_SECTIONS = 8
 
+/**
+ * A local action's value, or its refusal as the error Convex would throw, so
+ * one catch handles both routes.
+ */
+function unwrap<T>(
+  result: { ok: true; value: T } | { ok: false; refusal: string }
+): T {
+  if (result.ok) return result.value
+  throw new ConvexError(result.refusal)
+}
+
 type WizardProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -60,6 +77,7 @@ type WizardProps = {
 export function PageWizard({ open, onOpenChange, ...props }: WizardProps) {
   const t = useTranslations("pages.aiWrite")
   const tShell = useTranslations("shell")
+  const { localTool } = useWritingState()
   // A followed running-job link focuses that card once the dialog has closed.
   const followJob = useRef<string | null>(null)
   return (
@@ -84,6 +102,7 @@ export function PageWizard({ open, onOpenChange, ...props }: WizardProps) {
           slot="admin.ai-writing"
           fallbackText={tShell("modulesUnavailable")}
           finishSetup={{ href: "/admin/settings/ai", label: t("settingsLink") }}
+          readyWithoutSetup={localTool !== undefined}
         >
           <WizardBody
             {...props}
@@ -116,14 +135,28 @@ function WizardBody({
 }) {
   const t = useTranslations("pages.aiWrite.wizard")
   const displayError = useCaughtError()
-  const { active, writeJobs } = useWritingState()
+  const { active, writeJobs, localTool } = useWritingState()
   // Optional starting briefs: a refused read only hides the picker.
   const { presets } = useQueries(PRESETS_REQUEST) as {
     presets?: Presets | Error
   }
   const settings = useQuery(api.cms.settings.getSettings)
-  const planOutline = useAction(api.agents.contentWriter.generatePageOutline)
-  const startJob = useMutation(api.cms.aiJobs.startPageJob)
+  const planOutlineOnApi = useAction(api.agents.contentWriter.generatePageOutline)
+  const startApiJob = useMutation(api.cms.aiJobs.startPageJob)
+  // The route decision: Writing's local tool on this computer, else its API
+  // service (which Convex refuses while Writing runs with a local tool).
+  const planOutline = async (args: { brief: string; locale: WriteLocale }) =>
+    localTool
+      ? unwrap(await generatePageOutlineLocal(args))
+      : planOutlineOnApi(args)
+  const startJob = async (
+    args: FunctionArgs<typeof api.cms.aiJobs.startPageJob>
+  ) =>
+    localTool
+      ? unwrap(await startLocalPageJob(args.input))
+      : startApiJob(args)
+  // Writing moved to a local tool after this screen loaded (a stale tab).
+  const [elsewhere, setElsewhere] = useState(false)
   const [stage, setStage] = useState<"brief" | "outline" | "running">("brief")
   const [brief, setBrief] = useState("")
   const [locale, setLocale] = useState<WriteLocale>(initialLocale)
@@ -167,7 +200,8 @@ function WizardBody({
       )
       setStage("outline")
     } catch (error) {
-      setPlanError(displayError(error, t("planFailed")))
+      if (runsElsewhere(error)) setElsewhere(true)
+      else setPlanError(displayError(error, t("planFailed")))
     }
     // No finally clause: the React Compiler skips components that use one.
     setPlanning(false)
@@ -198,11 +232,13 @@ function WizardBody({
         error.data === "AI_JOB_ALREADY_ACTIVE"
       )
         setRefused(true)
+      else if (runsElsewhere(error)) setElsewhere(true)
       else setStartError(displayError(error, t("startFailed")))
     }
     setStarting(false)
   }
 
+  if (elsewhere) return <LocalToolElsewhereNotice messages="pages.aiWrite" />
   return (
     <>
       {refused && <RunningJobNotice active={active} onFollow={onFollow} />}

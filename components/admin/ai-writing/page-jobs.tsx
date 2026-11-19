@@ -1,14 +1,25 @@
 "use client"
 
-import { useEffect, useId, useState, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useState,
+  type ReactNode,
+} from "react"
 import Link from "next/link"
 import { useMutation, useQueries } from "convex/react"
+import { ConvexError } from "convex/values"
 import type { FunctionReturnType } from "convex/server"
 import { useRouter } from "next/navigation"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { Check, CircleAlert, Clock, Loader2, RotateCcw, X } from "lucide-react"
 import { api } from "@/convex/_generated/api"
+import { resumeLocalPageJob } from "@/app/(core)/admin/(authenticated)/pages/local-ai-job-actions"
+import type { AdminContributionRouteData } from "../contributions/types"
+import { AmberNotice } from "@/components/admin/amber-notice"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
@@ -18,7 +29,8 @@ import { useCaughtError } from "@/lib/i18n/use-caught-error"
 import { readSliceMetadata } from "@/lib/slices/builder"
 import { cn } from "@/lib/utils"
 
-type AiStatus = FunctionReturnType<typeof api.cms.aiSettings.status>
+// `status` is null while the AI module is off: treated as not loaded.
+type AiStatus = NonNullable<FunctionReturnType<typeof api.cms.aiSettings.status>>
 export type PageJob = FunctionReturnType<
   typeof api.cms.aiJobs.pageJobProgress
 >[number]
@@ -29,11 +41,12 @@ type PageJobResult = FunctionReturnType<typeof api.cms.aiJobs.pageJobResult>
 // statements), so each request below is created once, never per render.
 const STATUS_REQUEST = {
   status: { query: api.cms.aiSettings.status, args: {} },
+  // The settings carry each assistant's local tool marker.
+  settings: { query: api.cms.settings.getSettings, args: {} },
 }
 const JOBS_REQUEST = {
   jobs: { query: api.cms.aiJobs.pageJobProgress, args: {} },
 }
-const NO_REQUEST = {}
 
 export const isActive = (job: PageJob) =>
   job.state === "running" || job.state === "canceling"
@@ -54,26 +67,89 @@ export function focusPageJobCard(jobId: string): boolean {
 const pageJobHref = (job: PageJob) =>
   `${job.kind === "write" ? "/admin/pages/new" : `/admin/pages/${job.pageId}`}#${pageJobCardId(job.jobId)}`
 
+type PageAssistant = "writing" | "translation"
+type LocalEngine = "claude" | "codex"
+/**
+ * Where an assistant's local tool route stands for this browser, from the
+ * server's route data: `here` is the owner on the computer that runs
+ * formulacms, and `engine` the local tool chosen there (null: its API service).
+ * Not `here`: another device, or the live site.
+ */
+type LocalRoute = { readonly here: boolean; readonly engine: LocalEngine | null }
+const ELSEWHERE: LocalRoute = { here: false, engine: null }
+const LocalRouteContext = createContext<Partial<Record<PageAssistant, LocalRoute>>>({})
+
+/** Reads a slot's route data (`loadLocalToolEngine`); anything else is elsewhere. */
+export function localRouteOf(routeData: AdminContributionRouteData | undefined): LocalRoute {
+  if (!routeData || typeof routeData !== "object" || !("engine" in routeData)) return ELSEWHERE
+  const engine = routeData.engine
+  return { here: true, engine: engine === "claude" || engine === "codex" ? engine : null }
+}
+
+/** Gives the page job parts below the assistant's local route. */
+export function LocalRouteProvider({
+  assistant,
+  routeData,
+  children,
+}: {
+  assistant: PageAssistant
+  routeData: AdminContributionRouteData | undefined
+  children: ReactNode
+}) {
+  const outer = useContext(LocalRouteContext)
+  return (
+    <LocalRouteContext.Provider value={{ ...outer, [assistant]: localRouteOf(routeData) }}>
+      {children}
+    </LocalRouteContext.Provider>
+  )
+}
+
+const useLocalRoute = (assistant: PageAssistant) =>
+  useContext(LocalRouteContext)[assistant] ?? ELSEWHERE
+
 /**
  * One assistant's readiness and the owner's unreviewed page jobs. Both reads
  * return an Error value instead of throwing, so a failing AI read never breaks
- * the host. Jobs are read only while that assistant is ready.
+ * the host. Jobs are read whatever the assistant's current setup: a job that
+ * exists keeps its card (Resume, Dismiss, review) after the owner chooses
+ * another service in Settings › AI. Only starting a new job needs `ready`.
+ *
+ * A local tool chosen on this computer makes the assistant ready without an
+ * API connection (`localTool`). While the Convex marker says the assistant
+ * runs with a local tool, its API service is not used: on another device it is
+ * not ready, and `elsewhere` asks for the computer that runs formulacms.
+ * A null status (AI is off) wins over both, as in Help: not ready, no local
+ * tool and not loaded (its consumers then render nothing); jobs still read.
  */
-export function usePageJobState(assistant: "writing" | "translation") {
-  const { status } = useQueries(STATUS_REQUEST) as {
-    status?: AiStatus | Error
+export function usePageJobState(assistant: PageAssistant) {
+  const route = useLocalRoute(assistant)
+  const { status, settings } = useQueries(STATUS_REQUEST) as {
+    status?: AiStatus | Error | null
+    settings?: FunctionReturnType<typeof api.cms.settings.getSettings> | Error
   }
-  const loaded = status instanceof Error ? undefined : status
+  const loaded = status instanceof Error || status === null ? undefined : status
   const writing = loaded?.assistants.find((entry) => entry.id === assistant)
-  const ready = writing?.ready === true
-  const { jobs } = useQueries(ready ? JOBS_REQUEST : NO_REQUEST) as {
+  const off = status === null
+  const marked =
+    !off &&
+    !(settings instanceof Error) &&
+    settings?.aiRuntime?.assistants?.[assistant]?.localTool === true
+  const localTool = route.here && !off ? (route.engine ?? undefined) : undefined
+  const ready = localTool !== undefined || (writing?.ready === true && !marked)
+  const { jobs } = useQueries(JOBS_REQUEST) as {
     jobs?: PageJob[] | Error
   }
   const rows = Array.isArray(jobs) ? jobs : []
   return {
     status,
-    loaded: loaded !== undefined,
+    loaded: loaded !== undefined || localTool !== undefined,
     ready,
+    /** The local tool that runs this assistant for this browser. */
+    localTool,
+    /** It runs with a local tool, here or on the computer that runs formulacms. */
+    runsLocally: localTool !== undefined || marked,
+    /** It runs with a local tool, and this browser is not where it runs. */
+    elsewhere: marked && localTool === undefined,
     connection: loaded?.connections.find(
       (entry) => entry.provider === writing?.provider
     ),
@@ -83,6 +159,39 @@ export function usePageJobState(assistant: "writing" | "translation") {
     /** Any job of this owner that is running or canceling, of any kind. */
     active: rows.find(isActive),
   }
+}
+
+/**
+ * A refusal meaning the assistant runs with a local tool that this browser
+ * cannot use: Convex refuses its API run (a tab opened before the change), or
+ * the local action refuses another device.
+ */
+export const runsElsewhere = (error: unknown) =>
+  error instanceof ConvexError &&
+  (error.data === "AI_ASSISTANT_RUNS_ON_LOCAL_TOOL" ||
+    error.data === "LOCAL_TOOL_OTHER_DEVICE")
+
+/**
+ * "Writing runs with a local tool. … Settings › AI." for a browser that is not
+ * on the computer that runs formulacms. "Settings › AI" is a link.
+ */
+export function LocalToolElsewhereNotice({
+  messages,
+}: {
+  messages: "pages.aiWrite" | "pages.aiTranslate" | "help"
+}) {
+  const t = useTranslations(messages)
+  return (
+    <AmberNotice testId="local-tool-elsewhere">
+      {t.rich("localElsewhere", {
+        link: (chunks) => (
+          <Link href="/admin/settings/ai" className="font-medium underline underline-offset-4">
+            {chunks}
+          </Link>
+        ),
+      })}
+    </AmberNotice>
+  )
 }
 
 /** Writing readiness and the owner's unreviewed page jobs (see `usePageJobState`). */
@@ -188,10 +297,20 @@ export function PageJobCard({
 }) {
   const t = useTranslations("pages.aiWrite.job")
   const tTranslate = useTranslations("pages.aiTranslate.job")
+  const tTools = useTranslations("settings.aiScreen.local.tools")
   const translation = job.kind === "translation"
   const displayError = useCaughtError()
   const cancel = useMutation(api.cms.aiJobs.cancelPageJob)
-  const resume = useMutation(api.cms.aiJobs.resumePageJob)
+  const resumeApiJob = useMutation(api.cms.aiJobs.resumePageJob)
+  // A local job resumes only on the computer that runs formulacms.
+  const here = useLocalRoute(translation ? "translation" : "writing").here
+  const resume = async () => {
+    if (!job.localTool) return resumeApiJob({ jobId: job.jobId })
+    const outcome = await resumeLocalPageJob(job.jobId, job.kind)
+    // Another device: the notice under the buttons already says why.
+    if (!outcome.ok && outcome.refusal !== "LOCAL_TOOL_OTHER_DEVICE")
+      throw new Error(outcome.refusal)
+  }
   const dismiss = useDismiss(job, onFinish)
   const [reviewOpen, setReviewOpen] = useState(false)
   const busy = isActive(job)
@@ -204,7 +323,7 @@ export function PageJobCard({
   // `capped` cannot happen while the cap is off; it reads exactly like `failed`.
   const stopped =
     job.state === "canceled" || job.state === "failed" || job.state === "capped"
-  const status = {
+  const stateStatus = {
     running: t("running"),
     canceling: t("canceling"),
     canceled: t("canceled"),
@@ -213,6 +332,11 @@ export function PageJobCard({
     done: t("done"),
     expired: t("expired"),
   }[job.state]
+  // A local job that failed for a known reason says it in place of "Failed";
+  // only a failed job offers Resume, so no other state shows that text.
+  const failed = job.state === "failed"
+  const status =
+    failed && job.stopDetail === "local-app-stopped" ? t("localStopped") : stateStatus
 
   async function act(work: () => Promise<unknown>) {
     try {
@@ -263,6 +387,11 @@ export function PageJobCard({
           complete={job.state === "done"}
           label={t("savedUnits")}
         />
+        {job.localTool && busy && (
+          <p data-testid="local-running" className="text-muted-foreground">
+            {t("localRunning", { tool: tTools(job.localTool.engine) })}
+          </p>
+        )}
         {job.reusedCount > 0 && (
           <p
             data-testid="reused"
@@ -320,7 +449,7 @@ export function PageJobCard({
             <Button
               data-testid="resume-job"
               disabled={otherJobActive}
-              onClick={() => act(() => resume({ jobId: job.jobId }))}
+              onClick={() => act(resume)}
             >
               <RotateCcw />
               {t("resume")}
@@ -350,6 +479,11 @@ export function PageJobCard({
             </Button>
           )}
         </div>
+        {job.localTool && stopped && !here && (
+          <AmberNotice testId="local-resume-elsewhere">
+            {t("localResumeElsewhere")}
+          </AmberNotice>
+        )}
       </section>
       {job.state === "done" &&
         reviewOpen &&

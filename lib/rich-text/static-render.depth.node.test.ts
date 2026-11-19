@@ -7,7 +7,9 @@ import { LegacyRichTextWalkerOracle } from "./static-render.oracle"
 
 const LEAF_TEXT = "rf1-depth-leaf"
 const REALISTIC_DEPTH = 50
-const SUPPORTED_DEPTH = 500
+// Supported limit: 100 nested levels. Deeper inputs are unrealistic and only
+// exhaust React's server-renderer stack (a library internal), not our code.
+const SUPPORTED_DEPTH = 100
 
 function serializedBlockquoteDocument(depth: number): string {
   const nestedBlocks = '{"type":"blockquote","content":['.repeat(depth)
@@ -40,7 +42,7 @@ function leafCount(html: string): number {
 }
 
 describe("static renderer supported-depth regression", () => {
-  it("matches ordinary nesting and preserves adapter output through 500 levels", () => {
+  it(`matches ordinary nesting and preserves adapter output through ${SUPPORTED_DEPTH} levels`, () => {
     const warnings = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined)

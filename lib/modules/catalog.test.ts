@@ -204,7 +204,7 @@ describe("static module catalog validation", () => {
       {
         id: "ai",
         name: "AI",
-        summary: "Writing, translation and help assistants in the admin. Providers, models and instructions are set in Settings › AI. Translation also requires Multilingual. Content sent to an assistant goes to its provider, which bills you per use.",
+        summary: "Writing, translation and help assistants in the admin.",
         descriptorVersion: 1,
         configVersion: 1,
         required: false,

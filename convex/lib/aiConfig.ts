@@ -6,28 +6,35 @@ import type {
   TaskProfile,
 } from "../../lib/ai/execution-contract"
 import {
+  assistantForProfile,
+  assistantModelChoices,
   createLegacyOpenRouterTuple,
+  defaultTupleFor,
   taskProfileTuple,
   tupleSupportsTaskProfile,
   validateApiModelTuple,
   ASSISTANT_IDS,
   ASSISTANT_PROFILES,
+  type AssistantId,
 } from "../../lib/ai/task-profiles"
+import type { ModelCatalog } from "../../lib/ai/model-catalog"
 import type { Infer } from "convex/values"
 import type { aiRuntimeSettingsValidator, aiSettingsStatusValidator } from "./aiValidators"
 
 export const AI_CONNECTION_ORDER = ["anthropic", "openrouter", "openai"] as const
 export type AiSettingsStatus = Infer<typeof aiSettingsStatusValidator>
 /** Readiness stays cheap; only the settings query needs the model catalog. */
-export type AiSettingsConfiguration = Omit<AiSettingsStatus, "assistants"> & {
-  assistants: Omit<AiSettingsStatus["assistants"][number], "effective" | "choices" | "defaults">[]
+export type AiSettingsConfiguration = Omit<AiSettingsStatus, "assistants" | "catalogSync"> & {
+  assistants: Omit<AiSettingsStatus["assistants"][number], "effective" | "choices" | "defaults" | "newerModel">[]
 }
 
 /** Shared authority for Settings status, readiness and execution preparation. */
 export function resolveAssistantConfiguration(
   runtime: Infer<typeof aiRuntimeSettingsValidator> | undefined,
   connections: AiSettingsStatus["connections"],
-  enabledModuleIds: ReadonlySet<string>
+  enabledModuleIds: ReadonlySet<string>,
+  /** Assistants whose legacy OpenRouter model was configured by the owner. */
+  legacyModelAssistants: ReadonlySet<AssistantId> = new Set()
 ): AiSettingsConfiguration {
   const usable = (provider: ApiProvider) => connections.some(
     (connection) => connection.provider === provider &&
@@ -38,13 +45,18 @@ export function resolveAssistantConfiguration(
   )
   // Legacy selection is a preference only; an explicit assistant tuple wins.
   // The module gate owns enablement, so legacy "off" means no preference.
-  const legacy = resolveRuntimeSelection(runtime?.selectedProvider, {
+  const availability = {
     anthropic: connections.some((c) => c.provider === "anthropic" && c.state !== "missing"),
     openrouter: connections.some((c) => c.provider === "openrouter" && c.state !== "missing"),
     openai: connections.some((c) => c.provider === "openai" && c.state !== "missing"),
-  }).effectiveProvider
+  }
   const assistants = ASSISTANT_IDS.map((id) => {
     const settings = runtime?.assistants?.[id]
+    const legacy = resolveRuntimeSelection(
+      runtime?.selectedProvider,
+      availability,
+      legacyModelAssistants.has(id)
+    ).effectiveProvider
     let provider: ApiProvider = settings?.tuple?.provider ?? legacy ??
       (id === "translation" ? "openrouter" : "anthropic")
     if (!settings?.tuple && !usable(provider) && !refused(provider)) {
@@ -100,12 +112,22 @@ export function resolveOpenRouterModelId(modelId?: string) {
     : id
 }
 
+/** True when the owner configured a legacy OpenRouter model: an agent model,
+ * the site default model, or the Convex env `CMS_AI_MODEL`. */
+export function hasLegacyModelConfigured(
+  ...models: (string | null | undefined)[]
+): boolean {
+  return [...models, env.CMS_AI_MODEL].some((model) => Boolean(model?.trim()))
+}
+
 export function resolveRuntimeSelection(
   persistedSelection: RuntimeSelectedProvider | undefined,
-  availability: RuntimeProviderAvailability
+  availability: RuntimeProviderAvailability,
+  legacyModelConfigured = false
 ): RuntimeSelection {
   if (persistedSelection === undefined) {
-    if (availability.openrouter) {
+    // An OpenRouter key alone is not a legacy choice: a model must be set.
+    if (availability.openrouter && legacyModelConfigured) {
       return {
         selectedProvider: "openrouter",
         effectiveProvider: "openrouter",
@@ -155,13 +177,50 @@ export type RuntimeTupleSource =
   | "site"
   | "catalog"
 
+/** Nothing saved: the same default rule Settings shows (`defaultTupleFor`),
+ * over the same assistant profiles and catalog entries. When the provider
+ * offers nothing, the committed default stays and the checks refuse it. */
+function defaultModelTuple(
+  provider: ApiProvider,
+  args: { profile: TaskProfile; fallbackProfile?: TaskProfile; catalog: ModelCatalog; now?: number }
+): Readonly<ApiModelTuple> {
+  const primary = args.fallbackProfile ?? args.profile
+  // Only an assistant's runs share Settings' rule; other callers keep the
+  // committed default of their own task.
+  const id = args.fallbackProfile ? assistantForProfile(primary) : undefined
+  if (!id) return taskProfileTuple(provider, primary)
+  const profiles: readonly TaskProfile[] = ASSISTANT_PROFILES[id]
+  const choices = assistantModelChoices(profiles, args.catalog, args.now ?? Date.now())
+  return defaultTupleFor(provider, primary, choices[provider]) ?? taskProfileTuple(provider, primary)
+}
+
+/** The saved selection a run of `profile` on `provider` uses, with its
+ * source, or undefined when nothing is saved (the default rule then applies).
+ * Precedence: agent modelOverride > taskDefault (this provider only) > site
+ * providerDefault. The one owner of this order: runs resolve it, Settings
+ * shows it, and refusals name it. */
+export function savedRuntimeSelection(args: {
+  provider: ApiProvider
+  profile: TaskProfile
+  providerDefaults?: ProviderModelSelections
+  taskDefaults?: TaskDefaults
+  modelOverrides?: ProviderModelSelections
+}): { tuple: Readonly<ApiModelTuple>; source: "agent" | "task" | "site" } | undefined {
+  const agentOverride = args.modelOverrides?.[args.provider]
+  if (agentOverride) return { tuple: agentOverride, source: "agent" }
+  const taskDefault = args.taskDefaults?.[args.profile]
+  if (taskDefault?.provider === args.provider) return { tuple: taskDefault, source: "task" }
+  const siteDefault = args.providerDefaults?.[args.provider]
+  return siteDefault ? { tuple: siteDefault, source: "site" } : undefined
+}
+
 /** Resolve one exact tuple without changing provider. Typed overrides win only
  * on the explicit D3 branch; the legacy OpenRouter model chain is unchanged.
  *
- * Precedence: agent modelOverride > matching taskDefault > site providerDefault
- * > committed catalog. "Matching" means a taskDefault whose tuple targets the
- * effective provider AND supports this profile — a stale mismatched entry falls
- * through instead of hard-erroring generation. */
+ * Precedence: agent modelOverride > taskDefault > site providerDefault >
+ * committed catalog. A taskDefault for another provider is skipped; one for
+ * this provider that the shared catalog no longer supports for this profile
+ * is refused with a plain error, never silently replaced (design 1b risk 2). */
 export function resolveRuntimeTuple(args: {
   selection: RuntimeSelection
   profile: TaskProfile
@@ -170,6 +229,9 @@ export function resolveRuntimeTuple(args: {
   providerDefaults?: ProviderModelSelections
   taskDefaults?: TaskDefaults
   modelOverrides?: ProviderModelSelections
+  catalog: ModelCatalog
+  /** Checked against retirement and price end dates; default is the clock. */
+  now?: number
 }): { tuple: Readonly<ApiModelTuple>; source: RuntimeTupleSource } {
   const provider = args.selection.effectiveProvider
   if (!provider) throw new Error("AI is off.")
@@ -182,30 +244,15 @@ export function resolveRuntimeTuple(args: {
     }
   }
 
-  const agentOverride = args.modelOverrides?.[provider]
-  const rawTaskDefault = args.taskDefaults?.[args.profile]
-  const taskDefault =
-    rawTaskDefault &&
-    rawTaskDefault.provider === provider &&
-    tupleSupportsTaskProfile(rawTaskDefault, args.profile)
-      ? rawTaskDefault
-      : undefined
-  const siteDefault = args.providerDefaults?.[provider]
-
-  const candidate = agentOverride ?? taskDefault ?? siteDefault
-  if (!candidate) {
-    const tuple = taskProfileTuple(provider, args.fallbackProfile ?? args.profile)
-    if (!tupleSupportsTaskProfile(tuple, args.profile)) {
-      throw new Error("Persisted AI model selection is incompatible with this task profile.")
-    }
-    return { tuple, source: "catalog" }
-  }
-  const tuple = validateApiModelTuple(candidate)
-  if (tuple.provider !== provider || !tupleSupportsTaskProfile(tuple, args.profile)) {
+  const saved = savedRuntimeSelection({ ...args, provider })
+  const tuple = saved
+    ? validateApiModelTuple(saved.tuple, args.catalog)
+    : defaultModelTuple(provider, args)
+  if (
+    tuple.provider !== provider ||
+    !tupleSupportsTaskProfile(tuple, args.profile, args.catalog)
+  ) {
     throw new Error("Persisted AI model selection is incompatible with this task profile.")
   }
-  return {
-    tuple,
-    source: agentOverride ? "agent" : taskDefault ? "task" : "site",
-  }
+  return { tuple, source: saved?.source ?? "catalog" }
 }

@@ -2,6 +2,17 @@ import { v, type GenericValidator } from "convex/values"
 import { sliceValidator } from "../slices"
 import { contentTypeDefs, REGISTERED_CONTENT_TYPES } from "./index"
 import type { ContentTypeDescriptor, DescriptorFieldMap } from "./types"
+import { perLanguageSeoValidator } from "./perLanguageFields"
+
+/**
+ * Per-language search, social and card fields (ADR-0037 amendment,
+ * 2026-11-17). They sit in every arm's Localized Content, whatever the
+ * content type, next to the descriptor's own localized fields.
+ */
+const perLanguageFields = {
+  seo: v.optional(perLanguageSeoValidator),
+  cardExcerpt: v.optional(v.string()),
+} as const
 
 /**
  * Schema derivation seam (plan 028 C7).
@@ -37,6 +48,7 @@ export function armLocalizedContentValidator<
 >(descriptor: ContentTypeDescriptor<Shared, Localized>) {
   return v.object({
     ...descriptor.localizedValidator.fields,
+    ...perLanguageFields,
     slices: v.array(sliceValidator),
   })
 }
@@ -61,6 +73,7 @@ export function armLocalizedContentValidatorNoSlices<
 >(descriptor: ContentTypeDescriptor<Shared, Localized>) {
   return v.object({
     ...descriptor.localizedValidator.fields,
+    ...perLanguageFields,
   })
 }
 
@@ -80,6 +93,8 @@ export function armLocalizedContentValidatorNoSlices<
 export function buildRevisionLocalizedContentValidator() {
   const shape: Record<string, GenericValidator> = {
     slices: v.optional(v.array(v.any())),
+    seo: v.optional(v.any()),
+    cardExcerpt: v.optional(v.any()),
   }
   for (const type of REGISTERED_CONTENT_TYPES) {
     const descriptor = contentTypeDefs[type]

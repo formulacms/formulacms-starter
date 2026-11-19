@@ -7,6 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { DESIGN_SYSTEM_ROUTE } from "@/config/slice-simulator"
 import { cn } from "@/lib/utils"
 import { TWEAK_SCOPE_LABELS } from "@/lib/slices/visual-tweak/spacing-operation"
 import { TYPOGRAPHY_ROLES } from "@/lib/slices/visual-tweak/capabilities"
@@ -57,12 +58,14 @@ function TypographyReview({
         ))}
       </ul>
       <p className="text-muted-foreground">Preview only · Site-wide tokens</p>
-      <Link
-        href="/admin/design-system"
-        className="text-foreground underline underline-offset-4"
-      >
-        Design system
-      </Link>
+      {DESIGN_SYSTEM_ROUTE && (
+        <Link
+          href={DESIGN_SYSTEM_ROUTE}
+          className="text-foreground underline underline-offset-4"
+        >
+          Design system
+        </Link>
+      )}
     </section>
   )
 }

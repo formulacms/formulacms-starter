@@ -1,4 +1,5 @@
 import { ConvexError, type Infer, v } from "convex/values"
+import { registeredEmailProviderIdValidator } from "./providerMetadata"
 
 export const emailDeliveryConsumerValidator = v.union(
   v.object({
@@ -7,12 +8,8 @@ export const emailDeliveryConsumerValidator = v.union(
   }),
   v.object({ kind: v.literal("password_recovery") }),
   v.object({
-    kind: v.literal("invitation"),
-    inviteId: v.id("invites"),
-  }),
-  v.object({
     kind: v.literal("owner_test"),
-    providerId: v.literal("resend"),
+    providerId: registeredEmailProviderIdValidator,
     configurationVersion: v.number(),
   })
 )
@@ -59,6 +56,35 @@ export type EmailDeliveryFailureReason = Infer<
   typeof emailDeliveryFailureReasonValidator
 >
 
+/**
+ * Bounded reason category for a failed SMTP send. Only the SMTP adapter sets
+ * one; a Resend failure carries none. It never carries server text, an
+ * address, or a credential.
+ */
+export const emailDeliveryFailureCategoryValidator = v.union(
+  v.literal("sign_in_refused"),
+  v.literal("could_not_connect"),
+  v.literal("secure_connection_failed"),
+  v.literal("sender_refused"),
+  v.literal("message_refused")
+)
+
+export type EmailDeliveryFailureCategory = Infer<
+  typeof emailDeliveryFailureCategoryValidator
+>
+
+export function parseEmailDeliveryFailureCategory(
+  value: unknown
+): EmailDeliveryFailureCategory | undefined {
+  return value === "sign_in_refused" ||
+    value === "could_not_connect" ||
+    value === "secure_connection_failed" ||
+    value === "sender_refused" ||
+    value === "message_refused"
+    ? value
+    : undefined
+}
+
 export const emailDeliveryEventFields = {
   consumer: emailDeliveryConsumerValidator,
   idempotencyKey: v.string(),
@@ -67,6 +93,7 @@ export const emailDeliveryEventFields = {
   state: emailDeliveryStateValidator,
   providerId: v.optional(v.string()),
   failureReason: v.optional(emailDeliveryFailureReasonValidator),
+  failureCategory: v.optional(emailDeliveryFailureCategoryValidator),
   runId: v.optional(v.string()),
   attempts: v.number(),
   createdAt: v.number(),
@@ -83,6 +110,7 @@ export const terminalEmailDeliveryResultValidator = v.union(
     state: v.literal("failed"),
     providerId: v.optional(v.string()),
     reason: emailDeliveryFailureReasonValidator,
+    category: v.optional(emailDeliveryFailureCategoryValidator),
   }),
   v.object({
     state: v.literal("unknown"),
@@ -101,6 +129,7 @@ export const dispatchEmailDeliveryResultValidator = v.union(
     state: v.literal("retryable_failure"),
     providerId: v.string(),
     reason: v.literal("provider_rejected"),
+    category: v.optional(emailDeliveryFailureCategoryValidator),
   })
 )
 
@@ -148,7 +177,6 @@ const HOUR_MS = 60 * 60 * 1000
 const RETENTION_MS: Readonly<Record<EmailDeliveryConsumer["kind"], number>> = {
   contact: 24 * HOUR_MS,
   password_recovery: HOUR_MS,
-  invitation: 7 * 24 * HOUR_MS,
   owner_test: HOUR_MS,
 }
 
@@ -199,6 +227,7 @@ export function parseTerminalEmailDeliveryResult(
     }
   }
   if (record.state !== "failed") return null
+  const category = parseEmailDeliveryFailureCategory(record.category)
   const reason = record.reason
   if (
     reason !== "not_configured" &&
@@ -219,5 +248,6 @@ export function parseTerminalEmailDeliveryResult(
       ? { providerId: record.providerId }
       : {}),
     reason,
+    ...(category ? { category } : {}),
   }
 }

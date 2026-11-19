@@ -3,11 +3,15 @@ import { prepareAuthSessions } from "../test-utils/convexAuthFixtures"
 import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import { ConvexError } from "convex/values"
 import { afterEach, describe, expect, test, vi } from "vitest"
+import { BUNDLED_MODEL_CATALOG, catalogFromEntries, isNotOffered } from "../lib/ai/model-catalog"
+import { DIRECT_PRICES } from "../lib/ai/price-quote"
 import { api, internal } from "./_generated/api"
 import type { Doc } from "./_generated/dataModel"
+import type { MutationCtx } from "./_generated/server"
 import type { RuntimeSelectedProvider } from "./lib/aiConfig"
 import { API_PROVIDERS } from "../lib/ai/execution-contract"
 import {
+  API_TASK_PROFILES,
   ASSISTANT_PROFILES,
   RUNTIME_TASK_PROFILES,
   SLICE_CREATOR_PROFILES,
@@ -22,9 +26,34 @@ import { OPENROUTER_PORTABLE_EFFORTS } from "../lib/ai/openrouter-catalog"
 import * as aiRuntime from "./lib/ai"
 import type { ApiModelCapability, ApiModelTuple } from "../lib/ai/execution-contract"
 import schema from "./schema"
+import { loadProviderCatalog } from "./lib/aiCatalog"
+import { resolveLocalApiTuple } from "../scripts/lib/ai-api-engine"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 
 const modules = import.meta.glob("./**/*.ts")
+
+/** The shared catalog the Settings query reads, for direct resolver checks. */
+async function liveCatalog(t: ReturnType<typeof convexTest>) {
+  return catalogFromEntries(await t.run(async (ctx) =>
+    (await Promise.all(API_PROVIDERS.map((provider) => loadProviderCatalog(ctx, provider)))).flat()
+  ))
+}
+
+/** A synchronized OpenRouter row as the refresh stores it: priced, with a
+ *  successful sync recorded, so the shared catalog reads the live list. */
+async function insertSyncedOpenRouterRow(
+  ctx: MutationCtx,
+  row: Omit<Doc<"openRouterCatalogModels">, "_id" | "_creationTime">
+) {
+  await ctx.db.insert("openRouterCatalogModels", { ceilingInputPerM: 1, ceilingOutputPerM: 2, ...row })
+  const sync = await ctx.db.query("openRouterCatalogSync")
+    .withIndex("by_key", (q) => q.eq("key", "openrouter")).unique()
+  if (!sync) {
+    await ctx.db.insert("openRouterCatalogSync", {
+      key: "openrouter", status: "success", lastAttemptAt: 1, lastSuccessAt: 1,
+    })
+  }
+}
 
 const SECRET_VALUES = {
   openrouter: "openrouter-secret-sentinel",
@@ -269,6 +298,8 @@ describe("cms.ai Production AI status", () => {
           reasoningEfforts: ["high", "medium", "low"],
           inputPerM: 0.25,
           outputPerM: 1.5,
+          ceilingInputPerM: 0.25,
+          ceilingOutputPerM: 1.5,
         },
       ],
     })
@@ -523,6 +554,8 @@ describe("aiSettings.setProductionAiConfiguration", () => {
           reasoningEfforts: ["high", "medium", "low"],
           inputPerM: 0.25,
           outputPerM: 1.5,
+          ceilingInputPerM: 0.25,
+          ceilingOutputPerM: 1.5,
         },
         {
           modelId: "example/image-only-model",
@@ -718,7 +751,7 @@ test("every direct catalog model persists through assistant settings and status"
   const t = convexTest(schema, modules)
   await seed(t)
   const owner = identity(t, "admin-1")
-  const initial = await owner.query(api.cms.aiSettings.status, {})
+  const initial = (await owner.query(api.cms.aiSettings.status, {}))!
   for (const assistant of initial.assistants) {
     for (const provider of API_PROVIDERS) {
       const tuple = assistant.defaults[provider]
@@ -735,7 +768,7 @@ test("every direct catalog model persists through assistant settings and status"
       for (const profile of ASSISTANT_PROFILES[assistant.id]) {
         expect(aiRuntime.resolveAssistantRuntimeTuple({
           provider, tuple: stored!.aiRuntime!.assistants![assistant.id]!.tuple!, legacy: false, instructions: "",
-        }, { profile, phase: "content-generation" })).toEqual(tuple)
+        }, { catalog: BUNDLED_MODEL_CATALOG, profile, phase: "content-generation" })).toEqual(tuple)
       }
     }
   }
@@ -746,12 +779,21 @@ test("every direct catalog model persists through assistant settings and status"
       const tuple = validateApiModelTuple({
         mode: "catalog", provider, model,
         ...(cap.reasoning.kind === "effort" ? { reasoning: { kind: "effort", effort: cap.reasoning.providerDefault } } : {}),
-      })
+      }, BUNDLED_MODEL_CATALOG)
       if (tuple.mode !== "catalog") throw new Error("Expected a catalog tuple")
+      // Owner 2026-11-15: a not-offered model is refused at save (it still
+      // shows when already saved). A model whose price ends saves only until
+      // that date, so it is left to the clock-free price tests.
+      if (isNotOffered(provider, model)) {
+        await expect(owner.mutation(api.cms.aiSettings.setAssistant, { id: "writing", tuple }))
+          .rejects.toThrow("INVALID_AI_ASSISTANT_SELECTION")
+        continue
+      }
+      if (DIRECT_PRICES[`${provider}:${model}`]?.endsAt != null) continue
       await owner.mutation(api.cms.aiSettings.setAssistant, { id: "writing", tuple })
       const stored = await t.run((ctx) => ctx.db.query("siteSettings").first())
       expect(stored?.aiRuntime?.assistants?.writing?.tuple).toEqual(tuple)
-      const status = await owner.query(api.cms.aiSettings.status, {})
+      const status = (await owner.query(api.cms.aiSettings.status, {}))!
       expect(status.assistants.find((a) => a.id === "writing")?.tuple).toEqual(tuple)
     }
   }
@@ -762,7 +804,7 @@ test("a direct model whose price ends is no longer offered; OpenRouter keeps its
   const t = convexTest(schema, modules)
   await seed(t)
   const owner = identity(t, "admin-1")
-  const status = await owner.query(api.cms.aiSettings.status, {})
+  const status = (await owner.query(api.cms.aiSettings.status, {}))!
   const creator = await owner.query(api.cms.aiSettings.sliceCreator, {})
   for (const choices of [...status.assistants.map((a) => a.choices), creator.choices]) {
     expect(choices.openai.length).toBeGreaterThan(0)
@@ -779,7 +821,7 @@ test.each(["bootstrap", "synchronized", "reasoning-lost", "reasoning-gained", "n
     await seed(t, "off")
     if (catalog !== "bootstrap") {
       expect(OPENROUTER_API_CATALOG["google/gemini-3-flash-preview"].reasoning.kind).toBe("effort")
-      expect(OPENROUTER_API_CATALOG["ai21/jamba-large-1.7"].reasoning.kind).toBe("unsupported")
+      expect(OPENROUTER_API_CATALOG["cohere/command-a"].reasoning.kind).toBe("unsupported")
       expect(OPENROUTER_API_CATALOG["new/non-portable"]).toBeUndefined()
       expect(OPENROUTER_PORTABLE_EFFORTS).not.toContain("xhigh")
       await t.run(async (ctx) => {
@@ -793,24 +835,31 @@ test.each(["bootstrap", "synchronized", "reasoning-lost", "reasoning-gained", "n
           ] : catalog === "reasoning-lost" ? [
             { modelId: "google/gemini-3-flash-preview", name: "Lost synchronized reasoning", inputModalities: ["text"] as const, structuredOutput: true, reasoningEfforts: [] },
           ] : catalog === "reasoning-gained" ? [
-            { modelId: "ai21/jamba-large-1.7", name: "Gained synchronized reasoning", inputModalities: ["text"] as const, structuredOutput: true, reasoningEfforts: ["high", "medium", "low"] as const },
+            { modelId: "cohere/command-a", name: "Gained synchronized reasoning", inputModalities: ["text"] as const, structuredOutput: true, reasoningEfforts: ["high", "medium", "low"] as const },
           ] : [
             { modelId: "new/non-portable", name: "New model with non-portable effort", inputModalities: ["text"] as const, structuredOutput: true, reasoningEfforts: ["xhigh", "low", "high"] as const },
           ]),
         ]) {
-          await ctx.db.insert("openRouterCatalogModels", { ...row, inputModalities: [...row.inputModalities], reasoningEfforts: [...row.reasoningEfforts], syncedAt: 1 })
+          await insertSyncedOpenRouterRow(ctx, { ...row, inputModalities: [...row.inputModalities], reasoningEfforts: [...row.reasoningEfforts], syncedAt: 1 })
         }
       })
     }
     const owner = identity(t, "admin-1")
-    const status = await owner.query(api.cms.aiSettings.status, {})
+    const status = (await owner.query(api.cms.aiSettings.status, {}))!
+    const live = await liveCatalog(t)
     let offeredTuples = 0
     for (const assistant of status.assistants) {
       // Missing credentials and unavailable Multilingual do not suppress the projection.
       expect(assistant.ready).toBe(false)
       expect(assistant.effective).toBeDefined()
-      if (catalog === "reasoning-lost" || catalog === "reasoning-gained") {
-        expect(assistant.choices.openrouter.map((choice) => choice.model)).toEqual(["new/reasoning"])
+      // One shared catalog (AI-MODELS-1b): a synchronized row is the whole
+      // truth for its model; the bundled capability no longer narrows it.
+      if (catalog === "reasoning-lost") {
+        expect(assistant.choices.openrouter.map((choice) => choice.model)).toEqual(
+          assistant.id === "translation" ? ["new/reasoning"] : ["new/reasoning", "google/gemini-3-flash-preview"]
+        )
+      } else if (catalog === "reasoning-gained") {
+        expect(assistant.choices.openrouter.map((choice) => choice.model)).toEqual(["new/reasoning", "cohere/command-a"])
       } else if (catalog === "non-portable") {
         const choice = assistant.choices.openrouter.find((choice) => choice.model === "new/non-portable")!
         expect(choice.efforts).not.toContain("xhigh")
@@ -833,7 +882,7 @@ test.each(["bootstrap", "synchronized", "reasoning-lost", "reasoning-gained", "n
             for (const profile of ASSISTANT_PROFILES[assistant.id]) {
               expect(aiRuntime.resolveAssistantRuntimeTuple({
                 provider, tuple: savedTuple, legacy: false, instructions: "",
-              }, { profile, phase: "content-generation" })).toEqual(savedTuple)
+              }, { catalog: live, profile, phase: "content-generation" })).toEqual(savedTuple)
             }
             offeredTuples++
           }
@@ -841,12 +890,12 @@ test.each(["bootstrap", "synchronized", "reasoning-lost", "reasoning-gained", "n
       }
       if (catalog === "synchronized") {
         expect(assistant.choices.openrouter.map((choice) => choice.model)).toEqual(
-          assistant.id === "writing" ? ["new/reasoning", "new/effortless"]
+          assistant.id === "writing" ? ["new/reasoning", "new/effortless", "amazon/nova-2-lite-v1"]
             : assistant.id === "translation" ? ["new/reasoning", "google/gemini-3-flash-preview", "amazon/nova-2-lite-v1"]
             : ["new/reasoning", "new/effortless", "google/gemini-3-flash-preview", "amazon/nova-2-lite-v1"]
         )
         const noEffort = assistant.choices.openrouter.find((choice) => choice.model === "new/effortless")
-        if (noEffort) expect(noEffort).toEqual({ model: "new/effortless", name: "New effortless model", efforts: [], providerDefault: null })
+        if (noEffort) expect(noEffort).toEqual({ model: "new/effortless", name: "New effortless model", efforts: [], providerDefault: null, family: "New effortless model", priceSource: "openrouter" })
         const reasoning = assistant.choices.openrouter.find((choice) => choice.model === "new/reasoning")!
         expect(reasoning.providerDefault).toBe("medium")
       } else if (catalog === "bootstrap") {
@@ -869,17 +918,25 @@ test("S3 r2 status retains a saved invalid reasoning shape while the real prepar
   const tuple = {
     mode: "catalog", provider: "openrouter", model: "google/gemini-3-flash-preview",
   } as const
-  await t.run((ctx) => ctx.db.insert("openRouterCatalogModels", {
+  await t.run((ctx) => insertSyncedOpenRouterRow(ctx, {
     modelId: tuple.model, name: "Lost synchronized reasoning", inputModalities: ["text"],
     structuredOutput: true, reasoningEfforts: [], syncedAt: 1,
   }))
   await expect(owner.mutation(api.cms.aiSettings.setAssistant, { id: "writing", tuple })).resolves.toBeNull()
   const stored = await t.run((ctx) => ctx.db.query("siteSettings").first())
   expect(stored!.aiRuntime!.assistants!.writing!.tuple).toEqual(tuple)
-  expect(() => validateApiModelTuple(tuple)).toThrow()
+  // The next list gives the model effort control: the saved effortless shape
+  // is now invalid against the shared catalog, and is never rewritten.
+  await t.run(async (ctx) => {
+    const row = (await ctx.db.query("openRouterCatalogModels")
+      .withIndex("by_modelId", (q) => q.eq("modelId", tuple.model)).unique())!
+    await ctx.db.patch("openRouterCatalogModels", row._id, { reasoningEfforts: ["high", "medium", "low"] })
+  })
+  const live = await liveCatalog(t)
+  expect(() => validateApiModelTuple(tuple, live)).toThrow()
   const resolver = vi.spyOn(aiRuntime, "resolveAssistantRuntimeTuple")
   try {
-    const status = await owner.query(api.cms.aiSettings.status, {})
+    const status = (await owner.query(api.cms.aiSettings.status, {}))!
     expect(status.assistants.find((assistant) => assistant.id === "writing")!.effective).toEqual(tuple)
     expect(resolver.mock.calls.some(([assistant]) => assistant.tuple?.model === tuple.model)).toBe(false)
   } finally {
@@ -887,31 +944,33 @@ test("S3 r2 status retains a saved invalid reasoning shape while the real prepar
   }
   const prepared = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
   expect(prepared.assistant.tuple).toEqual(tuple)
-  expect(() => aiRuntime.resolveAssistantRuntimeTuple(prepared.assistant, {
+  expect(() => aiRuntime.resolveAssistantRuntimeTuple(prepared.assistant, { catalog: catalogFromEntries(prepared.catalog),
     profile: "editorial-copy", phase: "content-generation",
     legacyModelId: prepared.modelId ?? undefined,
     providerDefaults: prepared.providerDefaults ?? undefined,
     taskDefaults: prepared.taskDefaults ?? undefined,
     modelOverrides: prepared.modelOverrides ?? undefined,
-  })).toThrow("The model tuple requires one exact reasoning effort.")
+  })).toThrow(/UNSUPPORTED_CAPABILITY/)
 })
 
 
-test("S3 r1 drift excludes unsupported structured choices but retains other assistants", async () => {
+// AI-MODELS-1b: the synchronized row is the one source, so a model whose live
+// row adds structured output is offered to Writing too (the bundled flag no
+// longer narrows it).
+test("S3 r1 drift: the synchronized capability decides every assistant's choices", async () => {
   setAvailability({ anthropic: false, openrouter: true, openai: false })
   const t = convexTest(schema, modules)
   await seed(t, "openrouter")
   const model = "amazon/nova-2-lite-v1"
   expect(OPENROUTER_API_CATALOG[model].structuredOutput).toBe(false)
-  await t.run((ctx) => ctx.db.insert("openRouterCatalogModels", {
+  await t.run((ctx) => insertSyncedOpenRouterRow(ctx, {
     modelId: model, name: "Drifted structured capability", inputModalities: ["text"],
     structuredOutput: true, reasoningEfforts: ["high", "medium", "low"], syncedAt: 1,
   }))
-  const status = await identity(t, "admin-1").query(api.cms.aiSettings.status, {})
+  const status = (await identity(t, "admin-1").query(api.cms.aiSettings.status, {}))!
   for (const assistant of status.assistants) {
     const offered = assistant.choices.openrouter.map((choice) => choice.model)
-    if (assistant.id === "writing") expect(offered).not.toContain(model)
-    else expect(offered).toContain(model)
+    expect(offered).toContain(model)
   }
 })
 
@@ -924,17 +983,23 @@ test("S3 r1 status retains the saved tuple on a capability refusal and prepare s
     mode: "catalog", provider: "openrouter", model: "amazon/nova-2-lite-v1",
     reasoning: { kind: "effort", effort: "high" },
   } as const
-  await t.run((ctx) => ctx.db.insert("openRouterCatalogModels", {
+  await t.run((ctx) => insertSyncedOpenRouterRow(ctx, {
     modelId: tuple.model, name: "Drifted structured capability", inputModalities: ["text"],
     structuredOutput: true, reasoningEfforts: ["high", "medium", "low"], syncedAt: 1,
   }))
   await expect(owner.mutation(api.cms.aiSettings.setAssistant, { id: "writing", tuple })).resolves.toBeNull()
-  const status = await owner.query(api.cms.aiSettings.status, {})
+  // The next list drops structured output: the saved choice stays as saved.
+  await t.run(async (ctx) => {
+    const row = (await ctx.db.query("openRouterCatalogModels")
+      .withIndex("by_modelId", (q) => q.eq("modelId", tuple.model)).unique())!
+    await ctx.db.patch("openRouterCatalogModels", row._id, { structuredOutput: false })
+  })
+  const status = (await owner.query(api.cms.aiSettings.status, {}))!
   expect(status.assistants.find((assistant) => assistant.id === "writing")!.effective).toEqual(tuple)
   const prepared = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
   let refusal: unknown
   try {
-    aiRuntime.resolveAssistantRuntimeTuple(prepared.assistant, {
+    aiRuntime.resolveAssistantRuntimeTuple(prepared.assistant, { catalog: catalogFromEntries(prepared.catalog),
       profile: "structured-outline-meta", phase: "page-meta",
       legacyModelId: prepared.modelId ?? undefined,
       providerDefaults: prepared.providerDefaults ?? undefined,
@@ -950,7 +1015,7 @@ test("S3 r1 status retains the saved tuple on a capability refusal and prepare s
   const resolver = vi.spyOn(aiRuntime, "resolveAssistantRuntimeTuple")
     .mockImplementationOnce(() => { throw refusal })
   try {
-    const refusedStatus = await owner.query(api.cms.aiSettings.status, {})
+    const refusedStatus = (await owner.query(api.cms.aiSettings.status, {}))!
     expect(refusedStatus.assistants.find((assistant) => assistant.id === "writing")!.effective).toEqual(tuple)
     for (const other of [
       new Error("Persisted AI model selection is incompatible with this task profile. Unexpected failure."),
@@ -964,7 +1029,10 @@ test("S3 r1 status retains the saved tuple on a capability refusal and prepare s
   }
 })
 
-test("S3 r1 status shows the primary default for refused legacy provider defaults until an assistant is saved", async () => {
+// Review 1b finding 2: Settings shows the saved selection a run would use,
+// even when that run refuses it (here, medium effort where Translation's
+// primary profile needs high); it never shows the committed default instead.
+test("S3 r1 status shows a refused inherited provider default as saved until an assistant is saved", async () => {
   setAvailability({ anthropic: false, openrouter: true, openai: false })
   const t = convexTest(schema, modules)
   await seed(t, "openrouter")
@@ -979,25 +1047,27 @@ test("S3 r1 status shows the primary default for refused legacy provider default
     })
   })
   const owner = identity(t, "admin-1")
-  const status = await owner.query(api.cms.aiSettings.status, {})
+  const status = (await owner.query(api.cms.aiSettings.status, {}))!
   const primary = taskProfileTuple("openrouter", ASSISTANT_PROFILES.translation[0])
   const translation = status.assistants.find((assistant) => assistant.id === "translation")!
   const stored = await t.run((ctx) => ctx.db.query("siteSettings").first())
   expect(stored!.aiRuntime!.assistants?.translation?.tuple).toBeUndefined()
-  expect(translation.effective).toEqual(primary)
+  expect(translation.effective).toEqual({ mode: "catalog", provider: "openrouter", model: "amazon/nova-2-lite-v1",
+    reasoning: { kind: "effort", effort: "medium" } })
+  expect(translation.effective).not.toEqual(primary)
   expect(() => aiRuntime.resolveAssistantRuntimeTuple({
     provider: "openrouter", tuple: null, legacy: false, instructions: "",
-  }, { profile: ASSISTANT_PROFILES.translation[0], phase: "translation",
+  }, { catalog: BUNDLED_MODEL_CATALOG, profile: ASSISTANT_PROFILES.translation[0], phase: "translation",
     providerDefaults: { openrouter: { mode: "catalog", provider: "openrouter", model: "amazon/nova-2-lite-v1",
       reasoning: { kind: "effort", effort: "medium" } } },
   })).toThrow("Persisted AI model selection is incompatible with this task profile.")
   const saved = taskProfileTuple("openrouter", "mechanical-translation")
   await owner.mutation(api.cms.aiSettings.setAssistant, { id: "translation", tuple: saved })
-  const updated = await owner.query(api.cms.aiSettings.status, {})
+  const updated = (await owner.query(api.cms.aiSettings.status, {}))!
   expect(updated.assistants.find((assistant) => assistant.id === "translation")!.effective).toEqual(saved)
   expect(aiRuntime.resolveAssistantRuntimeTuple({
     provider: "openrouter", tuple: saved, legacy: false, instructions: "",
-  }, { profile: "mechanical-translation", phase: "translation" })).toEqual(saved)
+  }, { catalog: BUNDLED_MODEL_CATALOG, profile: "mechanical-translation", phase: "translation" })).toEqual(saved)
 })
 
 
@@ -1009,30 +1079,35 @@ test.each(["reasoning-lost", "primary-removed"] as const)(
     await seed(t, "openrouter")
     await t.run(async (ctx) => {
       if (drift === "reasoning-lost") {
-        await ctx.db.insert("openRouterCatalogModels", {
+        await insertSyncedOpenRouterRow(ctx, {
           modelId: "google/gemini-3-flash-preview", name: "Reasoning lost",
           inputModalities: ["text"], structuredOutput: true, reasoningEfforts: [], syncedAt: 1,
         })
       }
-      await ctx.db.insert("openRouterCatalogModels", {
+      await insertSyncedOpenRouterRow(ctx, {
         modelId: "new/default", name: "First offered replacement", inputModalities: ["text"],
         structuredOutput: true, reasoningEfforts: ["low", "high"], syncedAt: 1,
       })
     })
     const owner = identity(t, "admin-1")
-    const status = await owner.query(api.cms.aiSettings.status, {})
+    const status = (await owner.query(api.cms.aiSettings.status, {}))!
     const writing = status.assistants.find((assistant) => assistant.id === "writing")!
-    expect(writing.choices.openrouter.map((choice) => choice.model)).toEqual(["new/default"])
-    expect(writing.defaults.openrouter).toEqual({
-      mode: "catalog", provider: "openrouter", model: "new/default", reasoning: { kind: "effort", effort: "low" },
-    })
+    // reasoning-lost: the live row offers the primary model without effort
+    // control, so the primary tuple (with effort) is not offered.
+    const first = drift === "reasoning-lost"
+      ? { mode: "catalog", provider: "openrouter", model: "google/gemini-3-flash-preview" }
+      : { mode: "catalog", provider: "openrouter", model: "new/default", reasoning: { kind: "effort", effort: "low" } }
+    expect(writing.choices.openrouter.map((choice) => choice.model)).toEqual(
+      drift === "reasoning-lost" ? ["google/gemini-3-flash-preview", "new/default"] : ["new/default"]
+    )
+    expect(writing.defaults.openrouter).toEqual(first)
     const tuple = writing.defaults.openrouter!
     await expect(owner.mutation(api.cms.aiSettings.setAssistant, { id: "writing", tuple })).resolves.toBeNull()
     const stored = await t.run((ctx) => ctx.db.query("siteSettings").first())
     expect(stored!.aiRuntime!.assistants!.writing!.tuple).toEqual(tuple)
     const prepared = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
     for (const profile of ASSISTANT_PROFILES.writing) {
-      expect(aiRuntime.resolveAssistantRuntimeTuple(prepared.assistant, {
+      expect(aiRuntime.resolveAssistantRuntimeTuple(prepared.assistant, { catalog: catalogFromEntries(prepared.catalog),
         profile, phase: "content-generation", legacyModelId: prepared.modelId ?? undefined,
         providerDefaults: prepared.providerDefaults ?? undefined, taskDefaults: prepared.taskDefaults ?? undefined,
         modelOverrides: prepared.modelOverrides ?? undefined,
@@ -1040,6 +1115,257 @@ test.each(["reasoning-lost", "primary-removed"] as const)(
     }
   }
 )
+
+describe("one default rule for Settings and runs (nothing saved)", () => {
+  async function app(withReplacement: boolean) {
+    setAvailability({ anthropic: false, openrouter: true, openai: false })
+    const t = convexTest(schema, modules)
+    await seed(t, "openrouter")
+    if (withReplacement) {
+      await t.run(async (ctx) => {
+        await insertSyncedOpenRouterRow(ctx, {
+          modelId: "new/default", name: "First offered replacement", inputModalities: ["text"],
+          structuredOutput: true, reasoningEfforts: ["low", "high"], syncedAt: 1,
+        })
+      })
+    }
+    return { t, owner: identity(t, "admin-1") }
+  }
+
+  test("committed default missing from the live list: a run uses the tuple Settings shows", async () => {
+    const { owner } = await app(true)
+    const status = (await owner.query(api.cms.aiSettings.status, {}))!
+    const writing = status.assistants.find((assistant) => assistant.id === "writing")!
+    const shown = writing.defaults.openrouter!
+    expect(shown).toMatchObject({ provider: "openrouter", model: "new/default" })
+    expect(writing.effective).toEqual(shown)
+    const prepared = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
+    expect(prepared.assistant.tuple).toBeNull()
+    const catalog = catalogFromEntries(prepared.catalog)
+    for (const profile of ASSISTANT_PROFILES.writing) {
+      const tuple = aiRuntime.resolveAssistantRuntimeTuple(prepared.assistant, {
+        catalog, profile, phase: "content-generation", legacyModelId: prepared.modelId ?? undefined,
+        providerDefaults: prepared.providerDefaults ?? undefined, taskDefaults: prepared.taskDefaults ?? undefined,
+        modelOverrides: prepared.modelOverrides ?? undefined,
+      })
+      expect(tuple).toEqual(shown)
+      // The run is admitted: the shared catalog accepts the tuple for this profile.
+      expect(() => validateTupleForProfiles(tuple, [profile], catalog)).not.toThrow()
+    }
+  })
+
+  test("committed default offered: unchanged, Settings and runs both use it", async () => {
+    const { owner } = await app(false)
+    const status = (await owner.query(api.cms.aiSettings.status, {}))!
+    const writing = status.assistants.find((assistant) => assistant.id === "writing")!
+    expect(writing.defaults.openrouter).toEqual(taskProfileTuple("openrouter", "editorial-copy"))
+    const prepared = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
+    expect(aiRuntime.resolveAssistantRuntimeTuple(prepared.assistant, {
+      catalog: catalogFromEntries(prepared.catalog), profile: "editorial-copy", phase: "content-generation",
+    })).toEqual(taskProfileTuple("openrouter", "editorial-copy"))
+  })
+})
+
+// Review 1b round 2: with nothing saved and the committed tuple not offered,
+// a prepared run decides from the same whole, ordered list Settings shows.
+describe("review 1b round 2: prepared runs use the default Settings shows", () => {
+  const writingRun = (prepared: {
+    assistant: Parameters<typeof aiRuntime.resolveAssistantRuntimeTuple>[0]
+    catalog: Parameters<typeof catalogFromEntries>[0]
+    modelId: string | null
+    providerDefaults: Parameters<typeof aiRuntime.resolveAssistantRuntimeTuple>[1]["providerDefaults"] | null
+    taskDefaults: Parameters<typeof aiRuntime.resolveAssistantRuntimeTuple>[1]["taskDefaults"] | null
+    modelOverrides: Parameters<typeof aiRuntime.resolveAssistantRuntimeTuple>[1]["modelOverrides"] | null
+  }, profile: Parameters<typeof aiRuntime.resolveAssistantRuntimeTuple>[1]["profile"], phase: "content-generation" | "translation") =>
+    aiRuntime.resolveAssistantRuntimeTuple(prepared.assistant, {
+      catalog: catalogFromEntries(prepared.catalog), profile, phase,
+      legacyModelId: prepared.modelId ?? undefined,
+      providerDefaults: prepared.providerDefaults ?? undefined,
+      taskDefaults: prepared.taskDefaults ?? undefined,
+      modelOverrides: prepared.modelOverrides ?? undefined,
+    })
+  const row = (modelId: string, extra: Partial<Omit<Doc<"openRouterCatalogModels">, "_id" | "_creationTime">> = {}) => ({
+    modelId, name: modelId, inputModalities: ["text" as const], structuredOutput: true,
+    reasoningEfforts: ["low" as const, "medium" as const, "high" as const], syncedAt: 1, ...extra,
+  })
+  async function writingApp(rows: ReturnType<typeof row>[]) {
+    setAvailability({ anthropic: false, openrouter: true, openai: false })
+    const t = convexTest(schema, modules)
+    await seed(t, "openrouter")
+    await t.run(async (ctx) => {
+      for (const r of rows) await insertSyncedOpenRouterRow(ctx, r)
+    })
+    return { t, owner: identity(t, "admin-1") }
+  }
+  const writingStatus = async (owner: ReturnType<typeof identity>) =>
+    ((await owner.query(api.cms.aiSettings.status, {}))!).assistants.find((a) => a.id === "writing")!
+
+  test("counterexample (a): the committed model lost effort control and a newer dated model is offered", async () => {
+    const { owner } = await writingApp([
+      row("google/gemini-3-flash-preview", { reasoningEfforts: [], releasedAt: 1_700_000_000_000 }),
+      row("new/dated", { releasedAt: 1_790_000_000_000 }),
+    ])
+    const writing = await writingStatus(owner)
+    const shown = writing.defaults.openrouter!
+    expect(shown).toMatchObject({ provider: "openrouter", model: "new/dated", reasoning: { kind: "effort" } })
+    expect(writing.effective).toEqual(shown)
+    const prepared = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
+    for (const profile of ASSISTANT_PROFILES.writing) {
+      const tuple = writingRun(prepared, profile, "content-generation")
+      expect(tuple).toEqual(shown)
+      expect(() => validateTupleForProfiles(tuple, [profile], catalogFromEntries(prepared.catalog))).not.toThrow()
+    }
+  })
+
+  test("counterexample (b): undated legacy rows with Translation's primary absent", async () => {
+    setAvailability({ anthropic: false, openrouter: true, openai: false })
+    const t = convexTest(schema, modules)
+    await seed(t, "openrouter")
+    await t.run(async (ctx) => {
+      const state = (await ctx.db.query("cmsModuleState").first())!
+      await ctx.db.patch("cmsModuleState", state._id, {
+        enabledModules: [{ moduleId: "ai", configVersion: 1 }, { moduleId: "multilingual", configVersion: 1 }],
+      })
+      // No release dates: the order is the stored order, as Settings reads it.
+      await insertSyncedOpenRouterRow(ctx, row("aion-labs/aion-2.0"))
+      await insertSyncedOpenRouterRow(ctx, row("google/gemini-3-flash-preview"))
+    })
+    const owner = identity(t, "admin-1")
+    const translation = ((await owner.query(api.cms.aiSettings.status, {}))!).assistants.find((a) => a.id === "translation")!
+    const shown = translation.defaults.openrouter!
+    expect(shown).toEqual({ mode: "catalog", provider: "openrouter", model: "aion-labs/aion-2.0", reasoning: { kind: "effort", effort: "high" } })
+    const prepared = await owner.query(internal.agents.localizer.prepareTranslation, {})
+    for (const profile of ASSISTANT_PROFILES.translation) {
+      expect(writingRun(prepared, profile, "translation")).toEqual(shown)
+    }
+  })
+
+  test("committed tuple offered: unchanged, and the whole list is not read", async () => {
+    const { owner } = await writingApp([
+      row("google/gemini-3-flash-preview"),
+      ...Array.from({ length: 30 }, (_, i) => row(`other/model-${i}`)),
+    ])
+    const writing = await writingStatus(owner)
+    expect(writing.defaults.openrouter).toEqual(taskProfileTuple("openrouter", "editorial-copy"))
+    const prepared = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
+    expect(prepared.catalog.length).toBeLessThan(10)
+    for (const profile of ASSISTANT_PROFILES.writing) {
+      expect(writingRun(prepared, profile, "content-generation")).toEqual(taskProfileTuple("openrouter", profile))
+    }
+  })
+
+  test.each(["offered", "removed"] as const)(
+    "a saved site default (%s) keeps precedence while the default falls back",
+    async (state) => {
+      const { t, owner } = await writingApp([
+        row("google/gemini-3-flash-preview", { reasoningEfforts: [], releasedAt: 1_700_000_000_000 }),
+        row("new/dated", { releasedAt: 1_790_000_000_000 }),
+        row("saved/choice", { releasedAt: 1_600_000_000_000 }),
+      ])
+      const saved = { mode: "catalog", provider: "openrouter", model: "saved/choice", reasoning: { kind: "effort", effort: "medium" } } as const
+      await t.run(async (ctx) => {
+        const settings = (await ctx.db.query("siteSettings").first())!
+        await ctx.db.patch("siteSettings", settings._id, {
+          aiRuntime: { selectedProvider: "openrouter", providerDefaults: { openrouter: saved } },
+        })
+        if (state === "removed") {
+          const stored = await ctx.db.query("openRouterCatalogModels")
+            .withIndex("by_modelId", (q) => q.eq("modelId", "saved/choice")).unique()
+          await ctx.db.delete("openRouterCatalogModels", stored!._id)
+        }
+      })
+      const writing = await writingStatus(owner)
+      expect(writing.defaults.openrouter).toMatchObject({ model: "new/dated" })
+      expect(writing.effective).toEqual(saved)
+      const prepared = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
+      for (const profile of ASSISTANT_PROFILES.writing) {
+        if (state === "offered") expect(writingRun(prepared, profile, "content-generation")).toEqual(saved)
+        else expect(() => writingRun(prepared, profile, "content-generation")).toThrow()
+      }
+    }
+  )
+
+  test("no offered choice: Settings shows no default and every run refuses", async () => {
+    // The only row lacks structured output, which Writing's second profile needs.
+    const { owner } = await writingApp([row("text/only", { structuredOutput: false, reasoningEfforts: [] })])
+    const writing = await writingStatus(owner)
+    expect(writing.choices.openrouter).toEqual([])
+    expect(writing.defaults.openrouter).toBeNull()
+    const prepared = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
+    expect(prepared.catalog.map((entry) => entry.model)).toContain("text/only")
+    for (const profile of ASSISTANT_PROFILES.writing) {
+      expect(() => writingRun(prepared, profile, "content-generation")).toThrow()
+    }
+  })
+
+  test("Slice creator: every provider's prepared catalog gives the default Settings shows", async () => {
+    setAvailability({ anthropic: true, openrouter: true, openai: true })
+    const t = convexTest(schema, modules)
+    await seed(t)
+    // OpenRouter is live without its committed tuple offered; the direct
+    // providers keep their bundled committed defaults.
+    await t.run(async (ctx) => {
+      for (const id of ["vision/a", "vision/b"])
+        await insertSyncedOpenRouterRow(ctx, row(id, { inputModalities: ["text", "image"] }))
+      // A saved Slice creator model is a candidate entry: a partial list would
+      // put it ahead of Settings' first choice (vision/a).
+      const settings = (await ctx.db.query("siteSettings").first())!
+      await ctx.db.patch("siteSettings", settings._id, {
+        aiRuntime: {
+          ...settings.aiRuntime,
+          assistants: { sliceCreator: { tuple: { mode: "catalog", provider: "openrouter", model: "vision/b", reasoning: { kind: "effort", effort: "high" } } } },
+        },
+      })
+    })
+    const owner = identity(t, "admin-1")
+    const creator = await owner.query(api.cms.aiSettings.sliceCreator, {})
+    expect(creator.defaults.openrouter).toEqual({ mode: "catalog", provider: "openrouter", model: "vision/a", reasoning: { kind: "effort", effort: "high" } })
+    expect(creator.defaults.anthropic).toEqual(taskProfileTuple("anthropic", "vision-spec"))
+    const catalog = catalogFromEntries(creator.catalog)
+    for (const provider of API_PROVIDERS) {
+      const shown = creator.defaults[provider]
+      expect(shown).not.toBeNull()
+      for (const profile of SLICE_CREATOR_PROFILES) {
+        expect(resolveLocalApiTuple(provider, profile, {}, catalog), `${provider}/${profile}`).toEqual(shown)
+      }
+    }
+  })
+
+  test("P3: the legacy models projection lists only offered models", async () => {
+    setAvailability({ anthropic: false, openrouter: false, openai: true })
+    const t = convexTest(schema, modules)
+    await seed(t)
+    const owner = identity(t, "admin-1")
+    const settings = await owner.query(api.cms.ai.getModelsSettings, {})
+    for (const provider of settings.providers) {
+      const offered = await t.run(async (ctx) =>
+        catalogFromEntries(await loadProviderCatalog(ctx, provider.id)).list(provider.id, Date.now()).map((e) => e.model)
+      )
+      for (const selection of provider.selections) expect(offered).toContain(selection.model)
+    }
+    const openai = settings.providers.find((p) => p.id === "openai")!
+    expect(openai.selections.length).toBeGreaterThan(0)
+    expect(openai.selections.map((selection) => selection.model)).not.toContain("gpt-6-sol")
+  })
+})
+
+describe("status while the AI module is off", () => {
+  test("returns null for the owner and still refuses everyone else", async () => {
+    setAvailability({ anthropic: false, openrouter: false, openai: false })
+    const t = convexTest(schema, modules)
+    await seed(t)
+    const owner = identity(t, "admin-1")
+    expect(await owner.query(api.cms.aiSettings.status, {})).not.toBeNull()
+    await t.run(async (ctx) => {
+      const state = await ctx.db.query("cmsModuleState").first()
+      await ctx.db.patch("cmsModuleState", state!._id, { enabledModules: [] })
+    })
+    expect(await owner.query(api.cms.aiSettings.status, {})).toBeNull()
+    await expect(t.query(api.cms.aiSettings.status, {})).rejects.toThrow(/UNAUTHENTICATED/)
+    await expect(identity(t, "viewer-1").query(api.cms.aiSettings.status, {}))
+      .rejects.toThrow(/CMS_OWNER_REQUIRED/)
+  })
+})
 
 describe("Slice creator settings (fourth assistant, local-only)", () => {
   async function sliceApp() {
@@ -1066,7 +1392,7 @@ describe("Slice creator settings (fourth assistant, local-only)", () => {
     const saved = await owner.query(api.cms.aiSettings.sliceCreator, {})
     expect(saved).toMatchObject({ tuple: valid, instructions: "Plain words." })
     assertNoRuntimeSecretsOrLocalState(saved)
-    expect(Object.keys(saved).sort()).toEqual(["choices", "defaults", "instructions", "tuple"])
+    expect(Object.keys(saved).sort()).toEqual(["catalog", "choices", "defaults", "instructions", "newerModels", "tuple"])
 
     await t.run(async (ctx) => {
       const state = await ctx.db.query("cmsModuleState").first()
@@ -1085,15 +1411,15 @@ describe("Slice creator settings (fourth assistant, local-only)", () => {
         for (const effort of choice.efforts) {
           const tuple = { mode: "catalog", provider, model: choice.model, reasoning: { kind: "effort", effort } }
           for (const profile of SLICE_CREATOR_PROFILES) {
-            expect(() => validateTupleForProfiles(tuple, [profile]), `${provider}/${choice.model}/${effort}/${profile}`).not.toThrow()
+            expect(() => validateTupleForProfiles(tuple, [profile], BUNDLED_MODEL_CATALOG), `${provider}/${choice.model}/${effort}/${profile}`).not.toThrow()
           }
           offered += 1
         }
       }
       const tuple = defaults[provider]
       if (tuple !== null) {
-        expect(() => validateTupleForProfiles(tuple, ["vision-spec"])).not.toThrow()
-        expect(() => validateTupleForProfiles(tuple, ["renderer-jsx"])).not.toThrow()
+        expect(() => validateTupleForProfiles(tuple, ["vision-spec"], BUNDLED_MODEL_CATALOG)).not.toThrow()
+        expect(() => validateTupleForProfiles(tuple, ["renderer-jsx"], BUNDLED_MODEL_CATALOG)).not.toThrow()
       }
     }
     expect(offered).toBeGreaterThan(0)
@@ -1115,7 +1441,7 @@ describe("Slice creator settings (fourth assistant, local-only)", () => {
     const unknown = { mode: "catalog", provider: "anthropic", model: "no-such-model",
       reasoning: { kind: "effort", effort: "high" } } as unknown as Exclude<ApiModelTuple, { mode: "legacy" }>
     await expect(owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple: unknown }))
-      .rejects.toThrow(/Validator error|INVALID_AI_ASSISTANT_SELECTION/)
+      .rejects.toThrow("INVALID_AI_ASSISTANT_SELECTION")
     await expect(storedAssistants(t)).resolves.toEqual({})
 
     await owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple: valid, instructions: "x".repeat(4_000) })
@@ -1152,5 +1478,184 @@ describe("Slice creator settings (fourth assistant, local-only)", () => {
     const { sliceCreator: replaced, ...threeAfter } = (await storedAssistants(t))!
     expect(threeAfter).toEqual(three)
     expect(replaced).toEqual({ tuple: valid })
+  })
+})
+
+
+describe("widened direct tuple storage (AI-MODELS-1 step A)", () => {
+  // Every shape stored today, a direct id the committed lists do not know, and
+  // Haiku 4.5 with no effort must pass the real table validators.
+  const directShapes = (["anthropic", "openai"] as const).flatMap((provider) =>
+    Object.entries(provider === "anthropic" ? ANTHROPIC_API_CATALOG : OPENAI_API_CATALOG)
+      .flatMap(([model, cap]: [string, ApiModelCapability]) =>
+        cap.reasoning.kind === "effort"
+          ? cap.reasoning.supportedEfforts.map((effort) =>
+            ({ mode: "catalog", provider, model, reasoning: { kind: "effort", effort } }))
+          : [{ mode: "catalog", provider, model }]))
+  const committedShapes = [
+    ...directShapes,
+    ...API_PROVIDERS.flatMap((provider) => RUNTIME_TASK_PROFILES.map((profile) => taskProfileTuple(provider, profile))),
+    { mode: "catalog", provider: "openrouter", model: "google/gemini-3-flash-preview", reasoning: { kind: "effort", effort: "medium" } },
+    { mode: "catalog", provider: "openrouter", model: "example/no-reasoning" },
+  ]
+  const newShapes = [
+    { mode: "catalog", provider: "anthropic", model: "claude-opus-9-9", reasoning: { kind: "effort", effort: "high" } },
+    { mode: "catalog", provider: "anthropic", model: "claude-opus-9-9" },
+    { mode: "catalog", provider: "openai", model: "gpt-9-sol", reasoning: { kind: "effort", effort: "minimal" } },
+    { mode: "catalog", provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+  ]
+  const invalid = [
+    { mode: "catalog", provider: "anthropic", model: "claude-opus-5-5", reasoning: { kind: "effort", effort: "ultra" } },
+    { mode: "catalog", provider: "openai", model: "gpt-6.1-sol", reasoning: { kind: "effort", effort: "high" }, credential: "x" },
+    { mode: "catalog", provider: "openai", model: 7 },
+  ]
+  const tables = schema.tables
+
+  test("siteSettings.aiRuntime, agentConfigs.modelOverrides and aiJobs.tuple accept every stored and new shape", async () => {
+    const { validate } = await import("convex-helpers/validators")
+    const aiRuntime = tables.siteSettings.validator.fields.aiRuntime
+    const modelOverrides = tables.agentConfigs.validator.fields.modelOverrides
+    const jobTuple = tables.aiJobs.validator.fields.tuple
+    expect(directShapes.length).toBeGreaterThan(30)
+    for (const tuple of [...committedShapes, ...newShapes]) {
+      const provider = tuple.provider
+      expect(validate(aiRuntime, {
+        selectedProvider: provider,
+        providerDefaults: { [provider]: tuple },
+        taskDefaults: { "editorial-copy": tuple },
+        assistants: { writing: { tuple }, translation: { tuple }, help: { tuple }, sliceCreator: { tuple } },
+      }), JSON.stringify(tuple)).toBe(true)
+      expect(validate(modelOverrides, { [provider]: tuple }), JSON.stringify(tuple)).toBe(true)
+      expect(validate(jobTuple, tuple), JSON.stringify(tuple)).toBe(true)
+    }
+    expect(validate(jobTuple, { mode: "legacy", provider: "openrouter", model: "google/gemini-2.5-flash" })).toBe(true)
+    for (const tuple of invalid) {
+      expect(validate(jobTuple, tuple), JSON.stringify(tuple)).toBe(false)
+      expect(validate(aiRuntime, { assistants: { writing: { tuple } } }), JSON.stringify(tuple)).toBe(false)
+    }
+    // A provider key holding another provider's tuple stays refused.
+    expect(validate(modelOverrides, { openai: newShapes[0] })).toBe(false)
+  })
+
+  test("a new direct id stores through the schema and is still refused at Settings save", async () => {
+    setAvailability({ openrouter: true, anthropic: true, openai: true })
+    const t = convexTest(schema, modules)
+    await seed(t)
+    const unknown = newShapes[0] as Exclude<ApiModelTuple, { mode: "legacy" }>
+    await t.run(async (ctx) => {
+      const settings = await ctx.db.query("siteSettings").first()
+      await ctx.db.patch("siteSettings", settings!._id, {
+        aiRuntime: { ...settings!.aiRuntime, assistants: { writing: { tuple: unknown } } },
+      })
+    })
+    const owner = identity(t, "admin-1")
+    await expect(owner.mutation(api.cms.aiSettings.setAssistant, { id: "writing", tuple: unknown }))
+      .rejects.toThrow("INVALID_AI_ASSISTANT_SELECTION")
+    for (const tuple of [unknown, { mode: "catalog", provider: "openai", model: "gpt-9-sol",
+      reasoning: { kind: "effort", effort: "high" } } as const]) {
+      await expect(owner.mutation(api.cms.aiSettings.setProductionAiConfiguration, {
+        selectedProvider: tuple.provider, providerDefaults: { [tuple.provider]: tuple },
+      })).rejects.toThrow(/INVALID_AI_SELECTION: A site default/)
+    }
+    const prepared = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
+    expect(prepared.assistant.tuple).toEqual(unknown)
+    expect(() => aiRuntime.resolveAssistantRuntimeTuple(prepared.assistant, { catalog: catalogFromEntries(prepared.catalog),
+      profile: "editorial-copy", phase: "content-generation",
+    })).toThrow(/UNSUPPORTED_CAPABILITY/)
+  })
+})
+
+describe("an OpenRouter key alone no longer selects the legacy model", () => {
+  const LEGACY = { mode: "legacy", provider: "openrouter" } as const
+  async function freshInstall(
+    setup: { siteModel?: boolean; agentModel?: boolean; savedWriting?: boolean } = {}
+  ) {
+    const t = convexTest(schema, modules)
+    await seed(t)
+    await t.run(async (ctx) => {
+      const settings = (await ctx.db.query("siteSettings").first())!
+      await ctx.db.patch("siteSettings", settings._id, {
+        aiDefaultModel: setup.siteModel ? "site/model" : undefined,
+        ...(setup.savedWriting
+          ? { aiRuntime: { assistants: { writing: { tuple: PROVIDER_DEFAULTS.openai } } } }
+          : {}),
+      })
+      if (setup.agentModel) {
+        await ctx.db.insert("agentConfigs", {
+          agent: "content", model: "agent/model", updatedAt: 1,
+        } as never)
+      }
+    })
+    return { t, owner: identity(t, "admin-1") }
+  }
+  async function effectiveAndPrepared(owner: ReturnType<typeof identity>) {
+    const status = (await owner.query(api.cms.aiSettings.status, {}))!
+    const writing = status.assistants.find((a) => a.id === "writing")!
+    const help = status.assistants.find((a) => a.id === "help")!
+    const writer = await owner.query(internal.agents.contentWriter.prepareGeneration, {})
+    const helper = await owner.query(internal.agents.helpAssistant.prepareHelp, {})
+    const resolve = (
+      prepared: typeof writer, profile: "editorial-copy" | "grounded-help"
+    ) => aiRuntime.resolveAssistantRuntimeTuple(prepared.assistant, { catalog: catalogFromEntries(prepared.catalog),
+      profile,
+      phase: profile === "grounded-help" ? "help-answer" : "content-generation",
+      legacyModelId: prepared.modelId ?? undefined,
+      providerDefaults: prepared.providerDefaults ?? undefined,
+      taskDefaults: prepared.taskDefaults ?? undefined,
+      modelOverrides: prepared.modelOverrides ?? undefined,
+    })
+    return {
+      writing, help,
+      writingRun: resolve(writer, "editorial-copy"),
+      helpRun: resolve(helper as unknown as typeof writer, "grounded-help"),
+    }
+  }
+
+  test("only an OpenRouter key: committed defaults with their effort", async () => {
+    setAvailability({ openrouter: true, anthropic: false, openai: false })
+    const { owner } = await freshInstall()
+    const r = await effectiveAndPrepared(owner)
+    const writingDefault = API_TASK_PROFILES.openrouter["editorial-copy"]
+    const helpDefault = API_TASK_PROFILES.openrouter["grounded-help"]
+    expect(r.writing.effective).toEqual(writingDefault)
+    expect(r.help.effective).toEqual(helpDefault)
+    expect(r.writingRun).toEqual(writingDefault)
+    expect(r.helpRun).toEqual(helpDefault)
+    expect(r.writingRun.mode).not.toBe("legacy")
+    expect("reasoning" in r.writingRun && r.writingRun.reasoning).toBeTruthy()
+  })
+
+  test("Anthropic and OpenRouter keys: Writing uses the Anthropic default", async () => {
+    setAvailability({ openrouter: true, anthropic: true, openai: false })
+    const { owner } = await freshInstall()
+    const r = await effectiveAndPrepared(owner)
+    expect(r.writing.effective).toEqual(API_TASK_PROFILES.anthropic["editorial-copy"])
+    expect(r.writingRun).toEqual(API_TASK_PROFILES.anthropic["editorial-copy"])
+  })
+
+  test.each([
+    ["CMS_AI_MODEL", "env", "env/model"],
+    ["site default model", "site", "site/model"],
+    ["agent model", "agent", "agent/model"],
+  ])("%s set: the legacy tuple as before", async (_label, kind, model) => {
+    setAvailability({ openrouter: true, anthropic: false, openai: false })
+    if (kind === "env") vi.stubEnv("CMS_AI_MODEL", model)
+    const { owner } = await freshInstall({
+      siteModel: kind === "site", agentModel: kind === "agent",
+    })
+    const r = await effectiveAndPrepared(owner)
+    expect(r.writing.effective).toEqual({ ...LEGACY, model })
+    expect(r.writingRun).toEqual({ ...LEGACY, model })
+  })
+
+  test("a saved assistant tuple wins whether or not a legacy model is set", async () => {
+    setAvailability({ openrouter: true, anthropic: true, openai: true })
+    for (const legacy of [false, true]) {
+      vi.stubEnv("CMS_AI_MODEL", legacy ? "env/model" : "")
+      const { owner } = await freshInstall({ savedWriting: true })
+      const r = await effectiveAndPrepared(owner)
+      expect(r.writing.effective).toEqual(PROVIDER_DEFAULTS.openai)
+      expect(r.writingRun).toEqual(PROVIDER_DEFAULTS.openai)
+    }
   })
 })

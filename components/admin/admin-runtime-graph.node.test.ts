@@ -70,6 +70,7 @@ const ENTRY_EXPECTATIONS: readonly EntryExpectation[] = [
 
 const FORBIDDEN_EXACT_MODULES = new Set([
   "app/(core)/admin/(authenticated)/pages/local-ai-routing",
+  "app/(core)/admin/(authenticated)/pages/local-ai-job-actions",
   "app/(core)/admin/(authenticated)/help-ai-routing",
   "app/(core)/admin/(authenticated)/pages/ai-actions",
   "app/(core)/admin/(authenticated)/help-ai-actions",
@@ -92,7 +93,68 @@ const FORBIDDEN_EXACT_MODULES = new Set([
   "scripts/lib/dev-ai-connections",
   "scripts/lib/dev-task-execution",
   "scripts/lib/subscription-cli-capabilities",
+  "scripts/lib/local-tool-models",
 ])
+
+// Lazy or server-action edges into the forbidden graph that an AI-owned file
+// or an AI seam makes on purpose (ADR-0057, AI-LOCAL-1). Exact `from -> to`;
+// the scan still stops at the target, so nothing behind it enters the graph.
+const ALLOWED_AI_EDGES: ReadonlyMap<string, string> = new Map([
+  [
+    "app/(core)/admin/(authenticated)/help-ai-chat.ts -> app/(core)/admin/(authenticated)/help-ai-actions.ts",
+    "The Help chat's server action loads the Help runtime lazily, on the server, when a local tool answers a question.",
+  ],
+  [
+    "components/admin/contributions/ai-help.server.ts -> app/(core)/admin/(authenticated)/help-ai-routing.ts",
+    "Help's route loads lazily in local development only; the live site reads nothing.",
+  ],
+  [
+    "components/admin/contributions/ai-settings.server.ts -> app/(core)/admin/(authenticated)/pages/local-ai-routing.ts",
+    "The Block creator readiness uses the one route check, loaded lazily in local development only.",
+  ],
+  [
+    "components/admin/ai-writing/page-jobs.tsx -> app/(core)/admin/(authenticated)/pages/local-ai-job-actions.ts",
+    "The job card resumes a local job through this server action; the browser gets only an action reference (AI-LOCAL-2).",
+  ],
+  [
+    "components/admin/ai-writing/page-wizard.tsx -> app/(core)/admin/(authenticated)/pages/local-ai-job-actions.ts",
+    "Write page plans and starts a local job through these server actions; the browser gets only action references (AI-LOCAL-2).",
+  ],
+  [
+    "components/admin/ai-translation/page-editor-participant.tsx -> app/(core)/admin/(authenticated)/pages/local-ai-job-actions.ts",
+    "Translate starts a local job through this server action; the browser gets only an action reference (AI-LOCAL-2).",
+  ],
+  [
+    "components/admin/contributions/ai-writing.server.ts -> app/(core)/admin/(authenticated)/pages/local-ai-routing.ts",
+    "Writing's route data loads the one route check lazily, in local development only; the live site reads nothing.",
+  ],
+  [
+    "components/admin/contributions/ai-translation.server.ts -> app/(core)/admin/(authenticated)/pages/local-ai-routing.ts",
+    "Translation's route data loads the one route check lazily, in local development only; the live site reads nothing.",
+  ],
+  [
+    "components/admin/contributions/ai-settings.server.ts -> scripts/lib/dev-ai-connections.ts",
+    "Settings › AI checks the local tools lazily, for a browser on this computer only.",
+  ],
+  [
+    "components/admin/contributions/ai-settings.server.ts -> scripts/lib/dev-ai-selection.ts",
+    "Settings › AI reads the local tool choices lazily, for a browser on this computer only.",
+  ],
+  [
+    "components/admin/contributions/ai-settings.server.ts -> scripts/lib/local-tool-models.ts",
+    "Settings › AI asks the installed Codex and Claude Code for their models lazily, for a browser on this computer only.",
+  ],
+  [
+    "components/admin/contributions/ai-settings.server.ts -> app/(core)/admin/(authenticated)/settings/ai/actions.ts",
+    "Settings › AI saves the local tool choices through this action, loaded lazily on this computer only.",
+  ],
+])
+
+function unallowedEdges(edges: readonly string[]): string[] {
+  return edges.filter(
+    (edge) => !ALLOWED_AI_EDGES.has(edge.replace(/:\d+ -> /, " -> "))
+  )
+}
 
 const FORBIDDEN_DIRECTORIES = [
   "lib/ai/",
@@ -667,12 +729,25 @@ describe("all-off admin runtime graph", () => {
       `${chat}:42 -> lib/ai/execution-contract.ts`,
     ])
     const layout = scanRuntimeGraph("app/(core)/admin/(authenticated)/layout.tsx")
-    expect(layout.forbidden).toEqual([])
+    expect(unallowedEdges(layout.forbidden)).toEqual([])
     expect(
       layout.forbiddenTypeImports.some((edge) =>
         edge.startsWith(`${chat}:`)
       )
     ).toBe(true)
+  })
+
+  test("every allowed AI edge is still made, each with a reason", () => {
+    const made = new Set(
+      ENTRY_EXPECTATIONS.flatMap((expectation) =>
+        scanRuntimeGraph(expectation.entry).forbidden.map((edge) =>
+          edge.replace(/:\d+ -> /, " -> ")
+        )
+      )
+    )
+    expect([...ALLOWED_AI_EDGES.keys()].filter((edge) => !made.has(edge))).toEqual([])
+    for (const reason of ALLOWED_AI_EDGES.values())
+      expect(reason.length).toBeGreaterThan(30)
   })
 
   test("keeps every real all-off entry outside the forbidden AI graph", () => {
@@ -686,12 +761,11 @@ describe("all-off admin runtime graph", () => {
           failures.push(`${expectation.entry}: did not reach ${requiredModule}`)
         }
       }
-      for (const edge of result.forbidden) {
+      for (const edge of unallowedEdges(result.forbidden)) {
         failures.push(`${expectation.entry}: forbidden runtime edge ${edge}`)
       }
-      for (const edge of typeEdgeViolations(
-        result.forbiddenTypeImports,
-        exempt
+      for (const edge of unallowedEdges(
+        typeEdgeViolations(result.forbiddenTypeImports, exempt)
       )) {
         failures.push(`${expectation.entry}: forbidden type-only edge ${edge}`)
       }

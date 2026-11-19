@@ -758,6 +758,10 @@ function multilingualDescriptor(path: readonly string[]): AllowedDelta {
   }
 }
 
+const PAGE_PURGE_READ =
+  'query pagePurges full-scan asc +operators [{"limit":1}]'
+const PAGE_PURGE_PAGE_READ =
+  'query pagePurges.by_pageId [pageId Eq "<id:pages>"] asc +operators [{"limit":1}]'
 const MODULE_STATE_READ =
   'query cmsModuleState.by_key [key Eq "owner"] asc +operators [{"limit":2}]'
 const AUTHORITY_READ =
@@ -1094,6 +1098,24 @@ function allowedDeltas(key: string): AllowedDelta[] {
       path: ["gates", "assertNoLanguageTransitionConflicts"],
       addReads: [MODULE_STATE_READ],
       reason: "M6 / F09 step 3: refuse while `multilingual` is enabled",
+    },
+    {
+      path: ["gates", "startLanguageTransition"],
+      addReads: [PAGE_PURGE_READ],
+      reason:
+        "PERMANENT-DELETE: a language operation does not start while a Page purge is queued",
+    },
+    {
+      path: ["operations", "withdraw"],
+      addReads: [PAGE_PURGE_PAGE_READ],
+      reason:
+        "PERMANENT-DELETE: withdrawal refuses a Page that has a purge marker",
+    },
+    {
+      path: ["operations", "menuSave"],
+      addReads: [PAGE_PURGE_READ],
+      reason:
+        "PERMANENT-DELETE: a menu save may not link a Page that has a purge marker",
     },
     ...(state === "S1"
       ? [
@@ -1512,6 +1534,11 @@ const LANGUAGE_SOURCE_INVENTORY: Record<string, number> = {
   // C3c.2b: collection and its sweep read the pointer as a single row.
   "convex/lib/language/collection.ts#collectStepInTransaction#readAuthorityRows": 1,
   "convex/lib/language/collection.ts#sweepStepInTransaction#readAuthorityRows": 1,
+  // PERMANENT-DELETE: the purge refuses while any language operation is open.
+  "convex/lib/publishing/pagePurge.ts#languageOperationOpen#.kind": 1,
+  "convex/lib/publishing/pagePurge.ts#languageOperationOpen#readOpenDefaultMigration": 1,
+  "convex/lib/publishing/pagePurge.ts#languageOperationOpen#readOpenTransition": 1,
+  "convex/lib/publishing/pagePurge.ts#languageOperationOpen#readSiteLanguageState": 1,
   // The classifier and gate definitions.
   "convex/lib/language/state.ts#assertNoLanguageTransitionConflicts#readMultilingualModuleEnabled": 1,
   "convex/lib/language/state.ts#assertOrdinaryLocale#.kind": 3,
@@ -3481,7 +3508,18 @@ const F09_REMEDY =
   "F09 retained-draft remedy; requires the current state, so unreachable under multilingual"
 
 /** Every writer of a freshness source table, keyed `file#function#op#table`. */
+const PURGE_EXEMPT =
+  "permanent purge of a Page already trashed: its public output was withdrawn and freshness recorded when it was trashed"
 const FRESHNESS_WRITER_INVENTORY: Record<string, string> = {
+  "convex/lib/publishing/pagePurge.ts#drainRedirects#delete#redirects": RECORDS,
+  "convex/lib/publishing/pagePurge.ts#runPhase#delete#pageHistoricalLocaleRoutes":
+    PURGE_EXEMPT,
+  "convex/lib/publishing/pagePurge.ts#runPhase#delete#pageLocalePublicationReleases":
+    PURGE_EXEMPT,
+  "convex/lib/publishing/pagePurge.ts#runPhase#delete#pageLocalePublicationStates":
+    PURGE_EXEMPT,
+  "convex/lib/publishing/pagePurge.ts#runPhase#patch#menus":
+    "rewrites only soft-deleted menus (never public)",
   "convex/cms/language.ts#copyMenuTextToTarget#patch#menus": F09_ONLY,
   "convex/cms/menus.ts#insertCanonicalMenu#insert#menus":
     "shared insert for createCanonical and saveCanonical; callers record once after insert",
@@ -3577,20 +3615,24 @@ const FRESHNESS_WRITER_INVENTORY: Record<string, string> = {
  */
 const RECORDING_CALL_SITES = [
   "convex/cms/aiSettings.ts#setAssistant#recordPublicChange",
+  "convex/cms/aiSettings.ts#setAssistantLocalTool#recordPublicChange",
   "convex/cms/aiSettings.ts#setProductionAiConfiguration#recordPublicChange",
   "convex/cms/aiSettings.ts#setSliceCreator#recordPublicChange",
   "convex/cms/sliceLibrary.ts#cleanupDeletedSliceTypeArchive#recordPublicChange",
   "convex/cms/sliceLibrary.ts#setSliceArchived#recordPublicChange",
   "convex/cms/contentTypes.ts#setContentTypeArchived#recordPublicChange",
+  "convex/cms/contentTypes.ts#setContentTypeTranslation#recordPublicChange",
   "convex/cms/menus.ts#createCanonical#recordPublicChange",
   "convex/cms/menus.ts#remove#recordPublicChange",
   "convex/cms/menus.ts#restore#recordPublicChange",
   "convex/cms/menus.ts#saveCanonical#recordPublicChange",
   "convex/cms/menus.ts#softDelete#recordPublicChange",
   "convex/cms/modules.ts#commitModuleTransitionInTransaction#recordPublicChange",
+  "convex/cms/pages.ts#create#recordPublicChange",
   "convex/cms/publication.ts#deleteLocaleContent#recordPublicChange",
   "convex/cms/publication.ts#discardLocaleDraft#recordPublicChange",
   "convex/cms/publication.ts#publishLocale#recordPublicChange",
+  "convex/lib/publishing/pagePurge.ts#drainRedirects#recordPublicChange",
   "convex/cms/publication.ts#restoreSnapshotAsDraft#recordPublicChange",
   "convex/cms/publication.ts#saveEditorDraft#recordPublicChange",
   "convex/cms/publication.ts#saveLocaleDraft#recordPublicChange",
@@ -11191,7 +11233,9 @@ const MIGRATION_ACTIVATE_WRITES = [
   "insert siteLanguageLifecycleIntents {attempts,capturedAuthorityVersion,createdAt,generation,locales,migrationId,operationId,operationKind,phase,status,updatedAt}",
   "patch siteDefaultLanguageMigrations {committedAt,committedAuthorityVersion,phase,updatedAt}",
   "patch siteLanguageAuthority {activeDefaultMigrationId,continuityPointer,currentLocale,updatedAt,version}",
-  "patch siteSettings {defaultLocale,updatedAt}",
+  // The outgoing default language is recorded once as the language of the old
+  // shared text (ADR-0037 amendment, 2026-11-17).
+  "patch siteSettings {defaultLocale,legacySharedFieldsLocale,updatedAt}",
 ]
 
 describe("M05 P6 default migration activation", () => {
@@ -11256,6 +11300,8 @@ describe("M05 P6 default migration activation", () => {
     expect(await settingsRow(t)).toEqual({
       ...settingsBefore,
       defaultLocale: "fr",
+      // The outgoing default is recorded once (ADR-0037 amendment).
+      legacySharedFieldsLocale: "en",
       enabledLocales: ["en", "fr"],
       updatedAt: activatedAt,
     })

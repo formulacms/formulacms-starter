@@ -2,6 +2,7 @@ import {
   checkPageAddress,
   refusePageAddress,
 } from "../lib/publishing/snapshots"
+import { nextUpdatedAt } from "../lib/versions"
 import { getActor } from "../lib/access/actor"
 import { initializeEmptySliceOccurrenceCounts } from "../lib/publishing/staging"
 import {
@@ -205,7 +206,7 @@ export const markOnboardingStep = mutation({
       if (existing[field] != null) return null
       await ctx.db.patch("siteSettings", existing._id, {
         [field]: now,
-        updatedAt: now,
+        updatedAt: nextUpdatedAt(existing.updatedAt, now),
       })
       return null
     }
@@ -391,7 +392,7 @@ export const bootstrapInstallation = mutation({
       enabledLocales: [defaultLocale],
       homePageId,
       onboardingCompletedAt: now,
-      updatedAt: now,
+      updatedAt: nextUpdatedAt(existing?.updatedAt, now),
     }
     if (existing) await ctx.db.patch("siteSettings", existing._id, fields)
     else await ctx.db.insert("siteSettings", fields)
@@ -475,7 +476,7 @@ export const completeOnboarding = mutation({
       timezone: args.timezone,
       dateFormat: args.dateFormat ?? "PP",
       onboardingCompletedAt: now,
-      updatedAt: now,
+      updatedAt: nextUpdatedAt(existing?.updatedAt, now),
     }
 
     const settingsId = existing
@@ -620,7 +621,7 @@ export const updateSettings = mutation({
       ...(args.dateFormat !== undefined && { dateFormat: args.dateFormat }),
       ...(args.defaultLocale !== undefined && { defaultLocale: nextDefault }),
       ...(args.enabledLocales !== undefined && { enabledLocales: nextEnabled }),
-      updatedAt: Date.now(),
+      updatedAt: nextUpdatedAt(existing.updatedAt, Date.now()),
     })
     await recordPublicChange(ctx, { scopes: [] })
 
@@ -683,7 +684,7 @@ export const setBrandingImage = mutation({
     await ctx.db.patch("siteSettings", existing._id, {
       [mediaField]: mediaId,
       [field]: storageId,
-      updatedAt: Date.now(),
+      updatedAt: nextUpdatedAt(existing.updatedAt, Date.now()),
     })
     await recordPublicChange(ctx, { scopes: [] })
     return null

@@ -92,6 +92,37 @@ test("known provider copy translates while brands and owner provider metadata re
     label: "Resend",
     description: "Envoi d’e-mails transactionnels avec Resend.",
   })
+  expect(
+    adminEmailProvider(
+      {
+        id: "smtp",
+        label: "SMTP",
+        description: "Send email through your own mail server with SMTP.",
+      },
+      t
+    )
+  ).toEqual({
+    id: "smtp",
+    label: "SMTP",
+    description:
+      "Envoyez par n’importe quel serveur de messagerie : un compte Gmail, votre hébergeur ou un service d’envoi.",
+  })
+  expect(
+    adminEmailProvider(
+      {
+        id: "custom",
+        label: "Custom provider",
+        description:
+          "Register a reviewed provider implementation in this application build.",
+      },
+      t
+    )
+  ).toEqual({
+    id: "custom",
+    label: "Autres fournisseurs",
+    description:
+      "Ajoutez un autre fournisseur avec une petite modification du code.",
+  })
   const owner = {
     id: "owner",
     label: "Custom provider",

@@ -13,6 +13,7 @@ import {
 } from "../lib/publishing/snapshots"
 import { assertPublicLanguageVersion } from "../lib/language/state"
 import { recordPublicChange } from "../lib/language/freshness"
+import { assertNoPagePurge } from "../lib/publishing/pagePurge"
 
 // Inline locale config: Convex modules can't share helpers freely, and pages.ts
 // keeps its `getLocaleConfig` private. Reads the same settings row.
@@ -380,6 +381,7 @@ export const create = mutation({
     if (args.toPath && args.toPageId) {
       throw new ConvexError({ code: "REDIRECT_DESTINATION_AMBIGUOUS", message: "Specify either a page or a URL, not both" })
     }
+    if (args.toPageId) await assertNoPagePurge(ctx, args.toPageId)
     const fromPath = validateFromPath(args.fromPath)
     const toPath = args.toPath ? validateToPath(args.toPath) : undefined
 

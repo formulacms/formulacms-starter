@@ -1,5 +1,4 @@
 import type {
-  ApiProvider,
   GenerationRequest,
   GenerationUsage,
 } from "./execution-contract"
@@ -16,8 +15,8 @@ export function effectiveMonthlyCapMicros(
     ? (stored ?? DEFAULT_AI_MONTHLY_CAP_MICROS)
     : Number.MAX_SAFE_INTEGER
 }
-export const PRICE_CHECKED_AT = "2026-11-09"
-export const PRICE_REVISION = "direct-2026-11-09-v1"
+export const PRICE_CHECKED_AT = "2026-11-15"
+export const PRICE_REVISION = "direct-2026-11-15-v1"
 export const IMAGE_INPUT_TOKEN_ESTIMATE = 10_000
 
 export interface PriceQuote {
@@ -85,6 +84,14 @@ export const DIRECT_PRICES: Readonly<Record<string, PriceQuote>> =
       200_000,
       500_000,
       100_000
+    ),
+    "anthropic:claude-fable-5-2": direct(
+      anthropicSource,
+      8_000_000,
+      200_000,
+      16_000_000,
+      40_000_000,
+      1_000_000
     ),
     "anthropic:claude-fable-5-1": direct(
       anthropicSource,
@@ -192,11 +199,13 @@ export interface QuoteRequest {
   readonly fast?: boolean
   readonly priority?: boolean
   readonly regional?: boolean
-  readonly catalog?: {
-    readonly ceilingInputPerM?: number
-    readonly ceilingOutputPerM?: number
-    readonly syncedAt: number
-  }
+}
+
+/** Synchronized OpenRouter ceiling prices for one model. */
+export interface OpenRouterCeilings {
+  readonly ceilingInputPerM?: number
+  readonly ceilingOutputPerM?: number
+  readonly syncedAt: number
 }
 
 export function moneyInteger(value: number): number {
@@ -205,9 +214,42 @@ export function moneyInteger(value: number): number {
   return value
 }
 
+/** A price built from synchronized OpenRouter ceilings (the highest rate across
+ * every conditional tier, so it errs high). Undefined when incomplete. */
+export function openRouterPriceQuote(
+  catalog: OpenRouterCeilings,
+  maxInputTokens: number = Number.MAX_SAFE_INTEGER
+): PriceQuote | undefined {
+  const input = catalog.ceilingInputPerM,
+    output = catalog.ceilingOutputPerM
+  if (
+    input === undefined ||
+    output === undefined ||
+    !Number.isFinite(input) ||
+    !Number.isFinite(output) ||
+    input < 0 ||
+    output < 0 ||
+    !Number.isSafeInteger(catalog.syncedAt)
+  )
+    return undefined
+  const rate = (n: number) => moneyInteger(Math.ceil(n * 1_000_000))
+  return {
+    revision: `openrouter-${catalog.syncedAt}`,
+    sourceUrl: "https://openrouter.ai/api/v1/models",
+    checkedAt: new Date(catalog.syncedAt).toISOString(),
+    endsAt: null,
+    inputPerM: rate(input),
+    cacheReadPerM: rate(input),
+    cacheWritePerM: rate(input),
+    outputPerM: rate(output),
+    maxInputTokens,
+  }
+}
+
+/** The price of one catalog entry (`DIRECT_PRICES` first, the OpenRouter
+ * ceiling second, as merged in model-catalog.ts) for a base-tier request. */
 export function quote(
-  provider: ApiProvider,
-  modelId: string,
+  entry: { readonly price?: PriceQuote } | undefined,
   request: QuoteRequest
 ): PriceQuote {
   if (
@@ -221,36 +263,7 @@ export function quote(
     )
   }
   moneyInteger(request.inputTokens)
-  let price: PriceQuote | undefined
-  if (provider === "openrouter") {
-    const catalog = request.catalog
-    const input = catalog?.ceilingInputPerM,
-      output = catalog?.ceilingOutputPerM
-    if (
-      input !== undefined &&
-      output !== undefined &&
-      Number.isFinite(input) &&
-      Number.isFinite(output) &&
-      input >= 0 &&
-      output >= 0 &&
-      Number.isSafeInteger(catalog!.syncedAt)
-    ) {
-      const rate = (n: number) => moneyInteger(Math.ceil(n * 1_000_000))
-      price = {
-        revision: `openrouter-${catalog!.syncedAt}`,
-        sourceUrl: "https://openrouter.ai/api/v1/models",
-        checkedAt: new Date(catalog!.syncedAt).toISOString(),
-        endsAt: null,
-        inputPerM: rate(input),
-        cacheReadPerM: rate(input),
-        cacheWritePerM: rate(input),
-        outputPerM: rate(output),
-        maxInputTokens: Number.MAX_SAFE_INTEGER,
-      }
-    }
-  } else {
-    price = DIRECT_PRICES[`${provider}:${modelId}`]
-  }
+  const price = entry?.price
   if (!price) throw new Error("AI model has no complete price quote.")
   if (price.endsAt !== null && (request.now ?? Date.now()) >= price.endsAt)
     throw new Error("AI model price has expired.")

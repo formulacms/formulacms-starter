@@ -2,6 +2,7 @@
 export {
   assertPrePublishAllowed,
   buildPrePublishChecklistWithReferences,
+  languageChecklistShape,
   prePublishChecklistValidator,
   snapshotPrePublishChecklist,
   type PrePublishChecklist,

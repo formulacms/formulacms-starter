@@ -8,8 +8,33 @@ import actionRetrierTest from "@convex-dev/action-retrier/test"
 import { enableAuthSessions } from "../test-utils/convexAuthFixtures"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 import type { RunId } from "@convex-dev/action-retrier"
+import { EmailAdapterError } from "@opencoredev/email-sdk"
 import { rateLimiter } from "./lib/rateLimits"
 import { hashAuthClientIdentity } from "./email"
+
+// The SMTP adapter of the Email SDK opens a socket; replace it for the whole
+// file. Resend tests never reach it.
+const smtpMock = vi.hoisted(() => {
+  const send = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+    adapter: "smtp",
+    id: "smtp-queue-id",
+  }))
+  const factory = vi.fn((options: unknown) => {
+    void options
+    return {
+      name: "smtp",
+      capabilities: {
+        repeatedHeaders: true,
+        idempotency: "message_id",
+        scheduling: false,
+        personalized: "expanded",
+      },
+      send,
+    }
+  })
+  return { send, factory }
+})
+vi.mock("@opencoredev/email-sdk/smtp", () => ({ smtp: smtpMock.factory }))
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -23,6 +48,11 @@ const ownerIdentity = {
 }
 
 const EMAIL_ENV_KEYS = [
+  "EMAIL_SMTP_HOST",
+  "EMAIL_SMTP_PORT",
+  "EMAIL_SMTP_USER",
+  "EMAIL_SMTP_PASSWORD",
+  "CMS_SECRET_KEY",
   "SMTP_HOST",
   "SMTP_PORT",
   "SMTP_SECURE",
@@ -66,6 +96,78 @@ async function seedOwner(t: ReturnType<typeof makeTest>) {
     })
   })
 }
+
+const SENDER = {
+  senderAddress: "sender@example.test",
+  senderName: "FormulaCMS",
+} as const
+
+type OwnerSite = ReturnType<ReturnType<typeof makeTest>["withIdentity"]>
+
+/** Resend answers every request with an accepted message. */
+function stubResendFetch(id: string) {
+  const spy = vi.fn(
+    async (_input: string | URL | Request, _init?: RequestInit) => {
+      void _input
+      void _init
+      return new Response(JSON.stringify({ id }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+  )
+  vi.stubGlobal("fetch", spy)
+  return spy
+}
+
+function readProviderRow(t: ReturnType<typeof makeTest>) {
+  return t.run((ctx) => ctx.db.query("emailProviderState").unique())
+}
+
+/**
+ * Queues one owner test and returns the run id of its event. Run it under fake
+ * timers: the event then stays queued, as one that was already dispatched.
+ */
+async function queueOwnerTest(
+  t: ReturnType<typeof makeTest>,
+  asOwner: OwnerSite
+): Promise<RunId> {
+  const before = new Set(
+    (await t.run((ctx) => ctx.db.query("emailDeliveryEvents").collect())).map(
+      (event) => event._id
+    )
+  )
+  await expect(asOwner.action(api.email.sendTestEmail, {})).resolves.toMatchObject(
+    { status: "queued" }
+  )
+  const added = (
+    await t.run((ctx) => ctx.db.query("emailDeliveryEvents").collect())
+  ).filter((event) => !before.has(event._id))
+  expect(added).toHaveLength(1)
+  return added[0]!.runId as RunId
+}
+
+/** Delivers a finished run to the completion path, as Action Retrier does. */
+async function deliver(
+  t: ReturnType<typeof makeTest>,
+  runId: RunId,
+  returnValue: unknown
+) {
+  await t.mutation(internal.email._recordDeliveryResult, {
+    runId,
+    result: { type: "success", returnValue },
+  })
+}
+
+const acceptedBy = (providerId: string) => ({
+  state: "provider_accepted",
+  providerId,
+})
+const unknownBy = (providerId: string) => ({
+  state: "unknown",
+  providerId,
+  reason: "delivery_unknown",
+})
 
 describe("email settings", () => {
   test("resolves both missing and stored SMTP settings to non-delivery", async () => {
@@ -401,70 +503,72 @@ describe("email settings", () => {
         .withIdentity(ownerIdentity)
         .query(api.email.getEmailProviderSettings, {})
       expect(settings).toMatchObject({
-        configuredProviderId: null,
+        enabledProviderId: null,
         activeProviderId: null,
         readiness: "fallback",
         configurationVersion: 0,
       })
-      expect(settings.catalogue).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            id: "resend",
-            registered: true,
-            bundled: true,
-          }),
-          expect.objectContaining({
-            id: "custom",
-            registered: false,
-            bundled: false,
-          }),
-        ])
-      )
+      expect(settings.catalogue.map(({ id }) => id)).toEqual([
+        "smtp",
+        "resend",
+        "custom",
+      ])
+      expect(settings.catalogue).toEqual([
+        expect.objectContaining({ id: "smtp", registered: true, bundled: true }),
+        expect.objectContaining({
+          id: "resend",
+          registered: true,
+          bundled: true,
+        }),
+        expect.objectContaining({
+          id: "custom",
+          registered: false,
+          bundled: false,
+        }),
+      ])
+      // Variable names and presence flags are allowed; a value never is.
       expect(JSON.stringify(settings)).not.toContain("secret-resend-key")
-      expect(JSON.stringify(settings)).not.toContain("RESEND_API_KEY")
     })
   })
 
-  test("binds activation to a short-lived provider-accepted test receipt", async () => {
+  test("an accepted test makes the enabled provider active by itself; a changed sender makes it inactive", async () => {
     await withEmailEnv({ RESEND_API_KEY: "test-resend-key" }, async () => {
-      const fetchSpy = vi.fn(
-        async (_input: string | URL | Request, _init?: RequestInit) => {
-          void _input
-          void _init
-          return new Response(JSON.stringify({ id: "resend-e05-id" }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          })
-        }
-      )
-      vi.stubGlobal("fetch", fetchSpy)
+      stubResendFetch("resend-e05-id")
       const t = makeTest()
       try {
         await seedOwner(t)
         const asOwner = t.withIdentity(ownerIdentity)
 
+        // Saving takes only the sender and enables nothing.
         await expect(
-          asOwner.mutation(api.email.saveEmailProviderConfiguration, {
-            providerId: "resend",
-            senderAddress: "sender@example.test",
-            senderName: "FormulaCMS",
-          })
+          asOwner.mutation(api.email.saveEmailProviderConfiguration, SENDER)
         ).resolves.toEqual({
-          providerId: "resend",
+          enabledProviderId: null,
           configurationVersion: 1,
-          status: "configured",
+          status: "disabled",
         })
         await expect(
-          asOwner.mutation(api.email.activateEmailProvider, {
+          asOwner.mutation(api.email.enableEmailProvider, {
             providerId: "resend",
           })
-        ).rejects.toThrow("CMS_EMAIL_PROVIDER_TEST_REQUIRED")
+        ).resolves.toEqual({
+          enabledProviderId: "resend",
+          configurationVersion: 2,
+          status: "inactive",
+        })
+        // Enabled is not active: nothing is sent until a test is accepted.
+        await expect(
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toEqual({ provider: "console" })
 
         await expect(
           asOwner.action(api.email.sendTestEmail, {})
-        ).resolves.toEqual({
-          status: "queued",
-          configurationVersion: 1,
+        ).resolves.toEqual({ status: "queued", configurationVersion: 2 })
+        await expect(
+          asOwner.query(api.email.getEmailProviderSettings, {})
+        ).resolves.toMatchObject({
+          activeProviderId: null,
+          lastTest: { providerId: "resend", state: "queued" },
         })
         await t.finishAllScheduledFunctions(() => undefined, 40)
 
@@ -473,81 +577,402 @@ describe("email settings", () => {
           {}
         )
         expect(accepted).toMatchObject({
-          configuredProviderId: "resend",
-          activeProviderId: null,
+          enabledProviderId: "resend",
+          activeProviderId: "resend",
           readiness: "ready",
-          configurationVersion: 1,
-          lastTest: { state: "provider_accepted" },
+          configurationVersion: 2,
         })
-        expect(accepted.lastTest?.state).toBe("provider_accepted")
-        if (accepted.lastTest?.state !== "provider_accepted") {
-          throw new Error("Expected a provider-accepted owner test")
-        }
-        expect(accepted.lastTest.receiptExpiresAt).toBeGreaterThan(Date.now())
+        expect(accepted.lastTest).toBeUndefined()
         expect(JSON.stringify(accepted)).not.toContain("activationReceiptId")
-
-        const receipt = await t.run(async (ctx) => {
-          const [row] = await ctx.db
-            .query("emailProviderActivationReceipts")
-            .collect()
-          return row
-        })
-        expect(receipt).toMatchObject({
-          providerId: "resend",
-          configurationVersion: 1,
-        })
-        expect(receipt?.consumedAt).toBeUndefined()
-
-        await expect(
-          asOwner.mutation(api.email.activateEmailProvider, {
-            providerId: "resend",
-          })
-        ).resolves.toEqual({
-          providerId: "resend",
-          configurationVersion: 1,
-          status: "active",
-        })
+        // No activation receipt is written any more.
         expect(
-          await t.run(async (ctx) => {
-            if (!receipt) return undefined
-            return (await ctx.db.get("emailProviderActivationReceipts", receipt._id))?.consumedAt
-          })
-        ).toEqual(expect.any(Number))
+          await t.run((ctx) =>
+            ctx.db.query("emailProviderActivationReceipts").collect()
+          )
+        ).toEqual([])
+        await expect(
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toMatchObject({
+          provider: "resend",
+          fromAddress: "sender@example.test",
+        })
 
+        // A changed sender keeps the choice and drops the result.
         await expect(
           asOwner.mutation(api.email.saveEmailProviderConfiguration, {
-            providerId: "resend",
             senderAddress: "changed-sender@example.test",
             senderName: "FormulaCMS",
           })
         ).resolves.toEqual({
-          providerId: "resend",
-          configurationVersion: 2,
-          status: "configured",
+          enabledProviderId: "resend",
+          configurationVersion: 3,
+          status: "inactive",
         })
         const changed = await asOwner.query(
           api.email.getEmailProviderSettings,
           {}
         )
+        expect(changed).toMatchObject({
+          enabledProviderId: "resend",
+          activeProviderId: null,
+        })
         expect(changed.lastTest).toBeUndefined()
-        expect(changed.activeProviderId).toBeNull()
         await expect(
-          asOwner.mutation(api.email.activateEmailProvider, {
-            providerId: "resend",
-          })
-        ).rejects.toThrow("CMS_EMAIL_PROVIDER_TEST_REQUIRED")
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toEqual({ provider: "console" })
       } finally {
         vi.unstubAllGlobals()
       }
     })
   })
 
-  test("rejects consumed and expired activation receipts", async () => {
+  describe("a late result for a test that was already dispatched", () => {
+    // The Action Retrier completes a run after the owner changed the state.
+    // The event stays queued here, and its accepted result is delivered by
+    // hand, so the guard in the completion path is what is tested.
+    const bothProviders = {
+      EMAIL_SMTP_HOST: "mail.example.test",
+      EMAIL_SMTP_USER: "test-user",
+      EMAIL_SMTP_PASSWORD: "test-password",
+      RESEND_API_KEY: "test-resend-key",
+    } as const
+
+    async function frozen(run: () => Promise<void>) {
+      vi.useFakeTimers()
+      try {
+        await withEmailEnv(bothProviders, run)
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+
+    async function enabledWithQueuedTest(
+      providerId: "smtp" | "resend" = "resend"
+    ) {
+      const t = makeTest()
+      await seedOwner(t)
+      const asOwner = t.withIdentity(ownerIdentity)
+      await asOwner.mutation(api.email.saveEmailProviderConfiguration, SENDER)
+      await asOwner.mutation(api.email.enableEmailProvider, { providerId })
+      const runId = await queueOwnerTest(t, asOwner)
+      return { t, asOwner, runId }
+    }
+
+    test("a disabled provider never becomes active", async () => {
+      await frozen(async () => {
+        const { t, asOwner, runId } = await enabledWithQueuedTest()
+        await expect(
+          asOwner.mutation(api.email.disableEmailProvider, {
+            providerId: "resend",
+          })
+        ).resolves.toEqual({
+          enabledProviderId: null,
+          configurationVersion: 3,
+          status: "disabled",
+        })
+
+        await deliver(t, runId, acceptedBy("resend"))
+
+        const row = await readProviderRow(t)
+        expect(row).toMatchObject({
+          provider: { kind: "fallback" },
+          configurationVersion: 3,
+        })
+        expect(row?.lastTest).toBeUndefined()
+        await expect(
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toEqual({ provider: "console" })
+      })
+    })
+
+    test("an accepted test of one provider never activates the other", async () => {
+      await frozen(async () => {
+        const { t, asOwner, runId } = await enabledWithQueuedTest("smtp")
+        await expect(
+          asOwner.mutation(api.email.enableEmailProvider, {
+            providerId: "resend",
+          })
+        ).resolves.toEqual({
+          enabledProviderId: "resend",
+          configurationVersion: 3,
+          status: "inactive",
+        })
+
+        await deliver(t, runId, acceptedBy("smtp"))
+
+        expect(await readProviderRow(t)).toMatchObject({
+          provider: { kind: "configured", providerId: "resend" },
+          configurationVersion: 3,
+        })
+        await expect(
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toEqual({ provider: "console" })
+      })
+    })
+
+    test("disable then enable of the same provider: the late result activates nothing", async () => {
+      await frozen(async () => {
+        const { t, asOwner, runId } = await enabledWithQueuedTest()
+        await asOwner.mutation(api.email.disableEmailProvider, {
+          providerId: "resend",
+        })
+        await expect(
+          asOwner.mutation(api.email.enableEmailProvider, {
+            providerId: "resend",
+          })
+        ).resolves.toEqual({
+          enabledProviderId: "resend",
+          configurationVersion: 4,
+          status: "inactive",
+        })
+
+        await deliver(t, runId, acceptedBy("resend"))
+
+        expect(await readProviderRow(t)).toMatchObject({
+          provider: { kind: "configured", providerId: "resend" },
+          configurationVersion: 4,
+        })
+        await expect(
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toEqual({ provider: "console" })
+      })
+    })
+
+    test("a sender change after the test was dispatched: the late result activates nothing", async () => {
+      await frozen(async () => {
+        const { t, asOwner, runId } = await enabledWithQueuedTest()
+        await expect(
+          asOwner.mutation(api.email.saveEmailProviderConfiguration, {
+            senderAddress: "changed-sender@example.test",
+          })
+        ).resolves.toEqual({
+          enabledProviderId: "resend",
+          configurationVersion: 3,
+          status: "inactive",
+        })
+
+        await deliver(t, runId, acceptedBy("resend"))
+
+        const row = await readProviderRow(t)
+        expect(row).toMatchObject({
+          provider: { kind: "configured", providerId: "resend" },
+          sender: { address: "changed-sender@example.test" },
+          configurationVersion: 3,
+        })
+        expect(row?.lastTest).toBeUndefined()
+        await expect(
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toEqual({ provider: "console" })
+      })
+    })
+
+    test("a late result of the current version still activates, even after a later failed test of that version", async () => {
+      await frozen(async () => {
+        const { t, asOwner, runId: first } = await enabledWithQueuedTest()
+        const second = await queueOwnerTest(t, asOwner)
+        await deliver(t, second, {
+          state: "failed",
+          providerId: "resend",
+          reason: "provider_rejected",
+        })
+        expect(await readProviderRow(t)).toMatchObject({
+          provider: { kind: "configured" },
+          lastTest: { state: "failed" },
+        })
+
+        await deliver(t, first, acceptedBy("resend"))
+
+        expect(await readProviderRow(t)).toMatchObject({
+          provider: { kind: "active", providerId: "resend" },
+        })
+      })
+    })
+
+    test("a refused or uncertain result leaves an inactive provider inactive", async () => {
+      await frozen(async () => {
+        const { t, asOwner, runId } = await enabledWithQueuedTest()
+        await deliver(t, runId, unknownBy("resend"))
+        expect(await readProviderRow(t)).toMatchObject({
+          provider: { kind: "configured", providerId: "resend" },
+          lastTest: { state: "unknown", reason: "delivery_unknown" },
+        })
+
+        const next = await queueOwnerTest(t, asOwner)
+        await deliver(t, next, {
+          state: "failed",
+          providerId: "resend",
+          reason: "provider_rejected",
+          category: "sign_in_refused",
+        })
+        expect(await readProviderRow(t)).toMatchObject({
+          provider: { kind: "configured", providerId: "resend" },
+          lastTest: { state: "failed", category: "sign_in_refused" },
+        })
+        await expect(
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toEqual({ provider: "console" })
+      })
+    })
+
+    test("a queued, refused and unknown re-test each leave an active provider active", async () => {
+      await frozen(async () => {
+        const { t, asOwner, runId } = await enabledWithQueuedTest()
+        await deliver(t, runId, acceptedBy("resend"))
+        expect(await readProviderRow(t)).toMatchObject({
+          provider: { kind: "active", providerId: "resend" },
+        })
+        const stillActive = async () => {
+          expect(await readProviderRow(t)).toMatchObject({
+            provider: { kind: "active", providerId: "resend" },
+            configurationVersion: 2,
+          })
+          await expect(
+            t.query(internal.email.getResolvedSettings, {})
+          ).resolves.toMatchObject({ provider: "resend" })
+        }
+
+        const retest = await queueOwnerTest(t, asOwner)
+        await stillActive()
+        await expect(
+          asOwner.query(api.email.getEmailProviderSettings, {})
+        ).resolves.toMatchObject({
+          activeProviderId: "resend",
+          lastTest: { state: "queued" },
+        })
+
+        await deliver(t, retest, {
+          state: "failed",
+          providerId: "resend",
+          reason: "provider_rejected",
+        })
+        await stillActive()
+        await expect(
+          asOwner.query(api.email.getEmailProviderSettings, {})
+        ).resolves.toMatchObject({
+          activeProviderId: "resend",
+          lastTest: { state: "failed" },
+        })
+
+        const again = await queueOwnerTest(t, asOwner)
+        await deliver(t, again, unknownBy("resend"))
+        await stillActive()
+        await expect(
+          asOwner.query(api.email.getEmailProviderSettings, {})
+        ).resolves.toMatchObject({
+          activeProviderId: "resend",
+          lastTest: { state: "unknown" },
+        })
+      })
+    })
+  })
+
+  test("enabling needs no sender and no ready environment; enabling the enabled provider and saving the same sender write nothing", async () => {
+    await withEmailEnv({}, async () => {
+      const t = makeTest()
+      await seedOwner(t)
+      const asOwner = t.withIdentity(ownerIdentity)
+
+      await expect(
+        asOwner.mutation(api.email.enableEmailProvider, {
+          providerId: "resend",
+        })
+      ).resolves.toEqual({
+        enabledProviderId: "resend",
+        configurationVersion: 1,
+        status: "inactive",
+      })
+      await expect(
+        asOwner.query(api.email.getEmailProviderSettings, {})
+      ).resolves.toMatchObject({
+        enabledProviderId: "resend",
+        activeProviderId: null,
+        readiness: "needs_setup",
+      })
+      expect((await readProviderRow(t))?.sender).toBeUndefined()
+      // Enabled without a sender: no test can be sent, nothing is delivered.
+      await expect(
+        asOwner.action(api.email.sendTestEmail, {})
+      ).resolves.toEqual({ status: "blocked", reason: "not_configured" })
+      await expect(
+        t.query(internal.email.getResolvedSettings, {})
+      ).resolves.toEqual({ provider: "console" })
+
+      const enabled = await readProviderRow(t)
+      await expect(
+        asOwner.mutation(api.email.enableEmailProvider, {
+          providerId: "resend",
+        })
+      ).resolves.toEqual({
+        enabledProviderId: "resend",
+        configurationVersion: 1,
+        status: "inactive",
+      })
+      expect(await readProviderRow(t)).toEqual(enabled)
+
+      await asOwner.mutation(api.email.saveEmailProviderConfiguration, SENDER)
+      const saved = await readProviderRow(t)
+      expect(saved).toMatchObject({
+        provider: { kind: "configured", providerId: "resend" },
+        sender: { address: "sender@example.test", name: "FormulaCMS" },
+        configurationVersion: 2,
+      })
+      await expect(
+        asOwner.mutation(api.email.saveEmailProviderConfiguration, SENDER)
+      ).resolves.toEqual({
+        enabledProviderId: "resend",
+        configurationVersion: 2,
+        status: "inactive",
+      })
+      expect(await readProviderRow(t)).toEqual(saved)
+      // The environment is still not ready, so the test is blocked.
+      await expect(
+        asOwner.action(api.email.sendTestEmail, {})
+      ).resolves.toEqual({ status: "blocked", reason: "needs_setup" })
+    })
+  })
+
+  test("saving a sender with nothing enabled keeps the Console fallback and blocks the test", async () => {
     await withEmailEnv({ RESEND_API_KEY: "test-resend-key" }, async () => {
       const t = makeTest()
       await seedOwner(t)
       const asOwner = t.withIdentity(ownerIdentity)
 
+      await expect(
+        asOwner.mutation(api.email.saveEmailProviderConfiguration, SENDER)
+      ).resolves.toEqual({
+        enabledProviderId: null,
+        configurationVersion: 1,
+        status: "disabled",
+      })
+      expect(await readProviderRow(t)).toMatchObject({
+        provider: { kind: "fallback" },
+        sender: { address: "sender@example.test" },
+      })
+      await expect(
+        asOwner.query(api.email.getEmailProviderSettings, {})
+      ).resolves.toMatchObject({
+        enabledProviderId: null,
+        activeProviderId: null,
+        readiness: "fallback",
+        sender: { address: "sender@example.test", name: "FormulaCMS" },
+      })
+      await expect(
+        asOwner.action(api.email.sendTestEmail, {})
+      ).resolves.toEqual({ status: "blocked", reason: "not_configured" })
+      await expect(
+        t.query(internal.email.getResolvedSettings, {})
+      ).resolves.toEqual({ provider: "console" })
+    })
+  })
+
+  test("rows written before the change keep their meaning", async () => {
+    await withEmailEnv({ RESEND_API_KEY: "test-resend-key" }, async () => {
+      const t = makeTest()
+      await seedOwner(t)
+      const asOwner = t.withIdentity(ownerIdentity)
+
+      // A configured row with an accepted test and a live receipt reads as
+      // enabled and inactive, with no test shown.
       const receiptId = await t.run(async (ctx) => {
         const now = Date.now()
         const eventId = await ctx.db.insert("emailDeliveryEvents", {
@@ -556,7 +981,7 @@ describe("email settings", () => {
             providerId: "resend",
             configurationVersion: 1,
           },
-          idempotencyKey: "owner_test:consumed-receipt",
+          idempotencyKey: "owner_test:legacy-receipt",
           messageFingerprint: "a".repeat(64),
           state: "provider_accepted",
           providerId: "resend",
@@ -571,9 +996,8 @@ describe("email settings", () => {
             providerId: "resend",
             configurationVersion: 1,
             deliveryEventId: eventId,
-            issuedAt: now - 1_000,
+            issuedAt: now,
             expiresAt: now + 60_000,
-            consumedAt: now,
           }
         )
         await ctx.db.insert("emailProviderState", {
@@ -597,67 +1021,69 @@ describe("email settings", () => {
         })
         return receiptId
       })
-
+      const legacy = await asOwner.query(api.email.getEmailProviderSettings, {})
+      expect(legacy).toMatchObject({
+        enabledProviderId: "resend",
+        activeProviderId: null,
+        configurationVersion: 1,
+      })
+      expect(legacy.lastTest).toBeUndefined()
+      expect(JSON.stringify(legacy)).not.toContain("provider_accepted")
       await expect(
-        asOwner.mutation(api.email.activateEmailProvider, {
-          providerId: "resend",
-        })
-      ).rejects.toThrow("CMS_EMAIL_PROVIDER_TEST_REQUIRED")
+        t.query(internal.email.getResolvedSettings, {})
+      ).resolves.toEqual({ provider: "console" })
 
+      // The scheduled expiry still removes the receipt and the stored test.
       await t.run(async (ctx) => {
-        const now = Date.now()
         await ctx.db.patch("emailProviderActivationReceipts", receiptId, {
-          consumedAt: undefined,
-          expiresAt: now - 1,
+          expiresAt: Date.now() - 1,
         })
-        const state = await ctx.db.query("emailProviderState").unique()
-        if (!state) throw new Error("Missing provider state")
-        await ctx.db.patch("emailProviderState", state._id, {
-          lastTest: {
-            providerId: "resend",
-            configurationVersion: 1,
-            state: "provider_accepted",
-            activationReceiptId: receiptId,
-            receiptExpiresAt: now - 1,
-            updatedAt: now,
-          },
+      })
+      await t.mutation(internal.email._expireActivationReceipt, {
+        activationReceiptId: receiptId,
+      })
+      expect(
+        await t.run((ctx) =>
+          ctx.db.get("emailProviderActivationReceipts", receiptId)
+        )
+      ).toBeNull()
+      expect((await readProviderRow(t))?.lastTest).toBeUndefined()
+
+      // An active row reads as enabled and active, and still sends.
+      await t.run(async (ctx) => {
+        const row = await ctx.db.query("emailProviderState").unique()
+        await ctx.db.patch("emailProviderState", row!._id, {
+          provider: { kind: "active", providerId: "resend", configuration: {} },
         })
       })
       await expect(
-        asOwner.mutation(api.email.activateEmailProvider, {
-          providerId: "resend",
-        })
-      ).rejects.toThrow("CMS_EMAIL_PROVIDER_TEST_REQUIRED")
+        asOwner.query(api.email.getEmailProviderSettings, {})
+      ).resolves.toMatchObject({
+        enabledProviderId: "resend",
+        activeProviderId: "resend",
+      })
+      await expect(
+        t.query(internal.email.getResolvedSettings, {})
+      ).resolves.toMatchObject({
+        provider: "resend",
+        fromAddress: "sender@example.test",
+      })
     })
   })
 
-  test("lets the owner turn the active provider off and requires a new test to turn it on", async () => {
+  test("disable then enable needs a new accepted test", async () => {
     await withEmailEnv({ RESEND_API_KEY: "test-resend-key" }, async () => {
-      const fetchSpy = vi.fn(
-        async (_input: string | URL | Request, _init?: RequestInit) => {
-          void _input
-          void _init
-          return new Response(JSON.stringify({ id: "resend-off-id" }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          })
-        }
-      )
-      vi.stubGlobal("fetch", fetchSpy)
+      stubResendFetch("resend-off-id")
       const t = makeTest()
       try {
         await seedOwner(t)
         const asOwner = t.withIdentity(ownerIdentity)
-        await asOwner.mutation(api.email.saveEmailProviderConfiguration, {
+        await asOwner.mutation(api.email.saveEmailProviderConfiguration, SENDER)
+        await asOwner.mutation(api.email.enableEmailProvider, {
           providerId: "resend",
-          senderAddress: "sender@example.test",
-          senderName: "FormulaCMS",
         })
         await asOwner.action(api.email.sendTestEmail, {})
         await t.finishAllScheduledFunctions(() => undefined, 40)
-        await asOwner.mutation(api.email.activateEmailProvider, {
-          providerId: "resend",
-        })
         await expect(
           t.query(internal.email.getResolvedSettings, {})
         ).resolves.toMatchObject({
@@ -666,43 +1092,50 @@ describe("email settings", () => {
         })
 
         await expect(
-          asOwner.mutation(api.email.deactivateEmailProvider, {
+          asOwner.mutation(api.email.disableEmailProvider, {
             providerId: "resend",
           })
         ).resolves.toEqual({
-          providerId: "resend",
-          configurationVersion: 2,
-          status: "configured",
+          enabledProviderId: null,
+          configurationVersion: 3,
+          status: "disabled",
         })
         const off = await asOwner.query(api.email.getEmailProviderSettings, {})
         expect(off).toMatchObject({
-          configuredProviderId: "resend",
+          enabledProviderId: null,
           activeProviderId: null,
-          configurationVersion: 2,
+          configurationVersion: 3,
           sender: { address: "sender@example.test", name: "FormulaCMS" },
         })
         expect(off.lastTest).toBeUndefined()
         await expect(
           t.query(internal.email.getResolvedSettings, {})
         ).resolves.toEqual({ provider: "console" })
-        await expect(
-          asOwner.mutation(api.email.activateEmailProvider, {
-            providerId: "resend",
-          })
-        ).rejects.toThrow("CMS_EMAIL_PROVIDER_TEST_REQUIRED")
 
+        // Enabling again starts inactive: nothing is sent yet.
         await expect(
-          asOwner.action(api.email.sendTestEmail, {})
-        ).resolves.toEqual({ status: "queued", configurationVersion: 2 })
-        await t.finishAllScheduledFunctions(() => undefined, 40)
-        await expect(
-          asOwner.mutation(api.email.activateEmailProvider, {
+          asOwner.mutation(api.email.enableEmailProvider, {
             providerId: "resend",
           })
         ).resolves.toEqual({
-          providerId: "resend",
-          configurationVersion: 2,
-          status: "active",
+          enabledProviderId: "resend",
+          configurationVersion: 4,
+          status: "inactive",
+        })
+        await expect(
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toEqual({ provider: "console" })
+
+        await expect(
+          asOwner.action(api.email.sendTestEmail, {})
+        ).resolves.toEqual({ status: "queued", configurationVersion: 4 })
+        await t.finishAllScheduledFunctions(() => undefined, 40)
+        await expect(
+          asOwner.query(api.email.getEmailProviderSettings, {})
+        ).resolves.toMatchObject({
+          enabledProviderId: "resend",
+          activeProviderId: "resend",
+          configurationVersion: 4,
         })
       } finally {
         vi.unstubAllGlobals()
@@ -710,12 +1143,10 @@ describe("email settings", () => {
     })
   })
 
-  test("turning a provider off clears its test, refuses non-owners and ignores a provider that is already off", async () => {
+  test("disabling clears the test, goes to fallback, refuses non-owners and ignores a provider that is not enabled", async () => {
     const t = makeTest()
     await seedOwner(t)
     const asOwner = t.withIdentity(ownerIdentity)
-    const readRow = () =>
-      t.run((ctx) => ctx.db.query("emailProviderState").unique())
     const now = Date.now()
     await t.run((ctx) =>
       ctx.db.insert("emailProviderState", {
@@ -732,7 +1163,7 @@ describe("email settings", () => {
         updatedAt: now,
       })
     )
-    const before = await readRow()
+    const before = await readProviderRow(t)
 
     await expect(
       t
@@ -742,50 +1173,449 @@ describe("email settings", () => {
           name: "Someone",
           email: "someone@example.com",
         })
-        .mutation(api.email.deactivateEmailProvider, { providerId: "resend" })
+        .mutation(api.email.disableEmailProvider, { providerId: "resend" })
     ).rejects.toThrow("CMS_OWNER_REQUIRED")
     await expect(
-      t.mutation(api.email.deactivateEmailProvider, { providerId: "resend" })
+      t.mutation(api.email.disableEmailProvider, { providerId: "resend" })
     ).rejects.toThrow("UNAUTHENTICATED")
-    expect(await readRow()).toEqual(before)
+    expect(await readProviderRow(t)).toEqual(before)
+
+    // Another provider is the enabled one: the call writes nothing.
+    await expect(
+      asOwner.mutation(api.email.disableEmailProvider, { providerId: "smtp" })
+    ).resolves.toEqual({
+      enabledProviderId: "resend",
+      configurationVersion: 4,
+      status: "active",
+    })
+    expect(await readProviderRow(t)).toEqual(before)
 
     await expect(
-      asOwner.mutation(api.email.deactivateEmailProvider, {
+      asOwner.mutation(api.email.disableEmailProvider, {
         providerId: "resend",
       })
     ).resolves.toEqual({
-      providerId: "resend",
+      enabledProviderId: null,
       configurationVersion: 5,
-      status: "configured",
+      status: "disabled",
     })
-    const off = await readRow()
+    const off = await readProviderRow(t)
     expect(off).toMatchObject({
-      provider: { kind: "configured", providerId: "resend" },
+      provider: { kind: "fallback" },
       sender: { address: "sender@example.test" },
       configurationVersion: 5,
     })
     expect(off?.lastTest).toBeUndefined()
 
-    // Already off: no write and no version change, like activating an active provider.
+    // Already disabled: no write and no version change.
     await expect(
-      asOwner.mutation(api.email.deactivateEmailProvider, {
+      asOwner.mutation(api.email.disableEmailProvider, {
         providerId: "resend",
       })
     ).resolves.toEqual({
-      providerId: "resend",
+      enabledProviderId: null,
       configurationVersion: 5,
-      status: "configured",
+      status: "disabled",
     })
-    expect(await readRow()).toEqual(off)
+    expect(await readProviderRow(t)).toEqual(off)
 
-    // No provider stored at all: refused, like activation.
+    // Nothing stored at all: nothing to disable.
     const empty = makeTest()
     await seedOwner(empty)
     await expect(
       empty
         .withIdentity(ownerIdentity)
-        .mutation(api.email.deactivateEmailProvider, { providerId: "resend" })
-    ).rejects.toThrow("CMS_EMAIL_PROVIDER_CONFIGURATION_REQUIRED")
+        .mutation(api.email.disableEmailProvider, { providerId: "resend" })
+    ).resolves.toEqual({
+      enabledProviderId: null,
+      configurationVersion: 0,
+      status: "disabled",
+    })
+    expect(await readProviderRow(empty)).toBeNull()
+  })
+
+  describe("SMTP provider", () => {
+    const smtpEnvironment = {
+      EMAIL_SMTP_HOST: "mail.example.test",
+      EMAIL_SMTP_USER: "test-user",
+      EMAIL_SMTP_PASSWORD: "test-password",
+    } as const
+
+    function resetSmtpMock() {
+      smtpMock.factory.mockClear()
+      smtpMock.send.mockReset()
+      smtpMock.send.mockResolvedValue({ adapter: "smtp", id: "smtp-queue-id" })
+    }
+
+    // Sets the sender and enables SMTP: the state after the owner's two steps.
+    async function saveSmtp(t: ReturnType<typeof makeTest>) {
+      await seedOwner(t)
+      const asOwner = t.withIdentity(ownerIdentity)
+      await asOwner.mutation(api.email.saveEmailProviderConfiguration, SENDER)
+      await asOwner.mutation(api.email.enableEmailProvider, {
+        providerId: "smtp",
+      })
+      return asOwner
+    }
+
+    test("legacy SMTP state and legacy SMTP variables never activate the SMTP provider", async () => {
+      resetSmtpMock()
+      await withEmailEnv(
+        {
+          SMTP_HOST: "smtp.legacy.example.test",
+          SMTP_PORT: "587",
+          SMTP_SECURE: "false",
+          SMTP_USER: "legacy-user",
+          SMTP_PASSWORD: "legacy-password",
+          SMTP_FROM_ADDRESS: "legacy@example.test",
+          SMTP_FROM_NAME: "Legacy",
+          CMS_SECRET_KEY: "legacy-secret-key",
+          ...smtpEnvironment,
+          EMAIL_SMTP_PORT: "587",
+        },
+        async () => {
+          const t = makeTest()
+          await seedOwner(t)
+          await t.run(async (ctx) => {
+            await ctx.db.insert("emailSettings", {
+              provider: "smtp",
+              fromAddress: "owner@example.test",
+              fromName: "Owner",
+              smtpHost: "smtp.legacy.example.test",
+              smtpPort: 587,
+              smtpSecure: false,
+              smtpUser: "legacy-user",
+              smtpPasswordCiphertext: "encrypted-envelope",
+              schemaVersion: 1,
+              updatedAt: Date.now(),
+            })
+            await ctx.db.insert("siteSettings", {
+              siteName: "Legacy SMTP",
+              siteUrl: "https://example.test",
+              defaultLocale: "en",
+              enabledLocales: ["en"],
+              emailProvider: "smtp",
+              emailFromAddress: "owner@example.test",
+              updatedAt: 1,
+            })
+          })
+          const asOwner = t.withIdentity(ownerIdentity)
+
+          await expect(
+            t.query(internal.email.getResolvedSettings, {})
+          ).resolves.toEqual({ provider: "console" })
+          await expect(
+            asOwner.query(api.email.getEmailProviderSettings, {})
+          ).resolves.toMatchObject({
+            enabledProviderId: null,
+            activeProviderId: null,
+            readiness: "fallback",
+          })
+          await expect(
+            asOwner.action(api.email.sendTestEmail, {})
+          ).resolves.toEqual({ status: "blocked", reason: "not_configured" })
+          await expect(
+            asOwner.mutation(api.email.saveEmailProviderConfiguration, {
+              senderAddress: "sender@example.test",
+            })
+          ).rejects.toThrow("CMS_EMAIL_PROVIDER_MIGRATION_REQUIRED")
+          await expect(
+            asOwner.mutation(api.email.enableEmailProvider, {
+              providerId: "smtp",
+            })
+          ).rejects.toThrow("CMS_EMAIL_PROVIDER_MIGRATION_REQUIRED")
+          expect(smtpMock.factory).not.toHaveBeenCalled()
+          expect(smtpMock.send).not.toHaveBeenCalled()
+        }
+      )
+    })
+
+    test("runs sender, enable, check and owner test on SMTP and resolves to the smtp provider", async () => {
+      resetSmtpMock()
+      await withEmailEnv(smtpEnvironment, async () => {
+        const t = makeTest()
+        const asOwner = await saveSmtp(t)
+
+        await expect(
+          asOwner.action(api.email.checkEmailProviderConfiguration, {
+            providerId: "smtp",
+          })
+        ).resolves.toEqual({
+          providerId: "smtp",
+          readiness: "ready",
+          environment: [
+            { name: "EMAIL_SMTP_HOST", required: true, present: true },
+            { name: "EMAIL_SMTP_PORT", required: false, present: false },
+            { name: "EMAIL_SMTP_USER", required: true, present: true },
+            { name: "EMAIL_SMTP_PASSWORD", required: true, present: true },
+          ],
+        })
+        // Enabled is not active: Console stays in use until a test is accepted.
+        await expect(
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toEqual({ provider: "console" })
+
+        await expect(
+          asOwner.action(api.email.sendTestEmail, {})
+        ).resolves.toEqual({ status: "queued", configurationVersion: 2 })
+        await t.finishAllScheduledFunctions(() => undefined, 40)
+
+        expect(smtpMock.send).toHaveBeenCalledTimes(1)
+        expect(smtpMock.factory).toHaveBeenCalledWith({
+          name: "smtp",
+          host: "mail.example.test",
+          port: 465,
+          secure: true,
+          requireTLS: false,
+          auth: { user: "test-user", pass: "test-password" },
+          timeoutMs: 15_000,
+          tls: { rejectUnauthorized: true },
+        })
+        const accepted = await asOwner.query(
+          api.email.getEmailProviderSettings,
+          {}
+        )
+        expect(accepted).toMatchObject({
+          enabledProviderId: "smtp",
+          preselectedProviderId: "smtp",
+          activeProviderId: "smtp",
+          readiness: "ready",
+        })
+        expect(accepted.lastTest).toBeUndefined()
+        await expect(
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toMatchObject({
+          provider: "smtp",
+          fromAddress: "sender@example.test",
+        })
+        await expect(
+          asOwner.mutation(api.email.disableEmailProvider, {
+            providerId: "smtp",
+          })
+        ).resolves.toMatchObject({ status: "disabled" })
+        await expect(
+          t.query(internal.email.getResolvedSettings, {})
+        ).resolves.toEqual({ provider: "console" })
+      })
+    })
+
+    test("a 535 sign-in reply fails the owner test with sign_in_refused after one attempt", async () => {
+      resetSmtpMock()
+      smtpMock.send.mockRejectedValue(
+        new EmailAdapterError("535 5.7.8 raw server text", {
+          adapter: "smtp",
+          delivery: "not_sent",
+          retryable: false,
+          cause: Object.assign(new Error("535 5.7.8 raw server text"), {
+            code: "EAUTH",
+            responseCode: 535,
+            command: "AUTH PLAIN",
+          }),
+        })
+      )
+      await withEmailEnv(smtpEnvironment, async () => {
+        const t = makeTest()
+        const asOwner = await saveSmtp(t)
+
+        await asOwner.action(api.email.sendTestEmail, {})
+        await t.finishAllScheduledFunctions(() => undefined, 40)
+
+        expect(smtpMock.send).toHaveBeenCalledTimes(1)
+        const settings = await asOwner.query(
+          api.email.getEmailProviderSettings,
+          {}
+        )
+        expect(settings.lastTest).toMatchObject({
+          providerId: "smtp",
+          state: "failed",
+          reason: "provider_rejected",
+          category: "sign_in_refused",
+        })
+        expect(JSON.stringify(settings)).not.toContain("raw server text")
+        const events = await t.run((ctx) =>
+          ctx.db.query("emailDeliveryEvents").collect()
+        )
+        expect(events).toHaveLength(1)
+        expect(events[0]).toMatchObject({
+          state: "failed",
+          failureReason: "provider_rejected",
+          failureCategory: "sign_in_refused",
+          attempts: 1,
+        })
+        expect(events[0]?.message).toBeUndefined()
+      })
+    })
+
+    test("three 451 replies exhaust the retries and keep the category", async () => {
+      resetSmtpMock()
+      smtpMock.send.mockRejectedValue(
+        new EmailAdapterError("451 raw server text", {
+          adapter: "smtp",
+          delivery: "not_sent",
+          retryable: true,
+          cause: Object.assign(new Error("451 raw server text"), {
+            code: "EENVELOPE",
+            responseCode: 451,
+            command: "MAIL FROM",
+          }),
+        })
+      )
+      vi.useFakeTimers()
+      try {
+        await withEmailEnv(smtpEnvironment, async () => {
+          const t = makeTest()
+          const asOwner = await saveSmtp(t)
+
+          await asOwner.action(api.email.sendTestEmail, {})
+          await t.finishAllScheduledFunctions(
+            () => vi.advanceTimersByTime(5_000),
+            100
+          )
+
+          expect(smtpMock.send).toHaveBeenCalledTimes(3)
+          const settings = await asOwner.query(
+            api.email.getEmailProviderSettings,
+            {}
+          )
+          expect(settings.lastTest).toMatchObject({
+            providerId: "smtp",
+            state: "failed",
+            reason: "retry_exhausted",
+            category: "sender_refused",
+          })
+          expect(JSON.stringify(settings)).not.toContain("raw server text")
+        })
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    test("enabling SMTP while Resend is active turns email off and clears the test", async () => {
+      resetSmtpMock()
+      await withEmailEnv(
+        { ...smtpEnvironment, RESEND_API_KEY: "test-resend-key" },
+        async () => {
+          const t = makeTest()
+          await seedOwner(t)
+          const asOwner = t.withIdentity(ownerIdentity)
+          const now = Date.now()
+          await t.run((ctx) =>
+            ctx.db.insert("emailProviderState", {
+              key: "owner",
+              provider: {
+                kind: "active",
+                providerId: "resend",
+                configuration: {},
+              },
+              sender: { address: "sender@example.test" },
+              configurationVersion: 3,
+              lastTest: {
+                providerId: "resend",
+                configurationVersion: 3,
+                state: "queued",
+                updatedAt: now,
+              },
+              updatedAt: now,
+            })
+          )
+          await expect(
+            t.query(internal.email.getResolvedSettings, {})
+          ).resolves.toMatchObject({ provider: "resend" })
+
+          await expect(
+            asOwner.mutation(api.email.enableEmailProvider, {
+              providerId: "smtp",
+            })
+          ).resolves.toEqual({
+            enabledProviderId: "smtp",
+            configurationVersion: 4,
+            status: "inactive",
+          })
+          const settings = await asOwner.query(
+            api.email.getEmailProviderSettings,
+            {}
+          )
+          expect(settings).toMatchObject({
+            enabledProviderId: "smtp",
+            activeProviderId: null,
+            configurationVersion: 4,
+          })
+          expect(settings.lastTest).toBeUndefined()
+          await expect(
+            t.query(internal.email.getResolvedSettings, {})
+          ).resolves.toEqual({ provider: "console" })
+          // Email stays off until SMTP passes its own test, which is not
+          // possible before a sender exists in the stored state.
+          expect(settings.sender).toEqual({ address: "sender@example.test" })
+        }
+      )
+    })
+
+    test("lists variable names and presence but never values, and preselects SMTP or the configured provider", async () => {
+      resetSmtpMock()
+      await withEmailEnv(
+        {
+          EMAIL_SMTP_HOST: "mail.example.test",
+          EMAIL_SMTP_PORT: "2525",
+          EMAIL_SMTP_USER: "test-user",
+          RESEND_API_KEY: "secret-resend-key",
+        },
+        async () => {
+          const t = makeTest()
+          await seedOwner(t)
+          const asOwner = t.withIdentity(ownerIdentity)
+
+          const fresh = await asOwner.query(
+            api.email.getEmailProviderSettings,
+            {}
+          )
+          expect(fresh.preselectedProviderId).toBe("smtp")
+          expect(fresh.enabledProviderId).toBeNull()
+          const smtpEntry = fresh.catalogue.find(({ id }) => id === "smtp")
+          expect(smtpEntry).toMatchObject({
+            readiness: "needs_setup",
+            environment: [
+              { name: "EMAIL_SMTP_HOST", required: true, present: true },
+              { name: "EMAIL_SMTP_PORT", required: false, present: true },
+              { name: "EMAIL_SMTP_USER", required: true, present: true },
+              { name: "EMAIL_SMTP_PASSWORD", required: true, present: false },
+            ],
+          })
+          expect(
+            fresh.catalogue.find(({ id }) => id === "resend")
+          ).toMatchObject({
+            readiness: "ready",
+            environment: [
+              { name: "RESEND_API_KEY", required: true, present: true },
+            ],
+          })
+          expect(
+            fresh.catalogue.find(({ id }) => id === "custom")
+          ).not.toHaveProperty("environment")
+          for (const value of [
+            "mail.example.test",
+            "2525",
+            "test-user",
+            "secret-resend-key",
+          ]) {
+            expect(JSON.stringify(fresh)).not.toContain(value)
+          }
+
+          await asOwner.mutation(api.email.saveEmailProviderConfiguration, {
+            senderAddress: "sender@example.test",
+          })
+          await asOwner.mutation(api.email.enableEmailProvider, {
+            providerId: "resend",
+          })
+          const configured = await asOwner.query(
+            api.email.getEmailProviderSettings,
+            {}
+          )
+          expect(configured.preselectedProviderId).toBe("resend")
+          expect(configured.enabledProviderId).toBe("resend")
+        }
+      )
+    })
   })
 
   test("clears message content and projects unknown contact delivery as failed", async () => {

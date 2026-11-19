@@ -832,6 +832,11 @@ export const advancePublicationRevalidationIntent = internalMutation({
         : {}),
       updatedAt: Date.now(),
     })
+    // A failed intent can finish after its Page was permanently deleted. The
+    // purge keeps failed rows for this drain; nothing else would remove the
+    // completed row then.
+    if (complete && !(await ctx.db.get("pages", intent.pageId)))
+      await ctx.db.delete("pagePublicationRevalidationIntents", intent._id)
     return true
   },
 })

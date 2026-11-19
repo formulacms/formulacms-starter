@@ -7,13 +7,13 @@ import {
 export const OPENROUTER_API_SOURCES = [
   {
     url: "https://openrouter.ai/api/v1/models",
-    retrievedAt: "2026-07-12",
+    retrievedAt: "2026-11-15",
     claim:
       "Live model list: model IDs, per-token prompt/completion pricing, input modalities, and supported_parameters (reasoning / reasoning_effort marks effort support).",
   },
   {
     url: "https://openrouter.ai/docs/guides/best-practices/reasoning-tokens",
-    retrievedAt: "2026-07-12",
+    retrievedAt: "2026-11-15",
     claim:
       "Reasoning-capable models accept a universal reasoning.effort of low, medium, or high; the catalog also exposes supported_efforts and default_effort.",
   },
@@ -21,7 +21,8 @@ export const OPENROUTER_API_SOURCES = [
 
 /**
  * The full OpenRouter catalog the operator picks from freely (admin agency).
- * Generated from the live model list by `scripts/sync-openrouter-catalog.ts` —
+ * Generated from the live model list by `pnpm ai:catalog:openrouter`
+ * (`scripts/sync-openrouter-catalog.ts`) —
  * one entry per text-output model, with per-million pricing and reasoning-effort
  * support. Because the operator may choose ANY of these, the model id type is a
  * plain string (not a literal union) and the storage validator is permissive;

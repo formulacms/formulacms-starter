@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useArchivedContentTypes } from "./use-archived-content-types"
 import { ContentTypeLifecyclePanel } from "./content-type-lifecycle-panel"
+import { ContentTypeLanguagesCard } from "./content-type-languages-card"
 import {
   Card,
   CardContent,
@@ -208,6 +209,8 @@ export function ContentTypeDetail({
         archived={archived}
         starter={starter}
       />
+
+      <ContentTypeLanguagesCard type={detail.type} />
 
       <Card>
         <CardHeader>

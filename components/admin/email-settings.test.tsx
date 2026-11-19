@@ -16,11 +16,12 @@ import { EmailSettings } from "./email-settings"
 const mocks = vi.hoisted(() => ({
   useQuery: vi.fn(),
   save: vi.fn(),
-  activate: vi.fn(),
-  deactivate: vi.fn(),
+  enable: vi.fn(),
+  disable: vi.fn(),
   check: vi.fn(),
   sendTest: vi.fn(),
   setNotificationEmail: vi.fn(),
+  toast: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
 }))
@@ -30,8 +31,8 @@ vi.mock("convex/react", () => ({
   useMutation: (reference: unknown) => {
     const name = getFunctionName(reference as never)
     if (name === "email:saveEmailProviderConfiguration") return mocks.save
-    if (name === "email:activateEmailProvider") return mocks.activate
-    if (name === "email:deactivateEmailProvider") return mocks.deactivate
+    if (name === "email:enableEmailProvider") return mocks.enable
+    if (name === "email:disableEmailProvider") return mocks.disable
     if (name === "cms/owner:setNotificationEmail") {
       return mocks.setNotificationEmail
     }
@@ -46,7 +47,10 @@ vi.mock("convex/react", () => ({
 }))
 
 vi.mock("sonner", () => ({
-  toast: { success: mocks.success, error: mocks.error },
+  toast: Object.assign(mocks.toast, {
+    success: mocks.success,
+    error: mocks.error,
+  }),
 }))
 
 const owner = {
@@ -56,7 +60,24 @@ const owner = {
   role: "admin" as const,
 }
 
+// The server's catalogue (convex/lib/email/providerMetadata.ts): SMTP, Resend
+// and the unregistered documentation entry.
 const catalogue = [
+  {
+    id: "smtp",
+    label: "SMTP",
+    description: "Send email through your own mail server with SMTP.",
+    registered: true,
+    bundled: true,
+    documentationUrl: "https://nodemailer.com/smtp",
+    environment: [
+      { name: "EMAIL_SMTP_HOST", required: true, present: true },
+      { name: "EMAIL_SMTP_PORT", required: false, present: true },
+      { name: "EMAIL_SMTP_USER", required: true, present: true },
+      { name: "EMAIL_SMTP_PASSWORD", required: true, present: true },
+    ],
+    readiness: "ready",
+  },
   {
     id: "resend",
     label: "Resend",
@@ -64,6 +85,8 @@ const catalogue = [
     registered: true,
     bundled: true,
     documentationUrl: "https://resend.com/docs",
+    environment: [{ name: "RESEND_API_KEY", required: true, present: true }],
+    readiness: "ready",
   },
   {
     id: "custom",
@@ -73,7 +96,7 @@ const catalogue = [
     registered: false,
     bundled: false,
     documentationUrl:
-      "https://github.com/convex/better-auth/tree/main/examples/next",
+      "https://github.com/formulacms/formulacms-starter/blob/main/docs/starter/operations.md#register-another-email-provider",
   },
 ]
 
@@ -82,12 +105,50 @@ function emailSettings(
 ): Record<string, unknown> {
   return {
     catalogue,
-    configuredProviderId: null,
+    preselectedProviderId: "smtp",
+    enabledProviderId: null,
     activeProviderId: null,
     readiness: "fallback",
     configurationVersion: 0,
     ...overrides,
   }
+}
+
+const sender = { address: "sender@example.com", name: "My Site" }
+const smtpEnabled = {
+  enabledProviderId: "smtp",
+  readiness: "ready",
+  sender,
+  configurationVersion: 2,
+}
+const smtpActive = { ...smtpEnabled, activeProviderId: "smtp" }
+
+const SMTP_NAMES = [
+  "EMAIL_SMTP_HOST",
+  "EMAIL_SMTP_USER",
+  "EMAIL_SMTP_PASSWORD",
+  "EMAIL_SMTP_PORT",
+]
+
+function checked(
+  readiness: "ready" | "needs_setup",
+  present: Record<string, boolean>
+) {
+  return {
+    providerId: "smtp",
+    readiness,
+    environment: SMTP_NAMES.map((name) => ({
+      name,
+      required: name !== "EMAIL_SMTP_PORT",
+      present: present[name] ?? false,
+    })),
+  }
+}
+
+const allSmtpSet = {
+  EMAIL_SMTP_HOST: true,
+  EMAIL_SMTP_USER: true,
+  EMAIL_SMTP_PASSWORD: true,
 }
 
 let ownerState: typeof owner | null | undefined
@@ -111,19 +172,25 @@ function renderEmailSettings(locale: "en" | "fr" = "en") {
   return render(emailSettingsTree(locale))
 }
 
-const activeResend = {
-  configuredProviderId: "resend",
-  activeProviderId: "resend",
-  readiness: "ready",
-  sender: { address: "sender@example.com" },
-  configurationVersion: 4,
+const list = () => screen.getByRole("region", { name: "Email providers" })
+const panel = (name = "SMTP") => screen.getByRole("region", { name })
+const listRow = (id: string) =>
+  document.querySelector(`[data-provider="${id}"]`) as HTMLElement
+const checkButton = () =>
+  screen.getByRole("button", { name: "Check configuration" })
+const testButton = () => screen.getByRole("button", { name: "Send test email" })
+
+async function check(result: ReturnType<typeof checked>) {
+  mocks.check.mockResolvedValueOnce(result)
+  fireEvent.click(checkButton())
+  await waitFor(() => expect(mocks.check).toHaveBeenCalled())
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   ownerState = owner
   settingsState = emailSettings()
-  notificationEmailState = null
+  notificationEmailState = "owner@example.com"
   mocks.useQuery.mockImplementation((reference, args) => {
     const name = getFunctionName(reference)
     if (name === "cms/owner:getOwnerSession") return ownerState
@@ -135,322 +202,721 @@ beforeEach(() => {
     }
     throw new Error(`Unexpected email settings query: ${name}`)
   })
-  mocks.save.mockResolvedValue({
-    providerId: "resend",
+  const stateResult = {
+    enabledProviderId: "smtp",
     configurationVersion: 1,
-    status: "configured",
+    status: "inactive",
+  }
+  mocks.save.mockResolvedValue(stateResult)
+  mocks.enable.mockResolvedValue(stateResult)
+  mocks.disable.mockResolvedValue({
+    enabledProviderId: null,
+    configurationVersion: 3,
+    status: "disabled",
   })
-  mocks.activate.mockResolvedValue({
-    providerId: "resend",
-    configurationVersion: 1,
-    status: "active",
-  })
-  mocks.deactivate.mockResolvedValue({
-    providerId: "resend",
-    configurationVersion: 5,
-    status: "configured",
-  })
-  mocks.check.mockResolvedValue({
-    providerId: "resend",
-    readiness: "ready",
-  })
+  mocks.check.mockResolvedValue(checked("ready", allSmtpSet))
   mocks.setNotificationEmail.mockResolvedValue({ status: "saved" })
   mocks.sendTest.mockResolvedValue({
     status: "queued",
-    configurationVersion: 1,
+    configurationVersion: 2,
   })
 })
 
-describe("EmailSettings E05 provider flow", () => {
-  test("shows the truthful fallback first and hides sender and test controls", () => {
+describe("EmailSettings first visit (step 1)", () => {
+  test("opens SMTP with both providers disabled and inactive", () => {
     renderEmailSettings()
 
     expect(
       screen.getByRole("heading", { name: "No delivery provider active" })
     ).toBeInTheDocument()
+    expect(list().querySelectorAll("[data-provider]")).toHaveLength(3)
+    for (const id of ["smtp", "resend"]) {
+      const row = within(listRow(id))
+      const badge = row.getByText("Inactive")
+      expect(badge).toHaveAttribute("data-variant", "outline")
+      expect(row.getByRole("checkbox")).not.toBeChecked()
+      expect(row.getByText("Disabled")).toBeInTheDocument()
+    }
+    const more = within(listRow("custom"))
+    expect(more.getByText("More providers")).toBeInTheDocument()
     expect(
-      screen.getByText(
-        "Messages are not sent until you add and activate a provider."
+      more.getByText("Add another provider with a small code change.")
+    ).toBeInTheDocument()
+    expect(more.queryByRole("checkbox")).not.toBeInTheDocument()
+    expect(more.queryByText("Inactive")).not.toBeInTheDocument()
+    expect(screen.queryByText("Default")).not.toBeInTheDocument()
+    expect(screen.queryByText("Included")).not.toBeInTheDocument()
+
+    const detail = within(panel())
+    expect(
+      detail.getByRole("checkbox", { name: "Turn SMTP on or off" })
+    ).not.toBeChecked()
+    expect(
+      within(listRow("smtp")).getByText(
+        "Send through any mail server: a Gmail account, your own host or a mail service."
       )
     ).toBeInTheDocument()
-    expect(screen.queryByLabelText("From address")).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "Send test email" })
-    ).not.toBeInTheDocument()
-  })
-
-  test("shows the provider list with nothing configured, without an add button or search box", () => {
-    renderEmailSettings()
-
-    expect(
-      screen.getByRole("region", { name: "Email providers" })
-    ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /Resend/ })).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: /Custom provider/ })
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "Add email provider" })
-    ).not.toBeInTheDocument()
-    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument()
-    expect(
-      screen.queryByPlaceholderText("Search providers")
-    ).not.toBeInTheDocument()
-  })
-
-  test("keeps an unregistered provider documentation-only", () => {
-    renderEmailSettings()
-    fireEvent.click(screen.getByRole("button", { name: /Custom provider/ }))
-
-    const documentation = screen.getByRole("link", {
-      name: "Add this provider",
-    })
-    expect(documentation).toHaveAttribute(
-      "href",
-      "https://github.com/convex/better-auth/tree/main/examples/next"
+    expect(detail.getByTestId("provider-state-line")).toHaveTextContent(
+      "SMTP is disabled. Enable it to use it for your site's email."
     )
-    expect(documentation).toHaveAttribute("target", "_blank")
-    expect(mocks.save).not.toHaveBeenCalled()
-  })
-
-  test("implements mobile list-to-detail navigation inside the desktop split view", () => {
-    renderEmailSettings()
-    const list = screen.getByRole("region", { name: "Email providers" })
-    expect(list).toHaveClass("block")
-
-    fireEvent.click(screen.getByRole("button", { name: /Resend/ }))
-    expect(list).toHaveClass("hidden")
-    const back = screen.getByRole("button", { name: "Back to providers" })
-    expect(back).toHaveClass("lg:hidden")
-
-    fireEvent.click(back)
-    expect(list).toHaveClass("block")
-  })
-
-  test("shows missing and ready server setup without exposing a credential", async () => {
-    settingsState = emailSettings({
-      configuredProviderId: "resend",
-      readiness: "needs_setup",
-      sender: { address: "sender@example.com", name: "Example" },
-      configurationVersion: 1,
-    })
-    const view = renderEmailSettings()
-
-    expect(screen.getByText("Not detected")).toBeInTheDocument()
+    expect(detail.getByText("Not checked")).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "Send test email" })
-    ).toBeDisabled()
-    expect(screen.queryByText(/secret-resend-key/i)).not.toBeInTheDocument()
+      Array.from(
+        detail.getByTestId("setting-names").querySelectorAll("code")
+      ).map((node) => node.textContent)
+    ).toEqual(SMTP_NAMES)
+    expect(detail.getByText("optional, 465 by default")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Activate|Turn off/ })
+    ).not.toBeInTheDocument()
+  })
 
-    mocks.check.mockResolvedValueOnce({
-      providerId: "resend",
-      readiness: "ready",
+  test("greys out the whole Server setup card while the provider is disabled (step 13)", () => {
+    renderEmailSettings()
+    const detail = within(panel())
+
+    expect(checkButton()).toBeDisabled()
+    const howTo = detail.getByTestId("how-to-set")
+    expect(howTo.tagName).toBe("SPAN")
+    expect(howTo).toHaveTextContent("How to set them")
+    expect(howTo).toHaveClass("text-muted-foreground")
+    expect(detail.queryByRole("link", { name: "How to set them" })).toBeNull()
+    for (const node of detail
+      .getByTestId("setting-names")
+      .querySelectorAll("code")) {
+      expect(node).toHaveClass("text-muted-foreground")
+    }
+    expect(detail.getByText("Not checked")).toHaveClass(
+      "text-muted-foreground"
+    )
+    expect(testButton()).toBeDisabled()
+  })
+})
+
+describe("EmailSettings sender (steps 2 and 9)", () => {
+  test("saves only the sender, with no confirmation and no enable", async () => {
+    renderEmailSettings()
+
+    fireEvent.change(screen.getByLabelText("From address"), {
+      target: { value: "hello@example.com" },
     })
-    fireEvent.click(screen.getByRole("button", { name: "Check configuration" }))
+    fireEvent.change(screen.getByLabelText("From name"), {
+      target: { value: "My Site" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }))
+
     await waitFor(() =>
-      expect(screen.getByText("Detected")).toBeInTheDocument()
+      expect(mocks.save).toHaveBeenCalledWith({
+        senderAddress: "hello@example.com",
+        senderName: "My Site",
+      })
+    )
+    expect(mocks.success).toHaveBeenCalledWith("Email configuration saved")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(mocks.enable).not.toHaveBeenCalled()
+    expect(testButton()).toBeDisabled()
+  })
+
+  test("reports a sender the server refused", async () => {
+    mocks.save.mockRejectedValueOnce(
+      new Error("CMS_EMAIL_PROVIDER_CONFIGURATION_INVALID")
+    )
+    renderEmailSettings()
+
+    fireEvent.change(screen.getByLabelText("From address"), {
+      target: { value: "not-an-address" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }))
+
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "Email configuration was not saved. Check the sender details and try again."
+      )
+    )
+  })
+})
+
+describe("EmailSettings enable control (steps 3, 10, 12, 13)", () => {
+  test("enables a provider at once when nothing is enabled", async () => {
+    renderEmailSettings()
+
+    fireEvent.click(within(listRow("resend")).getByRole("checkbox"))
+
+    await waitFor(() =>
+      expect(mocks.enable).toHaveBeenCalledWith({ providerId: "resend" })
+    )
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    // A click on the list control also opens that provider.
+    expect(panel("Resend")).toBeInTheDocument()
+  })
+
+  test("shows an enabled provider as orange Inactive with a working Server setup card", () => {
+    settingsState = emailSettings(smtpEnabled)
+    renderEmailSettings()
+
+    const row = within(listRow("smtp"))
+    expect(row.getByRole("checkbox")).toBeChecked()
+    expect(row.getByText("Enabled")).toBeInTheDocument()
+    expect(row.getByText("Inactive")).toHaveClass("text-amber-600")
+    const detail = within(panel())
+    expect(detail.getByRole("checkbox")).toBeChecked()
+    expect(
+      detail.getAllByText("Inactive").every((badge) =>
+        badge.classList.contains("text-amber-600")
+      )
+    ).toBe(true)
+    expect(detail.getByTestId("provider-state-line")).toHaveTextContent(
+      "SMTP is enabled but not active yet. It becomes active when the mail server accepts a test email."
+    )
+    expect(detail.getByTestId("provider-state-line")).toHaveClass(
+      "text-amber-600"
     )
     expect(
-      screen.getByRole("button", { name: "Send test email" })
-    ).toBeEnabled()
-
-    view.unmount()
+      screen.getByRole("heading", { name: "No delivery provider active" })
+    ).toBeInTheDocument()
+    expect(checkButton()).toBeEnabled()
+    const howTo = detail.getByRole("link", { name: "How to set them" })
+    expect(howTo).toHaveAttribute("href", "https://nodemailer.com/smtp")
+    expect(howTo).toHaveAttribute("target", "_blank")
+    // Not checked yet: the test stays unavailable.
+    expect(testButton()).toBeDisabled()
   })
 
-  test("keeps activation disabled until the current test is provider-accepted", () => {
-    settingsState = emailSettings({
-      configuredProviderId: "resend",
-      readiness: "ready",
-      sender: { address: "sender@example.com" },
-      configurationVersion: 3,
-      lastTest: { state: "queued", updatedAt: 100 },
-    })
-    const view = renderEmailSettings()
-    expect(screen.getByText(/Test queued/)).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Activate Resend" })
-    ).toBeDisabled()
-
-    settingsState = emailSettings({
-      configuredProviderId: "resend",
-      readiness: "ready",
-      sender: { address: "sender@example.com" },
-      configurationVersion: 3,
-      lastTest: {
-        state: "provider_accepted",
-        receiptExpiresAt: Date.now() + 60_000,
-        updatedAt: 101,
-      },
-    })
-    view.rerender(emailSettingsTree())
-    expect(screen.getByText(/Provider accepted the test/)).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Activate Resend" })
-    ).toBeEnabled()
-  })
-
-  test.each([
-    ["failed", "The provider did not accept the test."],
-    ["unknown", "Delivery is uncertain. Send a new test before activation."],
-  ])("shows truthful %s test state", (state, copy) => {
-    settingsState = emailSettings({
-      configuredProviderId: "resend",
-      readiness: "ready",
-      sender: { address: "sender@example.com" },
-      configurationVersion: 2,
-      lastTest: {
-        state,
-        reason: state === "unknown" ? "delivery_unknown" : "provider_rejected",
-        updatedAt: 100,
-      },
-    })
-    renderEmailSettings()
-    expect(screen.getByText(copy)).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Activate Resend" })
-    ).toBeDisabled()
-  })
-
-  test("shows active delivery without claiming inbox delivery", () => {
-    settingsState = emailSettings(activeResend)
+  test("asks before switching to another provider; Cancel changes nothing", async () => {
+    settingsState = emailSettings(smtpActive)
     renderEmailSettings()
 
-    expect(
-      screen.getByRole("heading", { name: "Resend is active" })
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(/does not guarantee inbox delivery/)
-    ).toBeInTheDocument()
-    expect(screen.getByText("Resend is on.")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Turn off" })).toBeEnabled()
-    expect(
-      screen.getByRole("button", { name: "Send test email" })
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: /Resend active|Activate Resend/ })
-    ).not.toBeInTheDocument()
-  })
-
-  test("asks before turning the active provider off and Cancel changes nothing", async () => {
-    settingsState = emailSettings(activeResend)
-    renderEmailSettings()
-
-    fireEvent.click(screen.getByRole("button", { name: "Turn off" }))
+    fireEvent.click(within(listRow("resend")).getByRole("checkbox"))
     const dialog = await screen.findByRole("dialog")
     expect(
-      within(dialog).getByRole("heading", { name: "Turn off Resend?" })
+      within(dialog).getByRole("heading", { name: "Switch to Resend?" })
     ).toBeInTheDocument()
     expect(
       within(dialog).getByText(
-        "Your site stops sending emails, including contact form messages and password resets. To turn it back on you'll send a new test."
+        "SMTP is disabled now. Your site sends no email until Resend passes a test."
       )
     ).toBeInTheDocument()
+    const confirmButton = within(dialog).getByRole("button", {
+      name: "Switch to Resend",
+    })
+    expect(confirmButton).toHaveClass("bg-destructive", "dark:bg-destructive")
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     )
-    expect(mocks.deactivate).not.toHaveBeenCalled()
-    expect(mocks.success).not.toHaveBeenCalled()
-  })
+    expect(mocks.enable).not.toHaveBeenCalled()
+    // Resend opened with the click; SMTP stays enabled and active.
+    expect(within(panel("Resend")).getByRole("checkbox")).not.toBeChecked()
+    expect(within(listRow("smtp")).getByRole("checkbox")).toBeChecked()
 
-  test("confirm calls deactivateEmailProvider with the provider id and confirms with a toast", async () => {
-    settingsState = emailSettings(activeResend)
-    renderEmailSettings()
-
-    fireEvent.click(screen.getByRole("button", { name: "Turn off" }))
-    const dialog = await screen.findByRole("dialog")
-    fireEvent.click(within(dialog).getByRole("button", { name: "Turn off" }))
-
-    await waitFor(() =>
-      expect(mocks.deactivate).toHaveBeenCalledWith({ providerId: "resend" })
-    )
-    await waitFor(() =>
-      expect(mocks.success).toHaveBeenCalledWith("Resend is off")
-    )
-    expect(mocks.error).not.toHaveBeenCalled()
-  })
-
-  test("disables Turn off while the call runs and reports a failure", async () => {
-    settingsState = emailSettings(activeResend)
-    let rejectCall: ((reason: unknown) => void) | undefined
-    mocks.deactivate.mockReturnValueOnce(
-      new Promise((_, reject) => {
-        rejectCall = reject
+    fireEvent.click(within(listRow("resend")).getByRole("checkbox"))
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Switch to Resend",
       })
     )
+    await waitFor(() =>
+      expect(mocks.enable).toHaveBeenCalledWith({ providerId: "resend" })
+    )
+    expect(mocks.disable).not.toHaveBeenCalled()
+  })
+
+  test("asks before disabling the active provider, then says it is off", async () => {
+    settingsState = emailSettings(smtpActive)
     renderEmailSettings()
 
-    const button = screen.getByRole("button", { name: "Turn off" })
-    fireEvent.click(button)
-    const dialog = await screen.findByRole("dialog")
-    fireEvent.click(within(dialog).getByRole("button", { name: "Turn off" }))
-    await waitFor(() => expect(button).toBeDisabled())
+    fireEvent.click(within(panel()).getByRole("checkbox"))
+    let dialog = await screen.findByRole("dialog")
+    expect(
+      within(dialog).getByRole("heading", { name: "Turn off SMTP?" })
+    ).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+    expect(mocks.disable).not.toHaveBeenCalled()
 
-    rejectCall?.(new Error("CMS_EMAIL_PROVIDER_CONFIGURATION_REQUIRED"))
+    fireEvent.click(within(panel()).getByRole("checkbox"))
+    dialog = await screen.findByRole("dialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Turn off" }))
+    await waitFor(() =>
+      expect(mocks.disable).toHaveBeenCalledWith({ providerId: "smtp" })
+    )
+    await waitFor(() =>
+      expect(mocks.success).toHaveBeenCalledWith("SMTP is off")
+    )
+  })
+
+  test("reports a failed disable of the active provider", async () => {
+    settingsState = emailSettings(smtpActive)
+    mocks.disable.mockRejectedValueOnce(new Error("failed"))
+    renderEmailSettings()
+
+    fireEvent.click(within(panel()).getByRole("checkbox"))
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Turn off",
+      })
+    )
     await waitFor(() =>
       expect(mocks.error).toHaveBeenCalledWith(
-        "Resend was not turned off. Try again."
+        "SMTP was not turned off. Try again."
       )
     )
-    expect(button).toBeEnabled()
     expect(mocks.success).not.toHaveBeenCalled()
   })
 
-  test("shows the French status sentence, button and dialog", async () => {
-    settingsState = emailSettings(activeResend)
-    renderEmailSettings("fr")
+  test("disables an enabled provider that is not active without asking", async () => {
+    settingsState = emailSettings(smtpEnabled)
+    renderEmailSettings()
 
-    expect(screen.getByText("Resend est activé.")).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Désactiver" }))
-    const dialog = await screen.findByRole("dialog")
-    expect(
-      within(dialog).getByRole("heading", { name: "Désactiver Resend ?" })
-    ).toBeInTheDocument()
-    expect(
-      within(dialog).getByText(
-        "Votre site n’enverra plus d’e-mails, y compris les messages du formulaire de contact et les réinitialisations de mot de passe. Pour le réactiver, vous devrez envoyer un nouveau test."
-      )
-    ).toBeInTheDocument()
-    expect(
-      within(dialog).getByRole("button", { name: "Annuler" })
-    ).toBeInTheDocument()
-    fireEvent.click(within(dialog).getByRole("button", { name: "Désactiver" }))
+    fireEvent.click(within(panel()).getByRole("checkbox"))
     await waitFor(() =>
-      expect(mocks.success).toHaveBeenCalledWith("Resend est désactivé")
+      expect(mocks.disable).toHaveBeenCalledWith({ providerId: "smtp" })
     )
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(mocks.success).not.toHaveBeenCalled()
   })
 
-  test("shows sending state and queues only the owner-derived test action", async () => {
-    settingsState = emailSettings({
-      configuredProviderId: "resend",
-      readiness: "ready",
-      sender: { address: "sender@example.com" },
-      configurationVersion: 1,
-    })
-    let resolveTest:
-      | ((value: { status: "queued"; configurationVersion: number }) => void)
-      | undefined
-    mocks.sendTest.mockReturnValueOnce(
+  test("keeps the controls unavailable while a change runs", async () => {
+    let finish: ((value: unknown) => void) | undefined
+    mocks.enable.mockReturnValueOnce(
       new Promise((resolve) => {
-        resolveTest = resolve
+        finish = resolve
       })
     )
     renderEmailSettings()
 
-    const button = screen.getByRole("button", { name: "Send test email" })
-    fireEvent.click(button)
-    expect(button).toBeDisabled()
-    expect(mocks.sendTest).toHaveBeenCalledWith({})
+    const control = within(panel()).getByRole("checkbox")
+    fireEvent.click(control)
+    await waitFor(() => expect(control).toBeDisabled())
+    expect(within(listRow("resend")).getByRole("checkbox")).toBeDisabled()
+    finish?.({ enabledProviderId: "smtp", configurationVersion: 1, status: "inactive" })
+    await waitFor(() => expect(control).toBeEnabled())
+  })
+})
 
-    resolveTest?.({ status: "queued", configurationVersion: 1 })
+describe("EmailSettings server setup check (steps 4, 5, 6)", () => {
+  test("shows what is missing as an error", async () => {
+    settingsState = emailSettings(smtpEnabled)
+    renderEmailSettings()
+
+    await check(checked("needs_setup", {}))
+
+    expect(mocks.check).toHaveBeenCalledWith({ providerId: "smtp" })
     await waitFor(() =>
-      expect(mocks.success).toHaveBeenCalledWith(
+      expect(mocks.error).toHaveBeenCalledWith(
+        "SMTP server setup was not detected"
+      )
+    )
+    expect(mocks.success).not.toHaveBeenCalled()
+    const detail = within(panel())
+    const badges = detail.getAllByText("Not detected")
+    // The card badge and the three required rows.
+    expect(badges).toHaveLength(4)
+    expect(badges[0]).toHaveAttribute("data-variant", "destructive")
+    expect(detail.getByText("Not set, 465 is used")).toBeInTheDocument()
+    expect(testButton()).toBeDisabled()
+  })
+
+  test("detected setup is a success and allows the test", async () => {
+    settingsState = emailSettings(smtpEnabled)
+    renderEmailSettings()
+
+    await check(checked("ready", allSmtpSet))
+
+    await waitFor(() =>
+      expect(mocks.success).toHaveBeenCalledWith("SMTP server setup detected")
+    )
+    const detail = within(panel())
+    expect(detail.getAllByText("Detected")).toHaveLength(4)
+    expect(detail.getByText("Not set, 465 is used")).toBeInTheDocument()
+    expect(testButton()).toBeEnabled()
+  })
+
+  test("keeps each provider's last check while the screen is open", async () => {
+    settingsState = emailSettings(smtpEnabled)
+    renderEmailSettings()
+    await check(checked("ready", allSmtpSet))
+    await waitFor(() => expect(testButton()).toBeEnabled())
+
+    fireEvent.click(within(listRow("resend")).getByRole("button"))
+    expect(within(panel("Resend")).getByText("Not checked")).toBeInTheDocument()
+    fireEvent.click(within(listRow("smtp")).getByRole("button"))
+    expect(within(panel()).getAllByText("Detected")).toHaveLength(4)
+    expect(testButton()).toBeEnabled()
+  })
+
+  test("keeps the last check in grey and blocks the card and the test after a disable (step 13)", async () => {
+    settingsState = emailSettings(smtpEnabled)
+    const view = renderEmailSettings()
+    await check(checked("ready", allSmtpSet))
+    await waitFor(() => expect(testButton()).toBeEnabled())
+
+    settingsState = emailSettings({ sender })
+    view.rerender(emailSettingsTree())
+
+    const detail = within(panel())
+    const detected = detail.getAllByText("Detected")
+    // The card badge and the three required rows are still there, in grey.
+    expect(detected).toHaveLength(4)
+    for (const node of detected) {
+      const marked = node.closest("span") as HTMLElement
+      expect(marked).toHaveClass("text-muted-foreground")
+      expect(marked.className).not.toMatch(/emerald/)
+    }
+    expect(detail.getByTestId("how-to-set").tagName).toBe("SPAN")
+    expect(checkButton()).toBeDisabled()
+    expect(testButton()).toBeDisabled()
+  })
+
+  test("names Resend's single setting", () => {
+    settingsState = emailSettings({ enabledProviderId: "resend" })
+    renderEmailSettings()
+    fireEvent.click(within(listRow("resend")).getByRole("button"))
+
+    const detail = within(panel("Resend"))
+    expect(detail.getByText("RESEND_API_KEY")).toBeInTheDocument()
+    expect(
+      detail.getByText("Set this on your server. Its value is never shown here.")
+    ).toBeInTheDocument()
+    expect(detail.getByRole("link", { name: "How to set it" })).toHaveAttribute(
+      "href",
+      "https://resend.com/docs"
+    )
+  })
+})
+
+describe("EmailSettings delivery test (steps 6, 7, 8)", () => {
+  test.each([
+    ["not enabled", { sender }],
+    ["no sender", { enabledProviderId: "smtp" }],
+  ])("keeps the test unavailable when %s", async (_, overrides) => {
+    settingsState = emailSettings(overrides)
+    renderEmailSettings()
+    if (!checkButton().hasAttribute("disabled")) {
+      await check(checked("ready", allSmtpSet))
+      await waitFor(() => expect(mocks.success).toHaveBeenCalled())
+    }
+    expect(testButton()).toBeDisabled()
+  })
+
+  test("keeps the test unavailable while the sender has unsaved changes", async () => {
+    settingsState = emailSettings(smtpEnabled)
+    renderEmailSettings()
+    await check(checked("ready", allSmtpSet))
+    await waitFor(() => expect(testButton()).toBeEnabled())
+
+    fireEvent.change(screen.getByLabelText("From name"), {
+      target: { value: "Other" },
+    })
+    expect(testButton()).toBeDisabled()
+  })
+
+  test("queues the test and says so with a neutral notification", async () => {
+    settingsState = emailSettings(smtpEnabled)
+    renderEmailSettings()
+    await check(checked("ready", allSmtpSet))
+    await waitFor(() => expect(testButton()).toBeEnabled())
+    mocks.success.mockClear()
+
+    fireEvent.click(testButton())
+    expect(mocks.sendTest).toHaveBeenCalledWith({})
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
         "Test queued. Provider acceptance is still pending."
       )
     )
+    expect(mocks.success).not.toHaveBeenCalled()
   })
 
+  test("reports a blocked test", async () => {
+    settingsState = emailSettings(smtpEnabled)
+    mocks.sendTest.mockResolvedValueOnce({
+      status: "blocked",
+      reason: "owner_email_missing",
+    })
+    renderEmailSettings()
+    await check(checked("ready", allSmtpSet))
+    await waitFor(() => expect(testButton()).toBeEnabled())
+
+    fireEvent.click(testButton())
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "Add a notification email above to send a test."
+      )
+    )
+  })
+
+  test.each([
+    [
+      "sign_in_refused",
+      "Sign-in refused. Check EMAIL_SMTP_USER and EMAIL_SMTP_PASSWORD.",
+    ],
+    [
+      "could_not_connect",
+      "Could not connect. Check EMAIL_SMTP_HOST and EMAIL_SMTP_PORT.",
+    ],
+    [
+      "secure_connection_failed",
+      "Could not make a secure connection. The mail server needs a trusted certificate.",
+    ],
+    [
+      "sender_refused",
+      "The mail server refused the From address. Use an address this server allows.",
+    ],
+    ["message_refused", "The mail server refused the message."],
+  ])("shows the %s reason under a refused test", (category, sentence) => {
+    settingsState = emailSettings({
+      ...smtpEnabled,
+      lastTest: {
+        providerId: "smtp",
+        state: "failed",
+        reason: "provider_rejected",
+        category,
+        updatedAt: 1,
+      },
+    })
+    renderEmailSettings()
+
+    const state = within(panel()).getByTestId("test-state")
+    expect(state).toHaveClass("text-destructive")
+    expect(state).toHaveTextContent("The provider did not accept the test.")
+    expect(state).toHaveTextContent(sentence)
+    expect(within(listRow("smtp")).getByText("Inactive")).toHaveClass(
+      "text-amber-600"
+    )
+  })
+
+  test("shows only the refusal line when the server gives no reason", () => {
+    settingsState = emailSettings({
+      ...smtpEnabled,
+      lastTest: {
+        providerId: "smtp",
+        state: "failed",
+        reason: "provider_rejected",
+        updatedAt: 1,
+      },
+    })
+    renderEmailSettings()
+
+    expect(within(panel()).getByTestId("test-state").textContent).toBe(
+      "The provider did not accept the test."
+    )
+  })
+
+  test("shows an uncertain result in orange", () => {
+    settingsState = emailSettings({
+      ...smtpEnabled,
+      lastTest: {
+        providerId: "smtp",
+        state: "unknown",
+        reason: "delivery_unknown",
+        updatedAt: 1,
+      },
+    })
+    renderEmailSettings()
+
+    const state = within(panel()).getByTestId("test-state")
+    expect(state).toHaveTextContent(
+      "Delivery is uncertain. Send a new test before activation."
+    )
+    expect(state).toHaveClass("text-amber-600")
+  })
+
+  test("shows a provider's result only on its own panel", () => {
+    settingsState = emailSettings({
+      ...smtpEnabled,
+      lastTest: { providerId: "smtp", state: "queued", updatedAt: 1 },
+    })
+    renderEmailSettings()
+    expect(within(panel()).getByTestId("test-state")).toHaveTextContent(
+      "Test queued. Waiting for the provider result."
+    )
+
+    fireEvent.click(within(listRow("resend")).getByRole("button"))
+    expect(within(panel("Resend")).queryByTestId("test-state")).toBeNull()
+  })
+
+  test("an accepted test shows the provider active in three places and says so once", async () => {
+    settingsState = emailSettings({
+      ...smtpEnabled,
+      lastTest: { providerId: "smtp", state: "queued", updatedAt: 1 },
+    })
+    const view = renderEmailSettings()
+    expect(mocks.success).not.toHaveBeenCalled()
+
+    settingsState = emailSettings({ ...smtpActive, configurationVersion: 2 })
+    view.rerender(emailSettingsTree())
+
+    await waitFor(() =>
+      expect(mocks.success).toHaveBeenCalledWith("SMTP activated")
+    )
+    expect(
+      screen.getByRole("heading", { name: "SMTP is active" })
+    ).toBeInTheDocument()
+    const badges = screen.getAllByText("Active")
+    // The top card, the list row and the panel title.
+    expect(badges).toHaveLength(3)
+    for (const badge of badges) expect(badge).toHaveClass("text-emerald-600")
+    expect(within(panel()).getByTestId("test-state")).toHaveTextContent(
+      "The mail server accepted the test. SMTP is active."
+    )
+    expect(within(panel()).getByTestId("test-state")).toHaveClass(
+      "text-emerald-600"
+    )
+    expect(within(panel()).queryByTestId("provider-state-line")).toBeNull()
+
+    view.rerender(emailSettingsTree())
+    expect(mocks.success).toHaveBeenCalledTimes(1)
+  })
+
+  test("does not announce a provider that was already active when the screen opened", () => {
+    settingsState = emailSettings(smtpActive)
+    renderEmailSettings()
+
+    expect(mocks.success).not.toHaveBeenCalled()
+  })
+
+  test("a refused re-test of the active provider keeps it active", () => {
+    settingsState = emailSettings({
+      ...smtpActive,
+      lastTest: {
+        providerId: "smtp",
+        state: "failed",
+        reason: "provider_rejected",
+        category: "sign_in_refused",
+        updatedAt: 1,
+      },
+    })
+    renderEmailSettings()
+
+    expect(screen.getAllByText("Active")).toHaveLength(3)
+    expect(within(panel()).getByTestId("test-state")).toHaveTextContent(
+      "The provider did not accept the test."
+    )
+  })
+})
+
+describe("EmailSettings More providers (step 14)", () => {
+  test("lists the services and opens the developer guide", () => {
+    renderEmailSettings()
+    fireEvent.click(within(listRow("custom")).getByRole("button"))
+
+    const detail = within(panel("More providers"))
+    expect(
+      detail.getByText(
+        "The email library in formulacms supports these services. A developer adds one in a few steps."
+      )
+    ).toBeInTheDocument()
+    expect(detail.getByText("Postmark")).toBeInTheDocument()
+    expect(detail.getByText("Microsoft Graph")).toBeInTheDocument()
+    const guide = detail.getByRole("link", { name: "Open the developer guide" })
+    expect(guide).toHaveAttribute(
+      "href",
+      "https://github.com/formulacms/formulacms-starter/blob/main/docs/starter/operations.md#register-another-email-provider"
+    )
+    expect(guide).toHaveAttribute("target", "_blank")
+    expect(
+      detail.getByText("Most of these services also work today through SMTP.")
+    ).toBeInTheDocument()
+    expect(detail.queryByRole("checkbox")).toBeNull()
+    expect(detail.queryByText("Inactive")).toBeNull()
+  })
+})
+
+describe("EmailSettings narrow screen (step 16)", () => {
+  test("opens SMTP, hides the list and goes back to it", async () => {
+    renderEmailSettings()
+    expect(list()).toHaveClass("hidden")
+
+    fireEvent.click(within(panel()).getByRole("checkbox"))
+    await waitFor(() =>
+      expect(mocks.enable).toHaveBeenCalledWith({ providerId: "smtp" })
+    )
+
+    const back = screen.getByRole("button", { name: "Back to providers" })
+    expect(back).toHaveClass("lg:hidden")
+    fireEvent.click(back)
+    expect(list()).toHaveClass("block")
+  })
+})
+
+describe("EmailSettings in French (step 15)", () => {
+  test("first visit, enabled and active words", () => {
+    settingsState = emailSettings()
+    const view = renderEmailSettings("fr")
+    const detail = within(screen.getByRole("region", { name: "SMTP" }))
+    expect(within(listRow("smtp")).getByText("Inactif")).toBeInTheDocument()
+    expect(within(listRow("smtp")).getByText("Désactivé")).toBeInTheDocument()
+    expect(detail.getByTestId("provider-state-line")).toHaveTextContent(
+      "SMTP est désactivé. Activez-le pour l’utiliser pour les e-mails de votre site."
+    )
+    expect(
+      screen.getByRole("button", { name: "Vérifier la configuration" })
+    ).toBeDisabled()
+    expect(within(listRow("custom")).getByText("Autres fournisseurs")).toBeInTheDocument()
+
+    settingsState = emailSettings(smtpEnabled)
+    view.rerender(emailSettingsTree("fr"))
+    expect(within(listRow("smtp")).getByText("Activé")).toBeInTheDocument()
+    expect(detail.getByTestId("provider-state-line")).toHaveTextContent(
+      "SMTP est activé mais pas encore actif. Il devient actif quand le serveur de messagerie accepte un e-mail de test."
+    )
+
+    settingsState = emailSettings(smtpActive)
+    view.rerender(emailSettingsTree("fr"))
+    expect(detail.getByTestId("test-state")).toHaveTextContent(
+      "Le serveur de messagerie a accepté le test. SMTP est actif."
+    )
+    expect(screen.getAllByText("Actif")).toHaveLength(3)
+    expect(mocks.success).toHaveBeenCalledWith("SMTP activé")
+  })
+
+  test("switch confirmation and notifications", async () => {
+    settingsState = emailSettings(smtpEnabled)
+    renderEmailSettings("fr")
+
+    mocks.check.mockResolvedValueOnce(checked("needs_setup", {}))
+    fireEvent.click(
+      screen.getByRole("button", { name: "Vérifier la configuration" })
+    )
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "Configuration serveur SMTP non détectée"
+      )
+    )
+    expect(screen.getByText("Non défini, 465 est utilisé")).toBeInTheDocument()
+
+    fireEvent.click(within(listRow("resend")).getByRole("checkbox"))
+    const dialog = await screen.findByRole("dialog")
+    expect(
+      within(dialog).getByRole("heading", { name: "Passer à Resend ?" })
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(
+        "SMTP est désactivé dès maintenant. Votre site n’envoie aucun e-mail tant que Resend n’a pas réussi un test."
+      )
+    ).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Annuler" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+    expect(mocks.enable).not.toHaveBeenCalled()
+    fireEvent.click(within(listRow("resend")).getByRole("checkbox"))
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Passer à Resend",
+      })
+    )
+    await waitFor(() =>
+      expect(mocks.enable).toHaveBeenCalledWith({ providerId: "resend" })
+    )
+  })
+})
+
+describe("EmailSettings access", () => {
   test("does not run the protected settings query for a non-owner", () => {
     ownerState = null
     renderEmailSettings()
@@ -473,7 +939,6 @@ describe("EmailSettings notifications card (ADR-0056 rule 5)", () => {
   const field = () => screen.getByLabelText("Notification email (optional)")
 
   test("Save turns on only when the field differs from the saved value", () => {
-    notificationEmailState = "owner@example.com"
     renderEmailSettings()
 
     expect(field()).toHaveValue("owner@example.com")
@@ -485,6 +950,7 @@ describe("EmailSettings notifications card (ADR-0056 rule 5)", () => {
   })
 
   test("saves the trimmed email and says Saved", async () => {
+    notificationEmailState = null
     renderEmailSettings()
 
     fireEvent.change(field(), { target: { value: "  owner@example.com " } })
@@ -497,7 +963,6 @@ describe("EmailSettings notifications card (ADR-0056 rule 5)", () => {
   })
 
   test("an emptied field clears the saved email", async () => {
-    notificationEmailState = "owner@example.com"
     renderEmailSettings()
 
     fireEvent.change(field(), { target: { value: "" } })
@@ -509,6 +974,7 @@ describe("EmailSettings notifications card (ADR-0056 rule 5)", () => {
   })
 
   test("an invalid email is refused with the shared message", async () => {
+    notificationEmailState = null
     mocks.setNotificationEmail.mockResolvedValue({ status: "invalid_email" })
     renderEmailSettings()
 
@@ -522,11 +988,8 @@ describe("EmailSettings notifications card (ADR-0056 rule 5)", () => {
     expect(saveButton()).toBeEnabled()
   })
 
-  test("Resend's sender and test lines name the notification email", () => {
-    notificationEmailState = "owner@example.com"
+  test("the sender and test lines name the notification email", () => {
     renderEmailSettings()
-
-    fireEvent.click(screen.getByRole("button", { name: /^Resend/ }))
 
     expect(
       screen.getByText(
@@ -535,19 +998,18 @@ describe("EmailSettings notifications card (ADR-0056 rule 5)", () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        "Send a fixed test only to owner@example.com. A provider-accepted result is required before activation."
+        "Send a fixed test only to owner@example.com. The provider becomes active when the test is accepted."
       )
     ).toBeInTheDocument()
   })
 
   test("without a notification email the test line names the owner account", () => {
+    notificationEmailState = null
     renderEmailSettings()
-
-    fireEvent.click(screen.getByRole("button", { name: /^Resend/ }))
 
     expect(
       screen.getByText(
-        "Send a fixed test only to the site owner's account. A provider-accepted result is required before activation."
+        "Send a fixed test only to the site owner's account. The provider becomes active when the test is accepted."
       )
     ).toBeInTheDocument()
   })

@@ -30,6 +30,7 @@ class ProviderAttemptFailure {
 }
 import {
   GenerationError,
+  UnsupportedAdapterInputError,
   type AdapterGenerationResult,
   type ApiGenerationAdapter,
   type GenerationErrorCategory,
@@ -40,7 +41,8 @@ import {
   selectedIdentity,
   tupleEffort,
 } from "./execution-contract"
-import { capabilityForTuple, validateApiModelTuple } from "./task-profiles"
+import { validateApiModelTuple } from "./task-profiles"
+import { catalogFromEntries, refusal } from "./model-catalog"
 
 export const RUNTIME_GENERATION_CEILING_MS = 90_000
 export const LOCAL_GENERATION_CEILING_MS = 5 * 60_000
@@ -208,6 +210,9 @@ export function normalizeGenerationError<T>(
     return makeGenerationError("CANCELLED", context)
   }
   if (context.timedOut) return makeGenerationError("TIMEOUT", context)
+  if (error instanceof UnsupportedAdapterInputError) {
+    return makeGenerationError("UNSUPPORTED_CAPABILITY", context)
+  }
   if (error instanceof GenerationError) {
     return makeGenerationError(error.category, context, {
       retryable: error.retryable,
@@ -299,10 +304,23 @@ function preflight<T>(
     throw makeGenerationError("UNSUPPORTED_CAPABILITY", context)
   }
 
+  const entry = request.catalogEntry
   if (request.tuple.mode === "catalog") {
+    if (
+      !entry ||
+      entry.provider !== request.tuple.provider ||
+      entry.model !== request.tuple.model
+    ) {
+      throw makeGenerationError("UNSUPPORTED_CAPABILITY", context)
+    }
     try {
-      validateApiModelTuple(request.tuple)
+      validateApiModelTuple(request.tuple, catalogFromEntries([entry]))
     } catch {
+      throw makeGenerationError("UNSUPPORTED_CAPABILITY", context)
+    }
+    // Retired, not listed, not offered, unpriced: the same reasons Settings
+    // and admission use. Runs happen in actions, where the clock is allowed.
+    if (refusal(entry, request.tuple, Date.now()) !== null) {
       throw makeGenerationError("UNSUPPORTED_CAPABILITY", context)
     }
     const reasoning =
@@ -321,8 +339,8 @@ function preflight<T>(
     throw makeGenerationError("UNSUPPORTED_CAPABILITY", context)
   }
 
-  const capability = capabilityForTuple(request.tuple)
-  if (!capability) return // Explicit D1 legacy OpenRouter compatibility path.
+  if (request.tuple.mode === "legacy") return // Explicit D1 legacy OpenRouter compatibility path.
+  const capability = entry!.capability!
   const missingModality = request.requirements.inputModalities.some(
     (modality) => !capability.inputModalities.includes(modality)
   )

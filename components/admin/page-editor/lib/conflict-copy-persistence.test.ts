@@ -121,6 +121,8 @@ test.each(["en", "fr"])(
           localized: {
             title: "Recovered",
             metaDescription: `Recovered ${locale} descriptor`,
+            // The category is written in each language (ADR-0037 amendment).
+            category: "Recovered category",
           },
           slices: [],
         },
@@ -133,10 +135,10 @@ test.each(["en", "fr"])(
     })
     const saved = await owner.query(api.cms.pages.getForEdit, { id: newId })
     expect(saved!.page).toMatchObject({
-      category: "Recovered category",
       content: {
         [locale]: {
           title: "Recovered",
+          category: "Recovered category",
           metaDescription: `Recovered ${locale} descriptor`,
           slices: [],
         },

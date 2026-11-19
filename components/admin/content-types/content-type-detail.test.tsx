@@ -13,6 +13,10 @@ vi.mock("./content-type-lifecycle-panel", () => ({
   ContentTypeLifecyclePanel: () => null,
 }))
 
+vi.mock("./content-type-languages-card", () => ({
+  ContentTypeLanguagesCard: () => null,
+}))
+
 import { ContentTypeDetail } from "./content-type-detail"
 
 describe("ContentTypeDetail admin i18n", () => {

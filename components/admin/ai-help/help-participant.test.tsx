@@ -6,7 +6,10 @@ import { beforeEach, describe, expect, test, vi } from "vitest"
 import en from "../../../messages/admin/en.json"
 import fr from "../../../messages/admin/fr.json"
 import { AdminCommandPaletteProvider } from "../command-palette"
-import type { AdminAiHelpHostResult } from "../contributions/ai-help"
+import type {
+  AdminAiHelpHostProps,
+  AdminAiHelpHostResult,
+} from "../contributions/ai-help"
 import type { ModuleGate } from "../module-gate"
 import { HelpParticipant } from "./help-participant"
 
@@ -17,6 +20,19 @@ const mocks = vi.hoisted(() => ({
   calls: {} as Record<string, ReturnType<typeof vi.fn>>,
   results: [] as unknown[],
   push: vi.fn(),
+  askHelp: vi.fn(),
+  localDevelopment: false,
+}))
+
+// The live site unless a test says otherwise (vitest itself is not production).
+vi.mock("@/lib/assert-local-dev", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/assert-local-dev")>()),
+  isLocalDevelopment: () => mocks.localDevelopment,
+}))
+
+// The Help chat's server action (a local tool answers Help).
+vi.mock("@/app/(core)/admin/(authenticated)/help-ai-chat", () => ({
+  askHelp: mocks.askHelp,
 }))
 
 vi.mock("convex/react", () => {
@@ -96,13 +112,16 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-function slot(language: "en" | "fr" = "en") {
+function slot(
+  language: "en" | "fr" = "en",
+  routeData: AdminAiHelpHostProps["routeData"] = null
+) {
   return (
     <NextIntlClientProvider
       locale={language}
       messages={language === "fr" ? fr : en}
     >
-      <HelpParticipant routeData={null} query="" route="/admin/pages">
+      <HelpParticipant routeData={routeData} query="" route="/admin/pages">
         {(result: AdminAiHelpHostResult) => {
           mocks.results.push(result)
           return (
@@ -133,6 +152,7 @@ const answerCalls = () => mocks.calls[ANSWER]?.mock.calls ?? []
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.localDevelopment = false
   mocks.gate = { state: "on" }
   mocks.queryNames.length = 0
   mocks.results.length = 0
@@ -579,5 +599,140 @@ describe("the real palette host", () => {
     expect(screen.queryByRole("button", { name: /Ask AI Help/ })).not.toBeInTheDocument()
     expect(openButton()).not.toBeInTheDocument()
     expect(mocks.queryNames).not.toContain("cms/aiSettings:status")
+  })
+})
+
+describe("a local tool answers Help (Settings › AI)", () => {
+  const READY = { kind: "selected-ready", engine: "claude" }
+  const ask = (text: string) => {
+    fireEvent.change(screen.getByRole("textbox", { name: "Your question" }), {
+      target: { value: text },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Send" }))
+  }
+  beforeEach(() => {
+    mocks.localDevelopment = true
+  })
+
+  test("ready without any API connection; the question goes to the server action, never Convex", async () => {
+    mocks.data["cms/aiSettings:status"] = status(false)
+    mocks.askHelp.mockResolvedValue({
+      ok: true,
+      answer: {
+        answer: "Open Settings, then Languages.",
+        sources: [],
+        suggestedAction: {
+          id: "open-settings-languages",
+          label: "Open Languages settings",
+          href: "/admin/settings/languages",
+        },
+      },
+    })
+    render(slot("en", READY))
+    openCard()
+    expect(screen.queryByTestId("help-finish-setup")).not.toBeInTheDocument()
+    await act(async () => ask("Where are languages?"))
+    expect(mocks.askHelp).toHaveBeenCalledWith({
+      question: "Where are languages?",
+      route: "/admin/pages",
+    })
+    expect(answerCalls()).toHaveLength(0)
+    expect(screen.getByText("Open Settings, then Languages.")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Settings › Languages" })
+    ).toBeInTheDocument()
+  })
+
+  test("a choice that needs setup shows the setup notice and opens Settings › AI from the palette", () => {
+    render(slot("en", { kind: "selected-needs-setup" }))
+    expect(lastResult().command?.description).toBe("Finish setup")
+    openCard()
+    expect(screen.getByTestId("help-finish-setup")).toHaveTextContent(
+      "Help is not set up yet: its connection is missing. Finish setup"
+    )
+    expect(mocks.askHelp).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    ["signed out", "AUTH_REQUIRED", "Help is not set up yet: its connection is missing. Finish setup"],
+    ["not installed or refused", "CONFIG_MISSING", "Help is not set up yet: its connection is missing. Finish setup"],
+    ["busy", "RATE_LIMITED", "Too many questions in a short time. Wait a moment and ask again."],
+    ["timed out", "TIMEOUT", "Help could not answer this time. Ask again."],
+    ["other", "OTHER", "Help could not answer this time. Ask again."],
+  ])("%s: the plain notice, never an API key or provider", async (_label, category, text) => {
+    mocks.askHelp.mockResolvedValue({ ok: false, category, localTool: true })
+    render(slot("en", READY))
+    openCard()
+    await act(async () => ask("Hello"))
+    expect(screen.getByTestId("help-error")).toHaveTextContent(text)
+    expect(answerCalls()).toHaveLength(0)
+  })
+
+  test("the live site keeps the Convex call", async () => {
+    mocks.localDevelopment = false
+    mocks.calls[ANSWER]!.mockResolvedValue({ answer: "Live answer", sources: [] })
+    render(slot("en", { kind: "production" }))
+    openCard()
+    await act(async () => ask("Hello"))
+    expect(answerCalls()).toHaveLength(1)
+    expect(mocks.askHelp).not.toHaveBeenCalled()
+  })
+
+  // (c) The route shown at render time may be stale (a tool chosen since in
+  // another tab): in local development the server action decides at submit.
+  test("in local development the API route also goes through the server action, never a direct Convex call", async () => {
+    mocks.askHelp.mockResolvedValue({
+      ok: true,
+      answer: { answer: "Answered at submit time.", sources: [] },
+    })
+    render(slot("en", { kind: "production" }))
+    openCard()
+    await act(async () => ask("Hello"))
+    expect(mocks.askHelp).toHaveBeenCalledOnce()
+    expect(answerCalls()).toHaveLength(0)
+    expect(screen.getByText("Answered at submit time.")).toBeInTheDocument()
+  })
+
+  test.each([
+    ["unreachable", "PROVIDER_UNAVAILABLE", "Couldn't reach Anthropic. Ask again in a moment."],
+    ["busy", "RATE_LIMITED", "Too many questions in a short time. Wait a moment and ask again."],
+    ["refused", "AUTH_REQUIRED", "Key refused: Anthropic rejected ANTHROPIC_API_KEY Finish setup"],
+    ["missing", "CONFIG_MISSING", "Help is not set up yet: its connection is missing. Finish setup"],
+    ["other", "OTHER", "Help could not answer this time. Ask again."],
+  ])("an API route failure through the server action shows the live-site notice (%s)", async (_kind, category, text) => {
+    mocks.askHelp.mockResolvedValue({ ok: false, category, localTool: false })
+    render(slot("en", { kind: "production" }))
+    openCard()
+    await act(async () => ask("Hello"))
+    expect(screen.getByTestId("help-error")).toHaveTextContent(text)
+    expect(answerCalls()).toHaveLength(0)
+  })
+})
+
+// Approved image 4(c) (owner, 2026-11-16): another device in local
+// development, where Help's local tool choice cannot be read or used.
+describe("Help on another device in local development", () => {
+  test.each([
+    ["en", openCard, "Help runs with a local tool. Open the admin on the computer that runs formulacms, or choose an API connection in Settings › AI.", "Settings › AI"],
+    ["fr", openCardFr, "L'aide utilise un outil local. Ouvrez l'administration sur l'ordinateur qui exécute formulacms, ou choisissez une connexion API dans Paramètres › IA.", "Paramètres › IA"],
+  ] as const)("%s: the notice replaces the form, links to Settings › AI and has no Finish setup", (language, open, text, link) => {
+    render(slot(language, { kind: "selected-other-device" }))
+    open()
+    const notice = screen.getByTestId("help-local-elsewhere")
+    expect(notice).toHaveTextContent(text)
+    // Same notice as Help's (image 4): one component, one role.
+    expect(notice).toHaveAttribute("data-slot", "amber-notice")
+    expect(notice).toHaveAttribute("role", "status")
+    expect(within(notice).getByRole("link", { name: link })).toHaveAttribute("href", "/admin/settings/ai")
+    expect(screen.queryByTestId("help-finish-setup")).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /Finish setup|Terminer/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+  })
+
+  test("a malformed local file on this computer keeps the Finish setup notice", () => {
+    render(slot("en", { kind: "selected-needs-setup" }))
+    openCard()
+    expect(screen.getByTestId("help-finish-setup")).toBeInTheDocument()
+    expect(screen.queryByTestId("help-local-elsewhere")).not.toBeInTheDocument()
   })
 })

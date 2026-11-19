@@ -16,6 +16,8 @@ import type {
 } from "../contributions/ai-writing"
 import { OptionalContribution } from "../optional-contribution"
 import {
+  LocalRouteProvider,
+  LocalToolElsewhereNotice,
   PageJobList,
   RunningJobNotice,
   focusPageJobCard,
@@ -39,6 +41,7 @@ const isWriteLocale = (code: string): code is WriteLocale =>
  */
 export function NewPageWritingSlot({
   children,
+  routeData,
   pageType,
   locale,
   isCreating,
@@ -49,7 +52,7 @@ export function NewPageWritingSlot({
   // Set when the button was pressed while another page job runs.
   const [blocked, setBlocked] = useState(false)
   return (
-    <>
+    <LocalRouteProvider assistant="writing" routeData={routeData.editorialCopy}>
       {on && <WritingJobs />}
       {children(
         on
@@ -71,7 +74,7 @@ export function NewPageWritingSlot({
       {on && blocked && (
         <WritingRunningNotice onFollowed={() => setBlocked(false)} />
       )}
-    </>
+    </LocalRouteProvider>
   )
 }
 
@@ -79,16 +82,21 @@ export function NewPageWritingSlot({
 function WritingJobs() {
   const t = useTranslations("pages.aiWrite")
   const tShell = useTranslations("shell")
-  const { status, ready } = useWritingState()
+  const { status, ready, runsLocally, writeJobs } = useWritingState()
   useEffect(() => {
     if (status instanceof Error)
       reportContainedModuleFailure("ai", "admin.contribution", status)
   }, [status])
-  if (!ready) return null
+  // A local job's card shows on every device; it needs no API connection. A
+  // job that exists keeps its card when Writing moves to a service that is not
+  // set up: only a new job needs one.
+  const hasJobs = writeJobs.length > 0
+  if (!ready && !runsLocally && !hasJobs) return null
   return (
     <OptionalContribution
       moduleId="ai"
       slot="admin.ai-writing"
+      readyWithoutSetup={runsLocally || hasJobs}
       fallbackText={tShell("modulesUnavailable")}
       finishSetup={{ href: "/admin/settings/ai", label: t("settingsLink") }}
     >
@@ -130,14 +138,16 @@ const writeLanguages = (enabledLocales: readonly string[] | undefined) =>
 
 /**
  * The missing or refused key notice, on its own line under the form (never in
- * its button row). It shows only where the button would show once Writing is
+ * its button row). When Writing runs with a local tool on another computer,
+ * the notice says so instead. It shows only where the button would show once Writing is
  * ready: a Page, on a site with English or French.
  */
 function WritingKeyNotice({ pageType }: { pageType: ContentType }) {
-  const { loaded, ready, connection } = useWritingState()
+  const { loaded, ready, elsewhere, connection } = useWritingState()
   const siteConfig = useQuery(api.cms.settings.getSiteConfig)
   if (!loaded || ready || pageType !== "page") return null
   if (writeLanguages(siteConfig?.enabledLocales).length === 0) return null
+  if (elsewhere) return <LocalToolElsewhereNotice messages="pages.aiWrite" />
   return <ApiKeyNotice connection={connection} />
 }
 

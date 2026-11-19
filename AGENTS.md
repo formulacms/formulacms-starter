@@ -28,7 +28,7 @@ This read-only rule applies only to an unmodified release checkout used as a
 blueprint. In an application the owner created from the starter, such as their
 own clone, agents may edit files, commit and run Git commands.
 
-To upgrade this site to a newer formulacms release, fetch the release tag and follow its upgrade file for your version, for example `git show v0.2.0:upgrades/v0.1.1-to-v0.2.0.md`. Read the upgrade file before any `git pull` or merge of a release. The file lists the steps and when to stop and ask the site owner.
+To upgrade this site to a newer formulacms release, fetch the release tag and follow its upgrade file for your version, if the release declares one, for example `git show <new-tag>:upgrades/<your-tag>-to-<new-tag>.md`. A release that declares no upgrade from your version supports fresh installs only: stop and tell the site owner. Read the upgrade file before any `git pull` or merge of a release. The file lists the steps and when to stop and ask the site owner.
 
 To operate or customize a site, the owner must explicitly name a separate,
 non-starter application directory and authorize cloning the pure blueprint into
@@ -95,6 +95,20 @@ Keep changes practical for someone building their own site from the starter.
 **next-devtools-mcp Discovery**: When you start the development server with
 `pnpm dev`, next-devtools-mcp starts automatically and connects to the running
 Next.js instance.
+
+## Generated module files
+
+The formulacms release owns the module list in
+`lib/modules/catalog.generated.ts`. Module authoring is not yet available.
+
+- Build a site's own feature as ordinary application code: pages, components,
+  content types and Convex functions.
+- Never edit a `*.generated.*` file.
+- Never add a module id to the module catalog.
+- When `pnpm build` or `pnpm check:preflight` reports a changed generated
+  file, restore each listed file from the release tag:
+  `git checkout <release-tag> -- <listed file>`. Never delete or skip the
+  check.
 
 ## Docs
 

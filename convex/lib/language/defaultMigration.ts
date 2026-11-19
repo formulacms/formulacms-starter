@@ -1,4 +1,7 @@
 import { ConvexError } from "convex/values"
+import { assertNoPagePurgeInProgress } from "../publishing/pagePurge"
+import { nextUpdatedAt } from "../versions"
+import { recordLegacyLocalePatch } from "../contentTypes/perLanguageFields"
 import type {
   PaginationOptions,
   PaginationResult,
@@ -279,6 +282,7 @@ export async function startDefaultMigrationInTransaction(
     fail("LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY")
   }
   const { toLocale } = args
+  await assertNoPagePurgeInProgress(ctx)
   const live = await readLiveMigrationState(ctx, toLocale)
   const { state, tokens } = live
   if (state.kind === "invalid") fail("SITE_LANGUAGE_AUTHORITY_INVALID")
@@ -1006,10 +1010,11 @@ export async function activateDefaultMigrationInTransaction(
   })
   await ctx.db.patch("siteSettings", state.settings._id, {
     defaultLocale: migration.toLocale,
+    ...recordLegacyLocalePatch(state.settings),
     // M05 A5: the legacy single description is stored under the outgoing
     // default language in this same commit, so the change never relabels it.
     ...storeLegacySiteDescription(state.settings, migration.fromLocale),
-    updatedAt: now,
+    updatedAt: nextUpdatedAt(state.settings.updatedAt, now),
   })
   await ctx.db.patch("siteDefaultLanguageMigrations", migration._id, {
     phase: "committed",
@@ -1879,10 +1884,11 @@ export async function setDefaultLanguageInTransaction(
   })
   await ctx.db.patch("siteSettings", state.settings._id, {
     defaultLocale: toLocale,
+    ...recordLegacyLocalePatch(state.settings),
     // M05 A5: the legacy single description is stored under the outgoing
     // default language in this same commit, so the change never relabels it.
     ...storeLegacySiteDescription(state.settings, fromLocale),
-    updatedAt: now,
+    updatedAt: nextUpdatedAt(state.settings.updatedAt, now),
   })
   await insertLanguageLifecycleIntent(ctx, {
     operationId: `default_change:v${version}`,

@@ -1,5 +1,6 @@
 import { stat, unlink } from "node:fs/promises"
-import { join } from "node:path"
+import { join, relative, sep } from "node:path"
+import { localStateDirectory } from "@/lib/local-state/directory"
 import { writeFileAtomically } from "./atomic-write"
 import { withFileRollback } from "./file-rollback"
 import { normalizeReferenceImage } from "./reference-normalize"
@@ -15,8 +16,13 @@ import {
 } from "./reference-contract"
 
 const REFERENCE_DIR = "public/slice-references"
-const LOCAL_REFERENCE_DIR = ".nextcms/slice-references"
-const ORIGINAL_LOCAL_REFERENCE_DIR = `${LOCAL_REFERENCE_DIR}/originals`
+/** Where preserved uploads live: the machine-local state folder, which a site
+ *  from 0.2.0 may still have under its old name until the server start moves
+ *  it. */
+function originalsDirectory(root: string): string {
+  const local = relative(root, localStateDirectory(root)).split(sep).join("/")
+  return `${local}/slice-references/originals`
+}
 /**
  * One ceiling governs both the uploaded design and the normalized PNG derived
  * from it. The old 700 KB cap applied to a downscaled data URL; a full
@@ -74,14 +80,18 @@ export function sliceReferencePaths(type: string): string[] {
   })
 }
 
-export function sliceOriginalReferencePaths(type: string): string[] {
+export function sliceOriginalReferencePaths(
+  type: string,
+  root = process.cwd()
+): string[] {
   if (!SLICE_TYPE.test(type)) {
     throw new Error("Slice type must be kebab-case.")
   }
+  const originals = originalsDirectory(root)
   return (["desktop", "mobile"] as const).flatMap((variant) => {
     const basename = basenameFor(type, variant)
     return SLICE_REFERENCE_EXTENSIONS.map(
-      (ext) => `${ORIGINAL_LOCAL_REFERENCE_DIR}/${basename}.${ext}`
+      (ext) => `${originals}/${basename}.${ext}`
     )
   })
 }
@@ -90,7 +100,8 @@ export function sliceOriginalReferencePaths(type: string): string[] {
  *  original, and the tracked contract. This is the rollback unit for one save. */
 function variantPersistencePaths(
   type: string,
-  variant: SliceReferenceVariant
+  variant: SliceReferenceVariant,
+  originals: string
 ): string[] {
   const basename = basenameFor(type, variant)
   return [
@@ -98,7 +109,7 @@ function variantPersistencePaths(
       (ext) => `${REFERENCE_DIR}/${basename}.${ext}`
     ),
     ...SLICE_REFERENCE_EXTENSIONS.map(
-      (ext) => `${ORIGINAL_LOCAL_REFERENCE_DIR}/${basename}.${ext}`
+      (ext) => `${originals}/${basename}.${ext}`
     ),
     REFERENCE_CONTRACT_PATH,
   ]
@@ -112,7 +123,8 @@ function variantPersistencePaths(
 export function sliceReferenceArtifactPaths(
   type: string,
   variant: SliceReferenceVariant,
-  mediaType: string
+  mediaType: string,
+  root = process.cwd()
 ): string[] {
   if (!SLICE_TYPE.test(type)) {
     throw new Error("Slice type must be kebab-case.")
@@ -120,7 +132,7 @@ export function sliceReferenceArtifactPaths(
   const basename = basenameFor(type, variant)
   return [
     `${REFERENCE_DIR}/${basename}.${NORMALIZED_REFERENCE_EXTENSION}`,
-    `${ORIGINAL_LOCAL_REFERENCE_DIR}/${basename}.${extensionFor(mediaType)}`,
+    `${originalsDirectory(root)}/${basename}.${extensionFor(mediaType)}`,
     REFERENCE_CONTRACT_PATH,
   ]
 }
@@ -233,12 +245,13 @@ export async function persistSliceReference({
   }
 
   const basename = basenameFor(type, variant)
+  const originals = originalsDirectory(root)
   const referencePath = `${REFERENCE_DIR}/${basename}.${NORMALIZED_REFERENCE_EXTENSION}`
-  const originalPath = `${ORIGINAL_LOCAL_REFERENCE_DIR}/${basename}.${sourceExt}`
+  const originalPath = `${originals}/${basename}.${sourceExt}`
 
   const { image: normalized, written } = await withFileRollback(
     root,
-    variantPersistencePaths(type, variant),
+    variantPersistencePaths(type, variant, originals),
     async () => {
       const image = await normalizeReferenceImage(source)
       if (image.png.byteLength > MAX_REFERENCE_BYTES) {
@@ -256,12 +269,7 @@ export async function persistSliceReference({
       )
 
       await writeFileAtomically(join(root, originalPath), source)
-      await removeSiblingReferences(
-        root,
-        ORIGINAL_LOCAL_REFERENCE_DIR,
-        basename,
-        sourceExt
-      )
+      await removeSiblingReferences(root, originals, basename, sourceExt)
 
       const written = await writeReferenceContractEntry({
         type,
@@ -322,7 +330,8 @@ export async function deleteSliceReference(type: string): Promise<string[]> {
     throw new Error("Slice type must be kebab-case.")
   }
   const removed: string[] = []
-  for (const directory of [REFERENCE_DIR, ORIGINAL_LOCAL_REFERENCE_DIR]) {
+  const originals = originalsDirectory(process.cwd())
+  for (const directory of [REFERENCE_DIR, originals]) {
     for (const variant of ["desktop", "mobile"] as const) {
       const path = await firstExistingLocalReference(
         directory,

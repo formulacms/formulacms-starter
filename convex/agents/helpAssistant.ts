@@ -21,6 +21,12 @@ import { action, internalQuery } from "../_generated/server"
 import type { ActionCtx } from "../_generated/server"
 import { internal } from "../_generated/api"
 import {
+  catalogModelEntryValidator,
+  loadRuntimeCatalogEntries,
+} from "../lib/aiCatalog"
+import { catalogFromEntries, type ModelCatalog } from "../../lib/ai/model-catalog"
+import { ASSISTANT_PROFILES } from "../../lib/ai/task-profiles"
+import {
   generateRuntimeText,
   createRuntimeAccounting,
   resolveRuntimeAssistant,
@@ -63,6 +69,8 @@ interface HelpConfig {
   providerDefaults: ProviderModelSelections | undefined
   taskDefaults: TaskDefaults | undefined
   modelOverrides: ProviderModelSelections | undefined
+  /** Shared catalog entries for every candidate tuple (prepare query). */
+  catalog: ModelCatalog
   systemPrompt: string
   userPromptTemplate: string
   authId: string
@@ -92,6 +100,7 @@ export const prepareHelp = internalQuery({
     providerDefaults: v.union(providerModelSelectionsValidator, v.null()),
     taskDefaults: v.union(taskDefaultsValidator, v.null()),
     modelOverrides: v.union(providerModelSelectionsValidator, v.null()),
+    catalog: v.array(catalogModelEntryValidator),
     systemPrompt: v.string(),
     userPromptTemplate: v.string(),
     authId: v.string(),
@@ -104,17 +113,27 @@ export const prepareHelp = internalQuery({
       .withIndex("by_agent", (q) => q.eq("agent", "help-assistant"))
       .unique()
     const def = AGENTS["help-assistant"]
+    const assistant = await resolveRuntimeAssistant(
+      ctx,
+      "grounded-help",
+      "help-answer"
+    )
+    const catalog = await loadRuntimeCatalogEntries(ctx, {
+      providers: [assistant.provider],
+      profiles: ASSISTANT_PROFILES.help,
+      tuples: [assistant.tuple],
+      providerDefaults: settings?.aiRuntime?.providerDefaults,
+      taskDefaults: settings?.aiRuntime?.taskDefaults,
+      modelOverrides: agentConfig?.modelOverrides,
+    })
     return {
-      assistant: await resolveRuntimeAssistant(
-        ctx,
-        "grounded-help",
-        "help-answer"
-      ),
+      assistant,
       modelId: agentConfig?.model ?? settings?.aiDefaultModel ?? null,
       selectedProvider: settings?.aiRuntime?.selectedProvider ?? null,
       providerDefaults: settings?.aiRuntime?.providerDefaults ?? null,
       taskDefaults: settings?.aiRuntime?.taskDefaults ?? null,
       modelOverrides: agentConfig?.modelOverrides ?? null,
+      catalog,
       // Registry default only — the system prompt is unwritable by design.
       systemPrompt: def.defaultSystemPrompt,
       userPromptTemplate:
@@ -133,6 +152,7 @@ async function gate(ctx: ActionCtx): Promise<HelpConfig> {
     providerDefaults,
     taskDefaults,
     modelOverrides,
+    catalog,
     systemPrompt,
     userPromptTemplate,
     authId,
@@ -145,6 +165,7 @@ async function gate(ctx: ActionCtx): Promise<HelpConfig> {
     providerDefaults: providerDefaults ?? undefined,
     taskDefaults: taskDefaults ?? undefined,
     modelOverrides: modelOverrides ?? undefined,
+    catalog: catalogFromEntries(catalog),
     systemPrompt,
     userPromptTemplate,
     authId,
@@ -228,6 +249,7 @@ export const answer = action({
           providerDefaults: cfg.providerDefaults,
           taskDefaults: cfg.taskDefaults,
           modelOverrides: cfg.modelOverrides,
+          catalog: cfg.catalog,
           profile: "grounded-help",
           phase: "help-answer",
           system,

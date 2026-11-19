@@ -12,10 +12,8 @@ import {
   TASK_PROFILE_REQUIREMENTS,
   taskProfileTuple,
 } from "../../lib/ai/task-profiles"
-import { OPENROUTER_CATALOG_MAX_MODELS } from "../../lib/ai/openrouter-catalog"
-import { OPENROUTER_API_CATALOG } from "../../lib/ai/capabilities/openrouter-api"
-import { ANTHROPIC_API_CATALOG } from "../../lib/ai/capabilities/anthropic-api"
-import { OPENAI_API_CATALOG } from "../../lib/ai/capabilities/openai-api"
+import { catalogFromEntries, modelRefusal } from "../../lib/ai/model-catalog"
+import { loadCatalogModels, loadProviderCatalog } from "../lib/aiCatalog"
 import { requireOwnerAndOptionalModule, readModuleState, resolveOptionalModuleGuardState } from "../lib/modules/state"
 import {
   resolveRuntimeSelection,
@@ -59,7 +57,8 @@ import type {
   AttemptReceipt,
 } from "../../lib/ai/accounting-contract"
 import type { Doc, Id } from "../_generated/dataModel"
-import { runtimeProviderKey, resolveAiSettingsStatus, requireAiTranslationModule, readRuntimeProviderConnection } from "../lib/ai"
+import { runtimeProviderKey, readLegacyModelAssistants, resolveAiSettingsStatus, requireAiTranslationModule, readRuntimeProviderConnection } from "../lib/ai"
+import { assertPageIdTranslatedIn } from "../lib/publishing/translationSwitch"
 import { hashOwnerClaim } from "../lib/ownerClaim"
 
 function availability(): RuntimeProviderAvailability {
@@ -117,10 +116,32 @@ function filterKnownTaskDefaults<T>(raw: Record<string, T>): Record<string, T> {
   return out
 }
 
-function catalogFor(provider: (typeof API_PROVIDERS)[number]) {
-  if (provider === "openrouter") return OPENROUTER_API_CATALOG
-  if (provider === "anthropic") return ANTHROPIC_API_CATALOG
-  return OPENAI_API_CATALOG
+/** The models one provider offers at `now` (the shared refusal: not offered,
+ * not listed, retired, unpriced, capabilities unknown), as capability records
+ * for the old screen. */
+async function catalogFor(
+  ctx: QueryCtx,
+  provider: (typeof API_PROVIDERS)[number],
+  now: number
+): Promise<Record<string, NamedCapability>> {
+  const offered = catalogFromEntries(await loadProviderCatalog(ctx, provider)).list(provider, now)
+  return Object.fromEntries(
+    offered.map((entry) => [
+      entry.model,
+      {
+        ...entry.capability!,
+        name: entry.name,
+        ...(entry.price
+          ? {
+              pricing: {
+                inputPerM: entry.price.inputPerM / 1_000_000,
+                outputPerM: entry.price.outputPerM / 1_000_000,
+              },
+            }
+          : {}),
+      },
+    ])
+  )
 }
 
 type NamedCapability = ApiModelCapability & { readonly name?: string }
@@ -152,14 +173,7 @@ function capabilitySupportsProfile(
   return true
 }
 
-function selectionProjections(
-  provider: (typeof API_PROVIDERS)[number],
-  openRouterCatalog?: Record<string, NamedCapability>
-) {
-  const catalog =
-    provider === "openrouter" && openRouterCatalog
-      ? openRouterCatalog
-      : catalogFor(provider)
+function selectionProjections(catalog: Record<string, NamedCapability>) {
   return Object.entries(catalog).flatMap(([model, capability]) => {
     const pricePerM = capability.pricing
       ? {
@@ -193,7 +207,9 @@ function selectionProjections(
  * No live provider discovery occurs here and no credential value is returned.
  */
 export const getModelsSettings = query({
-  args: {},
+  /** The time retirement and price end dates are checked against; the screen
+   *  passes none, tests pass a fixed value. */
+  args: { now: v.optional(v.number()) },
   returns: v.object({
     runtime: runtimeStatusValidator,
     providerDefaults: providerModelSelectionsValidator,
@@ -215,49 +231,24 @@ export const getModelsSettings = query({
      *  later Team read-only capability has somewhere to report itself. */
     canEdit: v.boolean(),
   }),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     // Community's single durable owner reads and writes AI settings through
     // the same seam, so reaching the body already proves edit authority.
     await requireOwnerAndOptionalModule(ctx, "ai", { requireReady: false })
+    const now = args.now ?? Date.now()
     const settings = await ctx.db.query("siteSettings").first()
     const selected = settings?.aiRuntime?.selectedProvider
     const available = availability()
-    const runtime = resolveRuntimeSelection(selected, available)
-    const synchronizedModels = await ctx.db
-      .query("openRouterCatalogModels")
-      .take(OPENROUTER_CATALOG_MAX_MODELS + 1)
-    const synchronizedCatalog =
-      synchronizedModels.length > 0 &&
-      synchronizedModels.length <= OPENROUTER_CATALOG_MAX_MODELS
-        ? Object.fromEntries(
-            synchronizedModels.map((model) => [
-              model.modelId,
-              {
-                name: model.name,
-                inputModalities: model.inputModalities,
-                outputModalities: ["text"] as const,
-                structuredOutput: model.structuredOutput,
-                reasoning:
-                  model.reasoningEfforts.length > 0
-                    ? {
-                        kind: "effort" as const,
-                        supportedEfforts: model.reasoningEfforts,
-                        providerDefault: "medium" as const,
-                      }
-                    : { kind: "unsupported" as const },
-                ...(model.inputPerM === undefined ||
-                model.outputPerM === undefined
-                  ? {}
-                  : {
-                      pricing: {
-                        inputPerM: model.inputPerM,
-                        outputPerM: model.outputPerM,
-                      },
-                    }),
-              } satisfies NamedCapability,
-            ])
-          )
-        : undefined
+    const runtime = resolveRuntimeSelection(
+      selected,
+      available,
+      (await readLegacyModelAssistants(ctx, settings)).size > 0
+    )
+    const catalogs = Object.fromEntries(
+      await Promise.all(
+        API_PROVIDERS.map(async (provider) => [provider, await catalogFor(ctx, provider, now)] as const)
+      )
+    ) as Record<(typeof API_PROVIDERS)[number], Record<string, NamedCapability>>
     const catalogState = await ctx.db
       .query("openRouterCatalogSync")
       .withIndex("by_key", (q) => q.eq("key", "openrouter"))
@@ -284,13 +275,12 @@ export const getModelsSettings = query({
         settings?.aiRuntime?.taskDefaults ?? {}
       ),
       openRouterCatalog: {
-        source: synchronizedCatalog
-          ? ("synced" as const)
-          : ("bundled" as const),
+        source:
+          catalogState?.lastSuccessAt !== undefined
+            ? ("synced" as const)
+            : ("bundled" as const),
         refreshStatus: catalogState?.status ?? ("idle" as const),
-        modelCount: synchronizedCatalog
-          ? synchronizedModels.length
-          : Object.keys(OPENROUTER_API_CATALOG).length,
+        modelCount: Object.keys(catalogs.openrouter).length,
         ...(catalogState?.lastSuccessAt === undefined
           ? {}
           : { updatedAt: catalogState.lastSuccessAt }),
@@ -309,7 +299,7 @@ export const getModelsSettings = query({
                 : null,
           }
         }),
-        selections: selectionProjections(provider, synchronizedCatalog),
+        selections: selectionProjections(catalogs[provider]),
       })),
     }
   },
@@ -393,18 +383,15 @@ export async function pricing(
   args: AdmissionArgs,
   now: number
 ) {
-  const catalog =
-    args.provider === "openrouter"
-      ? await ctx.db
-          .query("openRouterCatalogModels")
-          .withIndex("by_modelId", (q) => q.eq("modelId", args.modelId))
-          .unique()
-      : null
-  const price = quote(args.provider, args.modelId, {
-    inputTokens: args.inputTokens,
-    now,
-    ...(catalog ? { catalog } : {}),
-  })
+  // The same entry Settings and preflight read: retired, not listed or not
+  // offered models are refused here too, then the entry's price is quoted.
+  const [entry] = await loadCatalogModels(ctx, [
+    { provider: args.provider, model: args.modelId },
+  ])
+  const reason = modelRefusal(entry, now)
+  if (reason && reason !== "no-price" && reason !== "price-expired")
+    throw new Error(`AI model is not available (${reason}).`)
+  const price = quote(entry, { inputTokens: args.inputTokens, now })
   moneyInteger(args.maxOutputTokens)
   if (
     args.maxOutputTokens === 0 ||
@@ -558,6 +545,11 @@ async function admitAttempt(
       jobUnit.admittedClaim === jobUnit.claimToken
     )
       throw new Error("AI operation is no longer available.")
+    // ADR-0037 amendment (2026-11-17): a claim made before the switch turned
+    // the target language off buys no new attempt. An attempt admitted
+    // earlier still settles through `settleAttempt` once.
+    if (job.kind === "translation")
+      await assertPageIdTranslatedIn(ctx, job.pageId, job.locale)
   } else if (anchorAttemptKey !== undefined) {
     const anchor = await ctx.db
       .query("aiSpendingAttempts")

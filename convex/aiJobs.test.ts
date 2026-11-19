@@ -22,6 +22,7 @@ import type {
 import { hashOwnerClaim } from "./lib/ownerClaim"
 import { taskProfileTuple } from "../lib/ai/task-profiles"
 import { estimateMicros, quote } from "../lib/ai/price-quote"
+import { BUNDLED_MODEL_CATALOG } from "../lib/ai/model-catalog"
 import { translatePageContent } from "./lib/agents/translationWorkflow"
 import workpoolTest from "@convex-dev/workpool/test"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
@@ -84,6 +85,7 @@ vi.mock("./lib/ai", async (original) => {
             providerDefaults: options.providerDefaults,
             taskDefaults: options.taskDefaults,
             modelOverrides: options.modelOverrides,
+            catalog: options.catalog,
           }).tuple
       const request = {
         target: { lane: "runtime", provider: tuple.provider },
@@ -114,6 +116,9 @@ vi.mock("./lib/ai", async (original) => {
             : { messages: options.messages! },
         requirements: { inputModalities: ["text"], structuredOutput: false },
         output: { kind: "text" },
+        ...(tuple.mode === "catalog"
+          ? { catalogEntry: options.catalog.get(tuple.provider, tuple.model) }
+          : {}),
       } as GenerationRequest<string>
       return executeGeneration(
         request,
@@ -648,7 +653,7 @@ describe("AI1 U1b recovery and counterexamples", () => {
     const { t, owner } = await setup()
     const id = await start(owner, 2)
     const amount = estimateMicros(
-      quote("openai", "gpt-5.6-terra", { inputTokens: 100 }),
+      quote(BUNDLED_MODEL_CATALOG.get("openai", "gpt-5.6-terra"), { inputTokens: 100 }),
       100,
       100
     )
@@ -1032,6 +1037,50 @@ describe("AI1 U1b recovery and counterexamples", () => {
     expect(page!.page.content!.en!.title).toBe("Changed after Start")
     expect(page!.page.content!.fr).toBeUndefined()
   })
+  // ADR-0037 amendment (2026-11-17): the social text, card excerpt and post
+  // category are each language's own text, so translation covers them.
+  test("translation covers the social text, card excerpt and category, keeps noindex, and never translates structured data", async () => {
+    fake.text = "Traduit"
+    const { t, owner } = await setup({ multilingual: true })
+    const pageId = await owner.mutation(api.cms.pages.create, {
+      pageType: "post",
+      status: "draft",
+      title: "Post",
+      slug: "post",
+      category: "News",
+      cardExcerpt: "Excerpt",
+      seo: {
+        noIndex: true,
+        ogTitle: "Social title",
+        ogDescription: "Social description",
+        structuredData: '{"@type":"Article"}',
+        keywords: ["news"],
+      },
+      content: { en: { title: "Post", slices: [] } },
+    })
+    const id = await translate(owner, pageId)
+    // The pinned source carries the per-language text; not structured data.
+    const pinned = (await job(t, id))!.sourcePage!
+    expect(pinned).toMatchObject({
+      ogTitle: "Social title",
+      ogDescription: "Social description",
+      cardExcerpt: "Excerpt",
+    })
+    await finish(t, id)
+    const { draft } = (await job(t, id))!.suggestion!
+    expect(draft).toMatchObject({
+      pageType: "post",
+      localized: { title: "Traduit", category: "Traduit" },
+      seo: {
+        noIndex: true,
+        ogTitle: "Traduit",
+        ogDescription: "Traduit",
+      },
+      cardExcerpt: "Traduit",
+    })
+    expect(draft!.seo).not.toHaveProperty("structuredData")
+    expect(draft!.seo).not.toHaveProperty("keywords")
+  })
   test("real registered workpool and nested batchWorker deliver the identity-free action and completion", async () => {
     const { t, owner } = await setup()
     const id = await start(owner, 1)
@@ -1380,7 +1429,7 @@ for (const kind of ["write", "translation"] as const) {
       fake.beforeAdmission.mockImplementationOnce(async (request) => {
         expect((await units(t, id))[0]!.state).toBe("inProgress")
         expect(request.provider).toBe("openai")
-        expect(request.modelId).toBe((await job(t, id))!.tuple.model)
+        expect(request.modelId).toBe((await job(t, id))!.tuple!.model)
         expect(request.phase).toBe(kind === "write" ? "page-fill" : "translation")
         await repairHealth(t, state)
         healthBefore = await t.run((ctx) => ctx.db.query("aiProviderHealth").collect())
@@ -1391,7 +1440,7 @@ for (const kind of ["write", "translation"] as const) {
       if (state === "refused") {
         await expect(work).rejects.toMatchObject({ data: expect.objectContaining({
           category: "AUTH_REQUIRED", attempts: 0, retryable: false, nextAction: "authenticate-provider",
-          selected: expect.objectContaining({ lane: "runtime", provider: "openai", model: (await job(t, id))!.tuple.model }),
+          selected: expect.objectContaining({ lane: "runtime", provider: "openai", model: (await job(t, id))!.tuple!.model }),
         }) })
         expect(fake.generate).not.toHaveBeenCalled()
         expect(await t.run((ctx) => ctx.db.query("aiSpendingAttempts").collect())).toEqual([])
@@ -1524,7 +1573,7 @@ test.each(["anthropic", "openrouter", "openai"] as const)(
     const frozen = (await job(t, id))!
     // This assertion must fail on the old brand-translation catalog fallback.
     expect(frozen.tuple).toEqual(taskProfileTuple(provider, "mechanical-translation"))
-    const settings = await owner.query(api.cms.aiSettings.status, {})
+    const settings = (await owner.query(api.cms.aiSettings.status, {}))!
     expect(frozen.tuple).toEqual(settings.assistants.find((a) => a.id === "translation")!.effective)
     await cancelQueued(t, owner, id)
     const writeId = await start(owner, 1)
@@ -1651,7 +1700,7 @@ describe("Write page with AI: job list gap", () => {
     ).resolves.toEqual({ pageMovedToTrash: false })
     expect((await job(t, translationId))!.reviewedAt).toBeDefined()
     await setModules(t, [])
-    await expect(progress(owner)).rejects.toThrow("CMS_MODULE_DISABLED")
+    await expect(progress(owner)).resolves.toEqual([])
     await setModules(t, ["ai"])
     await expect(
       t
@@ -2720,6 +2769,25 @@ describe("Translate page with AI: Start", () => {
     ).rejects.toThrow("AI_JOB_INPUT_INVALID")
     expect(await jobCount(t)).toBe(1)
   })
+  test("a language where the content type is switched to one language is refused, by Start and by the estimate; no job", async () => {
+    const { t, owner } = await setup({ multilingual: true })
+    const pageId = await source(t, owner)
+    await t.run(async (ctx) => {
+      const settings = (await ctx.db.query("siteSettings").first())!
+      await ctx.db.patch("siteSettings", settings._id, {
+        untranslatedContentTypes: [{ pageType: "page", locale: "en" }],
+      })
+    })
+    await expect(startTranslation(owner, pageId)).rejects.toThrow(
+      "CONTENT_TYPE_TRANSLATION_OFF"
+    )
+    await expect(
+      owner.query(api.cms.aiJobs.estimatePageJob, {
+        input: translationInput(pageId),
+      })
+    ).rejects.toThrow("CONTENT_TYPE_TRANSLATION_OFF")
+    expect(await jobCount(t)).toBe(0)
+  })
   test("a target language that already has content is refused, by Start and by the estimate; no job, no reservation", async () => {
     const { t, owner } = await setup({ multilingual: true })
     const pageId = await source(t, owner, "Source", { withFrench: true })
@@ -3326,5 +3394,295 @@ describe("Translate page with AI: identifiers are not translated, claims stay ch
     const claimed = (await claim(second.t, write, 1))!
     expect(claimed.units.map((u) => u.index)).toEqual([0, 1])
     expect(claimed.units[0]!.state).toBe("saved")
+  })
+})
+
+// Review 1b follow-up: an inherited saved selection whose catalog row was
+// removed. The estimate and Start refuse it with the plain structured refusal
+// a saved assistant model gets (never a bare server error); no job starts.
+describe("Review 1b: removed inherited selection", () => {
+  test.each(["task", "site", "agent"] as const)(
+    "a removed %s default: estimate and Start refuse it plainly; no job, no reservation",
+    async (source) => {
+      const { t, owner } = await setup()
+      const removed = {
+        mode: "catalog", provider: "openai", model: "gpt-removed-model",
+        reasoning: { kind: "effort", effort: "medium" },
+      } as const
+      await t.run(async (ctx) => {
+        const settings = (await ctx.db.query("siteSettings").first())!
+        await ctx.db.patch("siteSettings", settings._id, {
+          aiRuntime: {
+            selectedProvider: "openai",
+            ...(source === "task" ? { taskDefaults: { "editorial-copy": removed } } : {}),
+            ...(source === "site" ? { providerDefaults: { openai: removed } } : {}),
+          },
+        })
+        if (source === "agent")
+          await ctx.db.insert("agentConfigs", { agent: "content", modelOverrides: { openai: removed }, updatedAt: 1 })
+      })
+      const refusal = {
+        data: {
+          category: "UNSUPPORTED_CAPABILITY",
+          selected: { lane: "runtime", provider: "openai", model: "gpt-removed-model" },
+        },
+      }
+      await expect(
+        owner.query(api.cms.aiJobs.estimatePageJob, { input: writeInput() })
+      ).rejects.toMatchObject(refusal)
+      await expect(start(owner)).rejects.toMatchObject(refusal)
+      expect(await jobCount(t)).toBe(0)
+      expect((await status(t)).reservedMicros).toBe(0)
+    }
+  )
+})
+
+// ---- ADR-0037 amendment (2026-11-17), round 1: per-language fields in AI jobs ----
+
+/** Gives the English draft its own social text, robots choice and card excerpt. */
+async function saveLanguageValues(
+  t: App,
+  owner: Owner,
+  pageId: Id<"pages">,
+  slices: unknown[]
+) {
+  const rows = await pageRows(t, pageId)
+  const content = rows.draft!.content as Record<string, unknown>
+  const localized = Object.fromEntries(
+    ["title", "metaTitle", "metaDescription"]
+      .filter((key) => content[key] !== undefined)
+      .map((key) => [key, content[key]])
+  )
+  return owner.mutation(api.cms.publication.saveEditorDraft, {
+    pageId,
+    expectedLifecycleGeneration: rows.life.lifecycleGeneration,
+    localized: {
+      locale: "en",
+      slug: rows.draft!.slug,
+      addressIntent: "typed",
+      draft: {
+        pageType: "page",
+        localized,
+        slices,
+        seo: {
+          ogTitle: "Saved social title",
+          noIndex: true,
+          keywords: ["saved"],
+          structuredData: '{"saved":true}',
+        },
+        cardExcerpt: "Saved excerpt",
+      } as never,
+      expectedGeneration: rows.states.find((s) => s.locale === "en")!
+        .draftGeneration,
+    },
+  })
+}
+
+describe("Write page with AI: Accept keeps the saved per-language fields", () => {
+  test.each([
+    ["an existing Working Draft", false],
+    ["a frozen base with no draft row", true],
+  ])("%s", async (_name, publishFirst) => {
+    const { t, owner, id, j } = await doneWrite(2)
+    const outputs = await unitOutputs(t, id)
+    const own = { ...outputs[0]!, id: "owner-written-section" }
+    await saveLanguageValues(t, owner, j.pageId, [own])
+    if (publishFirst) {
+      await publishJobPage(t, owner, j.pageId)
+      expect((await pageRows(t, j.pageId)).draft).toBeNull()
+    }
+    await expect(
+      owner.mutation(api.cms.aiJobs.acceptPageJob, {
+        jobId: id,
+        chosen: [1, 0],
+      })
+    ).resolves.toMatchObject({ pageId: j.pageId, saved: 2 })
+    const content = (await pageRows(t, j.pageId)).draft!.content as Record<
+      string,
+      unknown
+    >
+    // The sections are appended and the saved metadata is still there.
+    expect((content.slices as { id: string }[]).map((s) => s.id)).toEqual([
+      "owner-written-section",
+      outputs[0]!.id,
+      outputs[1]!.id,
+    ])
+    expect(content.seo).toEqual({
+      ogTitle: "Saved social title",
+      noIndex: true,
+      keywords: ["saved"],
+      structuredData: '{"saved":true}',
+    })
+    expect(content.cardExcerpt).toBe("Saved excerpt")
+  })
+})
+
+describe("Translate page with AI: Accept persists the per-language fields", () => {
+  // The AI-translated subset is a separate list from what a draft can carry:
+  // social text, card excerpt and category are translated; the robots choices
+  // are copied; structured data, keywords and focus keyword are neither.
+  test("the French draft holds the translated and the copied fields, nothing else of the seo block", async () => {
+    fake.text = "Traduit"
+    const { t, owner } = await setup({ multilingual: true })
+    const pageId = await owner.mutation(api.cms.pages.create, {
+      pageType: "post",
+      status: "draft",
+      title: "Post",
+      slug: "post",
+      category: "News",
+      cardExcerpt: "Excerpt",
+      seo: {
+        noIndex: true,
+        noFollow: true,
+        ogTitle: "Social title",
+        ogDescription: "Social description",
+        structuredData: '{"@type":"Article"}',
+        keywords: ["news"],
+        focusKeyword: "news",
+      },
+      content: { en: { title: "Post", slices: [] } },
+    })
+    const id = await translate(owner, pageId)
+    await finish(t, id)
+    await expect(
+      owner.mutation(api.cms.aiJobs.acceptPageJob, { jobId: id, chosen: [] })
+    ).resolves.toMatchObject({ pageId })
+    const fr = (await pageRows(t, pageId, "fr")).draft!
+    const content = fr.content as Record<string, unknown>
+    const table: Array<[string, unknown, unknown]> = [
+      // [field, expected in French, source value]
+      ["seo.ogTitle", "Traduit", "Social title"],
+      ["seo.ogDescription", "Traduit", "Social description"],
+      ["cardExcerpt", "Traduit", "Excerpt"],
+      ["category", "Traduit", "News"],
+      ["seo.noIndex", true, true],
+      ["seo.noFollow", true, true],
+      ["seo.structuredData", undefined, '{"@type":"Article"}'],
+      ["seo.keywords", undefined, ["news"]],
+      ["seo.focusKeyword", undefined, "news"],
+    ]
+    for (const [field, expected] of table) {
+      const value = field.startsWith("seo.")
+        ? (content.seo as Record<string, unknown> | undefined)?.[field.slice(4)]
+        : content[field]
+      expect(value, field).toEqual(expected)
+    }
+    // The English draft keeps everything.
+    const en = (await pageRows(t, pageId, "en")).draft!.content as Record<
+      string,
+      unknown
+    >
+    expect((en.seo as Record<string, unknown>).keywords).toEqual(["news"])
+    expect(en.cardExcerpt).toBe("Excerpt")
+  })
+})
+
+describe("Translate page with AI: a content type switched to one language after Start", () => {
+  const switchOffFrench = (t: App) =>
+    t.run(async (ctx) => {
+      const settings = (await ctx.db.query("siteSettings").first())!
+      await ctx.db.patch("siteSettings", settings._id, {
+        untranslatedContentTypes: [{ pageType: "page", locale: "en" }],
+      })
+    })
+
+  test("a Workpool claim after the switch stops the job without a provider call", async () => {
+    const { t, owner } = await setup({ multilingual: true })
+    const id = await translate(owner, await source(t, owner))
+    await switchOffFrench(t)
+    expect(await claim(t, id, 0)).toBeNull()
+    expect((await job(t, id))!.state).toBe("canceling")
+    expect(fake.generate).not.toHaveBeenCalled()
+  })
+
+  test("Resume refuses before any reservation, and the list says it is not resumable", async () => {
+    const { t, owner } = await setup({ multilingual: true })
+    const id = await translate(owner, await source(t, owner))
+    await cancelQueued(t, owner, id)
+    expect((await progress(owner)).find((row) => row.jobId === id)!.canResume).toBe(
+      true
+    )
+    await switchOffFrench(t)
+    expect((await progress(owner)).find((row) => row.jobId === id)!.canResume).toBe(
+      false
+    )
+    await expect(
+      owner.mutation(api.cms.aiJobs.resumePageJob, { jobId: id })
+    ).rejects.toThrow("CONTENT_TYPE_TRANSLATION_OFF")
+    expect((await job(t, id))!.state).toBe("canceled")
+    expect((await status(t)).reservedMicros).toBe(0)
+  })
+
+  test("a paid attempt after the claim is refused; an attempt admitted earlier settles once", async () => {
+    const { t, owner } = await setup({ multilingual: true })
+    const id = await translate(owner, await source(t, owner))
+    await claim(t, id, 0)
+    await claim(t, id, 1)
+    await admit(t, id, 0, "before-switch")
+    const reservedAfterFirst = (await status(t)).reservedMicros
+    await switchOffFrench(t)
+    await expect(admit(t, id, 1, "after-switch")).rejects.toThrow(
+      "CONTENT_TYPE_TRANSLATION_OFF"
+    )
+    // The refused call bought nothing.
+    expect((await status(t)).reservedMicros).toBe(reservedAfterFirst)
+    expect(
+      await t.run((ctx) =>
+        ctx.db
+          .query("aiSpendingAttempts")
+          .withIndex("by_attemptKey", (q) => q.eq("attemptKey", "after-switch"))
+          .unique()
+      )
+    ).toBeNull()
+    // The admitted attempt still settles, and a second settle charges nothing.
+    await settle(t, "before-switch")
+    const spent = (await status(t)).spentMicros
+    expect(spent).toBeGreaterThan(0)
+    await settle(t, "before-switch")
+    expect((await status(t)).spentMicros).toBe(spent)
+    // Cancel releases the job's remainder exactly once.
+    await owner.mutation(api.cms.aiJobs.cancelPageJob, { jobId: id })
+    for (const row of await units(t, id))
+      if (row.workId) await callback(t, row, "canceled")
+    expect((await status(t)).reservedMicros).toBe(0)
+    expect((await status(t)).spentMicros).toBe(spent)
+  })
+
+  test("through the real worker: Claim, then Off, then the attempt is refused; no provider call, the job fails and the reservation is released once", async () => {
+    const { t, owner } = await setup({ multilingual: true })
+    const id = await translate(owner, await source(t, owner))
+    const reservationKey = (await job(t, id))!.reservationKey!
+    fake.beforeAdmission.mockImplementationOnce(async () => {
+      // The unit is claimed; the switch turns off before the attempt is bought.
+      expect((await units(t, id))[0]!.state).toBe("inProgress")
+      await switchOffFrench(t)
+    })
+    const row = (await units(t, id))[0]!
+    await expect(
+      t.action(internal.agents.pageJobWorker.runUnit, {
+        jobId: id,
+        unitId: row._id,
+      })
+    ).rejects.toMatchObject({ data: "CONTENT_TYPE_TRANSLATION_OFF" })
+    expect(fake.generate).not.toHaveBeenCalled()
+    expect(await t.run((ctx) => ctx.db.query("aiSpendingAttempts").collect())).toEqual([])
+    await callback(t, row, "failed")
+    for (const other of await units(t, id))
+      if (other.workId) await callback(t, other, "canceled")
+    expect((await job(t, id))!.state).toBe("failed")
+    expect((await status(t)).reservedMicros).toBe(0)
+    const reservation = await t.run((ctx) =>
+      ctx.db
+        .query("aiSpendingJobReservations")
+        .withIndex("by_reservationKey", (q) =>
+          q.eq("reservationKey", reservationKey)
+        )
+        .unique()
+    )
+    expect(reservation).toMatchObject({ state: "released", remainingMicros: 0 })
+    // Resume stays refused.
+    await expect(
+      owner.mutation(api.cms.aiJobs.resumePageJob, { jobId: id })
+    ).rejects.toThrow("CONTENT_TYPE_TRANSLATION_OFF")
   })
 })

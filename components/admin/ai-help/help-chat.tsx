@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
   type ComponentProps,
-  type ReactNode,
 } from "react"
 import Link from "next/link"
 import { useAction } from "convex/react"
@@ -18,7 +17,6 @@ import { useLocale, useTranslations } from "next-intl"
 import {
   ArrowLeftRight,
   ArrowRight,
-  CircleAlert,
   CircleHelp,
   FileText,
   Image,
@@ -36,7 +34,9 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
+import { askHelp } from "@/app/(core)/admin/(authenticated)/help-ai-chat"
 import type { HelpIntentId } from "@/convex/lib/help/intents"
+import { AmberNotice } from "@/components/admin/amber-notice"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -45,13 +45,25 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type adminMessages from "@/messages/admin/en.json"
-import { helpErrorKind, type HelpErrorKind } from "./help-errors"
+import {
+  helpCategoryKind,
+  helpErrorKind,
+  localHelpErrorKind,
+  type HelpErrorKind,
+} from "./help-errors"
 
-type AiStatus = FunctionReturnType<typeof api.cms.aiSettings.status>
+// `status` is null while the AI module is off; Help is hidden then.
+type AiStatus = NonNullable<FunctionReturnType<typeof api.cms.aiSettings.status>>
 export type HelpConnection = AiStatus["connections"][number]
 
 /** "loading" until the status read answers; "missing"/"refused" replace the form. */
-export type HelpReadiness = "loading" | "ready" | "missing" | "refused"
+export type HelpReadiness =
+  | "loading"
+  | "ready"
+  | "missing"
+  | "refused"
+  /** Another device in local development: Help may run with a local tool. */
+  | "elsewhere"
 
 /** Matches the Help action's own limit. */
 export const MAX_QUESTION_CHARS = 2_000
@@ -103,6 +115,10 @@ type ChatProps = {
   readiness: HelpReadiness
   connection: HelpConnection | undefined
   route: string
+  /** Local development: every question goes through the server action, which
+   *  picks the engine when the question is sent (a local tool chosen in
+   *  Settings › AI, or Help's API service). The live site calls Convex. */
+  localDevelopment: boolean
 }
 
 /** Answers are per language, so a language change starts a new conversation. */
@@ -117,9 +133,10 @@ function HelpFloating({
   readiness,
   connection,
   route,
+  localDevelopment,
 }: ChatProps) {
   const t = useTranslations("help")
-  const answer = useAction(api.agents.helpAssistant.answer)
+  const answerOnLiveSite = useAction(api.agents.helpAssistant.answer)
   // Kept while the card is closed: closing it never drops an answer.
   const [msgs, setMsgs] = useState<Msg[]>([])
   const next = useRef(1)
@@ -146,16 +163,28 @@ function HelpFloating({
     ])
     let reply: Msg
     try {
-      const result = await answer({ question: text, route })
-      const action = result.suggestedAction
-      reply = {
-        id: idHelp,
-        role: "help",
-        state: "done",
-        text: result.answer,
-        ...(action && isHelpLinkId(action.id)
-          ? { link: { id: action.id, href: action.href } }
-          : {}),
+      const outcome = localDevelopment
+        ? await askHelp({ question: text, route })
+        : ({
+            ok: true,
+            answer: await answerOnLiveSite({ question: text, route }),
+          } as const)
+      if (outcome.ok) {
+        const action = outcome.answer.suggestedAction
+        reply = {
+          id: idHelp,
+          role: "help",
+          state: "done",
+          text: outcome.answer.answer,
+          ...(action && isHelpLinkId(action.id)
+            ? { link: { id: action.id, href: action.href } }
+            : {}),
+        }
+      } else {
+        const kind = outcome.localTool
+          ? localHelpErrorKind(outcome.category)
+          : helpCategoryKind(outcome.category)
+        reply = { id: idHelp, role: "help", state: "failed", kind }
       }
     } catch (error) {
       reply = { id: idHelp, role: "help", state: "failed", kind: helpErrorKind(error) }
@@ -331,7 +360,20 @@ function Conversation({
         <div ref={end} />
       </div>
       <div className="border-t p-3">
-        {readiness === "missing" || readiness === "refused" ? (
+        {readiness === "elsewhere" ? (
+          <AmberNotice testId="help-local-elsewhere">
+            {t.rich("localElsewhere", {
+              link: (chunks) => (
+                <Link
+                  href={SETTINGS_AI_HREF}
+                  className="font-medium underline underline-offset-4"
+                >
+                  {chunks}
+                </Link>
+              ),
+            })}
+          </AmberNotice>
+        ) : readiness === "missing" || readiness === "refused" ? (
           <SetupNotice
             testId="help-finish-setup"
             refused={readiness === "refused"}
@@ -462,24 +504,5 @@ function AnswerFailure({
           ? t("errors.busy")
           : t("errors.other")}
     </AmberNotice>
-  )
-}
-
-function AmberNotice({
-  testId,
-  children,
-}: {
-  testId: string
-  children: ReactNode
-}) {
-  return (
-    <div
-      role="status"
-      data-testid={testId}
-      className="flex items-center gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-2.5 text-sm text-amber-900 dark:text-amber-200"
-    >
-      <CircleAlert className="size-4 shrink-0" aria-hidden />
-      <span>{children}</span>
-    </div>
   )
 }

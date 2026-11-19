@@ -1,14 +1,35 @@
 {
   "$comment": "Engine version manifest (plan 023 Phase 4 #1-minimal, ADR-0025). Read by downstream forks (and the future upgrade CLI) to decide what an engine sync requires. Keep in lockstep with convex/lib/versions.ts — lib/engine-manifest.test.ts fails the gates on drift.",
   "name": "formulacms-engine",
-  "engineVersion": "0.2.0",
-  "schemaVersion": 4,
+  "engineVersion": "0.3.0",
+  "schemaVersion": 5,
   "compatibility": {
-    "freshInstallBaseline": 4,
-    "supportedUpgradeFromSchemaVersions": [3],
-    "note": "Schema version 4 adds the dynamic-list menu variant and a recent-page index. Narrowed schema version 3 upgrades directly without a data migration; upgrades from schema version 2 remain unsupported."
+    "freshInstallBaseline": 5,
+    "supportedUpgradeFromSchemaVersions": [],
+    "note": "Schema version 5 removes 14 unused team, invitation and policy tables and pagePublicationReleases.roundId, narrows stored email delivery events, adds per-language search, social, card and category fields, and adds the aiVendorModels, pagePurges and purgedMediaUrls tables. Release 0.3.0 supports fresh installs only. Schema version 4 (release 0.2.0) has no upgrade path: the v0.2.0-to-v0.3.0 transition is declared unsupported, so start a new site from v0.3.0. Upgrades from schema version 3 or older are unsupported."
   },
-  "migrations": [],
+  "migrations": [
+    {
+      "id": "backfillPerLanguageFields",
+      "transitionIds": ["v0.2.0-to-v0.3.0"],
+      "implementation": {
+        "path": "convex/lib/publishing/perLanguageBackfill.ts",
+        "export": "startPerLanguageFieldsBackfillIfNeeded"
+      },
+      "run": "Starts by itself: the hourly cron at minute 40 (UTC) and every page save, restore and publish. By hand: npx convex run lib/publishing/perLanguageBackfill:startPerLanguageFieldsBackfillIfNeeded",
+      "when": "After the v0.3.0 backend code is pushed. Repeat-safe: a page with the perLanguageFieldsBackfill marker is skipped."
+    },
+    {
+      "id": "backfillRichTextImages",
+      "transitionIds": ["v0.2.0-to-v0.3.0"],
+      "implementation": {
+        "path": "convex/lib/media/richTextBackfill.ts",
+        "export": "startRichTextImageBackfillIfNeeded"
+      },
+      "run": "Starts by itself: the hourly cron at minute 25 (UTC) and the first permanent image delete that finds it unfinished. By hand: npx convex run lib/media/richTextBackfill:startRichTextImageBackfillIfNeeded",
+      "when": "After the v0.3.0 backend code is pushed. Insert only and repeat-safe. Permanent image delete refuses with MEDIA_USAGE_INDEX_PENDING until its four stages finish."
+    }
+  ],
   "migrationHistory": [
     {
       "id": "backfillSiteSettingsSchemaVersion",

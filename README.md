@@ -5,7 +5,7 @@ formulacms is a self-hosted, fair-source, full-stack CMS for Next.js. The admin,
 - A public site with a home page, navigation, SEO and responsive blocks.
 - An admin for pages, media, menus and settings.
 - Convex as the backend and Convex Auth for admin sign-in with a username and password.
-- Email for contact messages.
+- Email through SMTP or Resend, with an owner-restricted test.
 
 ## Quickstart
 
@@ -63,17 +63,32 @@ In Settings -> General, replace the logo, favicon, Open Graph image, contact det
 
 ## Email
 
-Fresh setup leaves email unconfigured. The Console fallback sends nothing and returns a `not_configured` result. The bundled email provider is Resend. Set its key only in the Convex environment. Do not put it in `.env.local`, in Settings or in application data. Run the command in the site folder; it targets the deployment in `.env.local`. On macOS, copy the key, then pipe it from the clipboard:
+Fresh setup leaves email unconfigured. The Console fallback sends nothing and returns a `not_configured` result. Two email providers are bundled: SMTP and Resend. Settings -> Email lists SMTP first and opens on it, but no provider sends anything until you enable it and the mail server accepts its test.
+
+Set every email value only in the Convex environment. Do not put any of them in `.env.local`, in Settings or in application data. Run the commands in the site folder; they target the deployment in `.env.local`. For hosted sites, add `--prod`.
+
+**SMTP.** Set the server, the user name and the password. The port is optional and defaults to 465:
+
+```bash
+pnpm exec convex env set EMAIL_SMTP_HOST mail.example.com
+pnpm exec convex env set EMAIL_SMTP_USER your-user-name
+pnpm exec convex env set EMAIL_SMTP_PASSWORD
+pnpm exec convex env set EMAIL_SMTP_PORT 587
+```
+
+Run the password command without a value. It asks for the password and shows it on screen while you type. On macOS you can instead copy the password, then run `pbpaste | pnpm exec convex env set EMAIL_SMTP_PASSWORD`. The connection is always encrypted: port 465 uses TLS from the start, and any other port, such as 587, must upgrade with STARTTLS. The mail server needs a publicly trusted certificate. Not supported: OAuth sign-in, connection pools, delivery webhooks, servers that need no sign-in, and self-signed or mismatched certificates. Spaces and line breaks at the start or end of a value are ignored.
+
+**Resend.** Set its key. On macOS, copy the key, then pipe it from the clipboard:
 
 ```bash
 pbpaste | pnpm exec convex env set RESEND_API_KEY
 ```
 
-Otherwise run `pnpm exec convex env set RESEND_API_KEY` without a value. It asks for the key and shows it on screen while you type. For the hosted site, add `--prod`. If you already put the key in `.env.local`, delete that line.
+Otherwise run `pnpm exec convex env set RESEND_API_KEY` without a value. It asks for the key and shows it on screen while you type. If you already put a key or an SMTP value in `.env.local`, delete that line.
 
-Then open Settings -> Email. Set the sender, check the configuration, run the owner-restricted test and activate Resend with the receipt that the test returns. Set up the sending domain with Resend's SPF, DKIM and DMARC instructions. Provider acceptance is not proof of inbox delivery.
+Then open Settings -> Email. Set the sender, enable a provider, check the configuration and send the owner-restricted test. The provider becomes active when the mail server accepts the test. Enabling another provider turns email off until that provider passes its own test. Set up the sending domain with your provider's SPF, DKIM and DMARC instructions. Provider acceptance is not proof of inbox delivery.
 
-To register another email provider, follow [Email Setup](docs/starter/operations.md#email-setup). That is a code, test, build and release change; **Add this provider** never installs code or changes a running app.
+To register another email provider, follow [Email Setup](docs/starter/operations.md#email-setup). That is a code, test, build and release change; **More providers** in Settings -> Email only shows the bundled-provider list and a developer link; it never installs code or changes a running app. Once registered, the provider appears in the list and you enable it with its checkbox.
 
 ## AI setup
 
@@ -85,13 +100,15 @@ pbpaste | pnpm exec convex env set OPENROUTER_API_KEY
 
 Otherwise run the command without a value. It asks for the key and shows it on screen while you type. For the hosted site, add `--prod`.
 
-The Block creator (Settings -> AI -> Block creator) runs on your computer during local development and does not use the Convex key. Add its own key as one line in `.env.local`, for example `FORMULACMS_DEV_OPENROUTER_API_KEY=<your key>` (`FORMULACMS_DEV_ANTHROPIC_API_KEY` and `FORMULACMS_DEV_OPENAI_API_KEY` also work). Only this key goes in `.env.local`; the Convex key and `RESEND_API_KEY` never do.
+The Block creator (Settings -> AI -> Block creator) runs on your computer during local development and does not use the Convex key. Add its own key as one line in `.env.local`, for example `FORMULACMS_DEV_OPENROUTER_API_KEY=<your key>` (`FORMULACMS_DEV_ANTHROPIC_API_KEY` and `FORMULACMS_DEV_OPENAI_API_KEY` also work). Only this key goes in `.env.local`; the Convex key, `RESEND_API_KEY` and the `EMAIL_SMTP_*` values never do.
 
 ## Releases and upgrades
 
 A published formulacms release is identified only by its immutable, annotated SemVer Git tag. Package, engine, schema and release-recipe versions are component versions, separate from release identity.
 
-This starter becomes your own fork. Regeneration creates a fresh starter for a new project; it never updates or overwrites an existing fork. To adopt a compatible release, use the [manual fork-upgrade playbook](./docs/starter/operations.md#fork-upgrade-playbook) and review every change in your own upgrade branch. Read the upgrade file for your version before any `git pull` or merge of a release, for example `git show v0.2.0:upgrades/v0.1.1-to-v0.2.0.md`. Before you merge, validate the exact declared pair in `starter.transitions.json`:
+formulacms is before version 1.0. Until then, a new minor release, for example 0.3 to 0.4, may bring breaking changes and may have no upgrade path. When a release has no upgrade path, start a fresh site with it. The release notes and `starter.transitions.json` say whether you can upgrade to a release. From 1.0 on, a breaking change or a release without an upgrade path comes only with a new major version.
+
+This starter becomes your own fork. Regeneration creates a fresh starter for a new project; it never updates or overwrites an existing fork. To adopt a compatible release, use the [manual fork-upgrade playbook](./docs/starter/operations.md#fork-upgrade-playbook) and review every change in your own upgrade branch. Read the upgrade file for your version, if the release declares one, before any `git pull` or merge of a release, for example `git show <new-tag>:upgrades/<your-tag>-to-<new-tag>.md`. A release that declares no upgrade from your version supports fresh installs only: start a new site from it. Release 0.3.0 declares no upgrade from 0.2.0. Before you merge, validate the exact declared pair in `starter.transitions.json`:
 
 ```bash
 node --import tsx scripts/check-release-transition.ts \
@@ -120,6 +137,8 @@ Use `.env.local` for local development, not `.env`. The table lists names only. 
 | `NEXT_PUBLIC_SITE_URL`                                      | Optional                                 | —                                                 | Required |
 | `SITE_URL`                                                  | —                                        | Hosted site: the address used for publish refresh | —        |
 | `FORMULACMS_OWNER_CLAIM`                                    | Never                                    | Owner setup code                                  | Never    |
+| `EMAIL_SMTP_HOST`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD` | Never                                    | Optional (required for SMTP)                      | Never    |
+| `EMAIL_SMTP_PORT`                                           | Never                                    | Optional (default 465)                            | Never    |
 | `RESEND_API_KEY`                                            | Never                                    | Optional                                          | Never    |
 | `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | Never                                    | Optional                                          | Never    |
 | `FORMULACMS_DEV_OPENROUTER_API_KEY` and the other two       | Optional, for the Block creator          | —                                                 | —        |
@@ -136,6 +155,8 @@ The main commands are `pnpm dev`, `pnpm typecheck`, `pnpm lint`, `pnpm test:run`
 Cookies belong to the host name, not the port, so `localhost:3000` and `localhost:3001` share sign-in cookies. If one local app sends you to `/sign-in` unexpectedly, stop the other app, use separate browser profiles or host names, or clear the local session. This affects local browsers only.
 
 `pnpm check:preflight` finds common local setup problems: a missing `.env.local`, placeholder values, old Node.js or pnpm versions, a production deployment and non-local addresses. It also compares the two secrets in `.env.local` with the Convex deployment and checks that `FORMULACMS_OWNER_CLAIM` is set. It reports variable names only and never prints a value. When the Convex CLI is signed out or has no deployment, these checks warn instead of fail.
+
+`pnpm check:preflight` also protects an upgrade. First, the module files that the formulacms release owns, such as `lib/modules/catalog.generated.ts`, must match the release. If one was changed by hand, `pnpm check:preflight` and `pnpm build` stop and print how to restore it from the release tag. Second, every module that your backend stores as enabled must exist in this release. If one does not, the check stops, names it and lists the steps to disable it first. When the backend cannot be read, this check never passes: the check ends with "Starter preflight finished: N verified, M could not run". `pnpm check:preflight:strict` turns that into a failure.
 
 ### Browser checks
 

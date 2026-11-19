@@ -9,6 +9,10 @@ import {
   readPublicationAuthority,
 } from "../lib/publishing/snapshots"
 import { assertOrdinaryLocale } from "../lib/language/state"
+import {
+  mergedSeoForProjection,
+  stripMovedSharedValues,
+} from "../lib/contentTypes/perLanguageFields"
 
 const previewResult = v.object({
   page: pageDocValidator,
@@ -186,11 +190,23 @@ export const getPreviewPage = mutation({
     if (!draft || draft.pageType !== page.pageType) return null
     const shared = sharedRows[0]!
     if (shared.pageType !== page.pageType) return null
+    // The language's own seo values and card excerpt come from its content,
+    // never from the shared blocks (ADR-0037 amendment, 2026-11-17).
+    const owned = stripMovedSharedValues({
+      system: shared.system as unknown as Record<string, unknown>,
+      descriptor: shared.descriptor as unknown as Record<string, unknown>,
+    })
+    const previewContent = draft.content as Record<string, unknown>
     return {
       page: {
         ...page,
-        ...shared.descriptor,
-        ...shared.system,
+        ...owned.descriptor,
+        ...owned.system,
+        seo: mergedSeoForProjection(owned.system.seo, previewContent),
+        cardExcerpt:
+          typeof previewContent.cardExcerpt === "string"
+            ? previewContent.cardExcerpt
+            : undefined,
         slug: draft.slug,
         content: { [renderLocale]: draft.content },
       } as Doc<"pages">,

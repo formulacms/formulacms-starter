@@ -432,7 +432,28 @@ describe("F08c required revalidation worker", () => {
       "// ─── Sitemap partitions (M05 C5a)"
     )
     expect(sitemapStart).toBeGreaterThan(0)
-    const publication = publicationSource.slice(0, sitemapStart)
+    // PERMANENT-DELETE keeps its own self-rescheduling worker section; its
+    // only target is the purge step.
+    const purgeStart = publicationSource.indexOf(
+      "// ─── PERMANENT-DELETE: purge of trashed Pages"
+    )
+    const purgeEnd = publicationSource.indexOf(
+      "// ─── F09 Publication direct functions for the Language domain"
+    )
+    expect(purgeStart).toBeGreaterThan(0)
+    expect(purgeEnd).toBeGreaterThan(purgeStart)
+    const purge = publicationSource.slice(purgeStart, purgeEnd)
+    const purgeTargets = [
+      ...purge.matchAll(
+        /scheduler\.run(?:After|At)\(\s*(?:[^,]+),\s*(internal\.[\w.]+)/g
+      ),
+    ].map((match) => match[1])
+    expect(new Set(purgeTargets)).toEqual(
+      new Set(["internal.cms.publication.runPagePurgeStep"])
+    )
+    const publication =
+      publicationSource.slice(0, purgeStart) +
+      publicationSource.slice(purgeEnd, sitemapStart)
     const sitemap = publicationSource.slice(sitemapStart)
     const schedulerCalls = publication.match(/scheduler\.run(?:After|At)\(/g)
     expect(schedulerCalls).toHaveLength(1)

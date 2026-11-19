@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { dirname, join } from "node:path"
+import { localStateDirectory } from "@/lib/local-state/directory"
 import {
   applyClassOperationBatch,
   hashTweakSource,
@@ -71,8 +72,7 @@ function checkpointPath(
     throw new Error("Invalid visual tweak checkpoint id.")
   }
   return join(
-    root,
-    ".nextcms",
+    localStateDirectory(root),
     "visual-tweak-checkpoints",
     type,
     `${checkpointId}.json`

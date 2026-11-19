@@ -10,9 +10,12 @@ import {
   OPENAI_API_SOURCES,
 } from "./capabilities/openai-api"
 import {
+  isOpenRouterEffort,
   OPENROUTER_API_CATALOG,
   OPENROUTER_API_SOURCES,
 } from "./capabilities/openrouter-api"
+import { DIRECT_PRICES } from "./price-quote"
+import { BUNDLED_MODEL_CATALOG } from "./model-catalog"
 import {
   API_PROVIDERS,
   TASK_PROFILES,
@@ -23,6 +26,7 @@ import {
 import {
   API_TASK_PROFILES,
   assertTaskProfileCatalogComplete,
+  capabilityForTuple,
   RUNTIME_TASK_PROFILES,
   taskProfileTuple,
   tupleSupportsTaskProfile,
@@ -68,6 +72,28 @@ describe("source-stamped API catalogs", () => {
               "image",
             ],
             "name": "Claude Fable 5.1",
+            "outputModalities": [
+              "text",
+            ],
+            "reasoning": {
+              "kind": "effort",
+              "providerDefault": "high",
+              "supportedEfforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+              ],
+            },
+            "structuredOutput": true,
+          },
+          "claude-fable-5-2": {
+            "inputModalities": [
+              "text",
+              "image",
+            ],
+            "name": "Claude Fable 5.2",
             "outputModalities": [
               "text",
             ],
@@ -399,9 +425,9 @@ describe("source-stamped API catalogs", () => {
 
   test("source stamps cover every provider and use the reviewed retrieval date", () => {
     for (const [sources, retrievedAt] of [
-      [OPENROUTER_API_SOURCES, "2026-07-12"],
+      [OPENROUTER_API_SOURCES, "2026-11-15"],
       [OPENAI_API_SOURCES, "2026-11-09"],
-      [ANTHROPIC_API_SOURCES, "2026-11-09"],
+      [ANTHROPIC_API_SOURCES, "2026-11-15"],
     ] as const) {
       expect(sources.length).toBeGreaterThan(0)
       for (const source of sources) {
@@ -413,6 +439,26 @@ describe("source-stamped API catalogs", () => {
       }
     }
   })
+})
+
+// Guard: a default that a vendor retired, that its list lacks, or that has no
+// lasting price. Deterministic: it reads the committed lists, never the clock.
+test("every default is listed, runs at a supported effort and has a lasting price", () => {
+  for (const provider of API_PROVIDERS) {
+    for (const profile of TASK_PROFILES) {
+      const tuple = API_TASK_PROFILES[provider][profile]
+      const effort = tupleEffort(tuple)
+      const label = `${provider} ${profile} ${tuple.model}`
+      expect(() => validateApiModelTuple(tuple, BUNDLED_MODEL_CATALOG), label).not.toThrow()
+      if (provider === "openrouter") {
+        const listed = OPENROUTER_API_CATALOG[tuple.model]
+        expect(listed?.pricing, label).toBeDefined()
+        expect(effort !== undefined && isOpenRouterEffort(tuple.model, effort), label).toBe(true)
+      } else {
+        expect(DIRECT_PRICES[`${provider}:${tuple.model}`]?.endsAt, label).toBe(null)
+      }
+    }
+  }
 })
 
 describe("task-profile tuple goldens", () => {
@@ -606,7 +652,7 @@ describe("task-profile tuple goldens", () => {
           },
           "explicit-agentic-rescue": {
             "mode": "catalog",
-            "model": "anthropic/claude-opus-4.8",
+            "model": "anthropic/claude-opus-5.5",
             "provider": "openrouter",
             "reasoning": {
               "effort": "high",
@@ -624,7 +670,7 @@ describe("task-profile tuple goldens", () => {
           },
           "judgment-transform": {
             "mode": "catalog",
-            "model": "anthropic/claude-opus-4.8",
+            "model": "anthropic/claude-opus-5.5",
             "provider": "openrouter",
             "reasoning": {
               "effort": "high",
@@ -642,7 +688,7 @@ describe("task-profile tuple goldens", () => {
           },
           "renderer-jsx": {
             "mode": "catalog",
-            "model": "openai/gpt-5.6-sol",
+            "model": "openai/gpt-6.1-sol",
             "provider": "openrouter",
             "reasoning": {
               "effort": "high",
@@ -660,7 +706,7 @@ describe("task-profile tuple goldens", () => {
           },
           "vision-spec": {
             "mode": "catalog",
-            "model": "openai/gpt-5.6-sol",
+            "model": "openai/gpt-6.1-sol",
             "provider": "openrouter",
             "reasoning": {
               "effort": "high",
@@ -676,7 +722,7 @@ describe("task-profile tuple goldens", () => {
     for (const provider of API_PROVIDERS) {
       expect(Object.keys(API_TASK_PROFILES[provider])).toEqual(TASK_PROFILES)
     }
-    expect(() => assertTaskProfileCatalogComplete()).not.toThrow()
+    expect(() => assertTaskProfileCatalogComplete(BUNDLED_MODEL_CATALOG)).not.toThrow()
   })
 
   test("uses explicit high mechanical translation and never defaults to none", () => {
@@ -721,7 +767,7 @@ describe("API tuple validation", () => {
       provider: "openai",
       model: "gpt-5.6-sol",
       reasoning: { kind: "effort", effort: "high" },
-    })
+    }, BUNDLED_MODEL_CATALOG)
     expect(Object.isFrozen(validated)).toBe(true)
     expect(
       Object.isFrozen(
@@ -774,7 +820,7 @@ describe("API tuple validation", () => {
       },
     ],
   ])("rejects %s", (_label, value) => {
-    expect(() => validateApiModelTuple(value)).toThrow()
+    expect(() => validateApiModelTuple(value, BUNDLED_MODEL_CATALOG)).toThrow()
   })
 })
 
@@ -845,16 +891,16 @@ describe("D3 persisted selection policy", () => {
         provider: "openai",
         model: "gpt-5.6-sol",
         reasoning: { kind: "effort", effort },
-      })
+      }, BUNDLED_MODEL_CATALOG)
     expect(
-      tupleSupportsTaskProfile(tuple("high"), "mechanical-translation")
+      tupleSupportsTaskProfile(tuple("high"), "mechanical-translation", BUNDLED_MODEL_CATALOG)
     ).toBe(true)
     expect(
-      tupleSupportsTaskProfile(tuple("xhigh"), "mechanical-translation")
+      tupleSupportsTaskProfile(tuple("xhigh"), "mechanical-translation", BUNDLED_MODEL_CATALOG)
     ).toBe(false)
-    expect(tupleSupportsTaskProfile(tuple("low"), "vision-spec")).toBe(false)
-    expect(tupleSupportsTaskProfile(tuple("xhigh"), "vision-spec")).toBe(true)
-    expect(tupleSupportsTaskProfile(tuple("max"), "renderer-jsx")).toBe(true)
+    expect(tupleSupportsTaskProfile(tuple("low"), "vision-spec", BUNDLED_MODEL_CATALOG)).toBe(false)
+    expect(tupleSupportsTaskProfile(tuple("xhigh"), "vision-spec", BUNDLED_MODEL_CATALOG)).toBe(true)
+    expect(tupleSupportsTaskProfile(tuple("max"), "renderer-jsx", BUNDLED_MODEL_CATALOG)).toBe(true)
   })
 
   test("requires a universal site default to satisfy every runtime profile", () => {
@@ -867,7 +913,7 @@ describe("D3 persisted selection policy", () => {
           reasoning: { kind: "effort", effort: "high" },
         },
         RUNTIME_TASK_PROFILES
-      )
+      , BUNDLED_MODEL_CATALOG)
     ).not.toThrow()
     expect(() =>
       validateTupleForProfiles(
@@ -877,7 +923,7 @@ describe("D3 persisted selection policy", () => {
           model: "claude-haiku-4-5-20251001",
         },
         RUNTIME_TASK_PROFILES
-      )
+      , BUNDLED_MODEL_CATALOG)
     ).toThrow(/every required task profile/)
   })
 })
@@ -896,7 +942,7 @@ test("all direct provider defaults and profile efforts belong to their own model
       const tuple = taskProfileTuple(provider, profile)
       const catalog: Record<string, ApiModelCapability> = provider === "anthropic" ? ANTHROPIC_API_CATALOG : OPENAI_API_CATALOG
       const cap = catalog[tuple.model]!
-      expect(tupleSupportsTaskProfile(tuple, profile)).toBe(true)
+      expect(tupleSupportsTaskProfile(tuple, profile, BUNDLED_MODEL_CATALOG)).toBe(true)
       expect(cap.reasoning.kind).toBe("effort")
       if (cap.reasoning.kind === "effort") {
         expect(cap.reasoning.supportedEfforts).toContain(tupleEffort(tuple))
@@ -911,23 +957,23 @@ test("new model effort restrictions preserve saved no-effort Haiku", () => {
       expect(() => validateApiModelTuple({
         mode: "catalog", provider: "openai", model,
         reasoning: { kind: "effort", effort },
-      })).toThrow("Unsupported")
+      }, BUNDLED_MODEL_CATALOG)).toThrow("Unsupported")
     }
   }
   expect(validateApiModelTuple({
     mode: "catalog", provider: "openai", model: "gpt-6.1-terra",
     reasoning: { kind: "effort", effort: "none" },
-  })).toMatchObject({ reasoning: { effort: "none" } })
+  }, BUNDLED_MODEL_CATALOG)).toMatchObject({ reasoning: { effort: "none" } })
   expect(validateApiModelTuple({
     mode: "catalog", provider: "anthropic", model: "claude-haiku-4-5-20251001",
-  })).toEqual({ mode: "catalog", provider: "anthropic", model: "claude-haiku-4-5-20251001" })
+  }, BUNDLED_MODEL_CATALOG)).toEqual({ mode: "catalog", provider: "anthropic", model: "claude-haiku-4-5-20251001" })
 })
 
 
 test("direct picker order keeps successors first and all saved models available", () => {
   expect(Object.keys(ANTHROPIC_API_CATALOG)).toEqual([
-    "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5", "claude-fable-5-1",
-    "claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5-20251001",
+    "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5", "claude-fable-5-2",
+    "claude-fable-5-1", "claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5-20251001",
   ])
   expect(Object.keys(OPENAI_API_CATALOG)).toEqual([
     "gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna",
@@ -935,14 +981,31 @@ test("direct picker order keeps successors first and all saved models available"
   ])
 })
 
-test("direct tuple types reject model-specific unsupported efforts", () => {
-  // @ts-expect-error GPT-6.1 Sol cannot disable reasoning.
+test("direct tuples with model-specific unsupported efforts are refused at run time", () => {
+  // The tuple types accept any direct model id and effort; the committed
+  // catalog decides at run time (schema widened in AI-MODELS-1 step A).
   const sol: OpenAIApiTuple = { mode: "catalog", provider: "openai", model: "gpt-6.1-sol", reasoning: { kind: "effort", effort: "none" } }
-  // @ts-expect-error Astra cannot disable reasoning either.
   const astra: OpenAIApiTuple = { mode: "catalog", provider: "openai", model: "gpt-6-astra", reasoning: { kind: "effort", effort: "none" } }
-  // @ts-expect-error Haiku 4.5 accepts no reasoning field, even though 5.5 does.
   const haiku: AnthropicApiTuple = { mode: "catalog", provider: "anthropic", model: "claude-haiku-4-5-20251001", reasoning: { kind: "effort", effort: "high" } }
-  for (const tuple of [sol, astra, haiku]) {
-    expect(() => validateApiModelTuple(tuple)).toThrow()
+  const opusMinimal: AnthropicApiTuple = { mode: "catalog", provider: "anthropic", model: "claude-opus-5-5", reasoning: { kind: "effort", effort: "minimal" } }
+  for (const tuple of [sol, astra, haiku, opusMinimal]) {
+    expect(() => validateApiModelTuple(tuple, BUNDLED_MODEL_CATALOG)).toThrow()
+  }
+})
+
+test("a direct model id outside the committed lists is refused at run time (no catalog entry)", () => {
+  for (const provider of ["anthropic", "openai"] as const) {
+    const model = provider === "anthropic" ? "claude-opus-9-9" : "gpt-9-sol"
+    expect(() => validateApiModelTuple({
+      mode: "catalog", provider, model, reasoning: { kind: "effort", effort: "high" },
+    }, BUNDLED_MODEL_CATALOG)).toThrow("Unknown model or unknown model capabilities.")
+    expect(() => validateApiModelTuple({ mode: "catalog", provider, model }, BUNDLED_MODEL_CATALOG))
+      .toThrow("Unknown model or unknown model capabilities.")
+    expect(() => validateApiModelTuple({ mode: "catalog", provider, model: "constructor",
+      reasoning: { kind: "effort", effort: "high" } }, BUNDLED_MODEL_CATALOG)).toThrow("Unknown model or unknown model capabilities.")
+    expect(capabilityForTuple({ mode: "catalog", provider, model }, BUNDLED_MODEL_CATALOG)).toBeUndefined()
+    expect(capabilityForTuple({ mode: "catalog", provider, model: "toString" }, BUNDLED_MODEL_CATALOG)).toBeUndefined()
+    expect(tupleSupportsTaskProfile({ mode: "catalog", provider, model,
+      reasoning: { kind: "effort", effort: "high" } }, "editorial-copy", BUNDLED_MODEL_CATALOG)).toBe(false)
   }
 })

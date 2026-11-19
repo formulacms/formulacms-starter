@@ -9,7 +9,10 @@ import { memoryAdapter } from "@opencoredev/email-sdk/testing"
 import { describe, expect, test, vi } from "vitest"
 import { dispatchPreparedEmail } from "./delivery.node"
 import type { EmailProviderRegistry } from "./providerRegistry.node"
-import type { EmailProviderAdapter } from "./successor"
+import {
+  FormulaCmsClassifiedAdapterError,
+  type EmailProviderAdapter,
+} from "./successor"
 
 const prepared = {
   providerId: "memory-e04",
@@ -136,6 +139,44 @@ describe("E04 FormulaCMS delivery executor", () => {
     })
   })
 
+  test("passes the bounded category through retryable and terminal failures", async () => {
+    const classified = (retryable: boolean): EmailProviderAdapter => ({
+      id: "memory-e04",
+      idempotency: "none",
+      async send() {
+        throw new FormulaCmsClassifiedAdapterError({
+          adapter: "memory-e04",
+          delivery: "not_sent",
+          retryable,
+          category: retryable ? "could_not_connect" : "sender_refused",
+        })
+      },
+    })
+
+    await expect(
+      dispatchPreparedEmail(prepared, {
+        environment: {},
+        registry: registryFor("memory-e04", classified(true)),
+      })
+    ).resolves.toEqual({
+      state: "retryable_failure",
+      providerId: "memory-e04",
+      reason: "provider_rejected",
+      category: "could_not_connect",
+    })
+    await expect(
+      dispatchPreparedEmail(prepared, {
+        environment: {},
+        registry: registryFor("memory-e04", classified(false)),
+      })
+    ).resolves.toEqual({
+      state: "failed",
+      providerId: "memory-e04",
+      reason: "provider_rejected",
+      category: "sender_refused",
+    })
+  })
+
   test("keeps unknown delivery terminal and strips the raw error", async () => {
     const adapter: EmailProviderAdapter = {
       id: "memory-e04",
@@ -162,9 +203,8 @@ describe("E04 FormulaCMS delivery executor", () => {
   })
 
   test("keeps consumers outside SDK, provider, and direct retrier imports", async () => {
-    // FR2e (D-7): the Forms and Team invitation consumers are checked in
-    // formSubmissions.boundaries.test.ts and email.invites.test.ts, which ship
-    // only with those modules.
+    // FR2e (D-7): the Forms consumer is checked in
+    // formSubmissions.boundaries.test.ts, which ships only with that module.
     // ADR-0056: sign-in sends no email, so `auth.ts` has no email consumer.
 
     const queueSource = await readFile(

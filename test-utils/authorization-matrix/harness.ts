@@ -3,6 +3,7 @@ import { convexTest } from "convex-test"
 import { expect } from "vitest"
 import actionRetrierTest from "@convex-dev/action-retrier/test"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
+import migrationsTest from "@convex-dev/migrations/test"
 import schema from "../../convex/schema"
 import { enableAuthSessions, prepareAuthSessions } from "../convexAuthFixtures"
 
@@ -11,6 +12,7 @@ export function makeSite(modules: ModuleMap) {
   const t = convexTest(schema, modules)
   actionRetrierTest.register(t)
   rateLimiterTest.register(t)
+  migrationsTest.register(t)
   // Owner, unrelated and former-owner actors run as real Convex Auth sessions.
   return enableAuthSessions(t)
 }

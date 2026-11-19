@@ -236,6 +236,7 @@ function renderDraftInput(entry: ContentTypeManifestEntry): string {
     `  pageType: v.literal(${JSON.stringify(entry.type)}),`,
     `  localized: ${entry.exportName}.localizedValidator,`,
     ...(entry.sliceBody ? ["  slices: v.array(sliceValidator),"] : []),
+    "  ...perLanguageInput,",
     "})",
   ].join("\n")
 }

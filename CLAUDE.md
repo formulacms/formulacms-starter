@@ -16,7 +16,7 @@ This read-only rule applies only to an unmodified release checkout used as a
 blueprint. In an application the owner created from the starter, such as their
 own clone, agents may edit files, commit and run Git commands.
 
-To upgrade this site to a newer formulacms release, fetch the release tag and follow its upgrade file for your version, for example `git show v0.2.0:upgrades/v0.1.1-to-v0.2.0.md`. Read the upgrade file before any `git pull` or merge of a release. The file lists the steps and when to stop and ask the site owner.
+To upgrade this site to a newer formulacms release, fetch the release tag and follow its upgrade file for your version, if the release declares one, for example `git show <new-tag>:upgrades/<your-tag>-to-<new-tag>.md`. A release that declares no upgrade from your version supports fresh installs only: stop and tell the site owner. Read the upgrade file before any `git pull` or merge of a release. The file lists the steps and when to stop and ask the site owner.
 
 To operate or customize a site, the owner must explicitly name a separate,
 non-starter application directory and authorize cloning the pure blueprint into
@@ -59,6 +59,7 @@ and acquisition policy remains separate.
 - authentication, authorization, owner recovery, and permission foundations;
 - generated Convex files or generated registries outside their documented
   generator workflow;
+- release-owned generated module files (`*.generated.*`, such as `lib/modules/catalog.generated.ts`): never edit them and never add a module id. When `pnpm build` or `pnpm check:preflight` reports a changed generated file, restore each listed file from the release tag with `git checkout <release-tag> -- <listed file>`. See "Generated module files" in `AGENTS.md`;
 - security headers, secret handling, audit integrity, and recovery controls;
 - root legal terms, trademark notices, agent-policy files, or protected
   security documentation as an incidental feature-work change; or

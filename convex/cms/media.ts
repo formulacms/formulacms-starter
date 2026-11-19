@@ -18,13 +18,17 @@ import { ensureTagsForLabels } from "./tags"
 import { mediaDocValidator } from "../schema"
 import {
   assertMediaSoftDeleteAllowed,
-  assertMediaUnreferenced,
   getMediaUsage,
   ImageDimensionsError,
   readImageDimensions,
 } from "../lib/domains/media"
 import type { ImageDimensionsErrorCode } from "../lib/domains/media"
 import { fetchWithSafeRedirects, OutboundUrlError } from "../lib/urlGuard"
+import {
+  MEDIA_PURGE_MAX_ITEMS,
+  purgeMediaBatch,
+  purgeOneMedia,
+} from "../lib/media/purge"
 
 const MAX_REMOTE_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB
 const MAX_MEDIA_LIST_LIMIT = 100
@@ -294,6 +298,61 @@ export const listPaginated = query({
     return {
       ...result,
       page: result.page.filter((m) => m.deletedAt === undefined),
+    }
+  },
+})
+
+const trashedMediaValidator = v.object({
+  _id: v.id("media"),
+  filename: v.string(),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+  deletedAt: v.number(),
+  url: v.string(),
+})
+
+/**
+ * Trash list for media (PERMANENT-DELETE), newest deletion first. The preview
+ * URL is the stored `url`, the same one `listPaginated` returns.
+ */
+export const listTrashed = query({
+  args: { paginationOpts: paginationOptsValidator },
+  returns: v.object({
+    page: v.array(trashedMediaValidator),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+    splitCursor: v.optional(v.union(v.string(), v.null())),
+    pageStatus: v.optional(
+      v.union(
+        v.literal("SplitRecommended"),
+        v.literal("SplitRequired"),
+        v.null()
+      )
+    ),
+  }),
+  handler: async (ctx, args) => {
+    await requireOperationAccess(ctx)
+    const result = await ctx.db
+      .query("media")
+      .withIndex("by_deletedAt", (q) => q.gt("deletedAt", 0))
+      .order("desc")
+      .paginate(args.paginationOpts)
+    return {
+      ...result,
+      page: result.page.flatMap((m) =>
+        m.deletedAt === undefined
+          ? []
+          : [
+              {
+                _id: m._id,
+                filename: m.filename,
+                ...(m.width === undefined ? {} : { width: m.width }),
+                ...(m.height === undefined ? {} : { height: m.height }),
+                deletedAt: m.deletedAt,
+                url: m.url,
+              },
+            ]
+      ),
     }
   },
 })
@@ -761,18 +820,77 @@ export const restore = mutation({
   },
 })
 
+/**
+ * Permanently delete one trashed file. The Trash screen uses
+ * `purgeTrashedMedia`; this single-file entry keeps the same rules and throws
+ * instead of returning a result.
+ */
 export const remove = mutation({
   args: { id: v.id("media") },
   returns: v.null(),
   handler: async (ctx, { id }) => {
     await requireOperationAccess(ctx)
-    const media = await ctx.db.get("media", id)
-    if (media) {
-      await assertMediaUnreferenced(ctx, media)
-      await ctx.storage.delete(media.storageId)
-      await ctx.db.delete("media", id)
-    }
+    await purgeOneMedia(ctx, id)
     return null
+  },
+})
+
+const mediaUseDetailValidator = v.object({
+  count: v.number(),
+  uses: v.array(
+    v.object({
+      kind: v.union(v.literal("setting"), v.literal("page"), v.literal("menu")),
+      name: v.string(),
+      where: v.optional(
+        v.union(
+          v.literal("draft"),
+          v.literal("published"),
+          v.literal("older_version"),
+          v.literal("legacy")
+        )
+      ),
+      inTrash: v.optional(v.boolean()),
+    })
+  ),
+  olderVersionsOnly: v.boolean(),
+})
+
+/**
+ * Permanently delete trashed files (at most 50), one result per file. A file
+ * that is still used, or not in Trash, is refused with the reason and never
+ * blocks the others. See `convex/lib/media/purge.ts`.
+ */
+export const purgeTrashedMedia = mutation({
+  args: { ids: v.array(v.id("media")) },
+  returns: v.array(
+    v.object({
+      id: v.id("media"),
+      status: v.union(v.literal("purged"), v.literal("refused")),
+      reason: v.optional(
+        v.union(
+          v.literal("not_found"),
+          v.literal("not_trashed"),
+          v.literal("in_use"),
+          v.literal("index_pending")
+        )
+      ),
+      code: v.optional(
+        v.union(
+          v.literal("MEDIA_USAGE_INDEX_PENDING"),
+          v.literal("MEDIA_USAGE_INDEX_FAILED")
+        )
+      ),
+      detail: v.optional(mediaUseDetailValidator),
+    })
+  ),
+  handler: async (ctx, { ids }) => {
+    await requireOperationAccess(ctx)
+    if (ids.length > MEDIA_PURGE_MAX_ITEMS)
+      throw new ConvexError({
+        code: "MEDIA_PURGE_BATCH_TOO_LARGE",
+        limit: MEDIA_PURGE_MAX_ITEMS,
+      })
+    return purgeMediaBatch(ctx, ids)
   },
 })
 

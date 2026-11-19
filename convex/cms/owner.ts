@@ -18,7 +18,7 @@ import {
   readOwnerState,
   resolveOwnerPrincipal,
 } from "../lib/access/owner"
-import { contactPayloadSchema } from "../../lib/forms/contact"
+import { isEmailAddress } from "../lib/email/providerState"
 import {
   requireInstallationOwner,
   requireOperationAccess,
@@ -101,10 +101,13 @@ export const getOwnerClaimAvailability = query({
   },
 })
 
-/** A valid notification email, trimmed, or null. Same validator as the contact form. */
+/** A valid notification email, trimmed with its case kept, or null (empty, over 254 characters, or not an address). */
 function parseNotificationEmail(value: string): string | null {
-  const parsed = contactPayloadSchema.shape.email.safeParse(value)
-  return parsed.success ? parsed.data : null
+  const trimmed = value.trim()
+  if (trimmed.length === 0 || trimmed.length > 254 || !isEmailAddress(trimmed)) {
+    return null
+  }
+  return trimmed
 }
 
 /**
@@ -253,7 +256,8 @@ export const getNotificationEmail = query({
 
 /**
  * Saves the owner's notification email (ADR-0056 rule 5), or clears it with
- * null. Used only for contact-form messages and the test email.
+ * null. The address receives the email delivery test and, when the Forms
+ * module is installed, contact form messages.
  */
 export const setNotificationEmail = mutation({
   args: { email: v.union(v.string(), v.null()) },

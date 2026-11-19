@@ -74,12 +74,11 @@ describe("system-owned-fields", () => {
     }
   })
 
-  it("post descriptor: every declared localized field is system-owned in C8 scope", () => {
-    // Post's localized set is {title, metaTitle, metaDescription} today —
-    // all owned by SEO/Settings. Generic panel's active-locale section is
-    // empty for post. When C10+ adds excerpt/body, this test tightens.
+  it("post descriptor: title and meta are system-owned; the category is a generic language field", () => {
+    // The post category is written in each language (ADR-0037 amendment,
+    // 2026-11-17), so the generic panel renders it in the active language.
     for (const key of Object.keys(postContentType.localizedFields)) {
-      expect(SYSTEM_OWNED_LOCALIZED_FIELDS.has(key)).toBe(true)
+      expect(SYSTEM_OWNED_LOCALIZED_FIELDS.has(key)).toBe(key !== "category")
     }
   })
 

@@ -800,13 +800,21 @@ function NumberWidget({
   )
 }
 
-function ImageWidget({ label, fieldPath, value, onChange }: WidgetProps) {
+function ImageWidget({
+  label,
+  fieldPath,
+  value,
+  optional,
+  onChange,
+}: WidgetProps) {
   return (
     <div data-slice-field-path={fieldPath}>
       <ImageFieldEditor
         label={label}
         value={value as ImageField | undefined}
-        onChange={(img) => onChange(img)}
+        // A required image keeps its key as an empty image so the draft still
+        // saves; the publish checklist reports it as missing.
+        onChange={(img) => onChange(img ?? (optional ? undefined : {}))}
       />
     </div>
   )

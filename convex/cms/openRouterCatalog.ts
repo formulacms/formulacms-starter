@@ -14,10 +14,11 @@ import {
 import {
   OPENROUTER_CATALOG_MAX_MODELS,
   OPENROUTER_MODELS_URL,
-  parseOpenRouterCatalog,
+  parseOpenRouterRows,
 } from "../../lib/ai/openrouter-catalog"
+import { readSyncState, startCatalogRefresh } from "../lib/catalogRefresh"
+import { reasoningEffortValidator } from "../lib/aiValidators"
 
-const REFRESH_LOCK_MS = 60 * 60 * 1_000
 const FETCH_TIMEOUT_MS = 15_000
 
 const inputModalityValidator = v.union(
@@ -26,16 +27,6 @@ const inputModalityValidator = v.union(
   v.literal("file"),
   v.literal("audio"),
   v.literal("video")
-)
-
-const reasoningEffortValidator = v.union(
-  v.literal("none"),
-  v.literal("minimal"),
-  v.literal("low"),
-  v.literal("medium"),
-  v.literal("high"),
-  v.literal("xhigh"),
-  v.literal("max")
 )
 
 export const catalogModelValidator = v.object({
@@ -48,6 +39,14 @@ export const catalogModelValidator = v.object({
   outputPerM: v.optional(v.number()),
   ceilingInputPerM: v.optional(v.number()),
   ceilingOutputPerM: v.optional(v.number()),
+  releasedAt: v.optional(v.number()),
+  expiresAt: v.optional(v.number()),
+  vendorEfforts: v.optional(v.array(reasoningEffortValidator)),
+  defaultEffort: v.optional(reasoningEffortValidator),
+  reasoningMandatory: v.optional(v.boolean()),
+  hasReasoning: v.optional(v.boolean()),
+  contextLength: v.optional(v.number()),
+  maxOutputTokens: v.optional(v.number()),
 })
 
 export const openRouterCatalogRetrier = new ActionRetrier(
@@ -60,53 +59,24 @@ export const openRouterCatalogRetrier = new ActionRetrier(
 )
 
 /** Starts one refresh unless a run is still inside the one-hour lock window. */
-async function startRefresh(ctx: MutationCtx): Promise<null> {
-  const now = Date.now()
-  const state = await ctx.db
-    .query("openRouterCatalogSync")
-    .withIndex("by_key", (q) => q.eq("key", "openrouter"))
-    .unique()
-  if (
-    state?.status === "running" &&
-    now - state.lastAttemptAt < REFRESH_LOCK_MS
-  ) {
-    return null
-  }
-
-  const runId: RunId = await openRouterCatalogRetrier.run(
-    ctx,
-    internal.cms.openRouterCatalog.fetchAndPublish,
-    {},
-    { onComplete: internal.cms.openRouterCatalog.recordRefreshResult }
-  )
-  const update = {
-    key: "openrouter" as const,
-    status: "running" as const,
-    runId: runId as string,
-    lastAttemptAt: now,
-    ...(state?.lastSuccessAt === undefined
-      ? {}
-      : { lastSuccessAt: state.lastSuccessAt }),
-    ...(state?.lastFailureAt === undefined
-      ? {}
-      : { lastFailureAt: state.lastFailureAt }),
-    ...(state?.modelCount === undefined
-      ? {}
-      : { modelCount: state.modelCount }),
-  }
-  if (state) {
-    await ctx.db.replace("openRouterCatalogSync", state._id, update)
-  } else {
-    await ctx.db.insert("openRouterCatalogSync", update)
-  }
-  return null
+export async function startOpenRouterRefresh(ctx: MutationCtx): Promise<null> {
+  return startCatalogRefresh(ctx, "openrouter", async () => {
+    const runId: RunId = await openRouterCatalogRetrier.run(
+      ctx,
+      internal.cms.openRouterCatalog.fetchAndPublish,
+      {},
+      { onComplete: internal.cms.openRouterCatalog.recordRefreshResult }
+    )
+    return runId as string
+  })
 }
 
-/** Weekly cron target. Starts at most one refresh within the lock window. */
+/** Daily cron target (the name predates the daily schedule). Starts at most
+ * one refresh within the lock window. */
 export const enqueueWeeklyRefresh = internalMutation({
   args: {},
   returns: v.null(),
-  handler: async (ctx): Promise<null> => startRefresh(ctx),
+  handler: async (ctx): Promise<null> => startOpenRouterRefresh(ctx),
 })
 
 /**
@@ -117,12 +87,9 @@ export const ensureFirstRefresh = internalMutation({
   args: {},
   returns: v.null(),
   handler: async (ctx): Promise<null> => {
-    const state = await ctx.db
-      .query("openRouterCatalogSync")
-      .withIndex("by_key", (q) => q.eq("key", "openrouter"))
-      .unique()
+    const state = await readSyncState(ctx, "openrouter")
     if (state?.lastSuccessAt !== undefined) return null
-    return startRefresh(ctx)
+    return startOpenRouterRefresh(ctx)
   },
 })
 
@@ -138,7 +105,8 @@ export const fetchAndPublish = internalAction({
     if (!response.ok) {
       throw new Error(`OpenRouter model catalog responded ${response.status}.`)
     }
-    const models = parseOpenRouterCatalog(await response.json())
+    // Rolling aliases and `:batch` rows are dropped; the new facts are stored.
+    const models = parseOpenRouterRows(await response.json())
     const syncedAt = Date.now()
     await ctx.runMutation(internal.cms.openRouterCatalog.publishCatalog, {
       models,
@@ -148,37 +116,17 @@ export const fetchAndPublish = internalAction({
   },
 })
 
+const MODEL_FIELDS = Object.keys(catalogModelValidator.fields) as Array<
+  keyof typeof catalogModelValidator.fields
+>
+
+/** Whether a stored row already holds every field of the incoming row. */
 function sameModel(
-  current: {
-    name: string
-    inputModalities: string[]
-    structuredOutput: boolean
-    reasoningEfforts: string[]
-    inputPerM?: number
-    outputPerM?: number
-    ceilingInputPerM?: number
-    ceilingOutputPerM?: number
-  },
-  next: {
-    name: string
-    inputModalities: string[]
-    structuredOutput: boolean
-    reasoningEfforts: string[]
-    inputPerM?: number
-    outputPerM?: number
-    ceilingInputPerM?: number
-    ceilingOutputPerM?: number
-  }
+  current: Record<string, unknown>,
+  next: Record<string, unknown>
 ): boolean {
-  return (
-    current.name === next.name &&
-    current.structuredOutput === next.structuredOutput &&
-    current.inputPerM === next.inputPerM &&
-    current.outputPerM === next.outputPerM &&
-    current.ceilingInputPerM === next.ceilingInputPerM &&
-    current.ceilingOutputPerM === next.ceilingOutputPerM &&
-    current.inputModalities.join("|") === next.inputModalities.join("|") &&
-    current.reasoningEfforts.join("|") === next.reasoningEfforts.join("|")
+  return MODEL_FIELDS.every(
+    (field) => JSON.stringify(current[field]) === JSON.stringify(next[field])
   )
 }
 
@@ -226,10 +174,7 @@ export const publishCatalog = internalMutation({
       )
     )
 
-    const state = await ctx.db
-      .query("openRouterCatalogSync")
-      .withIndex("by_key", (q) => q.eq("key", "openrouter"))
-      .unique()
+    const state = await readSyncState(ctx, "openrouter")
     const update = {
       key: "openrouter" as const,
       status: "success" as const,
@@ -255,10 +200,7 @@ export const recordRefreshResult = internalMutation({
   args: { runId: runIdValidator, result: runResultValidator },
   returns: v.null(),
   handler: async (ctx, { runId, result }) => {
-    const state = await ctx.db
-      .query("openRouterCatalogSync")
-      .withIndex("by_key", (q) => q.eq("key", "openrouter"))
-      .unique()
+    const state = await readSyncState(ctx, "openrouter")
     if (!state || state.runId !== runId) return null
     if (result.type === "success") return null
 

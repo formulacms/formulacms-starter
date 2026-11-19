@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { constants } from "node:fs"
-import { lstat, open, realpath, rename, rm, stat } from "node:fs/promises"
-import { dirname, join, resolve } from "node:path"
+import { lstat, open, realpath, rename, rm } from "node:fs/promises"
+import { join, resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 import { Writable } from "node:stream"
 import { ConvexHttpClient } from "convex/browser"
@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url"
 import { register, type NamespacedUnregister } from "tsx/esm/api"
 import { parseConfigFileTextToJson } from "typescript"
 import { api } from "../../convex/_generated/api.js"
+import { findSourceRepositoryAtOrAbove } from "./source-repository"
 
 // The CLI's own Convex Auth session, kept in the app root and git-ignored.
 // Only the tokens are stored; the password never is.
@@ -283,15 +284,7 @@ export async function assertSliceAuthoringApplication(
       join(root, "scripts/author-slices.ts")
     )
       refuse("application")
-    for (let ancestor = root; ; ancestor = dirname(ancestor)) {
-      try {
-        await stat(join(ancestor, "scripts/starter/release.manifest.json"))
-        refuse("application")
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-      }
-      if (ancestor === dirname(ancestor)) break
-    }
+    if (findSourceRepositoryAtOrAbove(root) !== null) refuse("application")
     return root
   } catch (error) {
     if (error instanceof SliceAuthoringCliRefusal) throw error

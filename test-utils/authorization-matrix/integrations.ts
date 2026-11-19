@@ -174,6 +174,111 @@ const nullable = { value: null }
 // the exact unknown-key outcome rather than fail envelope parsing first.
 const MATRIX_ENTITLEMENT_ENVELOPE = '{"format":"formulacms-entitlement","envelopeVersion":1,"keyId":"test-rfc8032","claims":{"schemaVersion":1,"licenseId":"11111111-1111-4111-8111-111111111111","licensee":"Example Test Licensee","projectId":"22222222-2222-4222-8222-222222222222","product":"team","memberCapacity":7,"issuedAt":"2026-08-14T12:00:00Z"},"signature":"Rsneaim7jv8QioidSziSHzNb4hLdxi5uj0tsMYWnpUVfhlOz-Zkm8kFGfhJ_vP05Fm78SgWsnDshzfWxaXZNBA"}'
 
+const MATRIX_RUNNER_SECRET = "A".repeat(43)
+const MATRIX_SECRET_HASH = "a".repeat(64)
+/**
+ * The local whole-page job functions (AI-LOCAL-2). Start and Resume are owner
+ * session calls behind the AI module gate. The runner calls carry no session
+ * (a tool run outlives the access token) and prove themselves with the job's
+ * runner secret, so every actor, signed in or not, gets the same refusal for a
+ * secret that does not match.
+ */
+function localJobRows(): AuthorizationRow[] {
+  const route = { engine: "claude", model: "matrix-model", effort: "high" } as const
+  const input = {
+    kind: "write",
+    brief: "Matrix job",
+    locale: "en",
+    meta: { title: "Matrix job", slug: "matrix-job" },
+    rows: [{ sliceType: "hero-with-image", purpose: "Introduce the page" }],
+  }
+  const seedLocalJob = async (t: Site, state: MatrixState) => {
+    await seedState(t, state)
+    return t.run(async (ctx) => {
+      const pageId = await ctx.db.insert("pages", {
+        pageType: "page", status: "draft", slug: "matrix-local-job", createdAt: 1, updatedAt: 1,
+      })
+      const jobId = await ctx.db.insert("aiJobs", {
+        authId: OWNER.subject, kind: "write", title: "Matrix job", locale: "en", pageId,
+        localRoute: route,
+        runner: { secretHash: MATRIX_SECRET_HASH, leaseExpiresAt: Number.MAX_SAFE_INTEGER },
+        draftGeneration: 1, state: "canceled", estimateMicros: 0, costMicros: 0,
+        createdAt: 1, expiresAt: Number.MAX_SAFE_INTEGER,
+      })
+      const unitId = await ctx.db.insert("aiJobUnits", {
+        authId: OWNER.subject, jobId, index: 0, kind: "write", state: "inProgress",
+        reused: false, costMicros: 0, attemptKeys: [], claimToken: "matrix-claim",
+      })
+      return { jobId, unitId }
+    })
+  }
+  type Local = { jobId: Id<"aiJobs">; unitId: Id<"aiJobUnits"> }
+  const sessionRow = (
+    entry: "startLocalPageJob" | "resumeLocalPageJob",
+    args: (fixture: Local) => Record<string, unknown>
+  ) =>
+    defineRow({
+      name: `cms/aiLocalJobs:${entry}`,
+      kind: "mutation",
+      scenarios: MATRIX_STATES.map((state) => ({
+        label: stateLabel(state),
+        setup: (t: Site) => seedLocalJob(t, state),
+        call: (actor: CallTarget, fixture: Local) =>
+          invoke(actor, "mutation", `cms/aiLocalJobs:${entry}`, args(fixture)),
+        outcomes: {
+          owner: { error: "CMS_MODULE_DISABLED" },
+          signedOut: { error: "UNAUTHENTICATED" },
+          unrelated: { error: "CMS_OWNER_REQUIRED" },
+          former: { error: "CMS_OWNER_REQUIRED" },
+        },
+        readOnly: true,
+      })),
+    })
+  const runnerRow = (
+    entry: string,
+    extra: (fixture: Local) => Record<string, unknown>,
+    refusal: unknown,
+    kind: "mutation" | "query" = "mutation"
+  ) =>
+    defineRow({
+      name: `cms/aiLocalJobs:${entry}`,
+      kind,
+      scenarios: MATRIX_STATES.map((state) => {
+        const outcome = { value: refusal }
+        return {
+          label: stateLabel(state),
+          setup: (t: Site) => seedLocalJob(t, state),
+          call: (actor: CallTarget, fixture: Local) =>
+            invoke(actor, kind, `cms/aiLocalJobs:${entry}`, {
+              jobId: fixture.jobId, runnerSecret: MATRIX_RUNNER_SECRET, ...extra(fixture),
+            }),
+          outcomes: { owner: outcome, signedOut: outcome, unrelated: outcome, former: outcome },
+          readOnly: true,
+        }
+      }),
+    })
+  const claimArgs = (fixture: Local) => ({
+    unitId: fixture.unitId, claimToken: "matrix-claim",
+  })
+  const audit = { funding: "plan" }
+  return [
+    sessionRow("startLocalPageJob", () => ({
+      input, localRoute: route, runnerSecretHash: MATRIX_SECRET_HASH,
+    })),
+    sessionRow("resumeLocalPageJob", (fixture) => ({
+      jobId: fixture.jobId, kind: "write", runnerSecretHash: MATRIX_SECRET_HASH,
+    })),
+    runnerRow("localClaimUnit", () => ({}), { kind: "refused" }),
+    runnerRow("localHeartbeat", () => ({}), { keepGoing: false }),
+    runnerRow("localJobState", () => ({}), { keepGoing: false }, "query"),
+    runnerRow("localSaveUnit", (f) => ({ ...claimArgs(f), text: "x", audit }), { kind: "refused" }),
+    runnerRow("localFailUnit", (f) => ({
+      ...claimArgs(f), errorCategory: "LOCAL_PROCESS_FAILED", audit,
+    }), { kind: "refused" }),
+    runnerRow("localReleaseUnit", (f) => ({ ...claimArgs(f) }), { kind: "refused" }),
+  ]
+}
+
 /** Integration, identity, membership, and agent surfaces. Each name is a real public registration. */
 export const integrationsRows: AuthorizationRow[] = [
   ...(
@@ -250,7 +355,11 @@ export const integrationsRows: AuthorizationRow[] = [
                 : { jobId }
           ),
         outcomes: {
-          owner: { error: "CMS_MODULE_DISABLED" },
+          // pageJobProgress answers an empty list while AI is off; the owner check still refuses others.
+          owner:
+            entry === "pageJobProgress"
+              ? { value: [] }
+              : { error: "CMS_MODULE_DISABLED" },
           signedOut: { error: "UNAUTHENTICATED" },
           unrelated: { error: "CMS_OWNER_REQUIRED" },
           former: { error: "CMS_OWNER_REQUIRED" },
@@ -277,16 +386,15 @@ export const integrationsRows: AuthorizationRow[] = [
   ),
   ownerOnly("email:getEmailProviderSettings", "query", noArgs, object),
   ownerOnly("email:saveEmailProviderConfiguration", "mutation", () => ({
-    providerId: "resend", senderAddress: "owner@example.test",
-  }), object),
+    senderAddress: "owner@example.test",
+  }), { value: { enabledProviderId: null, configurationVersion: 1, status: "disabled" } }),
   ownerOnly("email:checkEmailProviderConfiguration", "action", () => ({ providerId: "resend" }), object),
   ownerOnly("email:sendTestEmail", "action", noArgs,
     { value: { status: "blocked", reason: "owner_email_missing" } }, { readOnly: true }),
-  ownerOnly("email:activateEmailProvider", "mutation", () => ({ providerId: "resend" }),
-    { value: { providerId: "resend", configurationVersion: 1, status: "active" } },
-    { setup: seedActiveEmailProvider, readOnly: true }),
-  ownerOnly("email:deactivateEmailProvider", "mutation", () => ({ providerId: "resend" }),
-    { value: { providerId: "resend", configurationVersion: 2, status: "configured" } },
+  ownerOnly("email:enableEmailProvider", "mutation", () => ({ providerId: "resend" }),
+    { value: { enabledProviderId: "resend", configurationVersion: 1, status: "inactive" } }),
+  ownerOnly("email:disableEmailProvider", "mutation", () => ({ providerId: "resend" }),
+    { value: { enabledProviderId: null, configurationVersion: 2, status: "disabled" } },
     { setup: seedActiveEmailProvider }),
   ownerOnly("webhooks:listEndpoints", "query", noArgs, array),
   ownerOnly("webhooks:getEndpointSecret", "query", (f) => ({ id: f.endpointId }), { value: "matrix-secret" }),
@@ -332,10 +440,13 @@ export const integrationsRows: AuthorizationRow[] = [
   ownerOnly("cms/ai:settleLocalAttempt", "mutation", () => ({
     attemptKey: "erased-attempt", outcome: "failed",
   }), nullable),
-  ownerOnly("cms/aiSettings:status", "query", noArgs, { error: "CMS_MODULE_DISABLED" }),
+  ownerOnly("cms/aiSettings:status", "query", noArgs, nullable),
   ownerOnly("cms/aiSettings:setAssistant", "mutation", () => ({ id: "writing", instructions: "Matrix" }), { error: "CMS_MODULE_DISABLED" }),
+  ownerOnly("cms/aiSettings:setAssistantLocalTool", "mutation", () => ({ assistant: "writing", on: true }), { error: "CMS_MODULE_DISABLED" }),
+  ...localJobRows(),
   ownerOnly("cms/aiSettings:sliceCreator", "query", noArgs, { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/aiSettings:setSliceCreator", "mutation", () => ({ instructions: "Matrix" }), { error: "CMS_MODULE_DISABLED" }),
+  ownerOnly("cms/vendorModelCatalog:refreshModelCatalogs", "mutation", noArgs, { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/aiSettings:setMonthlyAiCap", "mutation", () => ({
     capMicros: 5_000_000,
   }), { error: "CMS_MODULE_DISABLED" }),

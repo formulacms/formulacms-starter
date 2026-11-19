@@ -63,10 +63,12 @@ export type PublicGenericPage = PublicPageBase<PublicSliceBodyContent> & {
   pageType: "page"
 }
 
-export type PublicPostPage = PublicPageBase<PublicSliceBodyContent> & {
+/** The post category is written in each language (ADR-0037 amendment, 2026-11-17). */
+export type PublicPostContent = PublicSliceBodyContent & { category?: string }
+
+export type PublicPostPage = PublicPageBase<PublicPostContent> & {
   pageType: "post"
   authorIds?: Array<{ pageId?: Id<"pages">; itemId?: string }>
-  category?: string
   featured: boolean
   promoteToFront: boolean
 }

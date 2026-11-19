@@ -3,11 +3,27 @@ import { act, useLayoutEffect } from "react"
 import { fireEvent, render, screen, within } from "@testing-library/react"
 import { beforeEach, expect, test, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ apply: vi.fn(), undo: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  apply: vi.fn(),
+  undo: vi.fn(),
+  hideDesignSystem: false,
+}))
 vi.mock("./read-renderer-source", () => ({
   applySpacingBatchAction: mocks.apply,
   undoSpacingBatchAction: mocks.undo,
 }))
+// Owner applications ship no design-system page; their config sets null.
+vi.mock("@/config/slice-simulator", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/config/slice-simulator")>()
+  return {
+    ...actual,
+    get DESIGN_SYSTEM_ROUTE() {
+      return mocks.hideDesignSystem ? null : actual.DESIGN_SYSTEM_ROUTE
+    },
+  }
+})
+import { DESIGN_SYSTEM_ROUTE } from "@/config/slice-simulator"
 import { VisualTweakProvider, useVisualTweak } from "./visual-tweak-store"
 import { VisualTweakSaveBar } from "./visual-tweak-save-bar"
 
@@ -32,6 +48,7 @@ const step = {
 beforeEach(() => {
   mocks.apply.mockReset()
   mocks.undo.mockReset()
+  mocks.hideDesignSystem = false
   window.sessionStorage.clear()
   window.localStorage.clear()
 })
@@ -64,9 +81,11 @@ function typographyReview() {
   const group = screen.getByRole("region", { name: "Typography" })
   expect(within(group).getByText("--text-body")).toBeVisible()
   expect(within(group).getByText("1rem → 1.0625rem")).toBeVisible()
-  expect(
-    within(group).getByRole("link", { name: "Design system" })
-  ).toHaveAttribute("href", "/admin/design-system")
+  // The starter ships this test with a null route, so read it from config.
+  const link = within(group).queryByRole("link", { name: "Design system" })
+  if (DESIGN_SYSTEM_ROUTE)
+    expect(link).toHaveAttribute("href", DESIGN_SYSTEM_ROUTE)
+  else expect(link).not.toBeInTheDocument()
 }
 
 test.each([true, false])(
@@ -89,6 +108,26 @@ test.each([true, false])(
     expect(mocks.undo).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Discard" }))
     expect(current().typography).toEqual({})
+  }
+)
+
+test.each([true, false])(
+  "compact=%s names no design-system page when the app does not ship one", sliceProfile([]),
+  async (compact) => {
+    mocks.hideDesignSystem = true
+    const current = harness(compact)
+    await act(async () => {
+      current().stepTypography(step)
+    })
+    openReview(compact)
+    const group = screen.getByRole("region", { name: "Typography" })
+    expect(within(group).getByText("--text-body")).toBeVisible()
+    expect(
+      within(group).getByText("Preview only · Site-wide tokens")
+    ).toBeVisible()
+    expect(
+      within(group).queryByRole("link", { name: "Design system" })
+    ).not.toBeInTheDocument()
   }
 )
 

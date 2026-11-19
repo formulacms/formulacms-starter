@@ -14,3 +14,22 @@ export function assertLocalDevelopment(capability: string): void {
     throw new Error(`${capability} is only available in local development.`)
   }
 }
+
+// The local tool route (Claude Code `claude -p`, Codex `codex exec`) runs the
+// owner's own command-line tool on the owner's computer (ADR-0057 step 1).
+// The engine guard refuses it outside local development. Request-scoped
+// callers also require a loopback request (`lib/local-request.ts`).
+export const LOCAL_TOOL_ENGINES = Object.freeze(["claude", "codex"] as const)
+export type LocalToolEngine = (typeof LOCAL_TOOL_ENGINES)[number]
+
+export function isLocalToolEngine(engine: string): engine is LocalToolEngine {
+  return (LOCAL_TOOL_ENGINES as readonly string[]).includes(engine)
+}
+
+export function assertLocalToolRoute(engine: string): void {
+  if (isLocalToolEngine(engine) && !isLocalDevelopment()) {
+    throw new Error(
+      "Local AI tools run only in local development. Use an API connection on the live site."
+    )
+  }
+}

@@ -446,9 +446,6 @@ describe("durable Community owner access", () => {
       "rolePermissions",
       "cmsMemberships",
       "cmsCapacity",
-      "cmsSeatReservations",
-      "teamPublishingPolicies",
-      "invites",
       "cmsInstalledEntitlement",
     ]) {
       expect(source).not.toContain(`query(\"${table}\")`)

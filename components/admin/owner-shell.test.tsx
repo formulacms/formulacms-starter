@@ -1,11 +1,13 @@
 import {
+  fireEvent,
   render as renderWithTestingLibrary,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react"
 import { getFunctionName } from "convex/server"
 import { NextIntlClientProvider } from "next-intl"
-import { beforeEach, describe, expect, test, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import en from "@/messages/admin/en.json"
 import fr from "@/messages/admin/fr.json"
 import { readFileSync } from "node:fs"
@@ -39,7 +41,29 @@ vi.mock("next/navigation", () => ({
 }))
 
 vi.mock("./sidebar", () => ({
-  AdminSidebar: () => <aside>Admin navigation</aside>,
+  AdminSidebar: ({
+    variant = "fixed",
+    headerAction,
+    onNavigate,
+  }: {
+    variant?: string
+    headerAction?: React.ReactNode
+    onNavigate?: () => void
+  }) => (
+    <aside data-variant={variant}>
+      Admin navigation
+      {headerAction}
+      <a
+        href="#content"
+        onClick={(event) => {
+          event.preventDefault()
+          onNavigate?.()
+        }}
+      >
+        Content
+      </a>
+    </aside>
+  ),
 }))
 
 vi.mock("./command-palette", () => ({
@@ -161,3 +185,100 @@ function adminBlocks(css: string): string[] {
     ...css.matchAll(/\/\* (admin-[\w-]+):start \*\/[\s\S]*?\/\* \1:end \*\//g),
   ].map((match) => match[0])
 }
+
+describe("AdminShell sidebar by screen width", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.effective = undefined
+    mocks.owner = owner
+    mocks.useQuery.mockImplementation(() => mocks.owner)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function setWide(wide: boolean) {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: wide,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }))
+  }
+
+  test("at load: fixed sidebar open from md up, phone Sheet closed, phone padding", () => {
+    setWide(false)
+    renderShell()
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    // The fixed sidebar hides itself below md (sidebar.test.tsx).
+    expect(
+      screen.getByText("Admin navigation").closest("aside")
+    ).toHaveAttribute("data-variant", "fixed")
+    expect(screen.getByRole("button", { name: "Show sidebar" })).toHaveClass(
+      "left-3",
+      "md:hidden"
+    )
+    expect(screen.getByRole("button", { name: "Hide sidebar" })).toHaveClass(
+      "hidden",
+      "md:inline-flex",
+      "left-[12.75rem]"
+    )
+    expect(screen.getByRole("main")).toHaveClass("pt-14", "md:pt-6", "lg:p-8")
+  })
+
+  test("on a phone the sidebar opens in a Sheet over the overlay and closes on Escape, a link and the toggle", async () => {
+    setWide(false)
+    renderShell()
+
+    fireEvent.click(screen.getByRole("button", { name: "Show sidebar" }))
+    const dialog = await screen.findByRole("dialog", { name: "formulacms" })
+    expect(
+      within(dialog).getByText("Admin navigation").closest("aside")
+    ).toHaveAttribute("data-variant", "sheet")
+    expect(document.querySelector('[data-slot="sheet-overlay"]')).not.toBeNull()
+
+    fireEvent.keyDown(document.activeElement ?? dialog, { key: "Escape" })
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Show sidebar" }))
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("link", {
+        name: "Content",
+      })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Show sidebar" }))
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Hide sidebar",
+      })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+  })
+
+  test.each([
+    [false, "opens the phone Sheet"],
+    [true, "hides the fixed sidebar"],
+  ])("the shortcut at wide=%s %s", async (wide) => {
+    setWide(wide)
+    renderShell()
+
+    fireEvent.keyDown(window, { key: "\\", metaKey: true })
+
+    if (wide) {
+      expect(screen.queryByText("Admin navigation")).not.toBeInTheDocument()
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    } else {
+      expect(await screen.findByRole("dialog")).toBeInTheDocument()
+      expect(screen.getAllByText("Admin navigation")).toHaveLength(2)
+    }
+  })
+})

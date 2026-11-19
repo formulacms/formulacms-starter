@@ -83,7 +83,8 @@
     "localizedFieldKeys": [
       "title",
       "metaTitle",
-      "metaDescription"
+      "metaDescription",
+      "category"
     ]
   },
   {

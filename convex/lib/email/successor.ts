@@ -7,6 +7,34 @@ import {
   type EmailAdapter as SdkEmailAdapter,
   type EmailMessage as SdkEmailMessage,
 } from "@opencoredev/email-sdk"
+import type { EmailDeliveryFailureCategory } from "./delivery"
+
+/**
+ * Error an adapter throws when it has already decided, from typed fields
+ * only, whether the message was proven not sent, whether Action Retrier may
+ * retry it, and which bounded reason category the owner sees. The message is
+ * constant and no cause is attached, so no server text, address, or
+ * credential travels with it. The Email SDK passes an EmailAdapterError
+ * subclass through unchanged.
+ */
+export class FormulaCmsClassifiedAdapterError extends EmailAdapterError {
+  readonly category?: EmailDeliveryFailureCategory
+
+  constructor(options: {
+    adapter: string
+    delivery: "not_sent" | "unknown"
+    retryable: boolean
+    category?: EmailDeliveryFailureCategory
+  }) {
+    super("FormulaCMS email provider failure", {
+      adapter: options.adapter,
+      delivery: options.delivery,
+      retryable: options.retryable,
+    })
+    this.name = "FormulaCmsClassifiedAdapterError"
+    if (options.category) this.category = options.category
+  }
+}
 
 export type FormulaCmsEmailAddress = Readonly<{
   email: string
@@ -63,6 +91,7 @@ export type FormulaCmsEmailDispatchResult =
       providerId: string
       reason: "invalid_input" | "provider_rejected"
       retry: "action_retrier" | "never"
+      category?: EmailDeliveryFailureCategory
     }>
   | Readonly<{
       state: "unknown"
@@ -182,11 +211,16 @@ export function createFormulaCmsEmailService(
         await client.flush().catch(() => undefined)
         const failure = finalAdapterFailure(error)
         if (failure?.delivery === "not_sent") {
+          const category =
+            failure instanceof FormulaCmsClassifiedAdapterError
+              ? failure.category
+              : undefined
           return {
             state: "failed",
             providerId,
             reason: "provider_rejected",
             retry: failure.retryable ? "action_retrier" : "never",
+            ...(category ? { category } : {}),
           }
         }
         return {

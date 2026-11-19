@@ -68,6 +68,7 @@ describe("content-type registration projections", () => {
         "const quoteDraftInput = v.object({",
         '  pageType: v.literal("quote"),',
         "  localized: quoteContentType.localizedValidator,",
+        "  ...perLanguageInput,",
         "})",
       ].join("\n")
     )

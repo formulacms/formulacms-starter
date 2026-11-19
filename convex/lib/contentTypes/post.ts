@@ -30,32 +30,45 @@ import type { ContentTypeDescriptor } from "./types"
 const sharedFields = {
   authorIds: list(relation({ pageTypes: ["author"] })).optional().public(),
   tags: list(text()).optional(),
-  category: text().optional().public(),
   featured: boolean({ default: false }).public(),
   promoteToFront: boolean({ default: false }).public(),
 } as const
+// ADR-0037 amendment (2026-11-17): the category is written in each language.
 const localizedFields = {
   title: text({ placeholder: "Untitled post" }).public(),
   metaTitle: text().optional().public(),
   metaDescription: text({ multiline: true }).optional().public(),
+  category: text().optional().public(),
 } as const
+// The shared `category` of rows and Shared Drafts written before the change
+// stays readable (widen, migrate, narrow); nothing writes it any more.
+const legacySharedCategory = text().optional()
 
-export const postContentType: ContentTypeDescriptor<typeof sharedFields, typeof localizedFields> = {
+type PostDescriptor = ContentTypeDescriptor<
+  typeof sharedFields,
+  typeof localizedFields
+>
+
+export const postContentType: PostDescriptor = {
   type: "post",
   label: { singular: "Post", plural: "Posts" },
   sharedFields,
   localizedFields,
+  // Storage keeps the old shared `category` readable (widen, migrate, narrow:
+  // the narrowing is a later unit). The type stays the declared shared fields,
+  // so no new code can write the old key.
   sharedValidator: v.object({
     authorIds: sharedFields.authorIds.validator,
     tags: sharedFields.tags.validator,
-    category: sharedFields.category.validator,
+    category: legacySharedCategory.validator,
     featured: sharedFields.featured.validator,
     promoteToFront: sharedFields.promoteToFront.validator,
-  }),
+  }) as unknown as PostDescriptor["sharedValidator"],
   localizedValidator: v.object({
     title: localizedFields.title.validator,
     metaTitle: localizedFields.metaTitle.validator,
     metaDescription: localizedFields.metaDescription.validator,
+    category: localizedFields.category.validator,
   }),
   routing: { pathPrefix: "" },
   seo: { schemaOrgType: "Article", ogType: "article" },

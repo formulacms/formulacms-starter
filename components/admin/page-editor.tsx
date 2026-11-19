@@ -116,12 +116,17 @@ import {
   type AdminCommand,
 } from "@/components/admin/command-palette"
 import type { Id } from "@/convex/_generated/dataModel"
+import type { PerLanguageSeo } from "@/convex/lib/contentTypes/perLanguageFields"
+import { AmberNotice } from "@/components/admin/amber-notice"
+import { useTranslationOffMessage } from "@/components/admin/content-types/content-type-names"
+import { useHiddenByTranslationSwitch } from "@/components/admin/content-types/use-hidden-by-translation-switch"
 import { type Slice } from "@/convex/lib/slices"
 import { hasSliceBody } from "@/convex/lib/pages/sliceBodyContent"
 import { getLocaleDisplayName, type Locale } from "@/lib/i18n/config"
 import {
   type ActivePanel,
   type LocaleContentSummary,
+  type CopiedLanguageValues,
   type LocaleDraft,
   type Page,
   type PageEditorRecoveryDraft,
@@ -241,7 +246,31 @@ function writeLocaleDraft(
   locale: Locale,
   draft: LocaleDraft
 ) {
+  // A translation draft carries no search and social values: the language
+  // keeps the ones it holds (same object, so its identity check still holds).
+  const previous = cache.current[locale]
+  if (draft.seoNoIndex === undefined && previous?.seoNoIndex !== undefined) {
+    draft.seoNoIndex = previous.seoNoIndex
+    draft.seoNoFollow = previous.seoNoFollow
+    draft.seoOgTitle = previous.seoOgTitle
+    draft.seoOgDescription = previous.seoOgDescription
+    draft.copiedLanguageValues = previous.copiedLanguageValues
+  }
   cache.current[locale] = draft
+}
+
+/** The stored values of a language that Copy from carries with no field. */
+function storedCopiedLanguageValues(
+  content: Record<string, unknown> | undefined
+): CopiedLanguageValues {
+  const seo = (content?.seo ?? {}) as PerLanguageSeo
+  const values: CopiedLanguageValues = {}
+  if (seo.structuredData) values.structuredData = seo.structuredData
+  if (seo.keywords?.length) values.keywords = seo.keywords
+  if (seo.focusKeyword) values.focusKeyword = seo.focusKeyword
+  if (typeof content?.cardExcerpt === "string" && content.cardExcerpt)
+    values.cardExcerpt = content.cardExcerpt
+  return values
 }
 
 export type { SnapshotEditorPublication }
@@ -359,7 +388,11 @@ async function carryOverRecoveredCopyFields({
   >
 }): Promise<void> {
   try {
-    const hasLocalizedFields = Object.keys(localizedFieldValues).length > 0
+    // A descriptor field without a value (an unset post category) is not a
+    // field to carry over.
+    const hasLocalizedFields = Object.values(localizedFieldValues).some(
+      (value) => value !== undefined
+    )
     const hasSharedFields = Object.keys(sharedFieldValues).length > 0
     if (hasLocalizedFields || hasSharedFields) {
       const updateDraftArgs: Record<string, unknown> = {
@@ -588,6 +621,7 @@ function PageEditorSession({
   const workflow = useEditionPageWorkflow(page._id)
   const enabledLocales = siteConfig?.enabledLocales ?? ["en"]
   const defaultLocale = siteConfig?.defaultLocale ?? routeDefaultLocale ?? "en"
+  const translationOffText = useTranslationOffMessage()(page.pageType)
 
   // Candidate parents for the page-settings selector. Excludes self and any
   // descendant of this page (walk up each candidate's `parentId` chain). The
@@ -669,6 +703,15 @@ function PageEditorSession({
         ? adminLocale
         : defaultLocale)
   )
+  // The open language version is hidden from the site by its content type's
+  // translation switch: the server refuses Publish there (the same rule).
+  const hiddenByTranslationSwitch = useHiddenByTranslationSwitch({
+    pageId: page._id,
+    pageType: page.pageType,
+    locale: currentLocale,
+    enabledLocales,
+    homePageId: siteConfig?.homePageId ?? routeHomePageId,
+  })
   // The checklist refuses a language that is not switched on yet.
   const { result: prePublishChecklistResult, retry: retryPrePublishChecklist } =
     usePrePublishChecklist(page._id, currentLocale, !targetDraftLocale)
@@ -793,6 +836,34 @@ function PageEditorSession({
   function setSeoOgDescription(value: SetStateAction<typeof seoOgDescription>) {
     noteDraftWrite()
     setSeoOgDescriptionState(value)
+  }
+  function setCopiedLanguageValues(value: CopiedLanguageValues | undefined) {
+    noteDraftWrite()
+    setCopiedLanguageValuesState(value)
+  }
+  // A language's own search and social values: its cached draft's, else the
+  // stored ones.
+  function languageSeoFor(locale: Locale, draft: LocaleDraft | undefined) {
+    const stored = (
+      page.content?.[locale] as { seo?: PerLanguageSeo } | undefined
+    )?.seo
+    return {
+      seoNoIndex: draft?.seoNoIndex ?? stored?.noIndex ?? false,
+      seoNoFollow: draft?.seoNoFollow ?? stored?.noFollow ?? false,
+      seoOgTitle: draft?.seoOgTitle ?? stored?.ogTitle ?? "",
+      seoOgDescription: draft?.seoOgDescription ?? stored?.ogDescription ?? "",
+      copiedLanguageValues: draft?.copiedLanguageValues,
+    }
+  }
+  // The open language's search and social values, for a draft capture.
+  function activeLanguageSeo() {
+    return {
+      seoNoIndex,
+      seoNoFollow,
+      seoOgTitle,
+      seoOgDescription,
+      copiedLanguageValues,
+    }
   }
   function setSeoOgImage(value: SetStateAction<typeof seoOgImage>) {
     noteDraftWrite()
@@ -984,6 +1055,16 @@ function PageEditorSession({
     setMetaDescription(prepared.metaDescription)
     commitPreparedSlices(prepared)
     setLocalizedFieldValues(prepared.localizedFieldValues)
+    // A draft that carries the language's search and social values (a tab
+    // switch, Copy from) replaces them; a translation draft keeps them.
+    if (prepared.seoNoIndex !== undefined) {
+      const seo = languageSeoFor(currentLocale, prepared)
+      setSeoNoIndex(seo.seoNoIndex)
+      setSeoNoFollow(seo.seoNoFollow)
+      setSeoOgTitle(seo.seoOgTitle)
+      setSeoOgDescription(seo.seoOgDescription)
+      setCopiedLanguageValues(seo.copiedLanguageValues)
+    }
   }
   // Sidebar, slice copy/translation and AI merge all prepare before publication.
   function setSlices(value: SetStateAction<Slice[]>, locale = currentLocale) {
@@ -1057,21 +1138,20 @@ function PageEditorSession({
   const [previewInlineRefusal, setPreviewInlineRefusal] =
     useState<PreviewInlineRefusalReason | null>(null)
 
-  // Page-global SEO fields (one set per page, not per-locale) — persisted on the
-  // page's `seo` object via the `update` mutation.
-  const [seoNoIndex, setSeoNoIndexState] = useState(
-    retainedSharedDraft?.values.seoNoIndex ?? page.seo?.noIndex ?? false
+  // SEO fields. The social title and description, noindex and nofollow belong
+  // to each language (ADR-0037 amendment, 2026-11-17): they travel with the
+  // language's draft across tab switches. The social image stays shared.
+  const [openingSeo] = useState(() =>
+    languageSeoFor(currentLocale, retainedLocaleDraft)
   )
-  const [seoNoFollow, setSeoNoFollowState] = useState(
-    retainedSharedDraft?.values.seoNoFollow ?? page.seo?.noFollow ?? false
-  )
-  const [seoOgTitle, setSeoOgTitleState] = useState(
-    retainedSharedDraft?.values.seoOgTitle ?? page.seo?.ogTitle ?? ""
-  )
+  const [seoNoIndex, setSeoNoIndexState] = useState(openingSeo.seoNoIndex)
+  const [seoNoFollow, setSeoNoFollowState] = useState(openingSeo.seoNoFollow)
+  const [seoOgTitle, setSeoOgTitleState] = useState(openingSeo.seoOgTitle)
   const [seoOgDescription, setSeoOgDescriptionState] = useState(
-    retainedSharedDraft?.values.seoOgDescription ??
-      page.seo?.ogDescription ??
-      ""
+    openingSeo.seoOgDescription
+  )
+  const [copiedLanguageValues, setCopiedLanguageValuesState] = useState(
+    openingSeo.copiedLanguageValues
   )
   const [seoOgImage, setSeoOgImageState] = useState(
     retainedSharedDraft?.values.seoOgImage ?? page.seo?.ogImage ?? ""
@@ -1300,10 +1380,6 @@ function PageEditorSession({
     parentId,
     authorIds,
     tags,
-    seoNoIndex,
-    seoNoFollow,
-    seoOgTitle,
-    seoOgDescription,
     seoOgImage,
     sharedFieldValues,
     refusalBase: retainedSharedDraft?.refusalBase,
@@ -1315,10 +1391,6 @@ function PageEditorSession({
       parentId,
       authorIds,
       tags,
-      seoNoIndex,
-      seoNoFollow,
-      seoOgTitle,
-      seoOgDescription,
       seoOgImage,
       sharedFieldValues,
     }
@@ -1708,6 +1780,7 @@ function PageEditorSession({
       seoOgImage,
       sharedFieldValues,
       localizedFieldValues,
+      copiedLanguageValues,
     },
     hasStaging: initialHasStaging,
     recoveryDraftForFlush(draft) {
@@ -1929,6 +2002,7 @@ function PageEditorSession({
       slices: capturedSlices,
       removedTitleLinks: titleReports.current,
       localizedFieldValues,
+      ...activeLanguageSeo(),
     }
     const draft = drafts.current[locale]
     const c = asSliceBodyLocaleBag(page.content?.[locale])
@@ -1954,6 +2028,7 @@ function PageEditorSession({
               adminContentTypeLocalizedFields(page.pageType),
               locale
             ),
+          ...languageSeoFor(locale, draft),
         },
         locale
       )
@@ -2102,6 +2177,7 @@ function PageEditorSession({
             metaDescription,
             slices,
             localizedFieldValues,
+            ...activeLanguageSeo(),
           }
         : undefined
     const draft = liveDraft ?? drafts.current[locale]
@@ -2221,6 +2297,15 @@ function PageEditorSession({
               page,
               adminContentTypeLocalizedFields(page.pageType),
               source
+            )
+        ),
+        // The source language's search, social and card values come too: the
+        // owner chose to copy that language.
+        ...languageSeoFor(source, draft),
+        copiedLanguageValues: structuredClone(
+          draft?.copiedLanguageValues ??
+            storedCopiedLanguageValues(
+              page.content?.[source] as Record<string, unknown> | undefined
             )
         ),
       })
@@ -2372,6 +2457,7 @@ function PageEditorSession({
     setSeoNoFollow(draft.seoNoFollow)
     setSeoOgTitle(draft.seoOgTitle)
     setSeoOgDescription(draft.seoOgDescription)
+    setCopiedLanguageValues(draft.copiedLanguageValues)
     setSeoOgImage(draft.seoOgImage)
     // Plan 029 C8 — descriptor-generic bags participate in recovery.
     // v1 payloads are refused by `readRecoveryDraft` so if we're here,
@@ -2549,6 +2635,11 @@ function PageEditorSession({
       slices: slicesRef.current,
       removedTitleLinks: titleReports.current,
       localizedFieldValues,
+      seoNoIndex,
+      seoNoFollow,
+      seoOgTitle,
+      seoOgDescription,
+      copiedLanguageValues,
     }
     const locale = pendingHistoryRestore.locale
     const keepSubmittedDraft = Boolean(
@@ -2608,6 +2699,11 @@ function PageEditorSession({
     metaTitle,
     metaDescription,
     localizedFieldValues,
+    seoNoIndex,
+    seoNoFollow,
+    seoOgTitle,
+    seoOgDescription,
+    copiedLanguageValues,
     hasUnsaved,
     hasUnsavedLocaleDraft,
     captureSharedDraft,
@@ -3036,14 +3132,16 @@ function PageEditorSession({
     publication?.locales.find((entry) => entry.locale === currentLocale)
       ?.state === "draft"
   const publishDisabled =
+    hiddenByTranslationSwitch ||
     page.status === "archived" ||
     workflow.editingLocked ||
     (page.status !== "published" &&
       (publishReadinessUnavailable ||
         hasPublishBlockers ||
         (workflow.requiresApproval && !workflow.canPublish)))
-  const publishDisabledReason =
-    page.status === "archived"
+  const publishDisabledReason = hiddenByTranslationSwitch
+    ? translationOffText
+    : page.status === "archived"
       ? t("commands.unarchiveFirst")
       : workflow.editingLocked
         ? t("commands.reviewActive")
@@ -3921,21 +4019,25 @@ function PageEditorSession({
                       data-preview-save-control
                       onClick={handlePublish}
                       disabled={
+                        hiddenByTranslationSwitch ||
                         publishReadinessUnavailable ||
                         hasPublishBlockers ||
                         (workflow.requiresApproval && !workflow.canPublish) ||
                         (!hasStaging && !hasUnsaved && !localeHasDraft)
                       }
                       title={
-                        publishReadinessUnavailable
-                          ? publishReadinessDisabledReason
-                          : hasPublishBlockers
-                            ? t("commands.resolveBlockers")
-                            : workflow.requiresApproval && !workflow.canPublish
-                              ? t("commands.approvalRequired")
-                              : !hasStaging && !hasUnsaved && !localeHasDraft
-                                ? t("nothingToPublish.noChanges")
-                                : t("publishUnpublished")
+                        hiddenByTranslationSwitch
+                          ? translationOffText
+                          : publishReadinessUnavailable
+                            ? publishReadinessDisabledReason
+                            : hasPublishBlockers
+                              ? t("commands.resolveBlockers")
+                              : workflow.requiresApproval &&
+                                  !workflow.canPublish
+                                ? t("commands.approvalRequired")
+                                : !hasStaging && !hasUnsaved && !localeHasDraft
+                                  ? t("nothingToPublish.noChanges")
+                                  : t("publishUnpublished")
                       }
                       className="inline-flex size-11 items-center justify-center rounded-md bg-emerald-600 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 sm:h-auto sm:w-auto sm:px-3 sm:py-1.5"
                     >
@@ -3950,21 +4052,25 @@ function PageEditorSession({
                       data-preview-save-control
                       onClick={handlePublish}
                       disabled={
+                        hiddenByTranslationSwitch ||
                         publishReadinessUnavailable ||
                         hasPublishBlockers ||
                         (workflow.requiresApproval && !workflow.canPublish) ||
                         (!hasStaging && !hasUnsaved && !localeHasDraft)
                       }
                       title={
-                        publishReadinessUnavailable
-                          ? publishReadinessDisabledReason
-                          : hasPublishBlockers
-                            ? t("commands.resolveBlockers")
-                            : workflow.requiresApproval && !workflow.canPublish
-                              ? t("commands.approvalRequired")
-                              : !hasStaging && !hasUnsaved && !localeHasDraft
-                                ? t("nothingToPublish.saveFirst")
-                                : t("publish")
+                        hiddenByTranslationSwitch
+                          ? translationOffText
+                          : publishReadinessUnavailable
+                            ? publishReadinessDisabledReason
+                            : hasPublishBlockers
+                              ? t("commands.resolveBlockers")
+                              : workflow.requiresApproval &&
+                                  !workflow.canPublish
+                                ? t("commands.approvalRequired")
+                                : !hasStaging && !hasUnsaved && !localeHasDraft
+                                  ? t("nothingToPublish.saveFirst")
+                                  : t("publish")
                       }
                       className="inline-flex size-11 items-center justify-center rounded-md bg-emerald-600 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 sm:h-auto sm:w-auto sm:px-3 sm:py-1.5"
                     >
@@ -3991,6 +4097,14 @@ function PageEditorSession({
             {languageChangeNotice.map((line) => (
               <p key={line}>{line}</p>
             ))}
+          </div>
+        )}
+
+        {hiddenByTranslationSwitch && (
+          <div className="mx-4 mb-3">
+            <AmberNotice testId="translation-off-notice">
+              {translationOffText}
+            </AmberNotice>
           </div>
         )}
 

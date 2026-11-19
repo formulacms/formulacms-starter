@@ -116,6 +116,7 @@ const MENUS_PATHS = new Set([
 
 const OTHER_INVENTORY_ROUTES_PATHS = new Set([
   "components/admin/admin-module-state-provider.tsx",
+  "components/admin/help-availability.ts",
   "components/admin/module-gate.ts",
   "components/admin/optional-module-route.tsx",
   "components/admin/optional-contribution.tsx",
@@ -126,16 +127,24 @@ const OTHER_INVENTORY_ROUTES_PATHS = new Set([
   "app/(core)/admin/(authenticated)/content-types/actions.ts",
   "app/(core)/admin/(authenticated)/content-types/page.tsx",
   "app/(core)/admin/(authenticated)/error.tsx",
+  "app/(core)/admin/(authenticated)/help-ai-actions.ts",
+  "app/(core)/admin/(authenticated)/help-ai-chat.ts",
+  "app/(core)/admin/(authenticated)/help-ai-routing.ts",
   "app/(core)/admin/(authenticated)/layout.tsx",
   "app/(core)/admin/(authenticated)/loading.tsx",
+  "app/(core)/admin/(authenticated)/local-ai-audit.ts",
   "app/(core)/admin/(authenticated)/media/page.tsx",
   "app/(core)/admin/(authenticated)/page.tsx",
   "app/(core)/admin/(authenticated)/pages/actions.ts",
+  "app/(core)/admin/(authenticated)/pages/local-ai-job-actions.ts",
+  "app/(core)/admin/(authenticated)/pages/local-ai-routing.ts",
+  "app/(core)/admin/(authenticated)/pages/local-ai-run.ts",
   "app/(core)/admin/(authenticated)/pages/new/page.tsx",
   "app/(core)/admin/(authenticated)/redirects/page.tsx",
   "app/(core)/admin/(authenticated)/redirects/redirects-manager.tsx",
   "app/(core)/admin/(authenticated)/settings/account/page.tsx",
   "app/(core)/admin/(authenticated)/settings/actions.ts",
+  "app/(core)/admin/(authenticated)/settings/ai/actions.ts",
   "app/(core)/admin/(authenticated)/settings/ai/page.tsx",
   "app/(core)/admin/(authenticated)/settings/email/page.tsx",
   "app/(core)/admin/(authenticated)/settings/layout.tsx",
@@ -156,10 +165,14 @@ const OTHER_INVENTORY_ROUTES_PATHS = new Set([
   "components/admin/ai-writing/new-page-participant.tsx",
   "components/admin/ai-writing/page-jobs.tsx",
   "components/admin/ai-writing/page-wizard.tsx",
+  "components/admin/amber-notice.tsx",
   "components/admin/authenticated-admin-shell.tsx",
   "components/admin/content-types/content-type-catalog.tsx",
   "components/admin/content-types/content-type-detail.tsx",
+  "components/admin/content-types/content-type-languages-card.tsx",
   "components/admin/content-types/content-type-lifecycle-panel.tsx",
+  "components/admin/content-types/content-type-names.ts",
+  "components/admin/content-types/use-hidden-by-translation-switch.ts",
   "components/admin/contributions/ai-help.server.ts",
   "components/admin/contributions/ai-help.ts",
   "components/admin/contributions/ai-settings.server.ts",
@@ -247,6 +260,7 @@ const OTHER_INVENTORY_ROUTES_PATHS = new Set([
   "app/(core)/admin/(authenticated)/slices/[type]/page.tsx",
   "app/(core)/admin/(authenticated)/slices/actions.ts",
   "app/(core)/admin/(authenticated)/slices/ai-actions.ts",
+  "app/(core)/admin/(authenticated)/slices/ai-local-tool.ts",
   "app/(core)/admin/(authenticated)/slices/create/actions.ts",
   "app/(core)/admin/(authenticated)/slices/create/create-slice-route.tsx",
   "app/(core)/admin/(authenticated)/slices/create/page.tsx",
@@ -303,7 +317,7 @@ describe("admin literal ratchet", () => {
   test("R1 shipped UI has no unallowlisted literals", () => {
     const inventory = scanR1LiteralInventory(process.cwd())
     expect(inventory.files.length).toBeGreaterThan(0)
-    expect(inventory.files).toHaveLength(236)
+    expect(inventory.files).toHaveLength(250)
     if (inventory.findings.length > 0) {
       throw new Error(formatR1LiteralInventory(inventory))
     }
@@ -497,7 +511,7 @@ describe("admin literal ratchet", () => {
         OTHER_INVENTORY_ROUTES_PATHS.has(finding.path)
       ),
     }
-    expect(otherInventoryRoutes.files).toHaveLength(152)
+    expect(otherInventoryRoutes.files).toHaveLength(166)
     if (otherInventoryRoutes.findings.length > 0) {
       throw new Error(formatR1LiteralInventory(otherInventoryRoutes))
     }

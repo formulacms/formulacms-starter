@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { readFile, readdir } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { describe, expect, test, vi } from "vitest"
 import { createFormulaCmsEmailService } from "./successor"
@@ -38,13 +38,17 @@ async function exerciseRegisteredProvider(
 }
 
 describe("FormulaCMS email provider registry", () => {
-  test("registers exactly the bundled Resend provider with server-only readiness", () => {
+  test("registers exactly the bundled SMTP and Resend providers with server-only readiness", () => {
     expect(EMAIL_PROVIDER_REGISTRY.metadata).toEqual(
       REGISTERED_EMAIL_PROVIDER_METADATA
     )
     expect(EMAIL_PROVIDER_REGISTRY.metadata.map(({ id }) => id)).toEqual([
+      "smtp",
       "resend",
     ])
+    expect(
+      EMAIL_PROVIDER_REGISTRY.readiness("smtp", { environment: {} })
+    ).toBe("needs_setup")
     expect(
       EMAIL_PROVIDER_REGISTRY.readiness("resend", { environment: {} })
     ).toBe("needs_setup")
@@ -60,8 +64,11 @@ describe("FormulaCMS email provider registry", () => {
       EMAIL_PROVIDER_REGISTRY.createAdapter("unknown", { environment: {} }, {})
     ).toThrow("CMS_EMAIL_PROVIDER_UNREGISTERED")
     expect(() =>
-      EMAIL_PROVIDER_REGISTRY.createAdapter("smtp", { environment: {} }, {})
+      EMAIL_PROVIDER_REGISTRY.createAdapter("postmark", { environment: {} }, {})
     ).toThrow("CMS_EMAIL_PROVIDER_UNREGISTERED")
+    expect(() =>
+      EMAIL_PROVIDER_REGISTRY.createAdapter("smtp", { environment: {} }, {})
+    ).toThrow("CMS_EMAIL_PROVIDER_NEEDS_SETUP")
     expect(() =>
       EMAIL_PROVIDER_REGISTRY.createAdapter("resend", { environment: {} }, {})
     ).toThrow("CMS_EMAIL_PROVIDER_NEEDS_SETUP")
@@ -170,6 +177,37 @@ describe("FormulaCMS email provider registry", () => {
     })
   })
 
+  test("a Resend failure carries no category and keeps today's verdict", async () => {
+    // Today the Email SDK marks a Resend HTTP failure as delivery unknown, so
+    // the result is terminal "unknown". Adding SMTP must not change that.
+    for (const status of [422, 500]) {
+      const failingFetch = vi.fn(
+        async () =>
+          new Response(JSON.stringify({ message: "provider-error-sentinel" }), {
+            status,
+            headers: { "Content-Type": "application/json" },
+          })
+      )
+      const result = await exerciseRegisteredProvider(
+        EMAIL_PROVIDER_REGISTRY,
+        "resend",
+        {
+          environment: { RESEND_API_KEY: "resend-secret-sentinel" },
+          fetch: failingFetch,
+        },
+        {}
+      )
+      expect(result).toEqual({
+        state: "unknown",
+        providerId: "resend",
+        reason: "delivery_unknown",
+        retry: "never",
+      })
+      expect(result).not.toHaveProperty("category")
+      expect(JSON.stringify(result)).not.toContain("provider-error-sentinel")
+    }
+  })
+
   test("keeps browser metadata free of server factories and secret material", async () => {
     const serialized = JSON.stringify(REGISTERED_EMAIL_PROVIDER_METADATA)
     expect(serialized).not.toContain("secret")
@@ -188,5 +226,28 @@ describe("FormulaCMS email provider registry", () => {
       "utf8"
     )
     expect(serverSource.startsWith('"use node"')).toBe(true)
+
+    // Shared (non-Node) files may not import an SDK or a Node-only file; each
+    // Node provider file starts with the directive, so the Convex bundler
+    // refuses an import from non-Node code.
+    const providersDirectory = fileURLToPath(
+      new URL("./providers/", import.meta.url)
+    )
+    for (const name of await readdir(providersDirectory)) {
+      if (!name.endsWith(".ts") || name.endsWith(".test.ts")) continue
+      const source = await readFile(`${providersDirectory}${name}`, "utf8")
+      if (name.endsWith(".node.ts")) {
+        expect(source.startsWith('"use node"')).toBe(true)
+      } else {
+        expect(source).not.toContain("@opencoredev/email-sdk")
+        expect(source).not.toContain(".node")
+      }
+    }
+    const readinessSource = await readFile(
+      fileURLToPath(new URL("./providerReadiness.ts", import.meta.url)),
+      "utf8"
+    )
+    expect(readinessSource).not.toContain("@opencoredev/email-sdk")
+    expect(readinessSource).not.toContain(".node")
   })
 })

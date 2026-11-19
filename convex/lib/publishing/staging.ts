@@ -87,6 +87,10 @@ export async function getStagingByPageId(
  *
  * Only a live staging row with a newer `updatedAt` than the token counts
  * as a genuine lost-update race between two writers.
+ *
+ * Supported limit: a staging row re-created in a later mutation starts at that
+ * mutation's time, so a token from the deleted row repeats only if both fall in
+ * the same millisecond. No stored floor and no schema change.
  */
 export function assertStagingFresh(
   staging: Doc<"pageStaging"> | null,

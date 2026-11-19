@@ -1,21 +1,31 @@
-import { DIRECT_PRICES, moneyInteger } from "../../lib/ai/price-quote"
+import { moneyInteger } from "../../lib/ai/price-quote"
+import { nextUpdatedAt } from "../lib/versions"
 import { ConvexError, v } from "convex/values"
 import { recordPublicChange } from "../lib/language/freshness"
 import { env, mutation, query } from "../_generated/server"
-import { requireOwnerAndOptionalModule, readModuleState } from "../lib/modules/state"
+import { requireOwnerAndOptionalModule, resolveOptionalModuleGuardState, readModuleState } from "../lib/modules/state"
+import { requireOperationAccess } from "../lib/access/policy"
 import {
   composeRuntimeAssistant,
   resolveAiSettingsStatus,
   resolveAssistantRuntimeTuple,
   runtimeProviderKey,
 } from "../lib/ai"
-import { AI_CONNECTION_ORDER, type AiSettingsStatus } from "../lib/aiConfig"
-import { ANTHROPIC_API_CATALOG } from "../../lib/ai/capabilities/anthropic-api"
-import { OPENAI_API_CATALOG } from "../../lib/ai/capabilities/openai-api"
-import { OPENROUTER_API_CATALOG } from "../../lib/ai/capabilities/openrouter-api"
-import { OPENROUTER_CATALOG_MAX_MODELS } from "../../lib/ai/openrouter-catalog"
+import {
+  hasLegacyModelConfigured,
+  savedRuntimeSelection,
+  type AiSettingsStatus,
+} from "../lib/aiConfig"
+import {
+  assertTupleSelectable,
+  catalogModelEntryValidator,
+  loadProviderCatalog,
+  loadRuntimeCatalogEntries,
+} from "../lib/aiCatalog"
+import { readSyncState } from "../lib/catalogRefresh"
+import { KEY_REFUSED_MESSAGE } from "./vendorModelCatalog"
 import type { Doc } from "../_generated/dataModel"
-import type { MutationCtx } from "../_generated/server"
+import type { MutationCtx, QueryCtx } from "../_generated/server"
 import {
   providerModelSelectionsValidator,
   runtimeSelectedProviderValidator,
@@ -26,62 +36,113 @@ import {
 } from "../lib/aiValidators"
 import {
   RUNTIME_TASK_PROFILES,
-  TASK_PROFILE_REQUIREMENTS,
-  validateTupleForProfiles,
   ASSISTANT_PROFILES,
+  assistantModelChoices,
+  defaultTupleFor,
   SLICE_CREATOR_PROFILES,
   taskProfileTuple,
+  tupleSupportsTaskProfile,
   validateApiModelTuple,
 } from "../../lib/ai/task-profiles"
-import type {
-  ApiModelTuple,
-  ApiModelCapability,
-  ApiProvider,
-  ReasoningEffort,
-  TaskProfile,
+import {
+  catalogFromEntries,
+  newerModelFor,
+  type ModelCatalog,
+} from "../../lib/ai/model-catalog"
+import {
+  API_PROVIDERS,
+  type ApiModelTuple,
+  type TaskProfile,
 } from "../../lib/ai/execution-contract"
 import { getSingleSettings, requirePermission } from "./settings"
 
+/** The time a Settings read checks retirement and price end dates against.
+ * The screen passes none; tests pass a fixed value. */
+function settingsNow(now: number | undefined): number {
+  return now ?? Date.now()
+}
+
+/** One shared catalog for a whole Settings read: one bounded load per provider. */
+async function loadSettingsCatalog(ctx: QueryCtx): Promise<ModelCatalog> {
+  const entries = await Promise.all(
+    API_PROVIDERS.map((provider) => loadProviderCatalog(ctx, provider))
+  )
+  return catalogFromEntries(entries.flat())
+}
+
+async function readCatalogSync(ctx: QueryCtx) {
+  const status = async (provider: (typeof API_PROVIDERS)[number]) => {
+    const state = await readSyncState(ctx, provider)
+    return {
+      status: state?.status ?? ("never" as const),
+      ...(state?.lastSuccessAt === undefined ? {} : { lastSuccessAt: state.lastSuccessAt }),
+      keyRefused: state?.error === KEY_REFUSED_MESSAGE,
+    }
+  }
+  return {
+    anthropic: await status("anthropic"),
+    openrouter: await status("openrouter"),
+    openai: await status("openai"),
+  }
+}
+
 export const status = query({
-  args: {},
-  returns: aiSettingsStatusValidator,
-  handler: async (ctx) => {
-    await requireOwnerAndOptionalModule(ctx, "ai", { requireReady: false })
+  args: { now: v.optional(v.number()) },
+  returns: v.union(aiSettingsStatusValidator, v.null()),
+  handler: async (ctx, args): Promise<AiSettingsStatus | null> => {
+    // Owner first, as every AI entry point. While the AI module is off this
+    // returns null instead of throwing: Convex re-runs open subscriptions in
+    // the same transition that turns AI off, before the client learns it.
+    await requireOperationAccess(ctx)
+    const guard = await resolveOptionalModuleGuardState(ctx, "ai")
+    if (!guard.effective) return null
+    const now = settingsNow(args.now)
     const { enabledModuleIds } = await readModuleState(ctx)
     const configuration = await resolveAiSettingsStatus(ctx, enabledModuleIds)
     const settings = await getSingleSettings(ctx)
-    const synchronized = await ctx.db.query("openRouterCatalogModels")
-      .take(OPENROUTER_CATALOG_MAX_MODELS + 1)
-    const models = synchronized.length <= OPENROUTER_CATALOG_MAX_MODELS ? synchronized : []
+    const catalog = await loadSettingsCatalog(ctx)
     const assistants = await Promise.all(configuration.assistants.map(async (assistant) => {
       const agent = assistant.id === "writing" ? "content"
         : assistant.id === "translation" ? "translation" : "help-assistant"
       const agentConfig = await ctx.db.query("agentConfigs")
         .withIndex("by_agent", (q) => q.eq("agent", agent)).unique()
       const profile = ASSISTANT_PROFILES[assistant.id][0]
-      const savedTuple = settings?.aiRuntime?.assistants?.[assistant.id]?.tuple
-      let invalidSavedTuple: Readonly<ApiModelTuple> | undefined
-      if (savedTuple) {
-        try {
-          validateApiModelTuple(savedTuple)
-        } catch {
-          invalidSavedTuple = savedTuple
-        }
-      }
+      const runtimeAssistant = composeRuntimeAssistant(
+        settings?.aiRuntime,
+        assistant,
+        Boolean(runtimeProviderKey("openrouter")),
+        hasLegacyModelConfigured(agentConfig?.model, settings?.aiDefaultModel)
+      )
+      // The saved selection a run uses, found once with the run's precedence:
+      // the assistant's own tuple, else (off the legacy branch) the agent
+      // override, the task default or the site default.
+      const persisted = settings?.aiRuntime?.assistants?.[assistant.id]?.tuple ??
+        (runtimeAssistant.legacy ? undefined : savedRuntimeSelection({
+          provider: assistant.provider,
+          profile,
+          providerDefaults: settings?.aiRuntime?.providerDefaults,
+          taskDefaults: settings?.aiRuntime?.taskDefaults,
+          modelOverrides: agentConfig?.modelOverrides,
+        })?.tuple)
       let effective: Readonly<ApiModelTuple>
       try {
-        effective = invalidSavedTuple ?? resolveAssistantRuntimeTuple(
-          composeRuntimeAssistant(settings?.aiRuntime, assistant, Boolean(runtimeProviderKey("openrouter"))),
-          {
-            profile,
-            phase: assistant.id === "translation" ? "translation"
-              : assistant.id === "help" ? "help-answer" : "content-generation",
-            legacyModelId: agentConfig?.model ?? settings?.aiDefaultModel ?? undefined,
-            providerDefaults: settings?.aiRuntime?.providerDefaults,
-            taskDefaults: settings?.aiRuntime?.taskDefaults,
-            modelOverrides: agentConfig?.modelOverrides,
-          }
-        )
+        // A saved selection the catalog no longer accepts for this task
+        // (removed, unknown capabilities, wrong effort) is shown as saved and
+        // not offered; a run refuses it. Retired or unpriced ones pass this
+        // check, show the same way, and are refused at admission.
+        effective = persisted && !servesProfile(persisted, profile, catalog)
+          ? persisted
+          : resolveAssistantRuntimeTuple(runtimeAssistant, {
+              profile,
+              phase: assistant.id === "translation" ? "translation"
+                : assistant.id === "help" ? "help-answer" : "content-generation",
+              legacyModelId: agentConfig?.model ?? settings?.aiDefaultModel ?? undefined,
+              providerDefaults: settings?.aiRuntime?.providerDefaults,
+              taskDefaults: settings?.aiRuntime?.taskDefaults,
+              modelOverrides: agentConfig?.modelOverrides,
+              catalog,
+              now,
+            })
       } catch (error) {
         const capabilityRefusal = error instanceof ConvexError &&
           typeof error.data === "object" && error.data !== null &&
@@ -89,49 +150,48 @@ export const status = query({
         const persistedRefusal = error instanceof Error && !(error instanceof ConvexError) &&
           error.message === "Persisted AI model selection is incompatible with this task profile."
         if (!capabilityRefusal && !persistedRefusal) throw error
-        effective = settings?.aiRuntime?.assistants?.[assistant.id]?.tuple ??
-          taskProfileTuple(assistant.provider, profile)
+        effective = persisted ?? taskProfileTuple(assistant.provider, profile)
       }
-      const choices = assistantModelChoices(ASSISTANT_PROFILES[assistant.id], models)
+      const choices = assistantModelChoices(ASSISTANT_PROFILES[assistant.id], catalog, now)
       const defaults = assistantModelDefaults(choices, profile)
+      const effectiveEntry = effective.mode === "catalog"
+        ? catalog.get(effective.provider, effective.model) : undefined
+      const newer = effectiveEntry && newerModelFor(effectiveEntry, catalog, now)
       return {
         ...assistant,
         effective,
         choices,
         defaults,
+        ...(newer ? { newerModel: { provider: newer.provider, model: newer.model, name: newer.name } } : {}),
       }
     }))
-    return { ...configuration, assistants }
+    return { ...configuration, assistants, catalogSync: await readCatalogSync(ctx) }
   },
 })
 
-/** Per-provider default tuple: the bundled primary when offered, else the first offered choice. */
+/** Whether a saved tuple is a valid catalog tuple that serves `profile`. */
+function servesProfile(
+  tuple: Readonly<ApiModelTuple>,
+  profile: TaskProfile,
+  catalog: ModelCatalog
+): boolean {
+  try {
+    return tupleSupportsTaskProfile(validateApiModelTuple(tuple, catalog), profile, catalog)
+  } catch {
+    return false
+  }
+}
+
+/** Per-provider default tuple: the one rule shared with every run. */
 function assistantModelDefaults(
   choices: AiSettingsStatus["assistants"][number]["choices"],
   profile: TaskProfile
 ): AiSettingsStatus["assistants"][number]["defaults"] {
-  const defaults: AiSettingsStatus["assistants"][number]["defaults"] = {
-    anthropic: null, openrouter: null, openai: null,
+  return {
+    anthropic: defaultTupleFor("anthropic", profile, choices.anthropic),
+    openrouter: defaultTupleFor("openrouter", profile, choices.openrouter),
+    openai: defaultTupleFor("openai", profile, choices.openai),
   }
-  for (const provider of AI_CONNECTION_ORDER) {
-    const primary = taskProfileTuple(provider, profile)
-    const effort = "reasoning" in primary ? primary.reasoning?.effort : undefined
-    const offered = choices[provider].some((choice) => choice.model === primary.model &&
-      (effort === undefined ? choice.efforts.length === 0 : choice.efforts.includes(effort)))
-    if (offered) {
-      defaults[provider] = primary
-    } else {
-      const first = choices[provider][0]
-      if (!first) continue
-      const fallbackEffort = first.providerDefault !== null && first.efforts.includes(first.providerDefault)
-        ? first.providerDefault : first.efforts[0]
-      defaults[provider] = {
-        mode: "catalog", provider, model: first.model,
-        ...(fallbackEffort ? { reasoning: { kind: "effort", effort: fallbackEffort } } : {}),
-      } as Exclude<ApiModelTuple, { mode: "legacy" }>
-    }
-  }
-  return defaults
 }
 
 const assistantStatusFields = aiSettingsStatusValidator.fields.assistants.element.fields
@@ -139,24 +199,55 @@ const assistantStatusFields = aiSettingsStatusValidator.fields.assistants.elemen
 /** The local-only Slice creator's saved model and instructions, with what it may offer.
  *  Owner-only. It returns no key, no connection state and no readiness. */
 export const sliceCreator = query({
-  args: {},
+  args: { now: v.optional(v.number()) },
   returns: assistantSettingsValidator.extend({
     choices: assistantStatusFields.choices,
     defaults: assistantStatusFields.defaults,
+    /** Entries for the saved tuple and each provider's committed defaults:
+     *  the local run checks its tuple against these (lane picks the provider). */
+    catalog: v.array(catalogModelEntryValidator),
+    /** For the saved tuple and each provider's default: its newer catalog model.
+     *  The card shows the one for the tuple it shows. */
+    newerModels: v.array(v.object({
+      for: v.object({ provider: v.string(), model: v.string() }),
+      provider: v.string(),
+      model: v.string(),
+      name: v.string(),
+    })),
   }),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     await requireOwnerAndOptionalModule(ctx, "ai", { requireReady: false })
     const settings = await getSingleSettings(ctx)
-    const synchronized = await ctx.db.query("openRouterCatalogModels")
-      .take(OPENROUTER_CATALOG_MAX_MODELS + 1)
-    const models = synchronized.length <= OPENROUTER_CATALOG_MAX_MODELS ? synchronized : []
-    const choices = assistantModelChoices(SLICE_CREATOR_PROFILES, models)
+    const now = settingsNow(args.now)
+    const modelCatalog = await loadSettingsCatalog(ctx)
+    const choices = assistantModelChoices(SLICE_CREATOR_PROFILES, modelCatalog, now)
     const saved = settings?.aiRuntime?.assistants?.sliceCreator
+    const defaults = assistantModelDefaults(choices, SLICE_CREATOR_PROFILES[0])
+    const newerModels: Array<{
+      for: { provider: string; model: string }
+      provider: string
+      model: string
+      name: string
+    }> = []
+    for (const tuple of [saved?.tuple, ...API_PROVIDERS.map((provider) => defaults[provider])]) {
+      if (tuple?.mode !== "catalog") continue
+      if (newerModels.some((entry) => entry.for.provider === tuple.provider && entry.for.model === tuple.model)) continue
+      const entry = modelCatalog.get(tuple.provider, tuple.model)
+      const newer = entry && newerModelFor(entry, modelCatalog, now)
+      if (newer) newerModels.push({ for: { provider: tuple.provider, model: tuple.model }, provider: newer.provider, model: newer.model, name: newer.name })
+    }
     return {
       ...(saved?.tuple ? { tuple: saved.tuple } : {}),
       ...(saved?.instructions !== undefined ? { instructions: saved.instructions } : {}),
       choices,
-      defaults: assistantModelDefaults(choices, SLICE_CREATOR_PROFILES[0]),
+      defaults,
+      catalog: await loadRuntimeCatalogEntries(ctx, {
+        providers: API_PROVIDERS,
+        profiles: SLICE_CREATOR_PROFILES,
+        tuples: [saved?.tuple],
+        now,
+      }),
+      newerModels,
     }
   },
 })
@@ -167,6 +258,44 @@ export const setAssistant = mutation({
   handler: async (ctx, { id, tuple, instructions }) => {
     await requireOwnerAndOptionalModule(ctx, "ai", { requireReady: false })
     await saveAssistantSettings(ctx, id, ASSISTANT_PROFILES[id], { tuple, instructions })
+    await recordPublicChange(ctx, { scopes: [] })
+    return null
+  },
+})
+
+/**
+ * Owner-only: marks Writing or Translation as run on the owner's local tool, or
+ * clears the mark. While marked, Convex refuses every API-key run of that
+ * assistant (`AI_ASSISTANT_RUNS_ON_LOCAL_TOOL`). The saved model and
+ * Instructions stay untouched.
+ */
+export const setAssistantLocalTool = mutation({
+  args: {
+    assistant: v.union(v.literal("writing"), v.literal("translation")),
+    on: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, { assistant, on }) => {
+    await requireOwnerAndOptionalModule(ctx, "ai", { requireReady: false })
+    const settings = await getSingleSettings(ctx)
+    if (!settings) throw new ConvexError("AI_SETTINGS_NOT_INITIALIZED")
+    const current = settings.aiRuntime?.assistants?.[assistant]
+    await ctx.db.patch("siteSettings", settings._id, {
+      aiRuntime: {
+        ...settings.aiRuntime,
+        assistants: {
+          ...settings.aiRuntime?.assistants,
+          [assistant]: {
+            ...(current?.tuple ? { tuple: current.tuple } : {}),
+            ...(current?.instructions !== undefined
+              ? { instructions: current.instructions }
+              : {}),
+            ...(on ? { localTool: true as const } : {}),
+          },
+        },
+      },
+      updatedAt: nextUpdatedAt(settings.updatedAt, Date.now()),
+    })
     await recordPublicChange(ctx, { scopes: [] })
     return null
   },
@@ -208,10 +337,17 @@ async function saveAssistantSettings(
       ...settings.aiRuntime,
       assistants: {
         ...settings.aiRuntime?.assistants,
-        [key]: { ...(tuple ? { tuple } : {}), ...(instructions !== undefined ? { instructions } : {}) },
+        // A model or Instructions save keeps the owner's local tool marker.
+        [key]: {
+          ...(tuple ? { tuple } : {}),
+          ...(instructions !== undefined ? { instructions } : {}),
+          ...(settings.aiRuntime?.assistants?.[key as "writing"]?.localTool === true
+            ? { localTool: true as const }
+            : {}),
+        },
       },
     },
-    updatedAt: Date.now(),
+    updatedAt: nextUpdatedAt(settings.updatedAt, Date.now()),
   })
 }
 
@@ -220,107 +356,7 @@ async function validateTupleForActiveCatalog(
   tuple: Readonly<ApiModelTuple>,
   profiles: readonly TaskProfile[]
 ): Promise<void> {
-  if (tuple.provider !== "openrouter" || tuple.mode !== "catalog") {
-    validateTupleForProfiles(tuple, profiles)
-    return
-  }
-  const synchronized = await ctx.db
-    .query("openRouterCatalogModels")
-    .withIndex("by_modelId", (q) => q.eq("modelId", tuple.model))
-    .unique()
-  validateTupleForCatalogModel(tuple, profiles, synchronized ?? undefined)
-}
-
-function validateTupleForCatalogModel(
-  tuple: Readonly<ApiModelTuple>,
-  profiles: readonly TaskProfile[],
-  synchronized?: Doc<"openRouterCatalogModels">
-): void {
-  if (!synchronized) {
-    validateTupleForProfiles(tuple, profiles)
-    return
-  }
-
-  const effort: ReasoningEffort | null =
-    "reasoning" in tuple && tuple.reasoning ? tuple.reasoning.effort : null
-  const supportedEfforts = new Set(synchronized.reasoningEfforts)
-  if (
-    (synchronized.reasoningEfforts.length === 0 && effort !== null) ||
-    (synchronized.reasoningEfforts.length > 0 &&
-      (effort === null || !supportedEfforts.has(effort)))
-  ) {
-    throw new Error("The selected OpenRouter reasoning effort is unavailable.")
-  }
-
-  const inputModalities = new Set(synchronized.inputModalities)
-  for (const profile of profiles) {
-    const requirements = TASK_PROFILE_REQUIREMENTS[profile]
-    if (
-      !requirements.inputModalities.every((modality) =>
-        inputModalities.has(modality)
-      ) ||
-      (requirements.structuredOutput && !synchronized.structuredOutput) ||
-      (profile === "mechanical-translation" && effort !== "high") ||
-      ((profile === "vision-spec" || profile === "renderer-jsx") &&
-        effort !== "high")
-    ) {
-      throw new Error(
-        "The selected OpenRouter model does not support this workflow."
-      )
-    }
-  }
-}
-
-/** Offer only tuples accepted by both Save and every assistant runtime profile. */
-function assistantModelChoices(
-  profiles: readonly TaskProfile[],
-  synchronized: Doc<"openRouterCatalogModels">[]
-): AiSettingsStatus["assistants"][number]["choices"] {
-  const synchronizedById = new Map(synchronized.map((model) => [model.modelId, model]))
-  const catalogs: Record<ApiProvider, Record<string, ApiModelCapability & { readonly name: string }>> = {
-    anthropic: ANTHROPIC_API_CATALOG,
-    openai: OPENAI_API_CATALOG,
-    openrouter: synchronized.length === 0 ? OPENROUTER_API_CATALOG : Object.fromEntries(
-      synchronized.map((model) => [model.modelId, {
-        name: model.name,
-        inputModalities: model.inputModalities,
-        outputModalities: ["text"] as const,
-        structuredOutput: model.structuredOutput,
-        reasoning: model.reasoningEfforts.length === 0 ? { kind: "unsupported" as const }
-          : { kind: "effort" as const, supportedEfforts: model.reasoningEfforts, providerDefault: "medium" as const },
-      }])
-    ),
-  }
-  const choices: AiSettingsStatus["assistants"][number]["choices"] = {
-    anthropic: [], openrouter: [], openai: [],
-  }
-  for (const provider of AI_CONNECTION_ORDER) {
-    for (const [model, capability] of Object.entries(catalogs[provider])) {
-      // A direct price with an end date stops admission on that date; a saved
-      // tuple keeps working until then, but the model is no longer offered.
-      if (provider !== "openrouter" && DIRECT_PRICES[`${provider}:${model}`]?.endsAt != null) continue
-      const supports = (effort: ReasoningEffort | null) => {
-        const tuple = { mode: "catalog", provider, model,
-          ...(effort === null ? {} : { reasoning: { kind: "effort", effort } }),
-        } as ApiModelTuple
-        try {
-          validateTupleForCatalogModel(tuple, profiles, provider === "openrouter" ? synchronizedById.get(model) : undefined)
-          validateTupleForProfiles(tuple, profiles)
-          return true
-        } catch {
-          return false
-        }
-      }
-      const efforts = capability.reasoning.kind === "effort"
-        ? capability.reasoning.supportedEfforts.filter(supports) : []
-      if (efforts.length === 0 && (capability.reasoning.kind !== "unsupported" || !supports(null))) continue
-      choices[provider].push({
-        model, name: capability.name, efforts,
-        providerDefault: capability.reasoning.kind === "effort" ? capability.reasoning.providerDefault : null,
-      })
-    }
-  }
-  return choices
+  await assertTupleSelectable(ctx, tuple, profiles, Date.now())
 }
 
 export const setProductionAiConfiguration = mutation({
@@ -430,7 +466,7 @@ export const setProductionAiConfiguration = mutation({
           providerDefaults,
           ...(nextTaskDefaults ? { taskDefaults: nextTaskDefaults } : {}),
         },
-        updatedAt: Date.now(),
+        updatedAt: nextUpdatedAt(existing.updatedAt, Date.now()),
       })
       // F09 invariant 6: every siteSettings write, public or not.
       await recordPublicChange(ctx, { scopes: [] })

@@ -22,7 +22,13 @@ const manifest = JSON.parse(
     supportedUpgradeFromSchemaVersions: number[]
     note: string
   }
-  migrations: { id: string; run: string; when: string }[]
+  migrations: {
+    id: string
+    transitionIds: string[]
+    implementation: { path: string; export: string }
+    run: string
+    when: string
+  }[]
   migrationHistory: {
     id: string
     status: "completed" | "historical-noop" | "historical-pre-narrow"
@@ -58,25 +64,28 @@ describe("engine.manifest.json", () => {
     expect(manifest.engineVersion).toMatch(/^\d+\.\d+\.\d+$/)
   })
 
-  test("every listed migration is exported by convex/migrations.ts", () => {
+  test("every listed migration is exported by its implementation file", () => {
     for (const migration of manifest.migrations) {
       expect(migration.run).toContain("npx convex run")
       expect(migration.when.length).toBeGreaterThan(0)
     }
   })
 
-  test("schema version 4 truthfully supports the additive version 3 upgrade", () => {
-    expect(manifest.compatibility.freshInstallBaseline).toBe(4)
+  test("schema version 5 supports fresh installs only", () => {
+    expect(manifest.compatibility.freshInstallBaseline).toBe(5)
     expect(manifest.compatibility.supportedUpgradeFromSchemaVersions).toEqual(
-      [3]
+      []
     )
     expect(manifest.compatibility.note).toContain(
-      "schema version 3 upgrades directly without a data migration"
+      "Release 0.3.0 supports fresh installs only"
     )
     expect(manifest.compatibility.note).toContain(
-      "upgrades from schema version 2 remain unsupported"
+      "Upgrades from schema version 3 or older are unsupported"
     )
-    expect(manifest.migrations).toEqual([])
+    expect(manifest.migrations.map(({ id }) => id)).toEqual([
+      "backfillPerLanguageFields",
+      "backfillRichTextImages",
+    ])
   })
 
   test("historical migrations remain truthful without advertising removed pre-narrow code", () => {

@@ -39,6 +39,12 @@ type ConfirmOptions = {
   confirmText?: string;
   cancelText?: string;
   destructive?: boolean;
+  /** With `destructive`: a filled red confirm button instead of the light
+   *  red one, for a choice that stops something now (e.g. switching the
+   *  email provider). */
+  filled?: boolean;
+  /** Shown before the confirm button's text (e.g. a trash icon). */
+  icon?: React.ReactNode;
 };
 
 type PromptOptions = {
@@ -277,8 +283,17 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                       ? "destructive"
                       : "default"
                   }
+                  className={cn(
+                    !isPrompt &&
+                      (opts as ConfirmOptions).destructive &&
+                      (opts as ConfirmOptions).filled &&
+                      // The destructive variant tints in both themes
+                      // (`dark:bg-destructive/20`), so dark needs its own fill.
+                      "bg-destructive text-primary-foreground hover:bg-destructive/80 dark:bg-destructive dark:hover:bg-destructive/80",
+                  )}
                   disabled={submitDisabled}
                 >
+                  {!isPrompt && (opts as ConfirmOptions).icon}
                   {opts.confirmText ?? (isPrompt ? t("save") : t("confirm"))}
                 </Button>
               </DialogFooter>

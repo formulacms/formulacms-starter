@@ -60,6 +60,36 @@ crons.cron(
   {}
 )
 
+// PERMANENT-DELETE: restart the purge worker when a queued Page has not moved
+// for ten minutes (the worker normally reschedules itself).
+crons.cron(
+  "page purge resume",
+  "20 4 * * *",
+  internal.cms.publication.resumePagePurges,
+  {}
+)
+
+// PERMANENT-DELETE: prepare the rich-text image usage index so permanent media
+// delete never waits for it. Starts the backfill when it has not started or has
+// failed; one small status read once it is complete.
+crons.hourly(
+  "rich-text image usage backfill",
+  { minuteUTC: 25 },
+  internal.lib.media.richTextBackfill.startRichTextImageBackfillIfNeeded,
+  {}
+)
+
+// ADR-0037 amendment (2026-11-17): copy the old shared search, social and card
+// values into each page's Working Drafts, once per page. Starts the migration
+// when it has not started or has failed; one small status read once done.
+crons.hourly(
+  "per-language fields backfill",
+  { minuteUTC: 40 },
+  internal.lib.publishing.perLanguageBackfill
+    .startPerLanguageFieldsBackfillIfNeeded,
+  {}
+)
+
 // M05 C5a: the nightly sitemap partition check. It requests a first build
 // when the live language version has no ready or building manifest, rebuilds
 // a ready manifest whose partitions drifted or are oversized, and collects
@@ -79,12 +109,31 @@ crons.cron(
 )
 
 // OpenRouter publishes model availability and per-token pricing. Refresh the
-// bounded local snapshot once a week; Action Retrier handles transient network
-// and upstream failures while the previous valid snapshot remains active.
+// bounded local snapshot daily so a new model has a price within a day; Action
+// Retrier handles transient network and upstream failures while the previous
+// valid snapshot remains active.
 crons.cron(
   "openrouter model catalog refresh",
-  "0 5 * * 0",
+  "5 5 * * *",
   internal.cms.openRouterCatalog.enqueueWeeklyRefresh,
+  {}
+)
+
+// The Anthropic and OpenAI model lists, fetched with the owner's own key.
+// Providers without a key are skipped.
+crons.cron(
+  "vendor model catalog refresh",
+  "10 5 * * *",
+  internal.cms.vendorModelCatalog.enqueueDailyRefresh,
+  {}
+)
+
+// Keys are deployment variables, so a new or changed key has no save event.
+// Hourly: fetch a provider that was never fetched or whose key changed.
+crons.interval(
+  "vendor model catalog key check",
+  { hours: 1 },
+  internal.cms.vendorModelCatalog.ensureVendorRefresh,
   {}
 )
 

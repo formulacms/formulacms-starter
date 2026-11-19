@@ -2,10 +2,20 @@
 import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
-import { api } from "./_generated/api"
+import { api, internal } from "./_generated/api"
+import {
+  ASSISTANT_DEFAULT_INSTRUCTIONS,
+  ASSISTANT_IDS,
+  assistantForProfile,
+  type AssistantId,
+} from "../lib/ai/task-profiles"
+import { composeRuntimeAssistant } from "./lib/ai"
+import { resolveAssistantConfiguration } from "./lib/aiConfig"
 import schema from "./schema"
 import { signLocalAiAudit } from "./lib/localAiAuditProof"
 import { seedCommunityOwner } from "../convexTestWithExplicitAdmin"
+import { auditKindsForProfile } from "./agents/localGeneration"
+import { DEV_TASK_PROFILE_KEYS } from "../scripts/lib/dev-ai-selection"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -76,6 +86,8 @@ describe("local generation preflight", () => {
       phase: "content-generation",
       userPromptTemplate: "Saved brief: {brief}",
       brandVoice: "Warm, direct, and specific.",
+      // Nothing saved: the same code default the Convex jobs send.
+      assistantInstructions: ASSISTANT_DEFAULT_INSTRUCTIONS.writing,
     })
     const serialized = JSON.stringify(result)
     expect(serialized).not.toContain("production-only-model")
@@ -195,6 +207,125 @@ describe("local generation preflight", () => {
       })
       expect(result).not.toHaveProperty("audit")
     }
+  })
+
+  const KINDS = [
+    "field-translate",
+    "page-translate",
+    "field-generate",
+    "field-refine",
+    "slice-generate",
+    "page-generate-fill",
+    "page-generate-meta",
+    "page-generate-outline",
+    "help-answer",
+  ] as const
+
+  const SAVED_INSTRUCTIONS: Record<AssistantId, string> = {
+    writing: "  Write for local families.  ",
+    translation: "Keep the tone formal.",
+    help: "Answer in two sentences.",
+  }
+
+  test("returns the saved Instructions of the assistant the Convex route uses", async () => {
+    const t = await setup()
+    const runtime = {
+      assistants: {
+        writing: { instructions: SAVED_INSTRUCTIONS.writing },
+        translation: { instructions: SAVED_INSTRUCTIONS.translation },
+        help: { instructions: SAVED_INSTRUCTIONS.help },
+      },
+    }
+    await t.run((ctx) =>
+      ctx.db.insert("siteSettings", {
+        siteName: "Test site",
+        siteUrl: "https://example.test",
+        defaultLocale: "en",
+        enabledLocales: ["en"],
+        aiRuntime: runtime,
+        updatedAt: 1,
+      })
+    )
+    const configuration = resolveAssistantConfiguration(
+      runtime,
+      [],
+      new Set(ASSISTANT_IDS)
+    )
+    const asOwner = t.withIdentity(OWNER)
+
+    for (const kind of KINDS) {
+      const result = await asOwner.query(
+        internal.agents.localGeneration.prepare,
+        { kind }
+      )
+      const id = assistantForProfile(result.profile)!
+      const viaJobs = composeRuntimeAssistant(
+        runtime,
+        configuration.assistants.find((entry) => entry.id === id)!,
+        false,
+        false
+      ).instructions
+      expect(result.assistantInstructions).toBe(viaJobs)
+      expect(result.assistantInstructions).toBe(SAVED_INSTRUCTIONS[id].trim())
+    }
+  })
+
+  test("returns null when the saved Instructions are empty", async () => {
+    const t = await setup()
+    await t.run((ctx) =>
+      ctx.db.insert("siteSettings", {
+        siteName: "Test site",
+        siteUrl: "https://example.test",
+        defaultLocale: "en",
+        enabledLocales: ["en"],
+        aiRuntime: { assistants: { help: { instructions: "   " } } },
+        updatedAt: 1,
+      })
+    )
+    const result = await t
+      .withIdentity(OWNER)
+      .action(api.agents.localGeneration.preflight, { kind: "help-answer" })
+    expect(result.assistantInstructions).toBeNull()
+  })
+
+  test("does not return Instructions to a caller who is not the owner", async () => {
+    const t = await setup()
+    await t.run((ctx) =>
+      ctx.db.insert("siteSettings", {
+        siteName: "Test site",
+        siteUrl: "https://example.test",
+        defaultLocale: "en",
+        enabledLocales: ["en"],
+        aiRuntime: { assistants: { help: { instructions: "Private text." } } },
+        updatedAt: 1,
+      })
+    )
+    await expect(
+      t.action(api.agents.localGeneration.preflight, { kind: "help-answer" })
+    ).rejects.toThrow()
+    await expect(
+      t
+        .withIdentity({
+          subject: "someone-else",
+          tokenIdentifier: "someone-else",
+          email: "other@example.test",
+        })
+        .action(api.agents.localGeneration.preflight, { kind: "help-answer" })
+    ).rejects.toThrow()
+  })
+
+  test("refuses the Block creator kinds, which have their own Instructions", async () => {
+    const t = await setup()
+    const asOwner = t.withIdentity(OWNER)
+    for (const kind of ["slice-spec", "slice-renderer"] as const) {
+      await expect(
+        asOwner.action(api.agents.localGeneration.preflight, { kind })
+      ).rejects.toThrow(/Block creator does not use preflight/)
+    }
+    // A caller who is not the owner is refused before that message.
+    await expect(
+      t.action(api.agents.localGeneration.preflight, { kind: "slice-spec" })
+    ).rejects.toThrow()
   })
 
   // Frozen Team role evidence; re-home under T01/F04 without weakening it
@@ -518,6 +649,433 @@ describe("local generation audit ingress", () => {
     )
     expect(serialized).not.toContain("private customer prompt")
     expect(serialized).not.toContain("private generated output")
+  })
+
+  test("records how a local tool run was funded and refuses funding on API engines", async () => {
+    const t = await setup()
+    const asOwner = t.withIdentity(OWNER)
+    const claudeRun = {
+      kind: "help-answer" as const,
+      selectedEngine: "claude-cli" as const,
+      selectedModel: "haiku",
+      actualEngine: "claude-cli" as const,
+      actualModel: "claude-haiku-4-5",
+      identityEvidence: "transcript-observed" as const,
+      attempts: 1 as const,
+      tokenUsage: {},
+      success: true,
+    }
+    const codexRun = {
+      kind: "help-answer" as const,
+      selectedEngine: "codex-cli" as const,
+      identityEvidence: "selected-only" as const,
+      attempts: 1 as const,
+      tokenUsage: {},
+      success: true,
+    }
+
+    for (const funding of ["plan", "api-key", "unknown"] as const) {
+      await asOwner.mutation(
+        api.agents.localGeneration.recordAudit,
+        await signLocalAiAudit({ ...claudeRun, funding })
+      )
+    }
+    await asOwner.mutation(
+      api.agents.localGeneration.recordAudit,
+      await signLocalAiAudit({ ...codexRun, funding: "api-key" as const })
+    )
+    const rows = await t.run((ctx) => ctx.db.query("aiAuditLog").collect())
+    expect(
+      rows.map((row) => [row.selectedEngine, row.funding])
+    ).toEqual([
+      ["claude-cli", "plan"],
+      ["claude-cli", "api-key"],
+      ["claude-cli", "unknown"],
+      ["codex-cli", "api-key"],
+    ])
+
+    // An API engine has spending records; its audit row never carries funding.
+    await expect(
+      asOwner.mutation(
+        api.agents.localGeneration.recordAudit,
+        await signLocalAiAudit({
+          kind: "help-answer" as const,
+          selectedEngine: "openrouter-api" as const,
+          actualEngine: "openrouter-api" as const,
+          identityEvidence: "runtime-observed" as const,
+          attempts: 1 as const,
+          tokenUsage: {},
+          success: true,
+          funding: "plan" as const,
+        })
+      )
+    ).rejects.toThrow(/may record its funding/)
+
+    // Funding is part of the signed event: it cannot be changed afterwards.
+    const signed = await signLocalAiAudit({
+      ...claudeRun,
+      funding: "api-key" as const,
+    })
+    await expect(
+      asOwner.mutation(api.agents.localGeneration.recordAudit, {
+        ...signed,
+        funding: "plan" as const,
+      })
+    ).rejects.toThrow(/server proof/i)
+    await expect(
+      asOwner.mutation(api.agents.localGeneration.recordAudit, {
+        ...signed,
+        funding: "free" as never,
+      })
+    ).rejects.toThrow(/ArgumentValidationError|Validator error/)
+    expect(
+      await t.run((ctx) => ctx.db.query("aiAuditLog").collect())
+    ).toHaveLength(4)
+  })
+
+  test("records Block creator runs for local tools with funding, and for API engines without it", async () => {
+    const t = await setup()
+    const asOwner = t.withIdentity(OWNER)
+    const claudeRun = {
+      selectedEngine: "claude-cli" as const,
+      selectedModel: "haiku",
+      actualEngine: "claude-cli" as const,
+      actualModel: "claude-haiku-4-5",
+      identityEvidence: "transcript-observed" as const,
+      attempts: 1 as const,
+      tokenUsage: {},
+      success: true,
+      funding: "plan" as const,
+    }
+    await asOwner.mutation(
+      api.agents.localGeneration.recordAudit,
+      await signLocalAiAudit({ ...claudeRun, kind: "slice-spec" as const })
+    )
+    await asOwner.mutation(
+      api.agents.localGeneration.recordAudit,
+      await signLocalAiAudit({
+        ...claudeRun,
+        kind: "slice-renderer" as const,
+        funding: "api-key" as const,
+      })
+    )
+    await asOwner.mutation(
+      api.agents.localGeneration.recordAudit,
+      await signLocalAiAudit({
+        kind: "slice-spec" as const,
+        selectedEngine: "codex-cli" as const,
+        identityEvidence: "selected-only" as const,
+        attempts: 1 as const,
+        tokenUsage: {},
+        success: true,
+        funding: "unknown" as const,
+      })
+    )
+    await asOwner.mutation(
+      api.agents.localGeneration.recordAudit,
+      await signLocalAiAudit({
+        kind: "slice-renderer" as const,
+        selectedEngine: "openrouter-api" as const,
+        actualEngine: "openrouter-api" as const,
+        identityEvidence: "runtime-observed" as const,
+        attempts: 1 as const,
+        tokenUsage: {},
+        success: true,
+      })
+    )
+    const rows = await t.run((ctx) => ctx.db.query("aiAuditLog").collect())
+    expect(
+      rows.map((row) => [row.kind, row.phase, row.selectedEngine, row.funding])
+    ).toEqual([
+      ["slice-author-propose", "slice-spec", "claude-cli", "plan"],
+      ["slice-author-propose", "renderer-jsx", "claude-cli", "api-key"],
+      ["slice-author-propose", "slice-spec", "codex-cli", "unknown"],
+      ["slice-author-propose", "renderer-jsx", "openrouter-api", undefined],
+    ])
+    // The audit table has no Block creator profile; the phase names the step.
+    expect(rows.every((row) => row.profile === undefined)).toBe(true)
+    expect(rows.every((row) => row.selectedLane === "local-build")).toBe(true)
+
+    await expect(
+      asOwner.mutation(
+        api.agents.localGeneration.recordAudit,
+        await signLocalAiAudit({
+          kind: "slice-spec" as const,
+          selectedEngine: "openrouter-api" as const,
+          actualEngine: "openrouter-api" as const,
+          identityEvidence: "runtime-observed" as const,
+          attempts: 1 as const,
+          tokenUsage: {},
+          success: true,
+          funding: "plan" as const,
+        })
+      )
+    ).rejects.toThrow(/may record its funding/)
+  })
+
+  test("refuses a Block creator audit without the owner", async () => {
+    const t = await setup()
+    const signed = await signLocalAiAudit({
+      kind: "slice-renderer" as const,
+      selectedEngine: "claude-cli" as const,
+      actualEngine: "claude-cli" as const,
+      identityEvidence: "transcript-observed" as const,
+      attempts: 1 as const,
+      tokenUsage: {},
+      success: true,
+      funding: "plan" as const,
+    })
+    await expect(
+      t.mutation(api.agents.localGeneration.recordAudit, signed)
+    ).rejects.toThrow()
+    await expect(
+      t
+        .withIdentity({
+          subject: "someone-else",
+          tokenIdentifier: "someone-else",
+          email: "other@example.test",
+        })
+        .mutation(api.agents.localGeneration.recordAudit, signed)
+    ).rejects.toThrow()
+    expect(
+      await t.run((ctx) => ctx.db.query("aiAuditLog").collect())
+    ).toHaveLength(0)
+  })
+
+  describe("audit after the access token expired (signed owner authorization)", () => {
+    const run = {
+      kind: "slice-spec" as const,
+      selectedEngine: "claude-cli" as const,
+      selectedModel: "haiku",
+      actualEngine: "claude-cli" as const,
+      actualModel: "claude-haiku-4-5",
+      identityEvidence: "transcript-observed" as const,
+      attempts: 1 as const,
+      tokenUsage: {},
+      success: true,
+      funding: "plan" as const,
+    }
+    const signedRun = (extra: Record<string, unknown>) =>
+      signLocalAiAudit({ ...run, ...extra })
+
+    test("accepts a fresh signed owner authorization with no session, once per attempt", async () => {
+      const t = await setup()
+      const ownerAuthId = await t.run(async (ctx) => {
+        const rows = await ctx.db.query("cmsOwner").collect()
+        return rows[0]!.authId
+      })
+      const signed = await signedRun({
+        authId: ownerAuthId,
+        authorizedAt: Date.now() - 4 * 60 * 1000,
+        attemptId: "run-1",
+      })
+      await t.mutation(api.agents.localGeneration.recordAudit, signed)
+      const rows = await t.run((ctx) => ctx.db.query("aiAuditLog").collect())
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        authId: ownerAuthId,
+        attemptId: "run-1",
+        selectedLane: "local-build",
+        funding: "plan",
+      })
+      // The same signed audit cannot be replayed.
+      await expect(
+        t.mutation(api.agents.localGeneration.recordAudit, signed)
+      ).rejects.toThrow(/already recorded/)
+      expect(
+        await t.run((ctx) => ctx.db.query("aiAuditLog").collect())
+      ).toHaveLength(1)
+    })
+
+    test("refuses a stale, non-owner, unsigned, unbound or forged authorization", async () => {
+      const t = await setup()
+      const ownerAuthId = await t.run(
+        async (ctx) => (await ctx.db.query("cmsOwner").collect())[0]!.authId
+      )
+      const record = (event: object) =>
+        t.mutation(api.agents.localGeneration.recordAudit, event as never)
+      // Older than 10 minutes.
+      await expect(
+        record(
+          await signedRun({
+            authId: ownerAuthId,
+            authorizedAt: Date.now() - 11 * 60 * 1000,
+            attemptId: "stale",
+          })
+        )
+      ).rejects.toThrow(/recent owner authorization/)
+      // Signed for someone who is not the owner.
+      await expect(
+        record(
+          await signedRun({
+            authId: "someone-else",
+            authorizedAt: Date.now(),
+            attemptId: "other",
+          })
+        )
+      ).rejects.toThrow(/not the owner's/)
+      // No attempt identifier, so no replay guard.
+      await expect(
+        record(
+          await signedRun({ authId: ownerAuthId, authorizedAt: Date.now() })
+        )
+      ).rejects.toThrow(/attempt identifier/)
+      // Only half of the authorization.
+      await expect(
+        record(await signedRun({ authId: ownerAuthId, attemptId: "half" }))
+      ).rejects.toThrow(/both the owner and its time/)
+      // Anonymous with no signed fields: the unchanged public refusal.
+      await expect(
+        record(await signedRun({ attemptId: "anon" }))
+      ).rejects.toMatchObject({ data: "UNAUTHENTICATED" })
+      // Bad signature: authorization changed after signing.
+      const signed = await signedRun({
+        authId: ownerAuthId,
+        authorizedAt: Date.now(),
+        attemptId: "forged",
+      })
+      await expect(
+        record({ ...signed, authorizedAt: Date.now() + 1000 })
+      ).rejects.toThrow(/server proof/i)
+      expect(
+        await t.run((ctx) => ctx.db.query("aiAuditLog").collect())
+      ).toHaveLength(0)
+    })
+
+    test("stores one tool-run audit per attempt on both paths, and leaves API engines unchanged", async () => {
+      const kinds = [
+        { kind: "help-answer" as const },
+        { kind: "slice-spec" as const },
+        { kind: "slice-renderer" as const },
+        {
+          kind: "field-generate" as const,
+        },
+      ]
+      const t = await setup()
+      const asOwner = t.withIdentity(OWNER)
+      const ownerAuthId = await t.run(
+        async (ctx) => (await ctx.db.query("cmsOwner").collect())[0]!.authId
+      )
+      const count = () =>
+        t.run(async (ctx) => (await ctx.db.query("aiAuditLog").collect()).length)
+      let expected = 0
+      for (const { kind } of kinds) {
+        // (a) live session + attemptId, no admitted attempt: one row; replay refused.
+        const live = await signedRun({ kind, attemptId: `live-${kind}` })
+        await asOwner.mutation(api.agents.localGeneration.recordAudit, live)
+        expected += 1
+        expect(await count()).toBe(expected)
+        await expect(
+          asOwner.mutation(api.agents.localGeneration.recordAudit, live)
+        ).rejects.toThrow(/already recorded/)
+        // (b) no session + signed authorization: one row; replay refused.
+        const signed = await signedRun({
+          kind,
+          authId: ownerAuthId,
+          authorizedAt: Date.now(),
+          attemptId: `signed-${kind}`,
+        })
+        await t.mutation(api.agents.localGeneration.recordAudit, signed)
+        expected += 1
+        expect(await count()).toBe(expected)
+        await expect(
+          t.mutation(api.agents.localGeneration.recordAudit, signed)
+        ).rejects.toThrow(/already recorded/)
+        expect(await count()).toBe(expected)
+      }
+      // API engine, unadmitted attempt: dropped as before (no row, no error).
+      const recordAuditRef = api.agents.localGeneration.recordAudit
+      const apiRun = {
+        kind: "help-answer" as const,
+        selectedEngine: "openrouter-api" as const,
+        actualEngine: "openrouter-api" as const,
+        identityEvidence: "runtime-observed" as const,
+        attempts: 1 as const,
+        tokenUsage: {},
+        success: true,
+        attemptId: "api-unadmitted",
+      }
+      await asOwner.mutation(
+        recordAuditRef,
+        await signLocalAiAudit(apiRun)
+      )
+      expect(await count()).toBe(expected)
+    })
+
+    test("keeps the live-session behavior and checks a signed owner against it", async () => {
+      const t = await setup()
+      const asOwner = t.withIdentity(OWNER)
+      const ownerAuthId = await t.run(
+        async (ctx) => (await ctx.db.query("cmsOwner").collect())[0]!.authId
+      )
+      // Unsigned authorization with a session: as before.
+      await asOwner.mutation(
+        api.agents.localGeneration.recordAudit,
+        await signedRun({})
+      )
+      // Matching signed owner with a session: accepted.
+      await asOwner.mutation(
+        api.agents.localGeneration.recordAudit,
+        await signedRun({ authId: ownerAuthId, authorizedAt: Date.now() })
+      )
+      // A signed owner that differs from the session is refused.
+      await expect(
+        asOwner.mutation(
+          api.agents.localGeneration.recordAudit,
+          await signedRun({ authId: "someone-else", authorizedAt: Date.now() })
+        )
+      ).rejects.toThrow(/does not match the session/)
+      expect(
+        await t.run((ctx) => ctx.db.query("aiAuditLog").collect())
+      ).toHaveLength(2)
+    })
+  })
+
+  test("keeps existing kinds stored under their own name and profile", async () => {
+    const t = await setup()
+    const asOwner = t.withIdentity(OWNER)
+    await asOwner.mutation(
+      api.agents.localGeneration.recordAudit,
+      await signLocalAiAudit({
+        kind: "help-answer" as const,
+        selectedEngine: "codex-cli" as const,
+        identityEvidence: "selected-only" as const,
+        attempts: 1 as const,
+        tokenUsage: {},
+        success: true,
+      })
+    )
+    const [row] = await t.run((ctx) => ctx.db.query("aiAuditLog").collect())
+    expect(row).toMatchObject({
+      kind: "help-answer",
+      profile: "grounded-help",
+      phase: "help-answer",
+    })
+  })
+
+  test("every profile a local tool can run has an audit kind", () => {
+    for (const profile of DEV_TASK_PROFILE_KEYS) {
+      expect(auditKindsForProfile(profile).length, profile).toBeGreaterThan(0)
+    }
+  })
+
+  test("still reads audit rows written before funding existed", async () => {
+    const t = await setup()
+    await t.run(async (ctx) => {
+      await ctx.db.insert("aiAuditLog", {
+        authId: "owner-1",
+        kind: "help-answer",
+        sliceCount: 0,
+        modelId: "claude-cli",
+        selectedEngine: "claude-cli",
+        tokenUsage: {},
+        success: true,
+        createdAt: 1,
+      })
+    })
+    const rows = await t.run((ctx) => ctx.db.query("aiAuditLog").collect())
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.funding).toBeUndefined()
   })
 
   test("rejects identity evidence that the selected engine cannot provide", async () => {

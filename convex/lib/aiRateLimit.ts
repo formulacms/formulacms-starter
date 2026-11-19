@@ -47,6 +47,9 @@ export const aiRateLimiter = new RateLimiter(components.rateLimiter, {
     period: MINUTE,
     capacity: 200,
   },
+  // Owner "refresh model lists" button: one use per five minutes for the
+  // whole deployment (AI-MODELS-1b). The vendors' lists change daily at most.
+  modelCatalogRefresh: { kind: "fixed window", rate: 1, period: 5 * MINUTE },
 })
 
 /** Apply per-user + per-deployment AI limits. Call from action handlers

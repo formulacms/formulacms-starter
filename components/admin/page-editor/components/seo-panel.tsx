@@ -150,10 +150,7 @@ export function SeoPanel({
 
       <div className="space-y-4 border-t pt-5">
         <h3 className="text-sm font-medium">
-          {t("socialAndIndexing")}{" "}
-          <span className="text-xs font-normal text-muted-foreground">
-            {t("sharedHint")}
-          </span>
+          {t("socialAndIndexing")}
         </h3>
         <div>
           <label htmlFor="page-og-title" className="mb-1.5 block text-sm font-medium">
@@ -196,6 +193,12 @@ export function SeoPanel({
             placeholder={t("socialImagePlaceholder")}
             className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:ring-1 focus:ring-ring focus:outline-none"
           />
+          <p
+            data-testid="og-image-hint"
+            className="mt-1 text-xs text-muted-foreground"
+          >
+            {t("sameEverywhere")}
+          </p>
         </div>
         <div className="space-y-2 pt-1">
           <label className="flex items-center gap-2 text-sm">

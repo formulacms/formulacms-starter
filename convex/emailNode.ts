@@ -7,6 +7,7 @@
 import { v } from "convex/values"
 import { internal } from "./_generated/api"
 import { env, internalAction } from "./_generated/server"
+import { registeredEmailProviderIdValidator } from "./lib/email/providerMetadata"
 import {
   dispatchPreparedEmail,
   type PreparedEmailDelivery,
@@ -25,7 +26,7 @@ type PreparedDeliveryAttempt =
   | (Readonly<{ kind: "ready" }> & PreparedEmailDelivery)
 
 export const getProviderReadiness = internalAction({
-  args: { providerId: v.literal("resend") },
+  args: { providerId: registeredEmailProviderIdValidator },
   returns: v.union(v.literal("needs_setup"), v.literal("ready")),
   handler: async (_ctx, { providerId }): Promise<"needs_setup" | "ready"> =>
     EMAIL_PROVIDER_REGISTRY.readiness(providerId, {
@@ -68,6 +69,18 @@ export const sendEmail = internalAction({
       >,
     })
     if (result.state === "retryable_failure") {
+      if (result.category) {
+        try {
+          // Action Retrier ends an exhausted run as "retry_exhausted" and
+          // drops the reason, so keep the bounded category on the event.
+          await ctx.runMutation(internal.email._recordDeliveryAttemptCategory, {
+            eventId,
+            category: result.category,
+          })
+        } catch {
+          // Best effort: a missing category only hides the detail.
+        }
+      }
       throw new Error("CMS_EMAIL_DELIVERY_PROVIDER_NOT_SENT")
     }
     return result

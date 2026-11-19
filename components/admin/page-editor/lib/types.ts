@@ -46,6 +46,19 @@ export type LocaleContentSummary = {
   hasAny: boolean
   hasTranslatable: boolean
 }
+/**
+ * A language's own values the editor has no field for: structured data,
+ * keywords, focus keyword and card excerpt (ADR-0037 amendment, 2026-11-17).
+ * Set only when the owner copies another language into this one; absent
+ * means "keep the stored values".
+ */
+export type CopiedLanguageValues = {
+  structuredData?: string
+  keywords?: string[]
+  focusKeyword?: string
+  cardExcerpt?: string
+}
+
 export type LocaleDraft = Buffered<{
   removedTitleLinks?: import("@/convex/lib/richtext/write").TitleWriteReport[]
   title: string
@@ -57,6 +70,12 @@ export type LocaleDraft = Buffered<{
   slices: Slice[]
   /** Descriptor-localized fields cached with the system-owned page fields. */
   localizedFieldValues: Record<string, unknown>
+  /** The language's own search and social values (absent: the stored ones). */
+  seoNoIndex?: boolean
+  seoNoFollow?: boolean
+  seoOgTitle?: string
+  seoOgDescription?: string
+  copiedLanguageValues?: CopiedLanguageValues
 }>
 export type PageEditorRecoveryDraft = {
   /** Optional on read for pre-base v3 payloads; null denotes legacy authority. */
@@ -92,6 +111,7 @@ export type PageEditorRecoveryDraft = {
    *  non-system-owned localized fields per the active locale. */
   sharedFieldValues: Record<string, unknown>
   localizedFieldValues: Record<string, unknown>
+  copiedLanguageValues?: CopiedLanguageValues
 }
 
 export const staleSaveMessage =

@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values"
 import type { PropsWithChildren } from "react"
 import type { Id } from "@/convex/_generated/dataModel"
 import en from "@/messages/admin/en.json"
+import fr from "@/messages/admin/fr.json"
 import { usePageRowActions, type PublishTarget } from "./pages-list-row-actions"
 const mocks = vi.hoisted(() => ({
   publish: vi.fn(),
@@ -92,3 +93,29 @@ test("list never exposes the editor-only parent refusal text", async () => {
   await act(() => result.current.publish(target))
   expect(mocks.error).toHaveBeenCalledWith(en.pages.list.toast.publishFailed)
 })
+test.each([
+  ["en", en, "Not shown on the site: translation is off for Posts."],
+  [
+    "fr",
+    fr,
+    "Non affiché sur le site : la traduction est désactivée pour les articles.",
+  ],
+] as const)(
+  "list Publish names the content type the translation switch hides (%s)",
+  async (locale, messages, expected) => {
+    mocks.publish.mockRejectedValue(
+      new ConvexError("CONTENT_TYPE_TRANSLATION_OFF")
+    )
+    const { result } = renderHook(() => usePageRowActions(), {
+      wrapper: ({ children }: PropsWithChildren) => (
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          {children}
+        </NextIntlClientProvider>
+      ),
+    })
+    await act(() =>
+      result.current.publish({ ...target, pageType: "post", locale: "fr" })
+    )
+    expect(mocks.error).toHaveBeenCalledWith(expected)
+  }
+)

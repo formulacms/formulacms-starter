@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation"
 import { useTranslations } from "next-intl"
 import { CircleHelp } from "lucide-react"
 import { api } from "@/convex/_generated/api"
+import { isLocalDevelopment } from "@/lib/assert-local-dev"
 import { reportContainedModuleFailure } from "@/lib/modules/containment"
 import { useModuleGate } from "../admin-module-state-provider"
 import type { AdminCommand } from "../command-palette"
@@ -16,7 +17,8 @@ import type {
 } from "../contributions/ai-help"
 import { HelpChat, type HelpReadiness } from "./help-chat"
 
-type AiStatus = FunctionReturnType<typeof api.cms.aiSettings.status>
+// `status` is null while the AI module is off (the query reports it).
+type AiStatus = NonNullable<FunctionReturnType<typeof api.cms.aiSettings.status>>
 
 // useQueries memoizes its subscription on the request object's identity, so
 // each request is created once (see `ai-writing/page-jobs.tsx`).
@@ -28,16 +30,39 @@ const NO_REQUEST = {}
 const NO_PARTICIPATION: AdminAiHelpHostResult = { command: null, panel: null }
 
 /**
+ * The server's Help route (`EffectiveHelpRoute`, `help-ai-routing.ts`): a
+ * local tool chosen in Settings › AI, ready or needing setup. Any other
+ * value is the live-site route.
+ */
+function localToolReadiness(
+  routeData: AdminAiHelpHostProps["routeData"]
+): "ready" | "missing" | "elsewhere" | null {
+  if (!routeData || typeof routeData !== "object" || !("kind" in routeData))
+    return null
+  return routeData.kind === "selected-ready"
+    ? "ready"
+    : routeData.kind === "selected-needs-setup"
+      ? "missing"
+      : routeData.kind === "selected-other-device"
+        ? "elsewhere"
+        : null
+}
+
+/**
  * Help's command-palette participant: the "Ask AI Help" command and the
  * floating chat. Only this slot decides whether Help shows: with the AI module
  * off (or its state unknown) it returns nothing and opens no AI read.
  * Readiness is the Help assistant's own, never Writing's or the module's.
  */
-export function HelpParticipant({ children, route }: AdminAiHelpHostProps) {
+export function HelpParticipant({
+  children,
+  route,
+  routeData,
+}: AdminAiHelpHostProps) {
   const gate = useModuleGate("ai")
   const visible = gate.state === "on" || gate.state === "needs_setup"
   const { status } = useQueries(visible ? STATUS_REQUEST : NO_REQUEST) as {
-    status?: AiStatus | Error
+    status?: AiStatus | Error | null
   }
   const [open, setOpen] = useState(false)
   const router = useRouter()
@@ -51,20 +76,24 @@ export function HelpParticipant({ children, route }: AdminAiHelpHostProps) {
 
   // Same tree position in both branches: the host's page never remounts.
   // A failed status read hides Help; the effect above reports the failure.
-  if (!visible || status instanceof Error) return children(NO_PARTICIPATION)
+  if (!visible || status === null || status instanceof Error) return children(NO_PARTICIPATION)
 
   const loaded = status
+  // A local tool answers Help without any API connection.
+  const localTool = localToolReadiness(routeData)
   const help = loaded?.assistants.find((entry) => entry.id === "help")
-  const connection = loaded?.connections.find(
-    (entry) => entry.provider === help?.provider
-  )
-  const readiness: HelpReadiness = !loaded
-    ? "loading"
-    : help?.ready === true
-      ? "ready"
-      : connection?.state === "refused"
-        ? "refused"
-        : "missing"
+  const connection = localTool
+    ? undefined
+    : loaded?.connections.find((entry) => entry.provider === help?.provider)
+  const readiness: HelpReadiness = localTool
+    ? localTool
+    : !loaded
+      ? "loading"
+      : help?.ready === true
+        ? "ready"
+        : connection?.state === "refused"
+          ? "refused"
+          : "missing"
   const notReady = readiness === "missing" || readiness === "refused"
   const command: AdminCommand = {
     id: "ai:help",
@@ -85,6 +114,7 @@ export function HelpParticipant({ children, route }: AdminAiHelpHostProps) {
         readiness={readiness}
         connection={connection}
         route={route}
+        localDevelopment={isLocalDevelopment()}
       />
     ),
   })

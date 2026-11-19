@@ -181,10 +181,16 @@ export function adminEmailProvider<
   T extends { id: string; label: string; description: string },
 >(entry: T, t: AdminMetadataTranslator): T {
   if (
+    entry.id === "smtp" &&
+    entry.description === "Send email through your own mail server with SMTP."
+  )
+    return { ...entry, description: t("email.smtpDescription") }
+  if (
     entry.id === "resend" &&
     entry.description === "Transactional email delivery through Resend."
   )
     return { ...entry, description: t("email.resendDescription") }
+  // The shipped unregistered entry is shown as "More providers".
   if (
     entry.id === "custom" &&
     entry.label === "Custom provider" &&
@@ -193,8 +199,8 @@ export function adminEmailProvider<
   )
     return {
       ...entry,
-      label: t("email.customLabel"),
-      description: t("email.customDescription"),
+      label: t("email.moreLabel"),
+      description: t("email.moreDescription"),
     }
   return entry
 }

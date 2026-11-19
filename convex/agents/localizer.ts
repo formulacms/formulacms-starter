@@ -17,6 +17,12 @@ import { action, internalQuery } from "../_generated/server"
 import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server"
 import { internal } from "../_generated/api"
 import {
+  catalogModelEntryValidator,
+  loadRuntimeCatalogEntries,
+} from "../lib/aiCatalog"
+import { catalogFromEntries, type ModelCatalog } from "../../lib/ai/model-catalog"
+import { ASSISTANT_PROFILES } from "../../lib/ai/task-profiles"
+import {
   generateRuntimeText,
   createRuntimeAccounting,
   resolveRuntimeAssistant,
@@ -74,6 +80,8 @@ export interface TranslationConfig {
   providerDefaults: ProviderModelSelections | undefined
   taskDefaults: TaskDefaults | undefined
   modelOverrides: ProviderModelSelections | undefined
+  /** Shared catalog entries for every candidate tuple (prepare query). */
+  catalog: ModelCatalog
   /** User-message template; {text} ⇒ the content being translated. */
   userPromptTemplate: string
   semaphore: Semaphore
@@ -126,6 +134,7 @@ export function createTranslationTraversal(
             providerDefaults: cfg.providerDefaults,
             taskDefaults: cfg.taskDefaults,
             modelOverrides: cfg.modelOverrides,
+            catalog: cfg.catalog,
             profile: cfg.profile,
             phase: "translation",
             instructions: buildTranslationSystemPrompt(
@@ -189,6 +198,7 @@ export const prepareTranslation = internalQuery({
     providerDefaults: v.union(providerModelSelectionsValidator, v.null()),
     taskDefaults: v.union(taskDefaultsValidator, v.null()),
     modelOverrides: v.union(providerModelSelectionsValidator, v.null()),
+    catalog: v.array(catalogModelEntryValidator),
     userPromptTemplate: v.string(),
     authId: v.string(),
   }),
@@ -210,17 +220,27 @@ export async function readTranslationConfig(
     .withIndex("by_agent", (q) => q.eq("agent", "translation"))
     .unique()
   const def = AGENTS.translation
+  const assistant = await resolveRuntimeAssistant(
+    ctx,
+    "mechanical-translation",
+    "translation"
+  )
+  const catalog = await loadRuntimeCatalogEntries(ctx, {
+    providers: [assistant.provider],
+    profiles: ASSISTANT_PROFILES.translation,
+    tuples: [assistant.tuple],
+    providerDefaults: settings?.aiRuntime?.providerDefaults,
+    taskDefaults: settings?.aiRuntime?.taskDefaults,
+    modelOverrides: agentConfig?.modelOverrides,
+  })
   return {
-    assistant: await resolveRuntimeAssistant(
-      ctx,
-      "mechanical-translation",
-      "translation"
-    ),
+    assistant,
     modelId: agentConfig?.model ?? settings?.aiDefaultModel ?? null,
     selectedProvider: settings?.aiRuntime?.selectedProvider ?? null,
     providerDefaults: settings?.aiRuntime?.providerDefaults ?? null,
     taskDefaults: settings?.aiRuntime?.taskDefaults ?? null,
     modelOverrides: agentConfig?.modelOverrides ?? null,
+    catalog,
     // The system prompt is the output contract, not an operator knob: only
     // the registry default runs, built in code by
     // `buildTranslationSystemPrompt`. A stored `systemPrompt` on an old row
@@ -247,6 +267,7 @@ async function gate(
     providerDefaults,
     taskDefaults,
     modelOverrides,
+    catalog,
     userPromptTemplate,
     authId,
   } = await ctx.runQuery(internal.agents.localizer.prepareTranslation, {})
@@ -258,6 +279,7 @@ async function gate(
     providerDefaults: providerDefaults ?? undefined,
     taskDefaults: taskDefaults ?? undefined,
     modelOverrides: modelOverrides ?? undefined,
+    catalog: catalogFromEntries(catalog),
     userPromptTemplate,
     semaphore: new Semaphore(MAX_CONCURRENT_LLM_CALLS),
     profile,

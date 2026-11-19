@@ -19,11 +19,15 @@ import {
   makeGenerationError,
 } from "@/lib/ai/execute-generation"
 import {
+  assistantModelChoices,
+  defaultTupleFor,
+  SLICE_CREATOR_PROFILES,
   TASK_PROFILE_REQUIREMENTS,
   taskProfileTuple,
   validateTupleForProfiles,
 } from "@/lib/ai/task-profiles"
-import { LOCAL_API_KEY_NAMES } from "@/lib/local-api-keys"
+import { readLocalApiKeys } from "@/lib/local-api-keys-file"
+import type { ModelCatalog } from "@/lib/ai/model-catalog"
 
 export interface EngineImage {
   path: string
@@ -39,6 +43,9 @@ export interface LocalApiRequest {
   phase: WorkflowPhase
   model?: string
   effort?: ReasoningEffort
+  /** The shared model catalog the tuple is checked against: the Slice
+   *  creator passes the entries from Convex, the terminal the bundled one. */
+  catalog: ModelCatalog
   signal?: AbortSignal
   deadlineMs?: number
 }
@@ -54,14 +61,48 @@ async function loadImageDataUrl(image: EngineImage): Promise<string> {
   return `data:${image.mediaType};base64,${buffer.toString("base64")}`
 }
 
+/** Nothing chosen: a Slice creator step uses the default Settings shows
+ *  (`defaultTupleFor` over both Slice creator profiles and the same catalog),
+ *  so a committed default that is no longer offered is replaced the same way.
+ *  Other profiles keep their committed default. */
+function noOverrideDefault(
+  provider: ApiProvider,
+  profile: TaskProfile,
+  catalog: ModelCatalog,
+  now: number
+): { model: string; effort?: ReasoningEffort } | undefined {
+  if (!(SLICE_CREATOR_PROFILES as readonly TaskProfile[]).includes(profile)) return undefined
+  const primary = SLICE_CREATOR_PROFILES[0]
+  const fallback = defaultTupleFor(
+    provider,
+    primary,
+    assistantModelChoices(SLICE_CREATOR_PROFILES, catalog, now)[provider]
+  )
+  // The committed default is offered: the step keeps its own committed tuple.
+  if (!fallback || fallback === taskProfileTuple(provider, primary)) return undefined
+  return {
+    model: fallback.model,
+    ...("reasoning" in fallback && fallback.reasoning
+      ? { effort: fallback.reasoning.effort }
+      : {}),
+  }
+}
+
 export function resolveLocalApiTuple(
   provider: ApiProvider,
   profile: TaskProfile,
-  overrides: { model?: string; effort?: ReasoningEffort } = {}
+  overrides: { model?: string; effort?: ReasoningEffort },
+  catalog: ModelCatalog,
+  now: number = Date.now()
 ): Readonly<ApiModelTuple> {
-  const model = overrides.model?.trim()
-  const effort = overrides.effort
-  if (!model && !effort) return taskProfileTuple(provider, profile)
+  let model = overrides.model?.trim()
+  let effort = overrides.effort
+  if (!model && !effort) {
+    const chosen = noOverrideDefault(provider, profile, catalog, now)
+    if (!chosen) return taskProfileTuple(provider, profile)
+    model = chosen.model
+    effort = chosen.effort
+  }
   if (!model) {
     throw new Error("--engine-effort requires --engine-model.")
   }
@@ -76,7 +117,7 @@ export function resolveLocalApiTuple(
     : Object.freeze({ mode: "catalog" as const, provider, model })
 
   try {
-    return validateTupleForProfiles(candidate, [profile])
+    return validateTupleForProfiles(candidate, [profile], catalog)
   } catch {
     if (!effort) {
       throw new Error(
@@ -89,13 +130,9 @@ export function resolveLocalApiTuple(
   }
 }
 
+// Read at each call: an edited .env.local applies without a restart.
 function credentialFor(provider: ApiProvider): string | undefined {
-  const [currentName, legacyName] = LOCAL_API_KEY_NAMES[provider]
-  return (
-    process.env[currentName]?.trim() ||
-    process.env[legacyName]?.trim() ||
-    undefined
-  )
+  return readLocalApiKeys()[provider]
 }
 
 function adapterFor(
@@ -123,10 +160,12 @@ export async function generateWithLocalApi(
     throw new Error(
       "Local BYOK generation requires owner-session accounting; session-less CLI generation is disabled."
     )
-  const tuple = resolveLocalApiTuple(request.provider, request.profile, {
-    model: request.model,
-    effort: request.effort,
-  })
+  const tuple = resolveLocalApiTuple(
+    request.provider,
+    request.profile,
+    { model: request.model, effort: request.effort },
+    request.catalog
+  )
   const baseMessages: GenerationMessage[] = [
     {
       role: "user",
@@ -195,5 +234,9 @@ function generationRequest(
     output: { kind: "text" },
     deadlineMs: request.deadlineMs ?? LOCAL_GENERATION_CEILING_MS,
     signal: request.signal,
+    catalogEntry:
+      tuple.mode === "catalog"
+        ? request.catalog.get(tuple.provider, tuple.model)
+        : undefined,
   } as const
 }

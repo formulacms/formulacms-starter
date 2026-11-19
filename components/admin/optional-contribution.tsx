@@ -23,6 +23,11 @@ type ContributionProps = {
   fallbackText: string
   /** Static host rendering only; never the participant or a data reader. */
   disabledPreview?: ReactNode
+  /**
+   * The participant works without the module's setup (an assistant run by a
+   * local tool needs no API connection): "needs setup" renders it as "on".
+   */
+  readyWithoutSetup?: boolean
   children: ReactNode
 }
 const RunContext = createContext<
@@ -97,6 +102,7 @@ function ContributionRunBoundary({ children, ...props }: ContributionProps) {
 /** Named containment stays below the required host, retaining its local state. */
 export function OptionalContribution({
   children,
+  readyWithoutSetup = false,
   ...props
 }: ContributionProps) {
   const gate = useModuleGate(props.moduleId)
@@ -106,7 +112,8 @@ export function OptionalContribution({
     gate.state === "error"
   )
     return null
-  if (gate.state === "needs_setup") return <ContributionSetup {...props} />
+  if (gate.state === "needs_setup" && !readyWithoutSetup)
+    return <ContributionSetup {...props} />
   return (
     <ContributionBoundary {...props}>
       <ContributionRunBoundary {...props}>{children}</ContributionRunBoundary>

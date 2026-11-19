@@ -1,6 +1,8 @@
 // @vitest-environment node
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
+import { BUNDLED_MODEL_CATALOG } from "../lib/ai/model-catalog"
+import { OPENROUTER_GENERATED_AT } from "../lib/ai/capabilities/openrouter-catalog.generated"
 import { convexTest, seedCommunityOwner } from "../convexTestWithExplicitAdmin"
 import { api, internal } from "./_generated/api"
 import schema from "./schema"
@@ -66,6 +68,7 @@ test("fake generation reaches runtime settlement with the action's trimmed-key f
     {
       target: { lane: "runtime", provider: "openai" },
       tuple: taskProfileTuple("openai", "editorial-copy"),
+      catalogEntry: BUNDLED_MODEL_CATALOG.get("openai", taskProfileTuple("openai", "editorial-copy").model),
       profile: "editorial-copy",
       phase: "content-generation",
       input: { prompt: "Fake provider wiring proof" },
@@ -85,7 +88,7 @@ test("fake generation reaches runtime settlement with the action's trimmed-key f
   )
   const health = await t.run((context) => context.db.query("aiProviderHealth").unique())
   expect(health).toMatchObject({ provider: "openai", keyFingerprint: await hashOwnerClaim(KEY), state: "ok" })
-  const status = await owner.query(api.cms.aiSettings.status, {})
+  const status = (await owner.query(api.cms.aiSettings.status, {}))!
   expect(status.card.state).toBe("active")
   expect(JSON.stringify(status)).not.toContain(KEY)
   expect(JSON.stringify(status)).not.toContain(health!.keyFingerprint)
@@ -110,7 +113,7 @@ test.each([
         sourceAttemptKey: "seed",
       })
     )
-  const status = await owner.query(api.cms.aiSettings.status, {})
+  const status = (await owner.query(api.cms.aiSettings.status, {}))!
   expect(
     status.connections.map(({ provider, envVar }) => [provider, envVar])
   ).toEqual([
@@ -143,7 +146,7 @@ test("explicit tuples do not fall back; translation alone needs Multilingual; re
       id,
       tuple: taskProfileTuple("anthropic", "editorial-copy"),
     })
-  expect((await owner.query(api.cms.aiSettings.status, {})).card).toEqual({
+  expect(((await owner.query(api.cms.aiSettings.status, {}))!).card).toEqual({
     state: "missing",
   })
   const withTranslation = await t.run((ctx) =>
@@ -164,7 +167,7 @@ test("explicit tuples do not fall back; translation alone needs Multilingual; re
     })
   )
   expect(
-    (await owner.query(api.cms.aiSettings.status, {})).connections[0].state
+    ((await owner.query(api.cms.aiSettings.status, {}))!).connections[0].state
   ).toBe("connected")
   await t.run((ctx) =>
     recordProviderObservation(
@@ -184,7 +187,7 @@ test("explicit tuples do not fall back; translation alone needs Multilingual; re
       keyFingerprint: await hashOwnerClaim(KEY),
     })
   })
-  expect((await owner.query(api.cms.aiSettings.status, {})).card).toEqual({
+  expect(((await owner.query(api.cms.aiSettings.status, {}))!).card).toEqual({
     state: "refused",
     provider: "anthropic",
   })
@@ -199,13 +202,13 @@ test("default fallback uses first usable connection; legacy off is no setup pref
     providerDefaults: {},
   })
   expect(
-    (await owner.query(api.cms.aiSettings.status, {})).assistants.every(
+    ((await owner.query(api.cms.aiSettings.status, {}))!).assistants.every(
       (a) => a.provider === "openai"
     )
   ).toBe(true)
   vi.stubEnv("OPENROUTER_API_KEY", KEY)
   expect(
-    (await owner.query(api.cms.aiSettings.status, {})).assistants.every(
+    ((await owner.query(api.cms.aiSettings.status, {}))!).assistants.every(
       (a) => a.provider === "openrouter"
     )
   ).toBe(true)
@@ -214,13 +217,14 @@ test("default fallback uses first usable connection; legacy off is no setup pref
 test("saving Writing on a legacy row preserves absent selection and other assistants", async () => {
   vi.stubEnv("OPENROUTER_API_KEY", KEY)
   vi.stubEnv("ANTHROPIC_API_KEY", KEY)
+  vi.stubEnv("CMS_AI_MODEL", "legacy/model")
   const { t, owner } = await app()
   const availability = { openrouter: true, anthropic: true, openai: false }
   const beforeSettings = await t.run((ctx) => ctx.db.query("siteSettings").unique())
   expect(beforeSettings).not.toHaveProperty("aiRuntime")
-  const beforeSelection = resolveRuntimeSelection(beforeSettings?.aiRuntime?.selectedProvider, availability)
+  const beforeSelection = resolveRuntimeSelection(beforeSettings?.aiRuntime?.selectedProvider, availability, true)
   expect(beforeSelection).toMatchObject({ status: "legacy-openrouter", effectiveProvider: "openrouter" })
-  const before = await owner.query(api.cms.aiSettings.status, {})
+  const before = (await owner.query(api.cms.aiSettings.status, {}))!
   expect(before.assistants.map(({ provider }) => provider)).toEqual([
     "openrouter", "openrouter", "openrouter",
   ])
@@ -229,7 +233,7 @@ test("saving Writing on a legacy row preserves absent selection and other assist
   const runtime = await t.run(async (ctx) =>
     (await ctx.db.query("siteSettings").unique())?.aiRuntime
   )
-  const after = await owner.query(api.cms.aiSettings.status, {})
+  const after = (await owner.query(api.cms.aiSettings.status, {}))!
   const otherProviders = (status: typeof before) => status.assistants
     .filter(({ id }) => id !== "writing")
     .map(({ id, provider }) => ({ id, provider }))
@@ -237,7 +241,7 @@ test("saving Writing on a legacy row preserves absent selection and other assist
     runtime,
     writing: after.assistants.find(({ id }) => id === "writing")?.provider,
     otherProviders: otherProviders(after),
-    selection: resolveRuntimeSelection(runtime?.selectedProvider, availability),
+    selection: resolveRuntimeSelection(runtime?.selectedProvider, availability, true),
   }).toEqual({
     runtime: { assistants: { writing: { tuple } } },
     writing: "anthropic",
@@ -592,11 +596,18 @@ test("r1 tuple validation: valid synchronized capabilities override bundled writ
     mode: "catalog", provider: "openrouter", model: "amazon/nova-2-lite-v1",
     reasoning: { kind: "effort", effort: "high" },
   } as const
-  // The bundled model lacks structured output; the active row adds it.
-  await t.run((ctx) => ctx.db.insert("openRouterCatalogModels", {
-    modelId: tuple.model, name: "Active Nova", inputModalities: ["text", "image"],
-    structuredOutput: true, reasoningEfforts: ["high"], syncedAt: 1,
-  }))
+  // The bundled model lacks structured output; the active (synchronized,
+  // priced) row adds it.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("openRouterCatalogModels", {
+      modelId: tuple.model, name: "Active Nova", inputModalities: ["text", "image"],
+      structuredOutput: true, reasoningEfforts: ["high"], syncedAt: 1,
+      ceilingInputPerM: 1, ceilingOutputPerM: 2,
+    })
+    await ctx.db.insert("openRouterCatalogSync", {
+      key: "openrouter", status: "success", lastAttemptAt: 1, lastSuccessAt: 1,
+    })
+  })
   await expect(owner.mutation(api.cms.aiSettings.setAssistant, { id: "writing", tuple })).resolves.toBeNull()
   expect(await t.run((ctx) => ctx.db.query("siteSettings").unique())).toMatchObject({
     aiRuntime: { assistants: { writing: { tuple } } },
@@ -646,7 +657,7 @@ test.each(cardCases)("r1 card precedence: $name", async ({ states, mode, multili
       ] })
     }
   })
-  const status = await owner.query(api.cms.aiSettings.status, {})
+  const status = (await owner.query(api.cms.aiSettings.status, {}))!
   expect(status.card).toEqual(card)
   expect(status.assistants.map(({ id, provider, available, ready }) => [id, provider, available, ready])).toEqual(facts)
   expect(await t.run((ctx) => resolveAiModuleReadiness(ctx, new Set(multilingual ? ["ai", "multilingual"] : ["ai"]))))
@@ -857,16 +868,18 @@ function sliceRequest(
   }
 }
 
-test("OpenRouter local admission is refused while the price list is empty", async () => {
+// AI-MODELS-1b: before the first list, the bundled entry carries the ceiling
+// price computed when the bundle was generated, so the default is admitted.
+test("OpenRouter local admission uses the bundled price while the price list is empty", async () => {
   const { t, owner } = await app()
   expect(
     await t.run((ctx) => ctx.db.query("openRouterCatalogModels").take(1))
   ).toHaveLength(0)
-  await expect(
-    owner.mutation(api.cms.ai.admitLocalAttempt, {
+  expect(
+    await owner.mutation(api.cms.ai.admitLocalAttempt, {
       request: sliceRequest("openrouter", "vision-spec", "or-empty"),
     })
-  ).rejects.toThrow("AI model has no complete price quote.")
+  ).toMatchObject({ admitted: true, priceRevision: `openrouter-${OPENROUTER_GENERATED_AT}` })
 })
 
 test.each([
@@ -1006,7 +1019,7 @@ test("live status has no Slice creator and module readiness is unchanged", async
     tuple: taskProfileTuple("openai", "grounded-help"),
   })
   const observe = async () => ({
-    status: await owner.query(api.cms.aiSettings.status, {}),
+    status: (await owner.query(api.cms.aiSettings.status, {}))!,
     configured: await owner.query(api.cms.ai.isConfigured, {}),
     readiness: await t.run((ctx) => resolveAiModuleReadiness(ctx, new Set(["ai"]))),
   })

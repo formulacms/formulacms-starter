@@ -1,12 +1,14 @@
 import type { ApiProvider } from "./execution-contract"
 
-export type AiConnectionMethod = "api-key" | "subscription"
+export type AiConnectionMethod = "api-key"
+
+/** How a local tool is signed in: the owner's plan, an API key, or not verified. */
+export type LocalToolSignInMethod = "plan" | "api-key" | "unknown"
 
 export type AiConnectionIssue =
   | "missing-key"
   | "missing-cli"
   | "signed-out"
-  | "wrong-auth-method"
   | "credentials-rejected"
   | "wrong-key-type"
   | "quota-exhausted"
@@ -22,11 +24,17 @@ export type AiConnectionCheck =
   | { state: "invalid"; issue: AiConnectionIssue }
   | { state: "unreachable"; issue: AiConnectionIssue }
 
+/** A local tool's status: like an API check, with its sign-in method. */
+export type LocalToolConnectionCheck =
+  | Exclude<AiConnectionCheck, { state: "authenticated" }>
+  | { state: "authenticated"; method: LocalToolSignInMethod }
+
 export type AiConnectionStatus =
   | { state: "off" }
   | { state: "configured"; method: "api-key" }
   | { state: "checking" }
   | AiConnectionCheck
+  | LocalToolConnectionCheck
 
 export type FetchLike = typeof fetch
 

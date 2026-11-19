@@ -1,7 +1,7 @@
 import type {
   ApiModelCapability,
   CapabilitySource,
-  ReasoningEffort,
+  DirectApiTuple,
 } from "../execution-contract"
 
 export const OPENAI_API_SOURCES = [
@@ -164,32 +164,10 @@ export const OPENAI_API_CATALOG = {
   },
 } as const satisfies Record<string, ApiModelCapability>
 
-export type OpenAIApiModel = keyof typeof OPENAI_API_CATALOG
-type EffortFor<M extends OpenAIApiModel> =
-  (typeof OPENAI_API_CATALOG)[M]["reasoning"]["supportedEfforts"][number]
+export type OpenAIApiTuple = DirectApiTuple<"openai">
 
-export type OpenAIApiTuple = {
-  [M in OpenAIApiModel]: {
-    readonly mode: "catalog"
-    readonly provider: "openai"
-    readonly model: M
-    readonly reasoning: {
-      readonly kind: "effort"
-      readonly effort: EffortFor<M>
-    }
-  }
-}[OpenAIApiModel]
-
-export function isOpenAIApiModel(value: string): value is OpenAIApiModel {
-  return Object.prototype.hasOwnProperty.call(OPENAI_API_CATALOG, value)
-}
-
-export function isOpenAIEffort<M extends OpenAIApiModel>(
-  model: M,
-  effort: ReasoningEffort
-): effort is EffortFor<M> {
-  return (
-    OPENAI_API_CATALOG[model].reasoning
-      .supportedEfforts as readonly ReasoningEffort[]
-  ).includes(effort)
+/** The committed capability for one OpenAI model id, if listed. */
+export function openAICapability(model: string): ApiModelCapability | undefined {
+  const catalog: Readonly<Record<string, ApiModelCapability>> = OPENAI_API_CATALOG
+  return Object.prototype.hasOwnProperty.call(catalog, model) ? catalog[model] : undefined
 }

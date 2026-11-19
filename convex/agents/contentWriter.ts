@@ -28,6 +28,12 @@ import { action, internalQuery } from "../_generated/server"
 import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server"
 import { internal } from "../_generated/api"
 import {
+  catalogModelEntryValidator,
+  loadRuntimeCatalogEntries,
+} from "../lib/aiCatalog"
+import { catalogFromEntries, type ModelCatalog } from "../../lib/ai/model-catalog"
+import { ASSISTANT_PROFILES } from "../../lib/ai/task-profiles"
+import {
   generateRuntimeText,
   createRuntimeAccounting,
   resolveRuntimeAssistant,
@@ -91,6 +97,8 @@ export interface ContentConfig {
   providerDefaults: ProviderModelSelections | undefined
   taskDefaults: TaskDefaults | undefined
   modelOverrides: ProviderModelSelections | undefined
+  /** Shared catalog entries for every candidate tuple (prepare query). */
+  catalog: ModelCatalog
   systemPrompt: string
   userPromptTemplate: string
   brandVoice: string | undefined
@@ -115,6 +123,7 @@ export const prepareGeneration = internalQuery({
     providerDefaults: v.union(providerModelSelectionsValidator, v.null()),
     taskDefaults: v.union(taskDefaultsValidator, v.null()),
     modelOverrides: v.union(providerModelSelectionsValidator, v.null()),
+    catalog: v.array(catalogModelEntryValidator),
     systemPrompt: v.string(),
     userPromptTemplate: v.string(),
     brandVoice: v.union(v.string(), v.null()),
@@ -137,17 +146,27 @@ export async function readContentGenerationConfig(
     .withIndex("by_agent", (q) => q.eq("agent", "content"))
     .unique()
   const def = AGENTS.content
+  const assistant = await resolveRuntimeAssistant(
+    ctx,
+    "editorial-copy",
+    "content-generation"
+  )
+  const catalog = await loadRuntimeCatalogEntries(ctx, {
+    providers: [assistant.provider],
+    profiles: ASSISTANT_PROFILES.writing,
+    tuples: [assistant.tuple],
+    providerDefaults: settings?.aiRuntime?.providerDefaults,
+    taskDefaults: settings?.aiRuntime?.taskDefaults,
+    modelOverrides: agentConfig?.modelOverrides,
+  })
   return {
-    assistant: await resolveRuntimeAssistant(
-      ctx,
-      "editorial-copy",
-      "content-generation"
-    ),
+    assistant,
     modelId: agentConfig?.model ?? settings?.aiDefaultModel ?? null,
     selectedProvider: settings?.aiRuntime?.selectedProvider ?? null,
     providerDefaults: settings?.aiRuntime?.providerDefaults ?? null,
     taskDefaults: settings?.aiRuntime?.taskDefaults ?? null,
     modelOverrides: agentConfig?.modelOverrides ?? null,
+    catalog,
     // Registry default only — the system prompt is unwritable by design. This
     // extends the §10 Q3 doctrine already stated below (mechanical constraints
     // live in code so an operator can't delete them) to the whole prompt: a bad
@@ -179,6 +198,7 @@ async function gate(ctx: ActionCtx): Promise<ContentConfig> {
     providerDefaults,
     taskDefaults,
     modelOverrides,
+    catalog,
     systemPrompt,
     userPromptTemplate,
     brandVoice,
@@ -192,6 +212,7 @@ async function gate(ctx: ActionCtx): Promise<ContentConfig> {
     providerDefaults: providerDefaults ?? undefined,
     taskDefaults: taskDefaults ?? undefined,
     modelOverrides: modelOverrides ?? undefined,
+    catalog: catalogFromEntries(catalog),
     systemPrompt,
     userPromptTemplate,
     brandVoice: brandVoice ?? undefined,
@@ -235,6 +256,7 @@ async function generateOne(
       providerDefaults: cfg.providerDefaults,
       taskDefaults: cfg.taskDefaults,
       modelOverrides: cfg.modelOverrides,
+      catalog: cfg.catalog,
       profile: "editorial-copy",
       phase: "content-generation",
       ...generationInput,
@@ -291,6 +313,7 @@ async function refineString(
       providerDefaults: cfg.providerDefaults,
       taskDefaults: cfg.taskDefaults,
       modelOverrides: cfg.modelOverrides,
+      catalog: cfg.catalog,
       profile: "editorial-copy",
       phase: "content-refinement",
       ...generationInput,
@@ -509,6 +532,7 @@ async function generateSliceInternal(
       providerDefaults: cfg.providerDefaults,
       taskDefaults: cfg.taskDefaults,
       modelOverrides: cfg.modelOverrides,
+      catalog: cfg.catalog,
       profile: "editorial-copy",
       phase: "content-generation",
       ...generationInput,
@@ -698,6 +722,7 @@ export const generatePageMeta = action({
             providerDefaults: cfg.providerDefaults,
             taskDefaults: cfg.taskDefaults,
             modelOverrides: cfg.modelOverrides,
+            catalog: cfg.catalog,
             profile: "structured-outline-meta",
             phase: "page-meta",
             ...generationInput,
@@ -789,6 +814,7 @@ export const generatePageOutline = action({
             providerDefaults: cfg.providerDefaults,
             taskDefaults: cfg.taskDefaults,
             modelOverrides: cfg.modelOverrides,
+            catalog: cfg.catalog,
             profile: "structured-outline-meta",
             phase: "page-outline",
             ...generationInput,
@@ -937,6 +963,7 @@ export async function generatePageSliceCore(
       providerDefaults: cfg.providerDefaults,
       taskDefaults: cfg.taskDefaults,
       modelOverrides: cfg.modelOverrides,
+      catalog: cfg.catalog,
       profile: "editorial-copy",
       phase: "page-fill",
       ...generationInput,

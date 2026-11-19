@@ -13,7 +13,7 @@ import {
   providerModelSelectionsValidator,
   taskProfileValidator,
 } from "../lib/aiValidators"
-import { validateTupleForProfiles } from "../../lib/ai/task-profiles"
+import { assertTupleSelectable } from "../lib/aiCatalog"
 import type { TaskProfile } from "../../lib/ai/execution-contract"
 
 // slice-author / slice-renderer retired 2026-07-14 (ADR-0032 amendment):
@@ -192,7 +192,12 @@ export const updateAgent = mutation({
           )
         }
         try {
-          validateTupleForProfiles(tuple, AGENT_TASK_PROFILES[args.agent])
+          await assertTupleSelectable(
+            ctx,
+            tuple,
+            AGENT_TASK_PROFILES[args.agent],
+            Date.now()
+          )
         } catch {
           throw new ConvexError(
             "INVALID_AI_SELECTION: The override does not support every workflow used by this agent."

@@ -24,7 +24,7 @@ Example client configuration:
 ```json
 {
   "mcpServers": {
-    "nextcms-catalog": {
+    "formulacms-catalog": {
       "command": "pnpm",
       "args": ["--dir", "/absolute/path/to/formulacms", "mcp:catalog"]
     }
@@ -36,8 +36,11 @@ Example client configuration:
 
 Resources:
 
-- `nextcms://catalog`
-- one `nextcms://catalog/<kind>/<slug>` resource per catalog asset
+- `formulacms://catalog`
+- one `formulacms://catalog/<kind>/<slug>` resource per catalog asset
+
+The old `nextcms://` URIs still read the same resources for one release, but
+the server no longer lists them.
 
 Tools:
 

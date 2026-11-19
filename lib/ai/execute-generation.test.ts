@@ -4,6 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest"
 import {
   GENERATION_ERROR_CATEGORIES,
   GenerationError,
+  UnsupportedAdapterInputError,
   type AdapterGenerationRequest,
   type AdapterGenerationResult,
   type ApiGenerationAdapter,
@@ -20,11 +21,12 @@ import {
   type ProviderAttemptSettlement,
 } from "./execute-generation"
 import { taskProfileTuple } from "./task-profiles"
+import { BUNDLED_MODEL_CATALOG } from "./model-catalog"
 
 function request(
   overrides: Partial<GenerationRequest<unknown>> = {}
 ): GenerationRequest<unknown> {
-  return {
+  return withEntry({
     target: { lane: "runtime", provider: "openrouter" },
     tuple: taskProfileTuple("openrouter", "editorial-copy"),
     profile: "editorial-copy",
@@ -33,7 +35,13 @@ function request(
     requirements: { inputModalities: ["text"], structuredOutput: false },
     output: { kind: "text" },
     ...overrides,
-  }
+  })
+}
+
+/** The bundled catalog entry for the request's tuple, unless a test sets one. */
+function withEntry<T extends GenerationRequest<unknown>>(merged: T): T {
+  if ("catalogEntry" in merged || merged.tuple.mode !== "catalog") return merged
+  return { ...merged, catalogEntry: BUNDLED_MODEL_CATALOG.get(merged.tuple.provider, merged.tuple.model) }
 }
 
 function result(
@@ -322,6 +330,34 @@ describe("frozen tuple, retry, and no fallback", () => {
       })
     }
     expect(generate).not.toHaveBeenCalled()
+  })
+
+  test("refuses a direct model id outside the committed lists before the adapter runs", async () => {
+    const generate = vi.fn(async () => result())
+    for (const provider of ["anthropic", "openai"] as const) {
+      const tuple = Object.freeze({
+        mode: "catalog" as const, provider,
+        model: provider === "anthropic" ? "claude-opus-9-9" : "gpt-9-sol",
+        reasoning: Object.freeze({ kind: "effort" as const, effort: "high" as const }),
+      })
+      await expect(
+        executeGeneration(
+          request({ target: { lane: "runtime", provider }, tuple }),
+          { provider, generate },
+          createTestAccounting()
+        )
+      ).rejects.toMatchObject({ category: "UNSUPPORTED_CAPABILITY", attempts: 0 })
+    }
+    expect(generate).not.toHaveBeenCalled()
+  })
+
+  test("maps an adapter's unsupported-input refusal to UNSUPPORTED_CAPABILITY without retry", async () => {
+    const generate = vi.fn(async (): Promise<AdapterGenerationResult> => {
+      throw new UnsupportedAdapterInputError("not accepted")
+    })
+    await expect(executeGeneration(request(), adapter(generate), createTestAccounting()))
+      .rejects.toMatchObject({ category: "UNSUPPORTED_CAPABILITY", retryable: false })
+    expect(generate).toHaveBeenCalledTimes(1)
   })
 
   test("returns validated output and maps validation failure without retry", async () => {

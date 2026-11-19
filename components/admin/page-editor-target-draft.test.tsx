@@ -910,10 +910,10 @@ describe("PageEditor effective-dictionary publish and language notices", () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        /Les paramètres de recherche, le texte des cartes et les autres champs partagés/
+        /L’image de partage, l’image de la carte et les autres champs partagés/
       )
     ).toHaveTextContent(
-      "Les paramètres de recherche, le texte des cartes et les autres champs partagés sont identiques dans toutes les langues. Tout texte saisi dans ces champs sera donc aussi publié en English lors de la prochaine publication de cette page."
+      "L’image de partage, l’image de la carte et les autres champs partagés sont identiques dans toutes les langues. Tout texte saisi dans ces champs sera donc aussi publié en English lors de la prochaine publication de cette page."
     )
     expect(screen.queryByText(/Your site is changing/)).not.toBeInTheDocument()
   })
@@ -939,7 +939,7 @@ describe("PageEditor effective-dictionary publish and language notices", () => {
         "Après l’enregistrement, confirmez à nouveau le texte sur la page du changement de langue."
       )
     ).toBeInTheDocument()
-    expect(screen.getByText(/Les paramètres de recherche/)).toHaveTextContent(
+    expect(screen.getByText(/L’image de partage/)).toHaveTextContent(
       "en English"
     )
     expect(
@@ -961,7 +961,7 @@ describe("PageEditor effective-dictionary publish and language notices", () => {
     expect(mocks.confirm.mock.calls[0]![0]).toEqual({
       title: "Publier pendant le changement de langue de votre site ?",
       description:
-        "Les paramètres de recherche, le texte des cartes et les autres champs partagés ont changé depuis la dernière publication de cette page. Ils sont identiques dans toutes les langues : tout texte en Français saisi dans ces champs sera donc publié immédiatement en English.",
+        "L’image de partage, l’image de la carte ou les autres champs partagés ont changé depuis la dernière publication de cette page. Ils sont identiques dans toutes les langues : tout texte en Français saisi dans ces champs sera donc publié immédiatement en English.",
       confirmText: "Publier quand même",
       cancelText: "Vérifier d’abord",
     })
@@ -982,7 +982,7 @@ describe("PageEditor effective-dictionary publish and language notices", () => {
       expect(mocks.confirm).not.toHaveBeenCalled()
       if (!notice)
         expect(
-          screen.queryByText(/Les paramètres de recherche/)
+          screen.queryByText(/L’image de partage/)
         ).not.toBeInTheDocument()
     }
   )

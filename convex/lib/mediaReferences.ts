@@ -46,6 +46,93 @@ function mediaLeafValue(leaf: LeafVisit) {
   return mediaLikeValue(leaf.value)
 }
 
+/** One field leaf of a page, with the locale and path the reference rows use. */
+export type PageLeaf = {
+  leaf: LeafVisit
+  locale?: string
+  path: string
+  /** Descriptor (shared or localized) field, or a slice field. */
+  area: "descriptor" | "slice"
+}
+
+/**
+ * Walk every field leaf of a page in the order the reference writers rely on:
+ * descriptor shared fields, descriptor localized fields per locale, then slice
+ * primary and item fields. Image/link collection and rich-text image
+ * collection share this walk so their paths cannot drift apart.
+ */
+export function visitPageLeaves(
+  page: Doc<"pages">,
+  visit: (entry: PageLeaf) => void
+): void {
+  // Plan 029 C10 — descriptor field-map walk. Runs on EVERY arm, including
+  // pure-form (`sliceBody: false`) types like testimonial whose descriptor-
+  // level `image()` fields (e.g. `personImage`) are the first non-card,
+  // non-slice image source in the system. Unknown pageType silently no-ops,
+  // matching the doc-refs scanner + search extractor fallthrough. No
+  // `publicFieldsOf` gate — media references track storage usage / GC /
+  // deletion; admin-only media still needs a reference row so it isn't
+  // orphan-swept.
+  const descriptor = contentTypeDefs[page.pageType as ContentType]
+  if (descriptor) {
+    const sharedFields = descriptor.sharedFields as Record<string, Primitive>
+    walkFieldMap(
+      sharedFields,
+      page as unknown as Record<string, unknown>,
+      (leaf) => visit({ leaf, path: leaf.path, area: "descriptor" })
+    )
+
+    const localizedFields = descriptor.localizedFields as Record<
+      string,
+      Primitive
+    >
+    for (const [locale, localeContent] of Object.entries(page.content ?? {})) {
+      walkFieldMap(
+        localizedFields,
+        localeContent as unknown as Record<string, unknown>,
+        (leaf) =>
+          visit({
+            leaf,
+            locale,
+            path: `content.${locale}.${leaf.path}`,
+            area: "descriptor",
+          })
+      )
+    }
+  }
+
+  // Pure-form arms (`sliceBody: false`) have no slice canvas — skip the
+  // slice walk. Card-image + descriptor references still apply.
+  if (!hasSliceBody(page)) return
+
+  for (const [locale, localeContent] of Object.entries(page.content ?? {})) {
+    const slices = localeContent.slices ?? []
+    slices.forEach((slice: Slice, sliceIndex) => {
+      const def = readSliceDefinition(readSlice(slice).type)
+      if (!def) return
+
+      walkValue(def.primary, readSlice(slice).primary, (leaf) =>
+        visit({
+          leaf,
+          locale,
+          path: `content.${locale}.slices[${sliceIndex}].primary.${leaf.path}`,
+          area: "slice",
+        })
+      )
+
+      if (!def.items || !("items" in slice)) return
+      walkValue(def.items as Primitive, readSlice(slice).items, (leaf) =>
+        visit({
+          leaf,
+          locale,
+          path: `content.${locale}.slices[${sliceIndex}].items${leaf.path}`,
+          area: "slice",
+        })
+      )
+    })
+  }
+}
+
 export function collectMediaReferences(
   page: Doc<"pages">
 ): CollectedMediaReference[] {
@@ -57,90 +144,23 @@ export function collectMediaReferences(
       source: "card-image",
     })
   }
-
-  // Plan 029 C10 — descriptor field-map walk. Runs on EVERY arm, including
-  // pure-form (`sliceBody: false`) types like testimonial whose descriptor-
-  // level `image()` fields (e.g. `personImage`) are the first non-card,
-  // non-slice image source in the system. Unknown pageType silently no-ops,
-  // matching the doc-refs scanner + search extractor fallthrough. No
-  // `publicFieldsOf` gate — media references track storage usage / GC /
-  // deletion; admin-only media still needs a reference row so it isn't
-  // orphan-swept. Descriptor media links use the existing slice-media-link
-  // discriminator; their path identifies the descriptor field.
-  const descriptor = contentTypeDefs[page.pageType as ContentType]
-  if (descriptor) {
-    const sharedFields = descriptor.sharedFields as Record<string, Primitive>
-    walkFieldMap(
-      sharedFields,
-      page as unknown as Record<string, unknown>,
-      (leaf) => {
-        const media = mediaLeafValue(leaf)
-        if (!media) return
-        refs.push({
-          ...media,
-          path: leaf.path,
-          source: leaf.def.kind === "link" ? "slice-media-link" : "descriptor-image",
-        })
-      }
-    )
-
-    const localizedFields = descriptor.localizedFields as Record<
-      string,
-      Primitive
-    >
-    for (const [locale, localeContent] of Object.entries(page.content ?? {})) {
-      walkFieldMap(
-        localizedFields,
-        localeContent as unknown as Record<string, unknown>,
-        (leaf) => {
-          const media = mediaLeafValue(leaf)
-          if (!media) return
-          refs.push({
-            ...media,
-            locale,
-            path: `content.${locale}.${leaf.path}`,
-            source: leaf.def.kind === "link" ? "slice-media-link" : "descriptor-image",
-          })
-        }
-      )
-    }
-  }
-
-  // Pure-form arms (`sliceBody: false`) have no slice canvas — skip the
-  // slice-media walk. Card-image + descriptor-image references above still apply.
-  if (!hasSliceBody(page)) return refs
-
-  for (const [locale, localeContent] of Object.entries(page.content ?? {})) {
-    const slices = localeContent.slices ?? []
-    slices.forEach((slice: Slice, sliceIndex) => {
-      const def = readSliceDefinition(readSlice(slice).type)
-      if (!def) return
-
-      walkValue(def.primary, readSlice(slice).primary, (leaf) => {
-        const media = mediaLeafValue(leaf)
-        if (!media) return
-        refs.push({
-          ...media,
-          locale,
-          path: `content.${locale}.slices[${sliceIndex}].primary.${leaf.path}`,
-          source: leaf.def.kind === "link" ? "slice-media-link" : "slice-image",
-        })
-      })
-
-      if (!def.items || !("items" in slice)) return
-      walkValue(def.items as Primitive, readSlice(slice).items, (leaf) => {
-        const media = mediaLeafValue(leaf)
-        if (!media) return
-        refs.push({
-          ...media,
-          locale,
-          path: `content.${locale}.slices[${sliceIndex}].items${leaf.path}`,
-          source: leaf.def.kind === "link" ? "slice-media-link" : "slice-image",
-        })
-      })
+  // Descriptor media links use the existing slice-media-link discriminator;
+  // their path identifies the descriptor field.
+  visitPageLeaves(page, ({ leaf, locale, path, area }) => {
+    const media = mediaLeafValue(leaf)
+    if (!media) return
+    refs.push({
+      ...media,
+      ...(locale === undefined ? {} : { locale }),
+      path,
+      source:
+        leaf.def.kind === "link"
+          ? "slice-media-link"
+          : area === "descriptor"
+            ? "descriptor-image"
+            : "slice-image",
     })
-  }
-
+  })
   return refs
 }
 
@@ -151,7 +171,9 @@ async function mediaByStorageId(
   return await ctx.db
     .query("media")
     .withIndex("by_storageId", (q) => q.eq("storageId", storageId))
-    .unique()
+    // Two media rows can share one stored file (two `media.create` calls);
+    // either alias names the same object.
+    .first()
 }
 
 export async function resolveMediaReference(

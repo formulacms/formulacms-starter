@@ -39,11 +39,14 @@ const groups = {
       "setMonthlyAiCap",
       "status",
       "setAssistant",
+      "setAssistantLocalTool",
       "sliceCreator",
       "setSliceCreator",
     ],
     "cms/aiConnections": ["validateProductionConnection"],
     "cms/agents": ["listAgents", "updateAgent", "resetAgentPresets"],
+    // Owner session, AI module effective; no API connection needed.
+    "cms/aiLocalJobs": ["startLocalPageJob", "resumeLocalPageJob"],
   },
   L: {
     "cms/ai": ["admitLocalAttempt"],
@@ -54,6 +57,15 @@ const groups = {
     "cms/ai": ["settleLocalAttempt"],
     "agents/localGeneration": ["recordAudit"],
     "agents/sliceAuthor": ["canAuthorSlices"],
+    // The local runner has no session: the job's runner secret authorizes it.
+    "cms/aiLocalJobs": [
+      "localClaimUnit",
+      "localHeartbeat",
+      "localJobState",
+      "localSaveUnit",
+      "localFailUnit",
+      "localReleaseUnit",
+    ],
   },
 } as const
 
@@ -63,6 +75,7 @@ const functionModules = import.meta.glob([
   "../../cms/ai.ts",
   "../../cms/aiSettings.ts",
   "../../cms/aiJobs.ts",
+  "../../cms/aiLocalJobs.ts",
   "../../cms/aiConnections.ts",
   "../../cms/aiAuditLog.ts",
   "../../cms/agents.ts",
@@ -115,7 +128,7 @@ function presentClassifications(
   )
 }
 
-test("every public AI function has exactly one C6 classification (35 plus S2a setup)", async () => {
+test("every public AI function has exactly one C6 classification (35 plus S2a setup and the local job runner)", async () => {
   const classified = Object.values(groups)
     .flatMap((group) =>
       Object.entries(group).flatMap(([path, names]) =>
@@ -123,8 +136,8 @@ test("every public AI function has exactly one C6 classification (35 plus S2a se
       )
     )
     .sort()
-  expect(classified).toHaveLength(39)
-  expect(new Set(classified).size).toBe(39)
+  expect(classified).toHaveLength(48)
+  expect(new Set(classified).size).toBe(48)
   expect(await inventory()).toEqual(
     presentClassifications(classified, Object.keys(functionModules))
   )

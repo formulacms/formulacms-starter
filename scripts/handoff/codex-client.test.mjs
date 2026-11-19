@@ -192,3 +192,24 @@ test("aborting startup closes the process group and cannot return a live client"
   if (process.platform !== "win32")
     assert.equal(existsSync(survivorMarker), false)
 })
+
+// Guard (2026-11-15 incident: a test started the real Codex): the default
+// command never starts in a test run. PATH points nowhere, so even a broken
+// guard would fail with "not found" rather than start the tool.
+test("guard: a test run never starts the real codex through the default command", async () => {
+  const path = process.env.PATH
+  process.env.PATH = join(tmpdir(), "codex-client-no-tools")
+  try {
+    for (const options of [{}, { command: "codex" }]) {
+      await assert.rejects(
+        CodexClient.connect(options),
+        (error) =>
+          error?.name === "NativeLaunchBlockedError" &&
+          error?.code === "NATIVE_LAUNCH_BLOCKED" &&
+          error.message.includes('"codex"')
+      )
+    }
+  } finally {
+    process.env.PATH = path
+  }
+})

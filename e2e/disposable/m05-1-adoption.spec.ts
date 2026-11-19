@@ -58,20 +58,20 @@ test("M05 stage 1 moves S1 through S3(S1) to S4 without changing publication", a
 
     // Multilingual is switched only in Modules (owner 2026-11-05): the row has
     // the same switch as other optional modules, off here, and the owner turns
-    // it on and applies. Languages is linked from the row only while it is on.
+    // it on and applies. The row has no Languages link; setup lives on Languages.
     await owner.goto("/admin/settings/modules")
     const moduleText = await pageTranslator(owner)
     const moduleRow = owner.getByTestId("module-multilingual")
     const moduleSwitch = moduleRow.getByRole("checkbox")
     await expect(moduleSwitch).toHaveCount(1)
     await expect(moduleSwitch).not.toBeChecked()
-    await expect(moduleRow.getByRole("link", { name: moduleText("settings.modules.openLanguages") })).toHaveCount(0)
+    await expect(moduleRow.getByRole("link")).toHaveCount(0)
     await moduleSwitch.click()
     await owner.getByRole("button", { name: moduleText("settings.modules.save") }).click()
     await expect.poll(async () => (await client.query(api.cms.multilingual.getMultilingualState, {})).moduleEnabled).toBe(true)
     await owner.goto("/admin/settings/modules")
     await expect(moduleRow.getByRole("checkbox")).toBeChecked()
-    await expect(moduleRow.getByRole("link", { name: moduleText("settings.modules.openLanguages") })).toBeVisible()
+    await expect(moduleRow.getByRole("link")).toHaveCount(0)
     const enabled = await client.query(api.cms.multilingual.getMultilingualState, {})
     expect(enabled).toMatchObject({
       lifecycleState: "S3",

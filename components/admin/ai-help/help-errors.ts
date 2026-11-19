@@ -27,7 +27,30 @@ export function helpErrorKind(error: unknown): HelpErrorKind {
   if (typeof data !== "object" || data === null) return "other"
   if ("kind" in data && data.kind === "RateLimited") return "busy"
   if (!("category" in data) || typeof data.category !== "string") return "other"
-  return Object.hasOwn(KIND_BY_CATEGORY, data.category)
-    ? KIND_BY_CATEGORY[data.category]!
+  return helpCategoryKind(data.category)
+}
+
+/**
+ * Maps the category the Help server action returns when Help's API service
+ * answered: the same notice `helpErrorKind` gives the live site's call (the
+ * action returns the rate limiter's refusal as RATE_LIMITED).
+ */
+export function helpCategoryKind(category: string): HelpErrorKind {
+  return Object.hasOwn(KIND_BY_CATEGORY, category)
+    ? KIND_BY_CATEGORY[category]!
     : "other"
+}
+
+/**
+ * Maps the category the Help server action returns when a local tool answers
+ * Help. A refused, signed-out or missing tool shows the "needs setup" notice;
+ * the API-key and provider notices never apply to a local tool.
+ */
+export function localHelpErrorKind(category: string): HelpErrorKind {
+  const kind = helpCategoryKind(category)
+  return kind === "refused"
+    ? "missing"
+    : kind === "unreachable"
+      ? "other"
+      : kind
 }

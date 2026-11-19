@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, test, vi } from "vitest"
+import { BUNDLED_MODEL_CATALOG } from "../../lib/ai/model-catalog"
 import {
   DEFAULT_AI_MODEL,
   isRuntimeReady,
@@ -59,7 +60,7 @@ describe("Production AI runtime selection precedence", () => {
           anthropic: Boolean(mask & 2),
           openai: Boolean(mask & 4),
         }
-        const resolved = resolveRuntimeSelection(persisted, availability)
+        const resolved = resolveRuntimeSelection(persisted, availability, true)
 
         if (persisted === undefined) {
           expect(resolved).toMatchObject(
@@ -100,8 +101,12 @@ describe("Production AI runtime selection precedence", () => {
   })
 
   test("uses only the legacy OpenRouter compatibility path when selection is absent", () => {
+    // A key alone is not enough: the owner must have configured a legacy model.
     expect(
       resolveRuntimeSelection(undefined, { ...none, openrouter: true })
+    ).toMatchObject({ effectiveProvider: null, status: "off", legacy: false })
+    expect(
+      resolveRuntimeSelection(undefined, { ...none, openrouter: true }, true)
     ).toMatchObject({
       selectedProvider: "openrouter",
       effectiveProvider: "openrouter",
@@ -109,7 +114,7 @@ describe("Production AI runtime selection precedence", () => {
       legacy: true,
     })
     expect(
-      resolveRuntimeSelection(undefined, { ...none, anthropic: true, openai: true })
+      resolveRuntimeSelection(undefined, { ...none, anthropic: true, openai: true }, true)
     ).toMatchObject({
       selectedProvider: "off",
       effectiveProvider: null,
@@ -170,6 +175,7 @@ describe("Production AI runtime selection precedence", () => {
 
     expect(
       resolveRuntimeTuple({
+        catalog: BUNDLED_MODEL_CATALOG,
         selection,
         profile: "vision-spec",
         providerDefaults: { openai: site },
@@ -178,13 +184,14 @@ describe("Production AI runtime selection precedence", () => {
     ).toEqual({ tuple: agent, source: "agent" })
     expect(
       resolveRuntimeTuple({
+        catalog: BUNDLED_MODEL_CATALOG,
         selection,
         profile: "vision-spec",
         providerDefaults: { openai: site },
       })
     ).toEqual({ tuple: site, source: "site" })
     expect(
-      resolveRuntimeTuple({ selection, profile: "vision-spec" })
+      resolveRuntimeTuple({ catalog: BUNDLED_MODEL_CATALOG, selection, profile: "vision-spec" })
     ).toMatchObject({ source: "catalog", tuple: { provider: "openai" } })
   })
 
@@ -212,6 +219,7 @@ describe("Production AI runtime selection precedence", () => {
     // agent > task > site > catalog.
     expect(
       resolveRuntimeTuple({
+        catalog: BUNDLED_MODEL_CATALOG,
         selection,
         profile: "vision-spec",
         providerDefaults: { openai: site },
@@ -221,6 +229,7 @@ describe("Production AI runtime selection precedence", () => {
     ).toEqual({ tuple: agent, source: "agent" })
     expect(
       resolveRuntimeTuple({
+        catalog: BUNDLED_MODEL_CATALOG,
         selection,
         profile: "vision-spec",
         providerDefaults: { openai: site },
@@ -229,6 +238,7 @@ describe("Production AI runtime selection precedence", () => {
     ).toEqual({ tuple: task, source: "task" })
     expect(
       resolveRuntimeTuple({
+        catalog: BUNDLED_MODEL_CATALOG,
         selection,
         profile: "vision-spec",
         taskDefaults: { "vision-spec": task },
@@ -255,6 +265,7 @@ describe("Production AI runtime selection precedence", () => {
 
     expect(
       resolveRuntimeTuple({
+        catalog: BUNDLED_MODEL_CATALOG,
         selection,
         profile: "vision-spec",
         providerDefaults: { openai: site },
@@ -263,7 +274,9 @@ describe("Production AI runtime selection precedence", () => {
     ).toEqual({ tuple: site, source: "site" })
   })
 
-  test("falls through when the task default fails the profile capability gate", () => {
+  // Design 1b risk 2: a task default for this provider that the catalog no
+  // longer supports for the profile is refused, never silently replaced.
+  test("refuses a task default for this provider that fails the profile capability gate", () => {
     const selection = resolveRuntimeSelection("openai", { ...none, openai: true })
     const site = {
       mode: "catalog",
@@ -279,20 +292,22 @@ describe("Production AI runtime selection precedence", () => {
       reasoning: { kind: "effort", effort: "low" },
     } as const
 
-    expect(
+    expect(() =>
       resolveRuntimeTuple({
+        catalog: BUNDLED_MODEL_CATALOG,
         selection,
         profile: "vision-spec",
         providerDefaults: { openai: site },
         taskDefaults: { "vision-spec": lowEffortTask },
       })
-    ).toEqual({ tuple: site, source: "site" })
+    ).toThrow("Persisted AI model selection is incompatible with this task profile.")
   })
 
   test("keeps legacy selection isolated and rejects an incompatible persisted tuple", () => {
-    const legacy = resolveRuntimeSelection(undefined, { ...none, openrouter: true })
+    const legacy = resolveRuntimeSelection(undefined, { ...none, openrouter: true }, true)
     expect(
       resolveRuntimeTuple({
+        catalog: BUNDLED_MODEL_CATALOG,
         selection: legacy,
         profile: "mechanical-translation",
         legacyModelId: "openrouter:legacy/model",
@@ -305,6 +320,7 @@ describe("Production AI runtime selection precedence", () => {
     const typed = resolveRuntimeSelection("openai", { ...none, openai: true })
     expect(() =>
       resolveRuntimeTuple({
+        catalog: BUNDLED_MODEL_CATALOG,
         selection: typed,
         profile: "mechanical-translation",
         providerDefaults: {
@@ -323,10 +339,10 @@ describe("Production AI runtime selection precedence", () => {
 test("S3 fallback profile changes only catalog precedence and rejects incompatible defaults", async () => {
   const { taskProfileTuple } = await import("../../lib/ai/task-profiles")
   const selection = resolveRuntimeSelection("openai", { ...none, openai: true })
-  const args = { selection, profile: "brand-translation" as const, fallbackProfile: "mechanical-translation" as const }
+  const args = { selection, profile: "brand-translation" as const, fallbackProfile: "mechanical-translation" as const, catalog: BUNDLED_MODEL_CATALOG }
   expect(resolveRuntimeTuple(args)).toEqual({ tuple: taskProfileTuple("openai", "mechanical-translation"), source: "catalog" })
   // The non-assistant default remains per task.
-  expect(resolveRuntimeTuple({ selection, profile: "brand-translation" })).toEqual({ tuple: taskProfileTuple("openai", "brand-translation"), source: "catalog" })
+  expect(resolveRuntimeTuple({ catalog: BUNDLED_MODEL_CATALOG, selection, profile: "brand-translation" })).toEqual({ tuple: taskProfileTuple("openai", "brand-translation"), source: "catalog" })
   const tuple = taskProfileTuple("openai", "editorial-copy") as NonNullable<import("./aiConfig").ProviderModelSelections["openai"]>
   for (const [overrides, source] of [
     [{ providerDefaults: { openai: tuple } }, "site"],

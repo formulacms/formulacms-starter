@@ -2,6 +2,7 @@ import { expect, vi } from "vitest"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 import { makeFunctionReference } from "convex/server"
 import { api } from "../../convex/_generated/api"
+import { finishMediaUsageBackfill } from "../media-usage-backfill"
 import type { Id } from "../../convex/_generated/dataModel"
 import { readSlicePresentationCatalog } from "../../convex/lib/slices/presentations"
 import { LEGACY_SNAPSHOT_MIGRATION_INSTALLED } from "../../convex/lib/publishing/legacyMigration"
@@ -217,6 +218,16 @@ async function setupDeletedMedia(
   return fixture
 }
 
+/** A trashed, unused file with the rich-text usage backfill finished. */
+async function setupPurgeableMedia(
+  t: Site,
+  state: MatrixState
+): Promise<ContentFixture> {
+  const fixture = await setupDeletedMedia(t, state)
+  await finishMediaUsageBackfill(t as never)
+  return fixture
+}
+
 async function setupFolder(
   t: Site,
   state: MatrixState
@@ -384,6 +395,24 @@ async function setupSuccessorTrashed(
   await t.withIdentity(OWNER).mutation(api.cms.publication.softDeletePage, {
     pageId: fixture.pageId,
     expectedLifecycleGeneration: 1,
+  })
+  return fixture
+}
+
+async function setupSuccessorTrashedDrained(
+  t: Site,
+  redirects: "off" | "on"
+): Promise<SuccessorFixture> {
+  const fixture = await setupSuccessorTrashed(t, redirects)
+  // The revalidation drain is a cron the matrix does not run.
+  await t.run(async (ctx) => {
+    for (const row of await ctx.db
+      .query("pagePublicationRevalidationIntents")
+      .collect())
+      await ctx.db.patch("pagePublicationRevalidationIntents", row._id, {
+        status: "complete",
+        phase: "complete",
+      })
   })
   return fixture
 }
@@ -1350,6 +1379,37 @@ export const contentRows: AuthorizationRow[] = [
     },
     setupSuccessorTrashed
   ),
+  successorOnly(
+    "cms/publication:pagePurgeImpact",
+    "query",
+    (actor, fixture) =>
+      actor.query(api.cms.publication.pagePurgeImpact, {
+        pageIds: [fixture.pageId],
+      }),
+    {
+      check: (value) =>
+        expect(value).toEqual([
+          { pageId: expect.any(String), canPurge: true, redirects: 0 },
+        ]),
+    },
+    setupSuccessorTrashedDrained,
+    true
+  ),
+  successorOnly(
+    "cms/publication:purgeTrashedPages",
+    "mutation",
+    (actor, fixture) =>
+      actor.mutation(api.cms.publication.purgeTrashedPages, {
+        items: [{ pageId: fixture.pageId, expectedLifecycleGeneration: 2 }],
+      }),
+    {
+      check: (value) =>
+        expect(value).toEqual([
+          { pageId: expect.any(String), status: "started" },
+        ]),
+    },
+    setupSuccessorTrashedDrained
+  ),
   ownerOnly(
     "cms/media:backfillImageDimensions",
     "action",
@@ -1739,11 +1799,41 @@ export const contentRows: AuthorizationRow[] = [
     "mutation",
     (actor, fixture) =>
       actor.mutation(api.cms.media.remove, { id: fixture.mediaId }),
-    { value: null },
-    setupContent,
+    // The matrix runs on legacy-authority states: permanent delete is
+    // snapshot-only (mediaPurge.test.ts covers the snapshot path).
+    { error: "MEDIA_PURGE_NOT_AVAILABLE" },
+    setupPurgeableMedia,
     async (t, fixture) => {
-      expect(await t.run((ctx) => ctx.db.get(fixture.mediaId))).toBeNull()
+      expect(await t.run((ctx) => ctx.db.get(fixture.mediaId))).not.toBeNull()
     }
+  ),
+  ownerOnly(
+    "cms/media:purgeTrashedMedia",
+    "mutation",
+    (actor, fixture) =>
+      actor.mutation(api.cms.media.purgeTrashedMedia, {
+        ids: [fixture.mediaId],
+      }),
+    { error: "MEDIA_PURGE_NOT_AVAILABLE" },
+    setupPurgeableMedia,
+    async (t, fixture) => {
+      expect(await t.run((ctx) => ctx.db.get(fixture.mediaId))).not.toBeNull()
+    }
+  ),
+  ownerOnly(
+    "cms/media:listTrashed",
+    "query",
+    (actor) =>
+      actor.query(api.cms.media.listTrashed, {
+        paginationOpts: { numItems: 10, cursor: null },
+      }),
+    {
+      check: (value) =>
+        expect(value).toMatchObject({
+          page: [expect.objectContaining({ filename: "matrix.png" })],
+        }),
+    },
+    setupDeletedMedia
   ),
   ownerOnly(
     "cms/media:createFolder",
@@ -2407,6 +2497,39 @@ export const contentRows: AuthorizationRow[] = [
         archived: true,
       }),
     { value: ["page"] }
+  ),
+  ownerOnly(
+    "cms/contentTypes:getUntranslatedContentTypes",
+    "query",
+    (actor) =>
+      actor.query(api.cms.contentTypes.getUntranslatedContentTypes, {}),
+    { value: [] }
+  ),
+  ownerOnly(
+    "cms/contentTypes:setContentTypeTranslation",
+    "mutation",
+    (actor) =>
+      actor.mutation(api.cms.contentTypes.setContentTypeTranslation, {
+        pageType: "page",
+        translated: true,
+      }),
+    { value: [] }
+  ),
+  ownerOnly(
+    "cms/contentTypes:getContentTypeTranslationImpact",
+    "query",
+    (actor) =>
+      actor.query(api.cms.contentTypes.getContentTypeTranslationImpact, {
+        pageType: "page",
+      }),
+    {
+      check: (value) =>
+        expect(value).toMatchObject({
+          hiddenVersions: { count: expect.any(Number) },
+          linkingPages: { count: expect.any(Number) },
+          childPages: { count: expect.any(Number) },
+        }),
+    }
   ),
   ownerOnly(
     "cms/slices:getPresentationCatalog",

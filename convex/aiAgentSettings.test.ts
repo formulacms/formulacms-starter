@@ -128,6 +128,22 @@ describe("typed agent model overrides", () => {
     ).toBeNull()
   })
 
+  test("refuses a direct model id outside the committed lists at save", async () => {
+    const t = convexTest(schema, modules)
+    await seed(t)
+    for (const [provider, model] of [["anthropic", "claude-opus-9-9"], ["openai", "gpt-9-sol"]] as const) {
+      await expect(
+        identity(t, "admin-1").mutation(api.cms.agents.updateAgent, {
+          agent: "content",
+          modelOverrides: {
+            [provider]: { mode: "catalog", provider, model, reasoning: { kind: "effort", effort: "high" } },
+          },
+        })
+      ).rejects.toThrow(/INVALID_AI_SELECTION: The override does not support/)
+    }
+    expect(await t.run((ctx) => ctx.db.query("agentConfigs").first())).toBeNull()
+  })
+
   test("rejects a user template that drops a required placeholder", async () => {
     const t = convexTest(schema, modules)
     await seed(t)

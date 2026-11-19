@@ -52,7 +52,6 @@ test("real catalog: every public U1b ingress fails closed, including Start CMS_M
   }
   const calls = [
     () => owner.query(api.cms.aiJobs.estimatePageJob, { input }),
-    () => owner.query(api.cms.aiJobs.pageJobProgress, {}),
     () => owner.mutation(api.cms.aiJobs.startPageJob, { input }),
     () => owner.mutation(api.cms.aiJobs.cancelPageJob, { jobId: id }),
     () => owner.mutation(api.cms.aiJobs.resumePageJob, { jobId: id }),
@@ -63,4 +62,12 @@ test("real catalog: every public U1b ingress fails closed, including Start CMS_M
   ]
   for (const call of calls)
     await expect(call()).rejects.toThrow("CMS_MODULE_DISABLED")
+  // The job list answers empty instead of throwing (no error line in the log);
+  // a caller who is not the owner is still refused.
+  await expect(owner.query(api.cms.aiJobs.pageJobProgress, {})).resolves.toEqual(
+    []
+  )
+  await expect(
+    t.query(api.cms.aiJobs.pageJobProgress, {})
+  ).rejects.toThrow()
 })

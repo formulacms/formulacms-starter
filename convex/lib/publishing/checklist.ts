@@ -15,8 +15,14 @@ import {
 import { isRichTextEmpty } from "../richtext/emptiness"
 import {
   createPublicSnapshotProjectionReader,
+  isPageHiddenInLocaleOrAncestry,
+  readLegacySharedFieldsLocale,
   readPublicationAuthority,
 } from "./snapshots"
+import {
+  planDraftBackfill,
+  stripMovedSharedValues,
+} from "../contentTypes/perLanguageFields"
 
 /**
  * Publishing pipeline: pre-publish checklist (plan 028 C0).
@@ -435,6 +441,61 @@ function checklistTargetTitleParams(
   return title ? { targetTitle: title } : {}
 }
 
+/**
+ * The page shape the snapshot readiness checklist reads for one language
+ * (ADR-0037 amendment, 2026-11-17): the language's own search and meta values,
+ * never the old shared text. A Working Draft the one-time backfill has not
+ * reached yet reads the old shared values the way the backfill will write them
+ * (text only in the legacy shared language), as the editor does.
+ */
+export async function languageChecklistShape(
+  ctx: QueryCtx,
+  args: {
+    page: Doc<"pages">
+    shared: Pick<Doc<"pageSharedDrafts">, "system" | "descriptor">
+    locale: string
+    slug: string
+    content: Record<string, unknown>
+    /** True when the content is a Working Draft (not a frozen base). */
+    workingDraft: boolean
+  }
+): Promise<Doc<"pages">> {
+  const shared = {
+    system: args.shared.system as unknown as Record<string, unknown>,
+    descriptor: args.shared.descriptor as unknown as Record<string, unknown>,
+  }
+  let content = args.content
+  if (args.workingDraft) {
+    const pageStates = await ctx.db
+      .query("pagePublicationPageStates")
+      .withIndex("by_pageId", (q) => q.eq("pageId", args.page._id))
+      .take(2)
+    if (!pageStates[0]?.perLanguageFieldsBackfill) {
+      content =
+        planDraftBackfill({
+          locale: args.locale,
+          legacyLocale: await readLegacySharedFieldsLocale(ctx),
+          content,
+          sharedSeo: shared.system.seo as Record<string, unknown> | undefined,
+          sharedCardExcerpt: shared.system.cardExcerpt,
+          sharedCategory: shared.descriptor.category,
+          hasCategoryField:
+            "category" in
+            (contentTypeDefs[args.page.pageType as ContentType]
+              ?.localizedFields ?? {}),
+        }) ?? content
+    }
+  }
+  const owned = stripMovedSharedValues(shared)
+  return {
+    ...args.page,
+    ...owned.descriptor,
+    ...owned.system,
+    slug: args.slug,
+    content: { [args.locale]: content },
+  } as Doc<"pages">
+}
+
 export function buildPrePublishChecklist(
   page: Doc<"pages">,
   cfg: ChecklistLocaleConfig
@@ -667,9 +728,17 @@ export async function buildPrePublishChecklistWithReferences(
         projection: await publicSnapshotReader(target._id, locale),
       }))
     )
-    return results
+    const missing = results
       .filter((result) => result.projection === null)
       .map((result) => result.locale)
+    // ADR-0037 amendment (2026-11-17), clause 3: a target whose type is
+    // switched to another language is left out there, not a blocker.
+    const blocked: string[] = []
+    for (const locale of missing) {
+      if (!(await isPageHiddenInLocaleOrAncestry(ctx, target._id, locale)))
+        blocked.push(locale)
+    }
+    return blocked
   }
 
   function localeLabel(locales: readonly string[]): string {

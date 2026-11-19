@@ -3,6 +3,7 @@ vi.mock("./admin-module-state-provider", () => ({
   useModuleGate: () => ({ state: moduleTestGate.state }),
 }))
 import {
+  fireEvent,
   render as renderWithTestingLibrary,
   screen,
 } from "@testing-library/react"
@@ -163,4 +164,37 @@ test.each(["off", "error"])("reactive sidebar teardown on %s", (gate) => {
     screen.queryByRole("link", { name: "Redirects" })
   ).not.toBeInTheDocument()
   expect(screen.getByRole("link", { name: "Content" })).toBeInTheDocument()
+})
+
+test("the fixed sidebar hides below md; the Sheet variant is content-fit and reports a link choice", () => {
+  moduleTestGate.state = "on"
+  const onNavigate = vi.fn()
+  const view = renderSidebar()
+  expect(screen.getAllByRole("complementary")[0]).toHaveClass(
+    "fixed",
+    "hidden",
+    "md:flex",
+    "w-60"
+  )
+  view.rerender(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <AdminSidebar
+        variant="sheet"
+        onNavigate={onNavigate}
+        headerAction={<button type="button">Hide sidebar</button>}
+      />
+    </NextIntlClientProvider>
+  )
+  const aside = screen.getAllByRole("complementary")[0]
+  expect(aside).toHaveClass("w-fit", "h-full")
+  for (const name of ["fixed", "hidden", "w-60"]) {
+    expect(aside).not.toHaveClass(name)
+  }
+  expect(
+    screen.getByRole("button", { name: "Hide sidebar" })
+  ).toBeInTheDocument()
+  const content = screen.getByRole("link", { name: "Content" })
+  content.addEventListener("click", (event) => event.preventDefault())
+  fireEvent.click(content)
+  expect(onNavigate).toHaveBeenCalledTimes(1)
 })

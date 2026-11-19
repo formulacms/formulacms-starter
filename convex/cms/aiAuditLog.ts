@@ -17,6 +17,7 @@ import {
   executionLaneValidator,
   generationEngineValidator,
   generationIdentityEvidenceValidator,
+  localToolFundingValidator,
   reasoningEffortValidator,
   runtimeApiProviderValidator,
   taskProfileValidator,
@@ -70,6 +71,7 @@ export const recordEvent = internalMutation({
     phase: v.optional(workflowPhaseValidator),
     attempts: v.optional(aiAttemptCountValidator),
     identityEvidence: v.optional(generationIdentityEvidenceValidator),
+    funding: v.optional(localToolFundingValidator),
     tokenUsage: v.object({
       promptTokens: v.optional(v.number()),
       completionTokens: v.optional(v.number()),

@@ -91,8 +91,9 @@ provider documentation or MCP, then Context7 only as a fallback.
   immutable Published Snapshot; saving or restoring a draft must not change the
   public result.
 - FormulaCMS owns the provider-neutral email contract. Console is a truthful
-  non-delivering fallback, Resend is the sole bundled production adapter, and
-  SMTP is retired from reachable paths. Providers are registered through
+  non-delivering fallback, SMTP and Resend are the bundled production adapters
+  (SMTP reads `EMAIL_SMTP_*` from the Convex environment; the legacy
+  database-stored SMTP setup stays retired). Providers are registered through
   reviewed code/build/release work, never installed at runtime. Provider
   acceptance is not inbox delivery.
 - Compatibility validators and stored shapes may remain without being callable
@@ -156,10 +157,10 @@ and anything not run.
 
 ## Catalog Discovery
 
-The catalog retains its historical `nextcms-catalog` MCP namespace. When that
-server is available:
+The catalog is the `formulacms-catalog` MCP server. The old `nextcms://` URIs
+still read for one release. When that server is available:
 
-1. Read `nextcms://catalog` or call `search_catalog`.
+1. Read `formulacms://catalog` or call `search_catalog`.
 2. Inspect a candidate with `get_catalog_asset` or its asset resource.
 3. Treat results as metadata only. Never infer installation, entitlement, or
    write authority that the result does not explicitly provide.

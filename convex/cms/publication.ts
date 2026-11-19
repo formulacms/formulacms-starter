@@ -3,6 +3,7 @@ import {
   occurrenceUsageInternalMutation as internalMutation,
   occurrenceUsageMutation as mutation,
 } from "../lib/publishing/staging"
+import { nextUpdatedAt } from "../lib/versions"
 import {
   writePageContent,
   writeLocaleContent,
@@ -59,11 +60,13 @@ import {
   addressSharedParent,
   addressHomePage,
   readHeldHistoricalRows,
+  isPageHiddenInLocaleOrAncestry,
   pageAddressCheckValidator,
   pageAddressNoticeValidator,
   type PageAddressCheck,
   type PageAddressNotice,
 } from "../lib/publishing/snapshots"
+import { assertPageTypeTranslatedIn } from "../lib/publishing/translationSwitch"
 import {
   OPEN_TRANSITION_PHASES,
   assertOrdinaryLocale,
@@ -86,7 +89,14 @@ import {
   collectMediaReferences,
   resolveMediaReference,
 } from "../lib/mediaReferences"
+import { richTextImagesForSource } from "../lib/media/richTextImages"
 import { seoValidator, statusValidator } from "../schema"
+import {
+  applyPerLanguageInput,
+  sharedSeoPatch,
+  stripMovedSharedValues,
+} from "../lib/contentTypes/perLanguageFields"
+import { ensurePageBackfilled } from "../lib/publishing/perLanguageBackfill"
 import { pageTypeValidator } from "../lib/pages/types"
 import {
   assertSliceMutationIntegrity,
@@ -103,6 +113,18 @@ import {
   type LocalePublicationCandidatePayload,
 } from "../lib/publishing/localeCandidate"
 import { LEGACY_SNAPSHOT_MIGRATION_INSTALLED } from "../lib/publishing/legacyMigration"
+import {
+  PAGE_PURGE_MAX_BATCH_ITEMS,
+  PAGE_PURGE_PHASES,
+  PAGE_PURGE_MAX_FAILURES,
+  PAGE_PURGE_STALE_MS,
+  PAGE_PURGE_WAIT_MS,
+  assertNoPagePurge,
+  evaluatePurgeSelection,
+  pagePurgeTuning,
+  readPagePurgeMarker,
+  runPurgeBatch,
+} from "../lib/publishing/pagePurge"
 import { overlayStagingOnPage } from "../lib/publishing/staging"
 import { resolveEffectiveHomePageId } from "../lib/pages/home"
 import { homeSlugsForLocale } from "../../lib/pages/home-aliases"
@@ -266,6 +288,10 @@ const snapshotAdminPageRowValidator = v.object({
   sharedDraftGeneration: v.number(),
   locales: v.array(adminPageLocaleValidator),
   updatedAt: v.number(),
+  // Trash scope only: a permanent purge of this Page is running.
+  purging: v.optional(v.boolean()),
+  // Trash scope only: the purge stopped before it finished. Delete retries it.
+  purgeStalled: v.optional(v.boolean()),
 })
 
 export type SnapshotAdminPageRow = {
@@ -282,6 +308,8 @@ export type SnapshotAdminPageRow = {
   sharedDraftGeneration: number
   locales: AdminPageLocale[]
   updatedAt: number
+  purging?: boolean
+  purgeStalled?: boolean
 }
 
 export async function snapshotAdminPageRow(
@@ -469,7 +497,49 @@ export const listAdminPages = query({
       if (args.scope === "content" && state.lifecycleState === "trashed")
         continue
       const row = await snapshotAdminPageRow(ctx, state)
-      if (row) rows.push(row)
+      if (args.scope !== "trash") {
+        if (row) rows.push(row)
+        continue
+      }
+      // A page being purged keeps a row even after its own drafts are gone,
+      // so the Trash list can show it as "Deleting".
+      const marker = await readPagePurgeMarker(ctx, state.pageId)
+      if (!marker) {
+        if (row) rows.push(row)
+        continue
+      }
+      const page = await ctx.db.get("pages", state.pageId)
+      if (row) {
+        rows.push({
+          ...row,
+          localizedTitles: Object.keys(row.localizedTitles).length
+            ? row.localizedTitles
+            : marker.localizedTitles,
+          ...(marker.stalledAt === undefined
+            ? { purging: true }
+            : { purgeStalled: true }),
+        })
+      } else if (page) {
+        rows.push({
+          _id: state.pageId,
+          slug: marker.slug,
+          localizedSlugs: {},
+          localizedTitles: marker.localizedTitles,
+          status: "draft",
+          pageType: page.pageType,
+          lifecycleState: state.lifecycleState,
+          ...(state.restoreLifecycleState
+            ? { restoreLifecycleState: state.restoreLifecycleState }
+            : {}),
+          lifecycleGeneration: state.lifecycleGeneration,
+          sharedDraftGeneration: 0,
+          locales: [],
+          updatedAt: state.updatedAt,
+          ...(marker.stalledAt === undefined
+            ? { purging: true }
+            : { purgeStalled: true }),
+        })
+      }
     }
     return { ...result, page: rows }
   },
@@ -506,6 +576,7 @@ async function preflightPageDraftAddresses(
   const parentId = await addressSharedParent(ctx, input.page._id, cache)
   const nextParent =
     input.parentId === undefined ? parentId : (input.parentId ?? undefined)
+  if (nextParent && nextParent !== parentId) await assertNoPagePurge(ctx, nextParent)
   const homePageId = await addressHomePage(ctx, cache)
   const drafts =
     parentId !== nextParent
@@ -882,6 +953,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
+/** Shared descriptor keys that moved into each language (ADR-0037 amendment). */
+const MOVED_SHARED_FIELD_KEYS = ["category"] as const
+
 function mergeRecord(
   current: Record<string, unknown>,
   patch: Record<string, unknown>
@@ -1031,7 +1105,13 @@ export async function initializeSuccessorPage(
   if (!descriptor) throw new ConvexError("CONTENT_TYPE_INVALID")
   const source = page as unknown as Record<string, unknown>
   const descriptorFields: Record<string, unknown> = {}
-  for (const key of Object.keys(descriptor.sharedFields)) {
+  // The cutover from the legacy Page row keeps the old shared shape (a moved
+  // field such as the post category stays readable). A page the owner creates
+  // starts in the per-language shape (ADR-0037 amendment, 2026-11-17).
+  const cutover = attribution.kind === "migration"
+  for (const key of Object.keys(
+    cutover ? descriptor.sharedValidator.fields : descriptor.sharedFields
+  )) {
     if (source[key] !== undefined) descriptorFields[key] = source[key]
   }
   const system: Record<string, unknown> = {}
@@ -1046,6 +1126,11 @@ export async function initializeSuccessorPage(
     "cardExcerpt",
   ]) {
     if (source[key] !== undefined) system[key] = source[key]
+  }
+  if (!cutover) {
+    const owned = stripMovedSharedValues({ system, descriptor: {} })
+    for (const key of Object.keys(system)) delete system[key]
+    Object.assign(system, owned.system)
   }
   const lifecycleState =
     attribution.kind === "migration"
@@ -1069,6 +1154,12 @@ export async function initializeSuccessorPage(
     lifecycleGeneration: 1,
     createdAt: now,
     updatedAt: now,
+    // A page the owner creates owns its per-language values from the start.
+    ...(cutover
+      ? {}
+      : {
+          perLanguageFieldsBackfill: { at: now, draftsWritten: 0, skippedNoDraft: 0 },
+        }),
   })
   const sharedId = await occurrenceUsageWrites(ctx).insert("pageSharedDrafts", {
     pageId: page._id,
@@ -1290,6 +1381,17 @@ async function writeReferences(
       throw new ConvexError("PUBLICATION_MEDIA_STORAGE_MISSING")
     }
   }
+  // Library images inside rich-text fields carry only their URL. An external
+  // src matches no media row and is ignored (never an error).
+  const richTextImages = await richTextImagesForSource(
+    ctx,
+    source,
+    locale,
+    sourceKind,
+    // Draft save, translation apply and publication all pass here: an image
+    // deleted for good, or one whose file is gone, never reaches a page.
+    { strict: true }
+  )
   const slices = locale
     ? ((
         source.content?.[locale] as
@@ -1300,7 +1402,11 @@ async function writeReferences(
   for (const slice of slices)
     sliceCounts.set(slice.type, (sliceCounts.get(slice.type) ?? 0) + 1)
   if (
-    documents.length + media.length + sliceCounts.size + ancestry.length >
+    documents.length +
+      media.length +
+      richTextImages.length +
+      sliceCounts.size +
+      ancestry.length >
     512
   ) {
     throw new ConvexError("PUBLICATION_REFERENCE_LIMIT")
@@ -1308,12 +1414,17 @@ async function writeReferences(
   for (const ref of documents) {
     const target = await ctx.db.get("pages", ref.targetId)
     if (!target) throw new ConvexError("PUBLICATION_REFERENCE_TARGET_MISSING")
+    await assertNoPagePurge(ctx, ref.targetId)
     if (
       validatePublicTargets &&
       (sourceKind === "candidate" || sourceKind === "current_public") &&
       (!locale ||
         (!(await resolver.project(ctx, ref.targetId, locale)) &&
-          !(await resolver.deferDocumentTarget(ctx, ref.targetId))))
+          !(await resolver.deferDocumentTarget(ctx, ref.targetId)) &&
+          // ADR-0037 amendment (2026-11-17), clause 3: a target whose type is
+          // switched to another language is left out of public readers, so
+          // linking to it does not block publishing. The row is still written.
+          !(await isPageHiddenInLocaleOrAncestry(ctx, ref.targetId, locale))))
     ) {
       throw new ConvexError("PUBLICATION_REFERENCE_TARGET_LOCALE_UNAVAILABLE")
     }
@@ -1335,6 +1446,7 @@ async function writeReferences(
   for (const ancestor of ancestry) {
     const targetId = ancestor.pageId as Id<"pages">
     const target = await ctx.db.get("pages", targetId)
+    if (target) await assertNoPagePurge(ctx, targetId)
     if (
       !target ||
       !locale ||
@@ -1365,6 +1477,19 @@ async function writeReferences(
       storageId: ref.storageId,
       sourcePath: ref.path,
       referenceKind: ref.source,
+      createdAt: now,
+      updatedAt: now,
+    } as never)
+  }
+  for (const ref of richTextImages) {
+    await ctx.db.insert("pagePublicationMediaReferences", {
+      pageId,
+      ...(locale ? { locale } : {}),
+      ...sourceMetadata,
+      mediaId: ref.mediaId,
+      storageId: ref.storageId,
+      sourcePath: ref.path,
+      referenceKind: "rich-text-image",
       createdAt: now,
       updatedAt: now,
     } as never)
@@ -1505,10 +1630,19 @@ function buildPayload(
     publicGeneration: number
     title: string
     canonicalPath: string
-  }>
+  }>,
+  // The cutover from the legacy Page row keeps the old shared shape: the
+  // frozen snapshot resolves it at read time. Every owner publication writes
+  // the per-language values in the Localized Content only (ADR-0037
+  // amendment, 2026-11-17), so their absence from the shared blocks marks a
+  // snapshot that owns them.
+  options: { keepLegacyShared?: boolean } = {}
 ): LocalePublicationPayload {
   const descriptor: Record<string, unknown> = {}
-  const descriptorShape = contentTypeDefs[page.pageType]?.sharedFields
+  const typeDef = contentTypeDefs[page.pageType]
+  const descriptorShape = options.keepLegacyShared
+    ? typeDef?.sharedValidator.fields
+    : typeDef?.sharedFields
   if (descriptorShape) {
     const sharedDescriptor = isRecord(shared.descriptor)
       ? shared.descriptor
@@ -1518,15 +1652,19 @@ function buildPayload(
       if (value !== undefined) descriptor[key] = value
     }
   }
-  const system: Record<string, unknown> = isRecord(shared.system)
-    ? { ...shared.system }
-    : {}
+  const sharedBlocks = {
+    system: isRecord(shared.system) ? { ...shared.system } : {},
+    descriptor,
+  }
+  const finalShared = options.keepLegacyShared
+    ? sharedBlocks
+    : stripMovedSharedValues(sharedBlocks)
   const localized = { slug, content }
   return {
     page: { id: String(page._id), pageType: page.pageType },
     locale,
     localized,
-    shared: { system, descriptor },
+    shared: finalShared,
     route:
       path === null
         ? { kind: "non_routable" }
@@ -1645,7 +1783,8 @@ function sharedParts(page: Doc<"pages">) {
   const descriptor = contentTypeDefs[page.pageType]
   const record = page as unknown as Record<string, unknown>
   const sharedDescriptor: Record<string, unknown> = {}
-  for (const key of Object.keys(descriptor.sharedFields)) {
+  // Cutover only: the old shared shape, including a moved field (post category).
+  for (const key of Object.keys(descriptor.sharedValidator.fields)) {
     if (record[key] !== undefined) sharedDescriptor[key] = record[key]
   }
   const system: Record<string, unknown> = {}
@@ -1826,9 +1965,12 @@ export const normalizeLegacyHomeIdentity = mutation({
     const settings = settingsRows[0]!
     const effective = await resolveEffectiveHomePageId(ctx, settings.homePageId)
     if (!effective) throw new ConvexError("PUBLICATION_HOME_REQUIRED")
-    const now = Date.now()
-    await ctx.db.patch("siteSettings", settings._id, { homePageId: effective, updatedAt: now })
-    return { homePageId: effective, settingsUpdatedAt: now }
+    const settingsUpdatedAt = nextUpdatedAt(settings.updatedAt, Date.now())
+    await ctx.db.patch("siteSettings", settings._id, {
+      homePageId: effective,
+      updatedAt: settingsUpdatedAt,
+    })
+    return { homePageId: effective, settingsUpdatedAt }
   },
 })
 
@@ -2156,7 +2298,8 @@ export const prepareSnapshotMigrationPage = mutation({
           slug,
           localizedValue as Record<string, unknown>,
           path,
-          ancestry
+          ancestry,
+          { keepLegacyShared: true }
         )
         const serialized = serializeLocalePublicationCandidate(payload)
         const digest = await digestLocalePublicationCandidate(
@@ -3176,6 +3319,9 @@ export const restoreSnapshotAsDraft = mutation({
       state.releaseGeneration !== args.expectedReleaseGeneration
     )
       throw new ConvexError("PAGE_LOCALE_PUBLICATION_STALE")
+    // The restore replaces the Shared Draft's system block: copy its old
+    // values into the page's Working Drafts first (once per page).
+    await ensurePageBackfilled(ctx, args.pageId, pageState)
     const drafts = await ctx.db
       .query("pageLocaleDrafts")
       .withIndex("by_pageId_and_locale", (q) =>
@@ -3438,11 +3584,16 @@ export const saveSharedDraft = mutation({
     ) {
       throw new ConvexError("PAGE_SHARED_DRAFT_STALE")
     }
+    // This save rewrites the Shared Draft's old values: copy them into the
+    // page's Working Drafts first (once per page).
+    await ensurePageBackfilled(ctx, args.pageId, pageState)
     const descriptor = contentTypeDefs[page.pageType]
     const descriptorPatch = parseObjectJson(
       args.sharedFieldsJson,
       "SHARED_FIELDS"
     )
+    // A client from before the change may still send the moved category.
+    for (const key of MOVED_SHARED_FIELD_KEYS) delete descriptorPatch[key]
     if (args.authorIds !== undefined) {
       descriptorPatch.authorIds = args.authorIds.map((pageId) => ({ pageId }))
     }
@@ -3457,15 +3608,16 @@ export const saveSharedDraft = mutation({
     )
     validateFieldMapRichText(descriptor.sharedFields, descriptorPatch)
     const systemPatch: Record<string, unknown> = {}
+    // The per-language seo values and the card excerpt are no longer shared
+    // (ADR-0037 amendment, 2026-11-17); an old client's copies are ignored.
     for (const [key, value] of Object.entries({
-      seo: args.seo,
+      seo: sharedSeoPatch(args.seo as Record<string, unknown> | undefined),
       template: args.template,
       parentId: args.clearParent ? undefined : args.parentId,
       siblingOrder: args.siblingOrder,
       showOnHomepage: args.showOnHomepage,
       displayMode: args.displayMode,
       cardImageMediaId: args.cardImageMediaId,
-      cardExcerpt: args.cardExcerpt,
     }))
       if (value !== undefined) systemPatch[key] = value
     const nextSystem = mergeRecord(
@@ -3552,6 +3704,8 @@ export const saveLocaleDraft = mutation({
     }
     if (args.draft.pageType !== page.pageType)
       throw new ConvexError("PAGE_TYPE_MISMATCH")
+    // Copy the page's old shared values into its Working Drafts first (once).
+    await ensurePageBackfilled(ctx, args.pageId, pageState)
     const descriptor = contentTypeDefs[page.pageType]
     const localized = writeFieldMap(
       descriptor.localizedFields,
@@ -3570,11 +3724,11 @@ export const saveLocaleDraft = mutation({
       validateUniqueSliceIds(incomingSlices as readonly Slice[])
       validateSlicesRichText(incomingSlices as readonly Slice[])
     }
-    const content: Record<string, unknown> = {}
+    const localizedContent: Record<string, unknown> = {}
     for (const key of Object.keys(descriptor.localizedFields)) {
-      if (localized[key] !== undefined) content[key] = localized[key]
+      if (localized[key] !== undefined) localizedContent[key] = localized[key]
     }
-    if (incomingSlices !== undefined) content.slices = incomingSlices
+    if (incomingSlices !== undefined) localizedContent.slices = incomingSlices
     const existingRows = await ctx.db
       .query("pageLocaleDrafts")
       .withIndex("by_pageId_and_locale", (q) =>
@@ -3589,6 +3743,13 @@ export const saveLocaleDraft = mutation({
       args.locale,
       existingRows[0],
       stateRows[0]
+    )
+    // The language's own search, social and card values: a save that does not
+    // send them keeps the stored ones.
+    const content = applyPerLanguageInput(
+      localizedContent,
+      { seo: args.draft.seo, cardExcerpt: args.draft.cardExcerpt },
+      presentationBaseline as Record<string, unknown> | undefined
     )
     const addressPlans = await preflightPageDraftAddresses(ctx, {
       page,
@@ -3765,6 +3926,8 @@ export const saveEditorDraft = mutation({
       ...(args.localized ? { localized: args.localized } : {}),
     })
     const descriptor = contentTypeDefs[page.pageType]
+    // Copy the page's old shared values into its Working Drafts first (once).
+    await ensurePageBackfilled(ctx, args.pageId, pageState)
     const now = Date.now()
     let sharedDraftGeneration: number | undefined
     if (args.shared) {
@@ -3779,6 +3942,8 @@ export const saveEditorDraft = mutation({
         args.shared.sharedFieldsJson,
         "SHARED_FIELDS"
       )
+      // A client from before the change may still send the moved category.
+      for (const key of MOVED_SHARED_FIELD_KEYS) delete descriptorPatch[key]
       if (args.shared.authorIds !== undefined) {
         descriptorPatch.authorIds = args.shared.authorIds.map((pageId) => ({
           pageId,
@@ -3804,7 +3969,10 @@ export const saveEditorDraft = mutation({
         (shared.system as unknown as Record<string, unknown>) ?? {},
         Object.fromEntries(
           Object.entries({
-            seo: args.shared.seo,
+            // The moved per-language seo values are ignored here.
+            seo: sharedSeoPatch(
+              args.shared.seo as Record<string, unknown> | undefined
+            ),
             parentId: args.shared.clearParent
               ? undefined
               : args.shared.parentId,
@@ -3889,11 +4057,11 @@ export const saveEditorDraft = mutation({
         validateUniqueSliceIds(incomingSlices as readonly Slice[])
         validateSlicesRichText(incomingSlices as readonly Slice[])
       }
-      const content: Record<string, unknown> = {}
+      const localizedContent: Record<string, unknown> = {}
       for (const key of Object.keys(descriptor.localizedFields)) {
-        if (localized[key] !== undefined) content[key] = localized[key]
+        if (localized[key] !== undefined) localizedContent[key] = localized[key]
       }
-      if (incomingSlices !== undefined) content.slices = incomingSlices
+      if (incomingSlices !== undefined) localizedContent.slices = incomingSlices
       const slug = addressPlans.get(locale)?.slug ?? args.localized.slug.trim()
       if (!slug) throw new ConvexError("SLUG_REQUIRED")
       const presentationBaseline = await presentationWorkingContent(
@@ -3902,6 +4070,16 @@ export const saveEditorDraft = mutation({
         locale,
         existingRows[0],
         stateRows[0]
+      )
+      // The language's own search, social and card values: a save that does
+      // not send them keeps the stored ones.
+      const content = applyPerLanguageInput(
+        localizedContent,
+        {
+          seo: args.localized.draft.seo,
+          cardExcerpt: args.localized.draft.cardExcerpt,
+        },
+        presentationBaseline as Record<string, unknown> | undefined
       )
       await requireSliceMutationsPermitted(
         ctx,
@@ -4162,6 +4340,15 @@ export const publishLocale = mutation({
 
     const page = await ctx.db.get("pages", args.pageId)
     if (!page) throw new ConvexError("PAGE_NOT_FOUND")
+    // ADR-0037 amendment (2026-11-17): a content type switched to one
+    // language is not published into another language. Withdraw, delete and
+    // draft saves stay allowed.
+    await assertPageTypeTranslatedIn(
+      ctx,
+      { pageId: page._id, pageType: page.pageType },
+      args.locale,
+      settings
+    )
 
     const pageStateRows = await ctx.db
       .query("pagePublicationPageStates")
@@ -4175,6 +4362,9 @@ export const publishLocale = mutation({
       throw new ConvexError("PAGE_PUBLICATION_LIFECYCLE_STALE")
     }
     const pageState = pageStateRows[0]!
+    // Publication writes the new snapshot without the old shared values:
+    // copy them into the page's Working Drafts first (once per page).
+    await ensurePageBackfilled(ctx, args.pageId, pageState)
 
     const sharedRows = await ctx.db
       .query("pageSharedDrafts")
@@ -4610,6 +4800,8 @@ export const withdrawLocale = mutation({
     ) {
       throw new ConvexError("PAGE_PUBLICATION_LIFECYCLE_STALE")
     }
+    // A trashed Page being purged must not gain a new revalidation intent.
+    await assertNoPagePurge(ctx, args.pageId)
     const state = await oneLocaleState(ctx, args.pageId, args.locale)
     if (
       !state.hasCurrentSnapshot ||
@@ -4861,6 +5053,8 @@ async function transitionLifecycle(
     }
   }
   const state = await onePageState(ctx, pageId)
+  // A Page being permanently deleted never changes lifecycle again.
+  await assertNoPagePurge(ctx, pageId)
   if (
     state.lifecycleState !== expectedCurrent ||
     state.lifecycleGeneration !== expectedLifecycleGeneration
@@ -5242,6 +5436,372 @@ export const restoreSoftDeletedPage = mutation({
   },
 })
 
+// ─── PERMANENT-DELETE: purge of trashed Pages ──────────────────────────────
+//
+// `purgeTrashedPages` proves the closure for every selected Page and queues the
+// ones that pass. One serial worker (`runPagePurgeStep`) then removes the rows
+// in bounded batches (`purgePageBatch`). The rules and the phase order live in
+// `lib/publishing/pagePurge.ts`.
+
+const purgeReasonValidator = v.union(
+  v.literal("children"),
+  v.literal("incoming_links"),
+  v.literal("menus"),
+  v.literal("revalidation_pending"),
+  v.literal("language_operation"),
+  v.literal("not_trashed"),
+  v.literal("stale"),
+  v.literal("home")
+)
+const purgeDetailValidator = v.object({
+  count: v.optional(v.number()),
+  titles: v.optional(v.array(v.string())),
+  menus: v.optional(v.array(v.string())),
+})
+
+const PURGE_NESTED_LIMITS = {
+  bytesRead: 12 * 1024 * 1024,
+  bytesWritten: 12 * 1024 * 1024,
+  documentsRead: 24_000,
+  documentsWritten: 12_000,
+  databaseQueries: 3_000,
+}
+
+function uniquePurgeEntries<T extends { pageId: Id<"pages"> }>(items: T[]): T[] {
+  const seen = new Set<Id<"pages">>()
+  return items.filter((item) => !seen.has(item.pageId) && seen.add(item.pageId))
+}
+
+export const pagePurgeImpact = query({
+  args: { pageIds: v.array(v.id("pages")) },
+  returns: v.array(
+    v.object({
+      pageId: v.id("pages"),
+      canPurge: v.boolean(),
+      reason: v.optional(purgeReasonValidator),
+      detail: v.optional(purgeDetailValidator),
+      redirects: v.number(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    await requireOperationAccess(ctx)
+    if ((await readPublicationAuthority(ctx)) !== "snapshot_active")
+      throw new ConvexError("PUBLISHED_SNAPSHOT_AUTHORITY_REQUIRED")
+    if (args.pageIds.length > PAGE_PURGE_MAX_BATCH_ITEMS)
+      throw new ConvexError("PAGE_PURGE_BATCH_TOO_LARGE")
+    const ids = uniquePurgeEntries(args.pageIds.map((pageId) => ({ pageId })))
+    const verdicts = await evaluatePurgeSelection(ctx, ids)
+    const out = []
+    for (const { pageId } of ids) {
+      const refusal = verdicts.get(pageId) ?? null
+      const redirects = await ctx.db
+        .query("redirects")
+        .withIndex("by_toPageId", (q) => q.eq("toPageId", pageId))
+        .take(1001)
+      out.push({
+        pageId,
+        canPurge: refusal === null,
+        ...(refusal
+          ? {
+              reason: refusal.reason,
+              ...(refusal.detail ? { detail: refusal.detail } : {}),
+            }
+          : {}),
+        redirects: Math.min(redirects.length, 1000),
+      })
+    }
+    return out
+  },
+})
+
+export const purgeTrashedPages = mutation({
+  args: {
+    items: v.array(
+      v.object({
+        pageId: v.id("pages"),
+        expectedLifecycleGeneration: v.number(),
+      })
+    ),
+  },
+  returns: v.array(
+    v.object({
+      pageId: v.id("pages"),
+      status: v.union(v.literal("started"), v.literal("refused")),
+      reason: v.optional(purgeReasonValidator),
+      detail: v.optional(purgeDetailValidator),
+    })
+  ),
+  handler: async (ctx, args) => {
+    await requireSnapshotAuthority(ctx)
+    await requireOperationAccess(ctx)
+    if (args.items.length > PAGE_PURGE_MAX_BATCH_ITEMS)
+      throw new ConvexError("PAGE_PURGE_BATCH_TOO_LARGE")
+    const items = uniquePurgeEntries(args.items)
+    const now = Date.now()
+
+    // Every read happens before the first write.
+    let eligibleBefore = false
+    for await (const row of ctx.db
+      .query("pagePurges")
+      .withIndex("by_requestedAt")) {
+      if (row.stalledAt === undefined && (row.waitUntil ?? 0) <= now) {
+        eligibleBefore = true
+        break
+      }
+    }
+    const verdicts = await evaluatePurgeSelection(
+      ctx,
+      items.map((item) => ({
+        pageId: item.pageId,
+        expectedGeneration: item.expectedLifecycleGeneration,
+      }))
+    )
+    const existing = new Map<Id<"pages">, Doc<"pagePurges">>()
+    for (const item of items) {
+      const marker = await readPagePurgeMarker(ctx, item.pageId)
+      if (marker) existing.set(item.pageId, marker)
+    }
+    const fresh = items.filter(
+      (item) => !existing.has(item.pageId) && verdicts.get(item.pageId) === null
+    )
+    const freshIds = new Set(fresh.map((item) => item.pageId))
+    // Children first: a deeper Page is queued before its parent.
+    const parentOf = new Map<Id<"pages">, Id<"pages"> | undefined>()
+    const prepared = new Map<
+      Id<"pages">,
+      { slug: string; localizedTitles: Record<string, string> }
+    >()
+    for (const item of fresh) {
+      const shared = await ctx.db
+        .query("pageSharedDrafts")
+        .withIndex("by_pageId", (q) => q.eq("pageId", item.pageId))
+        .first()
+      const page = await ctx.db.get("pages", item.pageId)
+      // The same check `requirePagePermission(..., "delete")` makes for pages.
+      if (page && !isActiveContentType(page.pageType))
+        throw new ConvexError(
+          `Content Type "${page.pageType}" is not active in this starter.`
+        )
+      parentOf.set(
+        item.pageId,
+        shared?.system.parentId ?? page?.parentId ?? undefined
+      )
+      const state = await ctx.db
+        .query("pagePublicationPageStates")
+        .withIndex("by_pageId", (q) => q.eq("pageId", item.pageId))
+        .first()
+      const row = state ? await snapshotAdminPageRow(ctx, state) : null
+      prepared.set(item.pageId, {
+        slug: row?.slug ?? page?.slug ?? "",
+        localizedTitles: row?.localizedTitles ?? {},
+      })
+    }
+    const depth = (id: Id<"pages">): number => {
+      let d = 0
+      let cursor = parentOf.get(id)
+      const seen = new Set<Id<"pages">>([id])
+      while (cursor && freshIds.has(cursor) && !seen.has(cursor)) {
+        seen.add(cursor)
+        d += 1
+        cursor = parentOf.get(cursor)
+      }
+      return d
+    }
+    const ordered = fresh
+      .map((item, index) => ({ item, index, depth: depth(item.pageId) }))
+      .sort((a, b) => b.depth - a.depth || a.index - b.index)
+      .map((entry) => entry.item)
+
+    // Markers only: redirects and every other owned row go in worker batches,
+    // so a 25-page selection never nears a transaction limit.
+    for (const item of ordered) {
+      const info = prepared.get(item.pageId)!
+      await ctx.db.insert("pagePurges", {
+        pageId: item.pageId,
+        requestedAt: now,
+        phase: PAGE_PURGE_PHASES[0],
+        updatedAt: now,
+        attempts: 0,
+        slug: info.slug,
+        localizedTitles: info.localizedTitles,
+      })
+    }
+    // A second call retries a purge that stopped after repeated failures.
+    let retried = false
+    for (const marker of existing.values()) {
+      if (marker.stalledAt === undefined) continue
+      retried = true
+      await ctx.db.patch("pagePurges", marker._id, {
+        stalledAt: undefined,
+        attempts: 0,
+        lastError: undefined,
+        waitUntil: undefined,
+        updatedAt: now,
+      })
+    }
+    if (ordered.length > 0 || retried) {
+      if (!eligibleBefore || retried)
+        await ctx.scheduler.runAfter(0, internal.cms.publication.runPagePurgeStep, {})
+    }
+    return items.map((item) => {
+      if (existing.has(item.pageId))
+        return { pageId: item.pageId, status: "started" as const }
+      const refusal = verdicts.get(item.pageId)
+      if (refusal)
+        return {
+          pageId: item.pageId,
+          status: "refused" as const,
+          reason: refusal.reason,
+          ...(refusal.detail ? { detail: refusal.detail } : {}),
+        }
+      return { pageId: item.pageId, status: "started" as const }
+    })
+  },
+})
+
+/** One bounded batch for one Page. Runs nested inside `runPagePurgeStep`. */
+export const purgePageBatch = internalMutation({
+  args: { pageId: v.id("pages"), phase: v.string(), maxSources: v.number() },
+  returns: v.object({
+    phase: v.string(),
+    finished: v.boolean(),
+    hold: v.optional(
+      v.object({
+        kind: v.union(v.literal("wait"), v.literal("stop")),
+        reason: v.string(),
+      })
+    ),
+  }),
+  handler: async (ctx, args) => {
+    if (!(await readPagePurgeMarker(ctx, args.pageId)))
+      return { phase: "final", finished: true }
+    return runPurgeBatch(ctx, args.pageId, args.phase, args.maxSources)
+  },
+})
+
+function purgeErrorText(error: unknown): string {
+  const raw =
+    error instanceof ConvexError
+      ? typeof error.data === "string"
+        ? error.data
+        : JSON.stringify(error.data)
+      : error instanceof Error
+        ? error.message
+        : String(error)
+  // Production prefixes a per-request id; identical failures must compare equal.
+  return raw.replace(/^\[Request ID: [^\]]+\]\s*/, "").slice(0, 300)
+}
+
+async function pickPurgeRow(ctx: MutationCtx, now: number) {
+  let nextWaitUntil: number | undefined
+  for await (const row of ctx.db
+    .query("pagePurges")
+    .withIndex("by_requestedAt")) {
+    if (row.stalledAt !== undefined) continue
+    if (row.waitUntil !== undefined && row.waitUntil > now) {
+      nextWaitUntil = Math.min(nextWaitUntil ?? row.waitUntil, row.waitUntil)
+      continue
+    }
+    return { row, nextWaitUntil }
+  }
+  return { row: null, nextWaitUntil }
+}
+
+async function schedulePurgeStep(ctx: MutationCtx) {
+  const now = Date.now()
+  const { row, nextWaitUntil } = await pickPurgeRow(ctx, now)
+  if (row)
+    await ctx.scheduler.runAfter(0, internal.cms.publication.runPagePurgeStep, {})
+  else if (nextWaitUntil !== undefined)
+    await ctx.scheduler.runAfter(
+      Math.max(0, nextWaitUntil - now),
+      internal.cms.publication.runPagePurgeStep,
+      {}
+    )
+}
+
+/**
+ * The single worker chain. It always takes the oldest queued Page that is not
+ * stalled or waiting, so purges drain one after another (the slice-occurrence
+ * counts they share are never written by two purges at once).
+ */
+export const runPagePurgeStep = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const now = Date.now()
+    const { row, nextWaitUntil } = await pickPurgeRow(ctx, now)
+    if (!row) {
+      if (nextWaitUntil !== undefined)
+        await ctx.scheduler.runAfter(
+          Math.max(0, nextWaitUntil - now),
+          internal.cms.publication.runPagePurgeStep,
+          {}
+        )
+      return null
+    }
+    // A failed batch is retried with a smaller one.
+    const maxSources = Math.max(
+      1,
+      Math.floor(pagePurgeTuning.maxSourcesPerBatch / 2 ** row.attempts)
+    )
+    let result: {
+      phase: string
+      finished: boolean
+      hold?: { kind: "wait" | "stop"; reason: string }
+    }
+    try {
+      result = await ctx.runMutation(
+        internal.cms.publication.purgePageBatch,
+        { pageId: row.pageId, phase: row.phase, maxSources },
+        { transactionLimits: PURGE_NESTED_LIMITS }
+      )
+    } catch (error) {
+      const text = purgeErrorText(error)
+      const attempts = row.lastError === text ? row.attempts + 1 : 1
+      await ctx.db.patch("pagePurges", row._id, {
+        attempts,
+        lastError: text,
+        updatedAt: now,
+        ...(attempts >= PAGE_PURGE_MAX_FAILURES ? { stalledAt: now } : {}),
+      })
+      await schedulePurgeStep(ctx)
+      return null
+    }
+    if (!result.finished) {
+      const hold = result.hold
+      await ctx.db.patch("pagePurges", row._id, {
+        phase: result.phase,
+        attempts: 0,
+        lastError: hold?.kind === "stop" ? `closure:${hold.reason}` : undefined,
+        updatedAt: now,
+        waitUntil: hold?.kind === "wait" ? now + PAGE_PURGE_WAIT_MS : undefined,
+        ...(hold?.kind === "stop" ? { stalledAt: now } : {}),
+      })
+    }
+    await schedulePurgeStep(ctx)
+    return null
+  },
+})
+
+/** Daily safety net: restart the worker when a queued Page has not moved. */
+export const resumePagePurges = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const cutoff = Date.now() - PAGE_PURGE_STALE_MS
+    let stale = 0
+    for await (const row of ctx.db
+      .query("pagePurges")
+      .withIndex("by_updatedAt", (q) => q.lt("updatedAt", cutoff))) {
+      if (row.stalledAt === undefined) stale += 1
+    }
+    if (stale > 0)
+      await ctx.scheduler.runAfter(0, internal.cms.publication.runPagePurgeStep, {})
+    return stale
+  },
+})
+
 // ─── F09 Publication direct functions for the Language domain ──────────────
 //
 // Typed domain functions, not registered endpoints. The Language domain changes
@@ -5407,6 +5967,9 @@ export async function publishPreparedTargetLocale(
     ) {
       throw new ConvexError("PAGE_SHARED_DRAFT_STALE")
     }
+    // A target Working Draft from before the change gets the page's old
+    // shared values first (once per page); the snapshot below carries none.
+    await ensurePageBackfilled(ctx, input.pageId, pageState)
     const draftRows = await ctx.db
       .query("pageLocaleDrafts")
       .withIndex("by_pageId_and_locale", (q) =>

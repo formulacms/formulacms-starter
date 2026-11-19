@@ -10,8 +10,10 @@ starter without private project context.
 > authorized Community owner application are runtime-verified. SDA01 retired
 > the obsolete Team artifact and recipe lock.
 > This does not prove inbox delivery, production-backend readiness, live
-> migration or cleanup, a published release, or production promotion. Legacy
-> SMTP setup is retired authority.
+> migration or cleanup, a published release, or production promotion. The
+> legacy database-stored SMTP setup is retired authority. SMTP returns only as
+> a registered provider whose values live in the Convex environment (see Email
+> Setup); stored SMTP rows and the old `SMTP_*` variables never activate it.
 
 ## Release Readiness Boundary
 
@@ -39,13 +41,19 @@ Classify a source-to-target transition with the first matching rule:
 `unsupported` → `breaking upgrade` → `guided upgrade` → `update`. A declared
 path must be verified by release CI; tooling must not infer its class from a
 diff. Patch releases contain updates only; minor releases may contain updates
-or guided upgrades; major releases may contain breaking upgrades. A release
+or guided upgrades; major releases may contain breaking upgrades. Before 1.0.0,
+a minor release may also contain a breaking upgrade; its upgrade file then says
+what the backup must hold and how to go back. A release
 may declare no path from an older release. The checker then prints
 "Unsupported transition", and the release's upgrade file in `upgrades/` says
 what to do. Release 0.2.0 declares no path from 0.1.x: it supports fresh
-installs only. Per-hop transitions may be non-composable.
+installs only. Release 0.3.0 declares no path from 0.2.0: it supports fresh
+installs only, and `starter.transitions.json` declares the 0.2.0 to 0.3.0 hop
+`unsupported`, so the checker tells the owner to install 0.3.0 fresh. Owner
+decision, 2026-11-19: 0.3.0 supports fresh installs only; start a new site
+from v0.3.0. Per-hop transitions may be non-composable.
 
-`engine.manifest.json` records schema version 4 and supports schema version 3; schema version 2 remains unsupported.
+`engine.manifest.json` records schema version 5 as the fresh-install baseline. It supports no upgrade from schema version 4 (release 0.2.0), and schema version 3 or older is unsupported.
 The separate `starter.transitions.json` is the
 machine-readable authority for exact tagged source-to-target paths. Validate a
 named hop before merging it:
@@ -71,7 +79,7 @@ formulacms entries; follow the shared-registry rule in step 4 of the
 | Fresh starter generation                                                   | Shipped for new projects. It creates a new artifact only.                                                                                        |
 | Engine fixes and compatible dependency changes                             | May be proposed through a reviewed manual fork upgrade after the target release declares its transition. They are never silently applied.        |
 | New presentation, Pages, media, and reference Slice Types                  | New-install or optional adoption only. They do not enter existing forks automatically.                                                           |
-| Migrations and required administrator actions                              | Only part of a declared guided or breaking upgrade; never run automatically.                                                                     |
+| Migrations and required administrator actions                              | Only part of a declared guided or breaking upgrade. Never run on deploy. A declared repeat-safe backfill may start by itself from a cron job or from a save, publish or purge after the push; its upgrade file names it. |
 | Owner code, dependencies, integrations, content, assets, and configuration | Owner-controlled. formulacms never silently replaces them.                                                                                       |
 | Release tags and exact transition manifests                                | Shipped for declared Community hops. The manual workflow rehearses a clean fork and records evidence; it never deploys or updates an owner fork. |
 | Compatibility planner, PR generation, and automated integration            | Deferred. Unknown and skipped paths stop explicitly.                                                                                             |
@@ -197,17 +205,17 @@ SEV1 means an outage, data-loss risk, or credential exposure. Acknowledge it wit
 
 ### Prove provider acceptance without claiming alert coverage
 
-After a registered provider is ready, the signed-in owner may use the
+After a registered provider is enabled and ready, the signed-in owner may use the
 owner-restricted test in Settings -> Email. The action accepts no recipient;
 the server derives the durable owner's current account email. Apply the
 owner-derived rate limit, and keep credentials, deployment URLs, customer data,
 message bodies, and tokens out of visible status and logs.
 
-A `provider_accepted` test result proves only that the tested registered provider accepted
-that one probe. It does not prove final inbox delivery or configure an alert
-destination, escalation recipient, backup automation, or automatic runtime-
-error monitoring. `queued`, `provider_accepted`, `failed`, and `unknown` remain
-distinct states.
+An accepted owner test proves only that the tested registered provider accepted
+that one probe, and it makes that provider active. It does not prove final inbox
+delivery or configure an alert destination, escalation recipient, backup
+automation, or automatic runtime-error monitoring. The delivery states
+`queued`, `provider_accepted`, `failed`, and `unknown` remain distinct.
 
 ### Back up data, releases, and recovery configuration
 
@@ -239,7 +247,7 @@ Use this sequence:
 1. Inventory the secret's consumers, owner, last rotation, expiry, and operational consequence. Record names only.
 2. Create the replacement value in the approved secret source, then update every consumer in one change window. Assume no dual-key overlap unless the implementation documents it.
 3. Run environment preflight, the relevant read-only health check, and an authenticated smoke path. Check that errors and alerts contain no secret values.
-4. Revoke the old value and record the revocation time. Rotating an active email provider credential, initially `RESEND_API_KEY`, makes readiness fail until the server detects the replacement; re-run the owner test and activation flow. Treat `CMS_SECRET_KEY` and stored SMTP ciphertext only as legacy migration inventory until separately authorized cleanup proves no remaining consumer.
+4. Revoke the old value and record the revocation time. Rotating an active email provider credential (`EMAIL_SMTP_PASSWORD` or `RESEND_API_KEY`) makes readiness fail until the server detects the replacement; send the owner test again; the provider becomes active when the mail server accepts it. Treat `CMS_SECRET_KEY` and stored SMTP ciphertext only as legacy migration inventory until separately authorized cleanup proves no remaining consumer.
 5. Record the owner, change reference, consumer results, and post-rotation release identity.
 
 ### Roll back a release without hiding data changes
@@ -340,6 +348,10 @@ before the legacy fallback without changing each setting's blank-value semantics
 | `FORMULACMS_OWNER_CLAIM` | Convex env only         | One-time owner setup code; never save it in `.env.local` or metadata. |
 | `REVALIDATE_SECRET`      | Next env and Convex env | Shared secret for publish-time ISR cache purge.                       |
 | `NEXT_PUBLIC_SITE_URL`   | Next env                | Canonical URL and Open Graph origin fallback; local dev address.      |
+| `EMAIL_SMTP_HOST`        | Convex env              | SMTP server name; required for the bundled SMTP adapter.              |
+| `EMAIL_SMTP_PORT`        | Convex env              | Optional SMTP port, a whole number from 1 to 65535; default 465.      |
+| `EMAIL_SMTP_USER`        | Convex env              | SMTP sign-in name; required for the bundled SMTP adapter.             |
+| `EMAIL_SMTP_PASSWORD`    | Convex env              | SMTP sign-in password; required for the bundled SMTP adapter.         |
 | `RESEND_API_KEY`         | Convex env              | Enables readiness for the bundled Resend email adapter.               |
 
 A local `NEXT_PUBLIC_SITE_URL` (`localhost`, `127.0.0.1` or `[::1]`) also sets
@@ -419,56 +431,83 @@ it must not log recipients, subjects, bodies, URLs or tokens.
 
 FormulaCMS owns the provider contract and build-time static registry:
 
-- a **bundled provider** ships in the official starter; initially this is only
-  Resend;
+- a **bundled provider** ships in the official starter; today these are SMTP
+  and Resend, listed in that order;
 - a **registered provider** has reviewed metadata, server factory, typed non-
   secret configuration, readiness instructions, and contract tests in the
   current application build; and
 - exactly one registered provider may be the **active provider** for real
   delivery.
 
-For the bundled Resend adapter, place `RESEND_API_KEY` only in the Convex
-deployment environment. Never enter it in Settings, persist it in Convex, or
-return any part of it to the browser:
+For the bundled SMTP adapter, place `EMAIL_SMTP_HOST`, `EMAIL_SMTP_USER` and
+`EMAIL_SMTP_PASSWORD` (and, optionally, `EMAIL_SMTP_PORT`) only in the Convex
+deployment environment. Never enter them in Settings, persist them in Convex,
+or return any part of them to the browser. The server reports only each
+variable's name and whether it is present. For the bundled Resend adapter, do
+the same with `RESEND_API_KEY`:
 
 ```bash
+npx convex env set EMAIL_SMTP_HOST
+npx convex env set EMAIL_SMTP_USER
+npx convex env set EMAIL_SMTP_PASSWORD
 npx convex env set RESEND_API_KEY
 ```
 
-The command reads the value from its interactive input. After the server reports
-the key as detected, set the sender identity in Settings -> Email, check the
-configuration, send the owner-restricted test, and activate Resend only with a
-current provider/configuration-version receipt. Changing the provider or a
-bound non-secret field invalidates that receipt and requires a new test. Every
-send rechecks readiness.
+Each command reads the value from its interactive input. After the server
+reports the values as detected, set the sender identity
+in Settings -> Email, check the configuration, enable a provider and send the
+owner-restricted test. The provider becomes active when the mail server accepts
+the test. Changing the sender makes an active provider inactive until a new
+test is accepted. Enabling another provider turns email off until that
+provider passes its own test. Readiness is checked before every send; it means
+the variables are present, not that the credentials work.
+
+SMTP is always encrypted. Port 465 (the default) uses TLS from the first byte;
+any other port must upgrade with STARTTLS and is refused otherwise. The server
+certificate must be publicly trusted and match the host name. FormulaCMS never
+turns certificate checks off. A failed SMTP send carries one of five bounded
+reasons, decided from typed error fields and never from server text: sign-in
+refused, could not connect, could not make a secure connection, sender
+refused, or message refused. Supported limits: one message per send, one
+sender identity, one active provider. Not supported: OAuth sign-in, connection
+pools, delivery webhooks, servers that need no sign-in, and self-signed or
+mismatched certificates.
 
 Configure the sending domain according to the registered provider's reviewed
 instructions. SPF, DKIM, DMARC, or other required records are provider-specific
 and are not inferred by FormulaCMS. A provider-accepted test is not final inbox
 delivery.
 
-**Add this provider** opens developer documentation for registering an
-OpenCore-supported adapter or private implementation through reviewed
-application code, tests, and a release. It does not download packages, change
-schema, mutate the running application, or promise that FormulaCMS will bundle
-the provider. SMTP is not registered and is not a production fallback.
+In Settings -> Email, the owner enables a registered provider with its
+checkbox. **More providers** lists other services and opens developer
+documentation for registering an OpenCore-supported adapter or private
+implementation through reviewed application code, tests, and a release. It
+does not download packages, change schema, mutate the running application, or
+promise that FormulaCMS will bundle the provider. The retired database-stored
+SMTP setup is not a fallback.
 
 ### Register another email provider
 
 Provider registration is a developer-owned release change, never a dashboard
 installation:
 
-1. Add browser-safe metadata in
-   `convex/lib/email/providerMetadata.ts`. Keep credentials, environment names,
-   factories, SDK clients, and raw provider results out of that module.
-2. Add a server-only definition in
-   `convex/lib/email/providerRegistry.node.ts` with a typed non-secret
-   configuration parser, environment-readiness check, and FormulaCMS adapter
-   factory. An Email SDK adapter must keep telemetry disabled, make one SDK
-   attempt, and configure no fallback; a private implementation must satisfy
-   the same `EmailProviderAdapter` contract and delivery-truth rules.
-3. Extend the provider ID and configuration validators in
-   `providerState.ts` and the bounded owner API/UI projections. Never use an
+1. Add browser-safe metadata, and the names (never values) of the deployment
+   variables it reads, in `convex/lib/email/providerMetadata.ts`. Keep
+   credential values, factories, SDK clients, and raw provider results out of
+   that module.
+2. Add a server-only definition in `convex/lib/email/providers/<name>.node.ts`
+   (it starts with `"use node"`) with a typed non-secret configuration parser,
+   environment-readiness check, and FormulaCMS adapter factory, built with
+   `defineRegisteredEmailProvider` from `providers/contract.node.ts`, then list
+   it in `convex/lib/email/providerRegistry.node.ts`. The SMTP and Resend files
+   in that folder are the pattern. An Email SDK adapter must keep telemetry
+   disabled, make one SDK attempt, and configure no fallback; a private
+   implementation must satisfy the same `EmailProviderAdapter` contract and
+   delivery-truth rules. Decide "proven not sent" from typed error fields
+   only, as `providers/smtpFailure.node.ts` does.
+3. Extend the provider ID validator in `providerMetadata.ts`, the
+   configuration validators in `providerState.ts`, and the bounded owner
+   API/UI projections. Never use an
    untyped options object or return credential metadata to the browser.
 4. Add deterministic registry, state, delivery, authorization, privacy, and
    failure-path tests. Prove the new provider uses the existing FormulaCMS
@@ -524,11 +563,9 @@ content, publication, trash, and restore lifecycle are independent of member
 accounts, so the installation owner may create and maintain multiple Authors
 without creating or selecting a member.
 
-The private `authorMemberLinks` table is retained only as inert migration
-evidence for future Team membership work. Community Author creation, editing,
-publication, restore, and Post byline defaults do not read or write those rows.
-Existing rows must not be inferred from names or email addresses, rewritten by
-normal Author operations, or deleted as a side effect of Author removal.
+Authors are not linked to member accounts. The unused `authorMemberLinks` table
+was removed on 2026-11-17 (owner decision), and no Author operation depended
+on it.
 
 ## Locale Setup
 
@@ -601,8 +638,9 @@ node --import tsx scripts/check-release-transition.ts \
   --target-tag <target-tag>
 ```
 
-`engine.manifest.json` separately says schema version 4 is the fresh-install
-baseline and supports schema version 3, while schema version 2 is unsupported.
+`engine.manifest.json` separately says schema version 5 is the fresh-install
+baseline and supports no upgrade from schema version 4 (release 0.2.0), while
+schema version 3 or older is unsupported.
 
 1. Create an upgrade branch from the fork's main branch:
 

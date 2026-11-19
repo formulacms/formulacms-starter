@@ -20,13 +20,26 @@ import {
   requireOwnerAndOptionalModule,
   resolveOptionalModuleGuardState,
 } from "../lib/modules/state"
-import { prependAssistantInstructions } from "../../lib/ai/task-profiles"
+import {
+  prependAssistantInstructions,
+  resolveAssistantInstructions,
+} from "../../lib/ai/task-profiles"
+import { catalogFromEntries } from "../../lib/ai/model-catalog"
+import {
+  catalogModelEntryValidator,
+  loadCatalogModels,
+  type CatalogModelEntry,
+} from "../lib/aiCatalog"
 import { enforceAiRateLimit } from "../lib/aiRateLimit"
 import {
+  assertAssistantNotOnLocalTool,
   resolveAssistantRuntimeTuple,
+  selectionRefusal,
   requireAiTranslationModule,
   readRuntimeProviderConnection,
 } from "../lib/ai"
+import { localStopDetailValidator } from "../lib/aiValidators"
+import { savedRuntimeSelection } from "../lib/aiConfig"
 import { readContentGenerationConfig } from "../agents/contentWriter"
 import { readTranslationConfig } from "../agents/localizer"
 import {
@@ -67,6 +80,11 @@ import { readEffectiveSlicePresentationCatalog } from "../lib/slices/presentatio
 import { hasExplicitSlicePresentations } from "../lib/slices/presentationMutations"
 import { assertOrdinaryLocale } from "../lib/language/state"
 import {
+  CONTENT_TYPE_TRANSLATION_OFF,
+  assertPageIdTranslatedIn,
+  assertPageTypeTranslatedIn,
+} from "../lib/publishing/translationSwitch"
+import {
   enumerateSegments,
   assembleTranslation,
   TranslationLimitError,
@@ -80,6 +98,13 @@ import {
   settleAttempt,
 } from "./ai"
 import { inputTokenEstimate, moneyInteger } from "../../lib/ai/price-quote"
+import {
+  PER_LANGUAGE_ROBOTS_KEYS,
+  draftInputFromContent,
+  perLanguageDraftFields,
+  readLocalizedSeo,
+  type PerLanguageSeo,
+} from "../lib/contentTypes/perLanguageFields"
 import { maxOutputTokensFor } from "../../lib/ai/task-profiles"
 import type {
   GenerationRequest,
@@ -91,10 +116,15 @@ export const pageJobPool = new Workpool(components.aiPageJobs, {
   retryActionsByDefault: false,
 })
 const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000
+/**
+ * A local job's runner must call in at least this often (it heartbeats every
+ * 20 s). A scheduled check turns a silent runner into a stopped job.
+ */
+export const LEASE_MS = 90_000
 // Write jobs keep the two shipped languages. A translation job takes any
 // language code; `prepare` checks both are languages of this site.
 const localeValidator = v.union(v.literal("en"), v.literal("fr"))
-const inputValidator = v.union(
+export const pageJobInputValidator = v.union(
   v.object({
     kind: v.literal("write"),
     brief: v.string(),
@@ -114,9 +144,14 @@ const inputValidator = v.union(
     targetLocale: v.string(),
   })
 )
-type Input = Infer<typeof inputValidator>
-type Job = Doc<"aiJobs">
-type Unit = Doc<"aiJobUnits">
+type Input = Infer<typeof pageJobInputValidator>
+export type Job = Doc<"aiJobs">
+export type Unit = Doc<"aiJobUnits">
+type LocalRoute = NonNullable<Job["localRoute"]>
+/** How a job runs: on an API key through the Workpool, or on the owner's local tool. */
+export type JobRoute =
+  | { kind: "api" }
+  | { kind: "local"; localRoute: LocalRoute; runnerSecretHash: string }
 type UnitWork = Pick<
   Unit,
   "index" | "sliceType" | "purpose" | "input" | "state" | "output"
@@ -143,7 +178,7 @@ const monthValidator = v.object({
     v.literal("reached")
   ),
 })
-const unitsFor = (ctx: Ctx, jobId: Id<"aiJobs">) =>
+export const unitsFor = (ctx: Ctx, jobId: Id<"aiJobs">) =>
   ctx.db
     .query("aiJobUnits")
     .withIndex("by_jobId_and_index", (q) => q.eq("jobId", jobId))
@@ -176,13 +211,34 @@ async function jobIsStillSettling(
       return true
   return false
 }
-const expired = (job: Job) =>
+export const expired = (job: Job) =>
   Date.now() >= job.expiresAt || job.state === "expired"
-const active = (job: Job) =>
+export const active = (job: Job) =>
   job.state === "running" || job.state === "canceling"
 
-async function taskGate(ctx: Ctx, kind: Job["kind"]): Promise<string> {
-  const owner = await requireOwnerAndOptionalModule(ctx, "ai")
+/**
+ * The tuple of an API job. A local job has none, so every reader that needs a
+ * provider, model or price goes through here and never reaches API spending.
+ */
+export function apiTupleOf(job: Pick<Job, "tuple">): NonNullable<Job["tuple"]> {
+  if (!job.tuple) throw new ConvexError("AI_JOB_IS_LOCAL")
+  return job.tuple
+}
+
+/**
+ * Owner and module gate. `requireReady` is the AI module's own readiness, which
+ * today means an API connection: a local job needs none, so it passes false.
+ */
+export async function taskGate(
+  ctx: Ctx,
+  kind: Job["kind"],
+  requireReady = true
+): Promise<string> {
+  const owner = await requireOwnerAndOptionalModule(
+    ctx,
+    "ai",
+    requireReady ? undefined : { requireReady: false }
+  )
   if (kind === "translation") {
     await requireAiTranslationModule(ctx)
   }
@@ -192,22 +248,31 @@ async function taskGate(ctx: Ctx, kind: Job["kind"]): Promise<string> {
 async function requireJobProvider(ctx: Ctx, job: Job): Promise<void> {
   const connection = await readRuntimeProviderConnection(
     ctx,
-    job.tuple.provider
+    apiTupleOf(job).provider
   )
   if (connection.state === "missing" || connection.state === "refused")
     throw new ConvexError("AI_JOB_PROVIDER_UNAVAILABLE")
 }
-/** Owner and AI-module checks only: for calls that reach no provider. */
-async function ownedJobNoTaskGate(ctx: Ctx, id: Id<"aiJobs">): Promise<Job> {
-  const owner = await requireOwnerAndOptionalModule(ctx, "ai")
+/**
+ * Owner and AI-module checks only: for calls that reach no provider. An API job
+ * also needs the module's readiness (an API connection); a local job does not.
+ */
+export async function ownedJobNoTaskGate(
+  ctx: Ctx,
+  id: Id<"aiJobs">
+): Promise<Job> {
+  const owner = await requireOwnerAndOptionalModule(ctx, "ai", {
+    requireReady: false,
+  })
   const job = await ctx.db.get("aiJobs", id)
   if (!job || job.authId !== owner.authId)
     throw new ConvexError("AI_JOB_NOT_FOUND")
+  if (!job.localRoute) await requireOwnerAndOptionalModule(ctx, "ai")
   return job
 }
-async function ownedJob(ctx: Ctx, id: Id<"aiJobs">): Promise<Job> {
+export async function ownedJob(ctx: Ctx, id: Id<"aiJobs">): Promise<Job> {
   const job = await ownedJobNoTaskGate(ctx, id)
-  await taskGate(ctx, job.kind)
+  await taskGate(ctx, job.kind, !job.localRoute)
   return job
 }
 async function monthBlock(ctx: Ctx, job?: Job) {
@@ -409,16 +474,37 @@ function pinnedSourceDraft(
   pageType: Doc<"pages">["pageType"],
   content: Record<string, unknown>
 ): TypedDraft {
+  // The robots choices travel to the translated draft; the language-bound
+  // text values (social text, structured data, keywords) never do, and the
+  // card excerpt is added by `translatedDraft`. That choice is the AI
+  // translation list, kept apart from how a draft is serialized.
+  return draftInputOf(pageType, content, {
+    seoKeys: PER_LANGUAGE_ROBOTS_KEYS,
+    cardExcerpt: false,
+  }) as unknown as TypedDraft
+}
+/**
+ * The one adapter from stored content to the typed draft save input (the
+ * descriptor's declared localized keys, the common per-language fields and the
+ * slices of a slice-body type). Every AI accept arm uses it.
+ */
+function draftInputOf(
+  pageType: Doc<"pages">["pageType"],
+  content: Record<string, unknown>,
+  options: {
+    slices?: readonly unknown[]
+    seoKeys?: readonly (keyof PerLanguageSeo)[]
+    cardExcerpt?: boolean
+  } = {}
+): Record<string, unknown> {
   const def = contentTypeDefs[pageType]
-  const localized: Record<string, unknown> = {}
-  for (const key of Object.keys(def.localizedFields))
-    if (content[key] !== undefined)
-      localized[key] = structuredClone(content[key])
-  return {
+  return draftInputFromContent({
     pageType,
-    localized,
-    ...(def.capabilities.sliceBody ? { slices: content.slices ?? [] } : {}),
-  } as unknown as TypedDraft
+    localizedKeys: Object.keys(def.localizedFields),
+    sliceBody: def.capabilities.sliceBody,
+    content,
+    ...options,
+  })
 }
 /** The pinned draft with the translation applied: nothing is read from the live source. */
 export function translatedDraft(
@@ -438,13 +524,66 @@ export function translatedDraft(
     localized.metaTitle = translated.metaTitle
   if (translated.metaDescription !== undefined)
     localized.metaDescription = translated.metaDescription
+  // ADR-0037 amendment (2026-11-17): the social text and card excerpt are
+  // translated; structured data never is.
+  const seo: Record<string, unknown> = {
+    ...((pinned as { seo?: Record<string, unknown> }).seo ?? {}),
+  }
+  if (translated.ogTitle !== undefined) seo.ogTitle = translated.ogTitle
+  if (translated.ogDescription !== undefined)
+    seo.ogDescription = translated.ogDescription
   return {
     pageType: pinned.pageType,
     localized,
+    ...(Object.keys(seo).length > 0 ? { seo } : {}),
+    ...(translated.cardExcerpt !== undefined
+      ? { cardExcerpt: translated.cardExcerpt }
+      : {}),
     ...("slices" in pinned ? { slices: translated.slices } : {}),
   } as unknown as TypedDraft
 }
-async function prepare(ctx: Ctx, authId: string, input: Input) {
+/**
+ * What a local job freezes in place of an API tuple: the owner's Instructions
+ * and prompt templates. Read without any API-connection check, which only API
+ * routes need (same source as `localGeneration.prepare`).
+ */
+async function readLocalJobConfig(ctx: Ctx, kind: Input["kind"]) {
+  const agent = kind === "write" ? "content" : "translation"
+  const assistantId = kind === "write" ? "writing" : "translation"
+  const [settings, agentConfig] = await Promise.all([
+    ctx.db.query("siteSettings").first(),
+    ctx.db
+      .query("agentConfigs")
+      .withIndex("by_agent", (q) => q.eq("agent", agent))
+      .unique(),
+  ])
+  const def = AGENTS[agent]
+  return {
+    assistantInstructions: resolveAssistantInstructions(
+      assistantId,
+      settings?.aiRuntime?.assistants?.[assistantId]?.instructions
+    ),
+    userPromptTemplate:
+      agentConfig?.userPromptTemplate ?? def.defaultUserPromptTemplate,
+    // The system prompt is the registry default (write only); brand voice too.
+    systemPrompt: kind === "write" ? def.defaultSystemPrompt : undefined,
+    brandVoice:
+      kind === "write" ? (settings?.brandVoice ?? undefined) : undefined,
+  }
+}
+async function prepare(
+  ctx: Ctx,
+  authId: string,
+  input: Input,
+  route: JobRoute = { kind: "api" }
+) {
+  if (route.kind === "api") {
+    // First: an assistant the owner moved to a local tool takes no API run.
+    await assertAssistantNotOnLocalTool(
+      ctx,
+      input.kind === "write" ? "writing" : "translation"
+    )
+  }
   if (input.kind === "write") {
     if (
       !input.brief.trim() ||
@@ -466,28 +605,56 @@ async function prepare(ctx: Ctx, authId: string, input: Input) {
     await assertOrdinaryLocale(ctx, input.sourceLocale)
     await assertOrdinaryLocale(ctx, input.targetLocale)
   }
-  const contentConfig =
-    input.kind === "write"
-      ? await readContentGenerationConfig(ctx, authId)
-      : undefined
-  const cfg = contentConfig ?? (await readTranslationConfig(ctx, authId))
   const profile =
     input.kind === "write" ? "editorial-copy" : "brand-translation"
-  const tuple = resolveAssistantRuntimeTuple(cfg.assistant, {
-    profile,
-    phase: input.kind === "write" ? "page-fill" : "translation",
-    legacyModelId: cfg.modelId ?? undefined,
-    providerDefaults: cfg.providerDefaults ?? undefined,
-    taskDefaults: cfg.taskDefaults ?? undefined,
-    modelOverrides: cfg.modelOverrides ?? undefined,
-  })
-  const common = {
-    kind: input.kind,
-    tuple,
-    assistantInstructions: cfg.assistant.instructions,
-    userPromptTemplate: cfg.userPromptTemplate,
-    systemPrompt: contentConfig?.systemPrompt,
-    brandVoice: contentConfig?.brandVoice ?? undefined,
+  const phase = input.kind === "write" ? "page-fill" : "translation"
+  let common
+  if (route.kind === "local") {
+    const config = await readLocalJobConfig(ctx, input.kind)
+    common = {
+      kind: input.kind,
+      tuple: undefined,
+      localRoute: route.localRoute,
+      ...config,
+    }
+  } else {
+    const contentConfig =
+      input.kind === "write"
+        ? await readContentGenerationConfig(ctx, authId)
+        : undefined
+    const cfg = contentConfig ?? (await readTranslationConfig(ctx, authId))
+    const options = {
+      providerDefaults: cfg.providerDefaults ?? undefined,
+      taskDefaults: cfg.taskDefaults ?? undefined,
+      modelOverrides: cfg.modelOverrides ?? undefined,
+    }
+    let tuple
+    try {
+      tuple = resolveAssistantRuntimeTuple(cfg.assistant, {
+        profile,
+        phase,
+        legacyModelId: cfg.modelId ?? undefined,
+        ...options,
+        catalog: catalogFromEntries(cfg.catalog),
+      })
+    } catch (error) {
+      if (error instanceof ConvexError) throw error
+      // An inherited saved selection the catalog no longer accepts (for
+      // example its row was removed): the estimate and Start refuse it with
+      // the same plain refusal as a saved assistant model, not a bare error.
+      const saved = savedRuntimeSelection({ provider: cfg.assistant.provider, profile, ...options })
+      if (!saved) throw error
+      throw selectionRefusal(saved.tuple.provider, saved.tuple.model, phase)
+    }
+    common = {
+      kind: input.kind,
+      tuple,
+      localRoute: undefined,
+      assistantInstructions: cfg.assistant.instructions,
+      userPromptTemplate: cfg.userPromptTemplate,
+      systemPrompt: contentConfig?.systemPrompt,
+      brandVoice: contentConfig?.brandVoice ?? undefined,
+    }
   }
   if (input.kind === "write")
     return {
@@ -525,6 +692,13 @@ async function prepare(ctx: Ctx, authId: string, input: Input) {
     Record<string, unknown> | undefined
   if (!page || !state || !content || typeof content.title !== "string")
     throw new ConvexError("AI_JOB_SOURCE_UNAVAILABLE")
+  // ADR-0037 amendment (2026-11-17): no translation into a language where
+  // the content type is switched off.
+  await assertPageTypeTranslatedIn(
+    ctx,
+    { pageId: page._id, pageType: page.pageType },
+    input.targetLocale
+  )
   const sourcePage: PageTranslationContent & {
     slices: Slice[]
     translatables: NonNullable<PageTranslationContent["translatables"]>
@@ -535,6 +709,15 @@ async function prepare(ctx: Ctx, authId: string, input: Input) {
       : {}),
     ...(typeof content.metaDescription === "string"
       ? { metaDescription: content.metaDescription }
+      : {}),
+    ...(typeof readLocalizedSeo(content).ogTitle === "string"
+      ? { ogTitle: readLocalizedSeo(content).ogTitle as string }
+      : {}),
+    ...(typeof readLocalizedSeo(content).ogDescription === "string"
+      ? { ogDescription: readLocalizedSeo(content).ogDescription as string }
+      : {}),
+    ...(typeof content.cardExcerpt === "string"
+      ? { cardExcerpt: content.cardExcerpt }
       : {}),
     slices: (content.slices ?? []) as Slice[],
     translatables: collectTranslatableLeaves(
@@ -581,8 +764,14 @@ async function prepare(ctx: Ctx, authId: string, input: Input) {
   }
 }
 
+/** The prepared job of an API route, typed with its tuple. */
+function withApiTuple<P extends { tuple: Job["tuple"] }>(
+  prepared: P
+): P & { tuple: NonNullable<Job["tuple"]> } {
+  return { ...prepared, tuple: apiTupleOf(prepared) }
+}
 export const estimatePageJob = query({
-  args: { input: inputValidator },
+  args: { input: pageJobInputValidator },
   returns: v.object({
     estimateMicros: v.number(),
     month: monthValidator,
@@ -591,12 +780,16 @@ export const estimatePageJob = query({
   handler: async (ctx, { input }) => {
     const owner = await taskGate(ctx, input.kind)
     const prepared = await prepare(ctx, owner, input)
-    const estimateMicros = await estimateUnits(ctx, prepared, prepared.units)
+    const estimateMicros = await estimateUnits(
+      ctx,
+      withApiTuple(prepared),
+      prepared.units
+    )
     const month = await monthBlock(ctx)
     return { estimateMicros, month, fits: fits(month, estimateMicros) }
   },
 })
-async function noOtherActive(
+export async function noOtherActive(
   ctx: MutationCtx,
   authId: string,
   except?: Id<"aiJobs">
@@ -631,71 +824,84 @@ async function readStartGenerations(ctx: MutationCtx, pageId: Id<"pages">) {
     startSharedDraftGeneration: shared[0]!.generation,
   }
 }
-export const startPageJob = mutation({
-  args: { input: inputValidator },
-  returns: v.id("aiJobs"),
-  handler: async (ctx, { input }): Promise<Id<"aiJobs">> => {
-    const authId = await taskGate(ctx, input.kind)
-    await enforceAiRateLimit(ctx, { pageOp: true })
-    await noOtherActive(ctx, authId)
-    const prepared = await prepare(ctx, authId, input)
-    const estimateMicros = await estimateUnits(ctx, prepared, prepared.units)
-    const pageId: Id<"pages"> =
-      input.kind === "translation"
-        ? input.pageId
-        : await ctx.runMutation(api.cms.pages.create, {
-            pageType: "page",
-            status: "draft",
-            slug: input.meta.slug,
-            title: input.meta.title,
-            defaultLocale: input.locale,
-            content: {
-              [input.locale]: {
-                title: input.meta.title,
-                slices: [],
-                ...(input.meta.metaTitle !== undefined
-                  ? { metaTitle: input.meta.metaTitle }
-                  : {}),
-                ...(input.meta.metaDescription !== undefined
-                  ? { metaDescription: input.meta.metaDescription }
-                  : {}),
-              },
+/**
+ * The one place a job starts, for both routes: owner and rate checks, the
+ * draft Page of a write job, the start generations, the job and its units.
+ * An API job is priced and reserved, and its first units are enqueued. A local
+ * job is neither: it has no price, no reservation and no Workpool work; its
+ * units wait for the runner, and a lease check is scheduled.
+ */
+export async function startJobCore(
+  ctx: MutationCtx,
+  input: Input,
+  route: JobRoute
+): Promise<Id<"aiJobs">> {
+  const authId = await taskGate(ctx, input.kind, route.kind === "api")
+  await enforceAiRateLimit(ctx, { pageOp: true })
+  await noOtherActive(ctx, authId)
+  const prepared = await prepare(ctx, authId, input, route)
+  const estimateMicros =
+    route.kind === "api"
+      ? await estimateUnits(ctx, withApiTuple(prepared), prepared.units)
+      : 0
+  const pageId: Id<"pages"> =
+    input.kind === "translation"
+      ? input.pageId
+      : await ctx.runMutation(api.cms.pages.create, {
+          pageType: "page",
+          status: "draft",
+          slug: input.meta.slug,
+          title: input.meta.title,
+          defaultLocale: input.locale,
+          content: {
+            [input.locale]: {
+              title: input.meta.title,
+              slices: [],
+              ...(input.meta.metaTitle !== undefined
+                ? { metaTitle: input.meta.metaTitle }
+                : {}),
+              ...(input.meta.metaDescription !== undefined
+                ? { metaDescription: input.meta.metaDescription }
+                : {}),
             },
-          })
-    const state = await ctx.db
-      .query("pageLocalePublicationStates")
-      .withIndex("by_pageId_and_locale", (q) =>
-        q.eq("pageId", pageId).eq("locale", prepared.locale)
-      )
-      .unique()
-    if (input.kind === "write" && !state)
-      throw new ConvexError("AI_JOB_SOURCE_UNAVAILABLE")
-    // Dismiss trashes the new page only while these still hold.
-    const startGenerations =
-      input.kind === "write" ? await readStartGenerations(ctx, pageId) : {}
-    const { units, ...fields } = prepared
-    const now = Date.now()
-    const jobId = await ctx.db.insert("aiJobs", {
-      ...fields,
-      sourcePage: fields.sourcePage
-        ? {
-            ...fields.sourcePage,
-            translatables: [...fields.sourcePage.translatables],
-          }
-        : undefined,
-      authId,
-      pageId,
-      draftGeneration:
-        input.kind === "write"
-          ? state!.draftGeneration
-          : prepared.draftGeneration,
-      ...startGenerations,
-      state: "running",
-      estimateMicros,
-      costMicros: 0,
-      createdAt: now,
-      expiresAt: now + SEVEN_DAYS,
-    })
+          },
+        })
+  const state = await ctx.db
+    .query("pageLocalePublicationStates")
+    .withIndex("by_pageId_and_locale", (q) =>
+      q.eq("pageId", pageId).eq("locale", prepared.locale)
+    )
+    .unique()
+  if (input.kind === "write" && !state)
+    throw new ConvexError("AI_JOB_SOURCE_UNAVAILABLE")
+  // Dismiss trashes the new page only while these still hold.
+  const startGenerations =
+    input.kind === "write" ? await readStartGenerations(ctx, pageId) : {}
+  const { units, ...fields } = prepared
+  // Exactly one route is set on every job.
+  if ((fields.tuple === undefined) === (fields.localRoute === undefined))
+    throw new Error("A job has exactly one of an API tuple and a local route.")
+  const now = Date.now()
+  const jobId = await ctx.db.insert("aiJobs", {
+    ...fields,
+    sourcePage: fields.sourcePage
+      ? {
+          ...fields.sourcePage,
+          translatables: [...fields.sourcePage.translatables],
+        }
+      : undefined,
+    authId,
+    pageId,
+    draftGeneration:
+      input.kind === "write" ? state!.draftGeneration : prepared.draftGeneration,
+    ...startGenerations,
+    state: "running",
+    estimateMicros,
+    costMicros: 0,
+    createdAt: now,
+    expiresAt: now + SEVEN_DAYS,
+  })
+  if (route.kind === "api") {
     const reservationKey = await reservePageJob(
       ctx,
       authId,
@@ -703,17 +909,56 @@ export const startPageJob = mutation({
       estimateMicros
     )
     await ctx.db.patch("aiJobs", jobId, { reservationKey })
-    for (const unit of units)
-      await ctx.db.insert("aiJobUnits", { ...unit, authId, jobId })
-    await ctx.scheduler.runAt(now + SEVEN_DAYS, internal.cms.aiJobs.expireJob, {
-      jobId,
-    })
-    await advance(ctx, (await ctx.db.get("aiJobs", jobId))!)
-    return jobId
-  },
+  }
+  for (const unit of units)
+    await ctx.db.insert("aiJobUnits", { ...unit, authId, jobId })
+  await ctx.scheduler.runAt(now + SEVEN_DAYS, internal.cms.aiJobs.expireJob, {
+    jobId,
+  })
+  if (route.kind === "local")
+    await renewRunnerLease(
+      ctx,
+      (await ctx.db.get("aiJobs", jobId))!,
+      route.runnerSecretHash
+    )
+  await advance(ctx, (await ctx.db.get("aiJobs", jobId))!)
+  return jobId
+}
+export const startPageJob = mutation({
+  args: { input: pageJobInputValidator },
+  returns: v.id("aiJobs"),
+  handler: async (ctx, { input }): Promise<Id<"aiJobs">> =>
+    startJobCore(ctx, input, { kind: "api" }),
 })
 
-async function finish(
+/**
+ * Moves a local job's lease forward and reschedules its check: the previous
+ * check is canceled, so one is pending at a time. A hash replaces the runner
+ * (Resume); without one the current runner stays.
+ */
+export async function renewRunnerLease(
+  ctx: MutationCtx,
+  job: Job,
+  secretHash?: string
+): Promise<void> {
+  const hash = secretHash ?? job.runner?.secretHash
+  if (!hash) throw new Error("A local job has a runner.")
+  if (job.runner?.checkId) await ctx.scheduler.cancel(job.runner.checkId)
+  const leaseExpiresAt = Date.now() + LEASE_MS
+  const checkId = await ctx.scheduler.runAt(
+    leaseExpiresAt,
+    internal.cms.aiLocalJobs.checkLocalRunner,
+    { jobId: job._id }
+  )
+  await ctx.db.patch("aiJobs", job._id, {
+    runner: { secretHash: hash, leaseExpiresAt, checkId },
+  })
+}
+async function cancelLeaseCheck(ctx: MutationCtx, job: Job): Promise<void> {
+  if (job.runner?.checkId) await ctx.scheduler.cancel(job.runner.checkId)
+}
+
+export async function finish(
   ctx: MutationCtx,
   job: Job,
   state: "done" | "canceled" | "failed" | "capped"
@@ -737,10 +982,16 @@ async function finish(
         draft: translatedDraft(job.sourcePage.draft, suggestion),
       }
   }
+  // A local job has no reservation (undefined returns at once) and no pending
+  // lease check once it ends.
   await releasePageJobReservation(ctx, job.reservationKey)
+  await cancelLeaseCheck(ctx, job)
   await ctx.db.patch("aiJobs", job._id, {
     state,
     stopReason: undefined,
+    // The canceled check's id is dropped, so Expire, erasure and Resume never
+    // cancel it a second time.
+    ...(job.runner ? { runner: { ...job.runner, checkId: undefined } } : {}),
     ...(state === "done"
       ? {
           brief: undefined,
@@ -757,7 +1008,7 @@ async function finish(
     for (const unit of units)
       await ctx.db.patch("aiJobUnits", unit._id, { input: undefined })
 }
-async function stop(
+export async function stop(
   ctx: MutationCtx,
   job: Job,
   reason: Infer<typeof terminalReasons>
@@ -766,10 +1017,12 @@ async function stop(
     state: "canceling",
     stopReason: reason,
   })
+  // Only an API unit has Workpool work. A canceling local job keeps its lease
+  // check, which ends the job if its runner never releases its units.
   for (const unit of await unitsFor(ctx, job._id))
     if (unit.workId) await pageJobPool.cancel(ctx, unit.workId as WorkId)
 }
-async function advance(ctx: MutationCtx, job: Job): Promise<void> {
+export async function advance(ctx: MutationCtx, job: Job): Promise<void> {
   if (expired(job)) return expire(ctx, job)
   if (!active(job)) return
   const units = await unitsFor(ctx, job._id)
@@ -783,6 +1036,8 @@ async function advance(ctx: MutationCtx, job: Job): Promise<void> {
       await finish(ctx, job, job.stopReason ?? "canceled")
     return
   }
+  // A local runner claims its own units; a local job is never priced or capped.
+  if (job.localRoute) return
   const month = await monthBlock(ctx, job)
   if (!fits(month, 0)) {
     await stop(ctx, job, "capped")
@@ -823,6 +1078,10 @@ export const resumePageJob = mutation({
   args: { jobId: v.id("aiJobs") },
   returns: v.null(),
   handler: async (ctx, { jobId }): Promise<null> => {
+    // A local job resumes through `aiLocalJobs.resumeLocalPageJob`, which
+    // brings its own runner secret.
+    if ((await ownedJobNoTaskGate(ctx, jobId)).localRoute)
+      throw new ConvexError("AI_JOB_RESUME_LOCAL")
     const job = await ownedJob(ctx, jobId)
     if (
       job.reviewedAt !== undefined ||
@@ -830,13 +1089,20 @@ export const resumePageJob = mutation({
       !["canceled", "failed", "capped"].includes(job.state)
     )
       throw new ConvexError("AI_JOB_NOT_RESUMABLE")
+    // Before any reservation: a type switched to another language since Start
+    // is not translated into the hidden language.
+    await assertJobTargetTranslated(ctx, job)
     const units = await unitsFor(ctx, jobId)
     if (await jobIsStillSettling(ctx, units))
       throw new ConvexError("AI_JOB_STILL_SETTLING")
     await noOtherActive(ctx, job.authId, jobId)
     await enforceAiRateLimit(ctx, { pageOp: true })
     await requireJobProvider(ctx, job)
-    const estimateMicros = await estimateUnits(ctx, job, units)
+    const estimateMicros = await estimateUnits(
+      ctx,
+      { ...job, tuple: apiTupleOf(job) },
+      units
+    )
     const reservationKey = await reservePageJob(
       ctx,
       job.authId,
@@ -868,6 +1134,54 @@ export const resumePageJob = mutation({
   },
 })
 
+/**
+ * ADR-0037 amendment (2026-11-17): a translation job whose target language
+ * hides the page's type (the content type is switched to another language)
+ * must not run, resume or spend. Start checks it in `prepare`; every later
+ * entry (claim, Resume, resumability, paid-attempt admission) uses this.
+ */
+export async function assertJobTargetTranslated(
+  ctx: Ctx,
+  job: Pick<Job, "kind" | "pageId" | "locale">
+): Promise<void> {
+  if (job.kind !== "translation") return
+  await assertPageIdTranslatedIn(ctx, job.pageId, job.locale)
+}
+/**
+ * Whether the modules a job needs still allow it to run: AI effective, and for
+ * an API job ready (an API connection), plus Multilingual for a translation,
+ * the translation's target language still being public for the page's type,
+ * and the API job's own provider. False means the caller stops the job; any
+ * other failure is thrown.
+ */
+export async function jobModulesAvailable(
+  ctx: MutationCtx,
+  job: Job,
+  api: boolean
+): Promise<boolean> {
+  try {
+    const guard = await resolveOptionalModuleGuardState(ctx, "ai")
+    if (!guard.effective) throw new ConvexError("CMS_MODULE_DISABLED")
+    if (api && guard.readiness !== "ready")
+      throw new ConvexError("CMS_MODULE_NOT_READY")
+    if (job.kind === "translation") await requireAiTranslationModule(ctx)
+    await assertJobTargetTranslated(ctx, job)
+    if (api) await requireJobProvider(ctx, job)
+    return true
+  } catch (error) {
+    if (
+      !(error instanceof ConvexError) ||
+      ![
+        "CMS_MODULE_DISABLED",
+        "CMS_MODULE_NOT_READY",
+        "AI_JOB_PROVIDER_UNAVAILABLE",
+        CONTENT_TYPE_TRANSLATION_OFF,
+      ].includes(error.data as string)
+    )
+      throw error
+    return false
+  }
+}
 export const claimUnit = internalMutation({
   args: { jobId: v.id("aiJobs"), unitId: v.id("aiJobUnits") },
   returns: v.union(
@@ -876,6 +1190,8 @@ export const claimUnit = internalMutation({
       unit: schema.doc("aiJobUnits"),
       units: v.array(schema.doc("aiJobUnits")),
       claimToken: v.string(),
+      /** The frozen tuple's shared catalog entry, read in this transaction. */
+      catalog: v.array(catalogModelEntryValidator),
     }),
     v.null()
   ),
@@ -887,35 +1203,23 @@ export const claimUnit = internalMutation({
     unit: Unit
     units: Unit[]
     claimToken: string
+    catalog: CatalogModelEntry[]
   } | null> => {
     const job = await ctx.db.get("aiJobs", jobId),
       unit = await ctx.db.get("aiJobUnits", unitId)
     if (!job || !unit || unit.jobId !== jobId) return null
+    // A local job's units are claimed by its runner (`aiLocalJobs`), never here.
+    if (job.localRoute) return null
     if (expired(job)) {
       await expire(ctx, job)
       return null
     }
     if (job.state !== "running" || unit.state !== "waiting") return null
-    try {
-      const guard = await resolveOptionalModuleGuardState(ctx, "ai")
-      if (!guard.effective) throw new ConvexError("CMS_MODULE_DISABLED")
-      if (guard.readiness !== "ready")
-        throw new ConvexError("CMS_MODULE_NOT_READY")
-      if (job.kind === "translation") await requireAiTranslationModule(ctx)
-      await requireJobProvider(ctx, job)
-    } catch (error) {
-      if (
-        !(error instanceof ConvexError) ||
-        ![
-          "CMS_MODULE_DISABLED",
-          "CMS_MODULE_NOT_READY",
-          "AI_JOB_PROVIDER_UNAVAILABLE",
-        ].includes(error.data as string)
-      )
-        throw error
+    if (!(await jobModulesAvailable(ctx, job, true))) {
       await stop(ctx, job, "canceled")
       return null
     }
+    const tuple = apiTupleOf(job)
     if (!fits(await monthBlock(ctx, job), 0)) {
       await stop(ctx, job, "capped")
       return null
@@ -934,6 +1238,12 @@ export const claimUnit = internalMutation({
       // parallel claims conflict, so a translation claim returns none.
       units: job.kind === "write" ? await unitsFor(ctx, jobId) : [],
       claimToken,
+      catalog:
+        tuple.mode === "catalog"
+          ? await loadCatalogModels(ctx, [
+              { provider: tuple.provider, model: tuple.model },
+            ])
+          : [],
     }
   },
 })
@@ -954,7 +1264,9 @@ export const saveUnit = internalMutation({
       unit.jobId !== job._id ||
       expired(job) ||
       unit.state !== "inProgress" ||
-      unit.claimToken !== args.claimToken
+      unit.claimToken !== args.claimToken ||
+      // A local unit is saved by `aiLocalJobs.localSaveUnit`.
+      job.localRoute
     )
       return false
     if (
@@ -982,6 +1294,8 @@ export const onComplete = internalMutation({
       const job = await ctx.db.get("aiJobs", context.jobId)
       if (!unit || !job || unit.jobId !== job._id || unit.workId !== workId)
         return null
+      // Only the Workpool calls this; a local job never has a work id.
+      if (job.localRoute) return null
       if (expired(job)) {
         await expire(ctx, job)
         return null
@@ -1012,8 +1326,9 @@ export const onComplete = internalMutation({
     return null
   },
 })
-async function expire(ctx: MutationCtx, job: Job): Promise<void> {
+export async function expire(ctx: MutationCtx, job: Job): Promise<void> {
   if (job.state === "expired") return
+  await cancelLeaseCheck(ctx, job)
   for (const unit of await unitsFor(ctx, job._id)) {
     if (unit.workId) await pageJobPool.cancel(ctx, unit.workId as WorkId)
     await ctx.db.patch("aiJobUnits", unit._id, {
@@ -1035,6 +1350,8 @@ async function expire(ctx: MutationCtx, job: Job): Promise<void> {
     userPromptTemplate: undefined,
     brandVoice: undefined,
     stopReason: undefined,
+    // The runner credential ends with the job.
+    runner: undefined,
   })
 }
 export const expireJob = internalMutation({
@@ -1160,6 +1477,12 @@ function translationPageFields(
     rows.push({ label: "Meta title", text: suggestion.metaTitle })
   if (suggestion.metaDescription)
     rows.push({ label: "Meta description", text: suggestion.metaDescription })
+  if (suggestion.ogTitle)
+    rows.push({ label: "Social title", text: suggestion.ogTitle })
+  if (suggestion.ogDescription)
+    rows.push({ label: "Social description", text: suggestion.ogDescription })
+  if (suggestion.cardExcerpt)
+    rows.push({ label: "Card excerpt", text: suggestion.cardExcerpt })
   for (const leaf of suggestion.translatables) {
     const text =
       leaf.kind === "richText" ? richTextToPlainText(leaf.value) : leaf.value
@@ -1393,6 +1716,8 @@ async function acceptTranslation(
       draft: {
         pageType: pinned.pageType,
         localized,
+        // The translated social text, card excerpt and robots choices.
+        ...perLanguageDraftFields(pinned as unknown as Record<string, unknown>),
         ...(slices ? { slices } : {}),
       } as never,
       expectedGeneration: targetGeneration,
@@ -1460,10 +1785,8 @@ export const acceptPageJob = mutation({
     if (!life || !page || stateRows.length !== 1)
       throw new ConvexError("AI_JOB_SOURCE_UNAVAILABLE")
     const source = await currentLocaleSource(ctx, page, stateRows[0]!)
-    const { slices: current = [], ...localized } = source.content as {
-      slices?: Slice[]
-      [key: string]: unknown
-    }
+    const current = ((source.content as { slices?: Slice[] }).slices ??
+      []) as Slice[]
     // AI-written sections carry no presentation choice (`assembleSlice` sets
     // none) and existing ones are not new assignments, so no catalog revision
     // is needed here.
@@ -1475,11 +1798,10 @@ export const acceptPageJob = mutation({
         slug: source.slug,
         // The editor sends "typed" for an address the owner did not touch.
         addressIntent: "typed",
-        draft: {
-          pageType: page.pageType,
-          localized,
+        // The saved social text and card excerpt stay with the page.
+        draft: draftInputOf(page.pageType, source.content, {
           slices: [...current, ...chosenSlices],
-        } as never,
+        }) as never,
         expectedGeneration: stateRows[0]!.draftGeneration,
       },
     })
@@ -1616,12 +1938,36 @@ export const pageJobProgress = query({
       resumeEstimateMicros: v.number(),
       /** What Dismiss would do to the page now; the same test Dismiss uses. */
       dismissMovesPageToTrash: v.boolean(),
+      /** Set when the job runs on the owner's local tool: which tool. */
+      localTool: v.optional(v.object({ engine: v.union(v.literal("claude"), v.literal("codex")) })),
+      /** Why a local job stopped, when the state alone would not say. */
+      stopDetail: v.optional(localStopDetailValidator),
       month: monthValidator,
       units: v.array(unitProgressValidator),
     })
   ),
   handler: async (ctx) => {
-    const owner = await requireOwnerAndOptionalModule(ctx, "ai")
+    // Readiness is an API connection. A local job needs none, so the list
+    // opens for an owner with no key; an API job in the list still needs it.
+    // While the AI module is off the list is empty, not an error: Convex
+    // re-runs open subscriptions in the same transition that turns AI off,
+    // before the client learns it (as `aiSettings.status` returns null). The
+    // owner check runs first, so only the owner ever gets the empty list.
+    let owner: Awaited<ReturnType<typeof requireOwnerAndOptionalModule>>
+    try {
+      owner = await requireOwnerAndOptionalModule(ctx, "ai", {
+        requireReady: false,
+      })
+    } catch (error) {
+      if (
+        error instanceof ConvexError &&
+        error.data === "CMS_MODULE_DISABLED"
+      )
+        return []
+      throw error
+    }
+    const ready =
+      (await resolveOptionalModuleGuardState(ctx, "ai")).readiness === "ready"
     const jobs = await ctx.db
       .query("aiJobs")
       .withIndex("by_authId_and_reviewedAt", (q) =>
@@ -1631,6 +1977,9 @@ export const pageJobProgress = query({
       .take(100)
     const result = []
     for (const job of jobs) {
+      // An API job needs a ready AI module; without it the job is hidden, not
+      // an error, so a local job in the same list still shows.
+      if (!job.localRoute && !ready) continue
       // Owner and AI-module refusals already failed above. A translation job
       // whose Multilingual gate is not ready is hidden, not an error.
       if (job.kind === "translation")
@@ -1654,8 +2003,19 @@ export const pageJobProgress = query({
         !(await jobIsStillSettling(ctx, units))
       ) {
         try {
-          await requireJobProvider(ctx, job)
-          resumeEstimateMicros = await estimateUnits(ctx, job, units)
+          // Resume refuses a type switched to another language; the list
+          // must say so too.
+          await assertJobTargetTranslated(ctx, job)
+          // A local job has no provider and no price. Whether this computer
+          // may resume it is the caller's check (the local Next server).
+          if (!job.localRoute) {
+            await requireJobProvider(ctx, job)
+            resumeEstimateMicros = await estimateUnits(
+              ctx,
+              { ...job, tuple: apiTupleOf(job) },
+              units
+            )
+          }
           const others = await ctx.db
             .query("aiJobs")
             .withIndex("by_authId_and_state", (q) =>
@@ -1670,7 +2030,8 @@ export const pageJobProgress = query({
             .take(1)
           canResume =
             ![...others, ...canceling].some((other) => !expired(other)) &&
-            fits(await monthBlock(ctx), resumeEstimateMicros)
+            (Boolean(job.localRoute) ||
+              fits(await monthBlock(ctx), resumeEstimateMicros))
         } catch {
           /* Unpriced or unavailable work is not resumable. */
         }
@@ -1703,6 +2064,8 @@ export const pageJobProgress = query({
             ? await jobPageTrashEligible(ctx, job)
             : false,
         month,
+        ...(job.localRoute ? { localTool: { engine: job.localRoute.engine } } : {}),
+        ...(job.stopDetail ? { stopDetail: job.stopDetail } : {}),
         units: units.map((unit) => ({
           index: unit.index,
           kind: unit.kind,
@@ -1747,6 +2110,7 @@ export async function erasePageJobsForUser(
   )
   for (const job of jobs.values()) {
     const units = await unitsFor(ctx, job._id)
+    await cancelLeaseCheck(ctx, job)
     for (const unit of units) {
       if (unit.workId) await pageJobPool.cancel(ctx, unit.workId as WorkId)
       for (const attemptKey of unit.attemptKeys)

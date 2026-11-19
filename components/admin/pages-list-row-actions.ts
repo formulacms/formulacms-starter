@@ -26,6 +26,7 @@ import {
 import { pageSaveErrorMessage } from "@/components/admin/page-editor/hooks/use-page-save"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
 import { rowErrorKind } from "./pages-list-errors"
+import { useTranslationOffMessage } from "./content-types/content-type-names"
 
 /** The tokens a Publish needs, captured when the row action is chosen. */
 export type PublishTarget = {
@@ -100,6 +101,7 @@ export function usePageRowActions() {
   const t = useTranslations("pages.list")
   const tSave = useTranslations("editor.pageSave")
   const displayError = useCaughtError()
+  const translationOffMessage = useTranslationOffMessage()
   const config = useQuery(api.cms.settings.getSiteConfig)
   const addressMessages = usePageAddressMessages(config?.defaultLocale ?? "en")
   const readiness = usePrePublishReadinessCopy()
@@ -149,6 +151,11 @@ export function usePageRowActions() {
           PUBLICATION_REFERENCE_LIMIT: tSave("publication.referenceLimit"),
           SLUG_REQUIRED: tSave("slugRequired"),
           PAGE_HOME_LIFECYCLE_REFUSED: tSave("homeArchiveRefused"),
+          PUBLICATION_MEDIA_REFERENCE_MISSING: tSave("publication.imageMissing"),
+          PUBLICATION_MEDIA_STORAGE_MISSING: tSave("publication.imageMissing"),
+          CONTENT_TYPE_TRANSLATION_OFF: translationOffMessage(
+            pageType ?? "page"
+          ),
         })
     }
   }

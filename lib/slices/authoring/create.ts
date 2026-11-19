@@ -39,7 +39,7 @@ export async function findSliceCreationReferenceConflicts(
 ): Promise<string[]> {
   const referencePaths = [
     ...sliceReferencePaths(type),
-    ...sliceOriginalReferencePaths(type),
+    ...sliceOriginalReferencePaths(type, root),
   ]
   const inspected = await Promise.all(
     referencePaths.map(async (path) => ({
@@ -66,7 +66,7 @@ export async function createSliceRecoverably(
   const rollbackPaths = [
     ...sliceCreationPersistencePaths(spec),
     ...sliceReferencePaths(spec.type),
-    ...sliceOriginalReferencePaths(spec.type),
+    ...sliceOriginalReferencePaths(spec.type, root),
     // The tracked contract is written alongside the reference, so a failed
     // creation must be able to take it back out too.
     REFERENCE_CONTRACT_PATH,

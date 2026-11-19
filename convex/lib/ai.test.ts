@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { createTestAccounting } from "@/lib/ai/accounting.testFixtures"
+import { BUNDLED_MODEL_CATALOG } from "@/lib/ai/model-catalog"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 
 const mocks = vi.hoisted(() => {
@@ -88,7 +89,7 @@ describe("runtime OpenRouter adapter", () => {
     await expect(
       generateRuntimeText(
         "openrouter:openai/gpt-test",
-        {
+        { catalog: BUNDLED_MODEL_CATALOG,
           profile: "editorial-copy",
           phase: "content-generation",
           instructions: "SYSTEM PROMPT",
@@ -143,7 +144,7 @@ describe("runtime OpenRouter adapter", () => {
     await expect(
       generateRuntimeText(
         "openai/gpt-test",
-        {
+        { catalog: BUNDLED_MODEL_CATALOG,
           selectedProvider: "openrouter",
           profile: "editorial-copy",
           phase: "content-generation",
@@ -177,7 +178,7 @@ describe("runtime OpenRouter adapter", () => {
     } as const
     const result = await generateRuntimeText(
       "legacy/ignored",
-      {
+      { catalog: BUNDLED_MODEL_CATALOG,
         selectedProvider: "openrouter",
         providerDefaults: { openrouter: site },
         modelOverrides: { openrouter: agent },
@@ -242,7 +243,7 @@ describe("direct runtime provider composition", () => {
     await expect(
       generateRuntimeText(
         undefined,
-        {
+        { catalog: BUNDLED_MODEL_CATALOG,
           selectedProvider: "anthropic",
           profile: "vision-spec",
           phase: "slice-spec",
@@ -298,7 +299,7 @@ describe("direct runtime provider composition", () => {
     await expect(
       generateRuntimeText(
         undefined,
-        {
+        { catalog: BUNDLED_MODEL_CATALOG,
           selectedProvider: "openai",
           profile: "structured-outline-meta",
           phase: "page-outline",
@@ -349,7 +350,7 @@ describe("direct runtime provider composition", () => {
       await expect(
         generateRuntimeText(
           undefined,
-          {
+          { catalog: BUNDLED_MODEL_CATALOG,
             selectedProvider,
             profile: "editorial-copy",
             phase: "content-generation",
@@ -379,7 +380,7 @@ describe("direct runtime provider composition", () => {
     await expect(
       generateRuntimeText(
         undefined,
-        {
+        { catalog: BUNDLED_MODEL_CATALOG,
           selectedProvider: "anthropic",
           profile: "editorial-copy",
           phase: "content-generation",
@@ -411,7 +412,7 @@ test("S2b explicit tuple never falls back when it cannot serve the requested pro
   await expect(
     generateRuntimeText(
       undefined,
-      {
+      { catalog: BUNDLED_MODEL_CATALOG,
         selectedProvider: "openai",
         assistant: {
           provider: "openai",
@@ -445,7 +446,7 @@ test("S2b legacy off has no runtime veto", async () => {
   vi.stubEnv("ANTHROPIC_API_KEY", "")
   vi.stubEnv("OPENROUTER_API_KEY", "")
   mocks.generateText.mockResolvedValue(sdkResult())
-  await expect(generateRuntimeText(undefined, { selectedProvider: "off", profile: "editorial-copy", phase: "content-generation", prompt: "Write clearly." }, createTestAccounting())).resolves.toMatchObject({ selected: { provider: "openai" }, attempts: 1 })
+  await expect(generateRuntimeText(undefined, { catalog: BUNDLED_MODEL_CATALOG, selectedProvider: "off", profile: "editorial-copy", phase: "content-generation", prompt: "Write clearly." }, createTestAccounting())).resolves.toMatchObject({ selected: { provider: "openai" }, attempts: 1 })
   expect(mocks.generateText).toHaveBeenCalledOnce()
   vi.unstubAllEnvs()
 })
@@ -462,10 +463,10 @@ test.each(["anthropic", "openrouter", "openai"] as const)(
       for (const profile of profiles) {
         const tuple = resolveAssistantRuntimeTuple(
           { provider, tuple: null, legacy: false, instructions: "" },
-          { profile, phase: "content-generation" }
+          { catalog: BUNDLED_MODEL_CATALOG, profile, phase: "content-generation" }
         )
         expect(tuple, `${provider}/${profile}`).toEqual(primary)
-        expect(() => validateTupleForProfiles(tuple, profiles)).not.toThrow()
+        expect(() => validateTupleForProfiles(tuple, profiles, BUNDLED_MODEL_CATALOG)).not.toThrow()
       }
     }
   }

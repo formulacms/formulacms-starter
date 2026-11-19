@@ -1,4 +1,5 @@
 import type { AnthropicApiTuple } from "./capabilities/anthropic-api"
+import type { CatalogModel } from "./model-catalog"
 import type {
   LegacyOpenRouterApiTuple,
   OpenRouterApiTuple,
@@ -59,7 +60,7 @@ export type InputModality = "text" | "image" | "file" | "audio" | "video"
 
 export interface CapabilitySource {
   readonly url: string
-  readonly retrievedAt: "2026-07-12" | "2026-07-15" | "2026-11-09"
+  readonly retrievedAt: "2026-07-12" | "2026-07-15" | "2026-11-09" | "2026-11-15"
   readonly claim: string
 }
 
@@ -81,6 +82,19 @@ export interface ApiModelCapability {
   readonly pricing?: {
     readonly inputPerM: number
     readonly outputPerM: number
+  }
+}
+
+/** A direct Anthropic or OpenAI catalog tuple, the same shape as
+ *  `OpenRouterApiTuple`. Which model ids and efforts are accepted is checked at
+ *  run time against the catalog (`validateApiModelTuple`), not by this type. */
+export interface DirectApiTuple<P extends "anthropic" | "openai"> {
+  readonly mode: "catalog"
+  readonly provider: P
+  readonly model: string
+  readonly reasoning?: {
+    readonly kind: "effort"
+    readonly effort: ReasoningEffort
   }
 }
 
@@ -142,6 +156,9 @@ export interface GenerationRequest<T = string> {
   readonly output: GenerationOutputContract<T>
   readonly deadlineMs?: number
   readonly signal?: AbortSignal
+  /** The shared catalog entry for a catalog tuple (model-catalog.ts).
+   * Preflight refuses a catalog tuple without its matching entry. */
+  readonly catalogEntry?: CatalogModel
 }
 
 export interface GenerationUsage {
@@ -222,6 +239,15 @@ export const GENERATION_ERROR_CATEGORIES = [
 export type GenerationErrorCategory =
   (typeof GENERATION_ERROR_CATEGORIES)[number]
 
+export function isGenerationErrorCategory(
+  value: unknown
+): value is GenerationErrorCategory {
+  return (
+    typeof value === "string" &&
+    (GENERATION_ERROR_CATEGORIES as readonly string[]).includes(value)
+  )
+}
+
 export const GENERATION_NEXT_ACTIONS = [
   "configure-provider",
   "authenticate-provider",
@@ -284,6 +310,15 @@ export class GenerationError extends Error {
   }
 }
 
+/** Thrown by an adapter when a tuple cannot be expressed in its SDK's
+ *  options. The executor reports it as UNSUPPORTED_CAPABILITY. */
+export class UnsupportedAdapterInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "UnsupportedAdapterInputError"
+  }
+}
+
 export function tupleEffort(tuple: ApiModelTuple): ReasoningEffort | undefined {
   return "reasoning" in tuple && tuple.reasoning
     ? tuple.reasoning.effort
@@ -301,12 +336,4 @@ export function selectedIdentity(
     model: request.tuple.model,
     ...(effort ? { effort } : {}),
   }
-}
-
-/** Retained subscription implementations are unavailable through launch (G3). */
-export function assertReleaseOneByok(engine: string): void {
-  if (engine === "claude" || engine === "codex")
-    throw new Error(
-      "Subscription AI engines are disabled for release 1; use an owner-session BYOK engine."
-    )
 }

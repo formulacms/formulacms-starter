@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { ANTHROPIC_API_CATALOG } from "../capabilities/anthropic-api"
 import { validateApiModelTuple } from "../task-profiles"
+import { BUNDLED_MODEL_CATALOG } from "../model-catalog"
 import { createAnthropicGenerationAdapter } from "./anthropic-api"
 
 afterEach(() => vi.unstubAllGlobals())
@@ -12,6 +13,7 @@ describe("Anthropic product requests through the installed SDK", () => {
     ["claude-sonnet-5-5", "high"],
     ["claude-opus-5-5", "medium"],
     ["claude-haiku-5-5", "medium"],
+    ["claude-fable-5-2", "high"],
     ["claude-fable-5-1", "high"],
     ["claude-haiku-4-5-20251001", undefined],
   ] as const)("captures %s at its provider default effort", async (model, effort) => {
@@ -35,7 +37,7 @@ describe("Anthropic product requests through the installed SDK", () => {
     const tuple = validateApiModelTuple({
       mode: "catalog", provider: "anthropic", model,
       ...(effort ? { reasoning: { kind: "effort", effort } } : {}),
-    })
+    }, BUNDLED_MODEL_CATALOG)
     const result = await createAnthropicGenerationAdapter({ apiKey: "capture-test-key" }).generate({
       tuple,
       instructions: "Return a short answer.",

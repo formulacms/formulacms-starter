@@ -9,9 +9,21 @@ import { getFunctionName } from "convex/server"
 import { ConvexError } from "convex/values"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, test, vi } from "vitest"
+
+// The local job server actions are fakes: the screens decide the route.
+vi.mock("@/app/(core)/admin/(authenticated)/pages/local-ai-job-actions", () => ({
+  startLocalPageJob: vi.fn(),
+  resumeLocalPageJob: vi.fn(),
+  generatePageOutlineLocal: vi.fn(),
+}))
+import {
+  generatePageOutlineLocal,
+  startLocalPageJob,
+} from "@/app/(core)/admin/(authenticated)/pages/local-ai-job-actions"
 import en from "../../../messages/admin/en.json"
 import fr from "../../../messages/admin/fr.json"
 import type { ModuleGate } from "../module-gate"
+import { LocalRouteProvider } from "./page-jobs"
 import { PageWizard, type WriteLocale } from "./page-wizard"
 
 const mocks = vi.hoisted(() => ({
@@ -114,6 +126,8 @@ function renderWizard(
     languages?: WriteLocale[]
     initialLocale?: WriteLocale
     onOpenChange?: (open: boolean) => void
+    /** The Writing slot's route data: `{ engine }` on this computer. */
+    route?: { engine: "claude" | "codex" | null } | null
   } = {}
 ) {
   const locale = options.locale ?? "en"
@@ -122,13 +136,15 @@ function renderWizard(
       locale={locale}
       messages={locale === "fr" ? fr : en}
     >
-      <PageWizard
-        open
-        onOpenChange={options.onOpenChange ?? vi.fn()}
-        languages={options.languages ?? ["en", "fr"]}
-        initialLocale={options.initialLocale ?? "en"}
-        defaultLocale="en"
-      />
+      <LocalRouteProvider assistant="writing" routeData={options.route ?? null}>
+        <PageWizard
+          open
+          onOpenChange={options.onOpenChange ?? vi.fn()}
+          languages={options.languages ?? ["en", "fr"]}
+          initialLocale={options.initialLocale ?? "en"}
+          defaultLocale="en"
+        />
+      </LocalRouteProvider>
     </NextIntlClientProvider>
   )
 }
@@ -455,4 +471,49 @@ describe("languages and copy", () => {
       scan()
     }
   )
+})
+
+describe("Writing on a local tool", () => {
+  test("on this computer without an API connection: plans and starts through the local actions", async () => {
+    mocks.gate = { state: "needs_setup", setup: ["required"] }
+    mocks.data["cms/aiSettings:status"] = { ...READY_STATUS, assistants: [{ ...READY_STATUS.assistants[0], ready: false }] }
+    vi.mocked(generatePageOutlineLocal).mockResolvedValue({ ok: true, value: OUTLINE } as never)
+    vi.mocked(startLocalPageJob).mockResolvedValue({ ok: true, value: "job-9" } as never)
+    renderWizard({ route: { engine: "claude" } })
+    await planPage()
+    expect(generatePageOutlineLocal).toHaveBeenCalledWith({ brief: "A page about the studio.", locale: "en" })
+    fireEvent.click(screen.getByRole("button", { name: "Start" }))
+    await waitFor(() => expect(startLocalPageJob).toHaveBeenCalledOnce())
+    expect(vi.mocked(startLocalPageJob).mock.calls[0]![0]).toMatchObject({ kind: "write", locale: "en" })
+    // The API route is never taken.
+    expect(fn("agents/contentWriter:generatePageOutline")).not.toHaveBeenCalled()
+    expect(fn("cms/aiJobs:startPageJob")).not.toHaveBeenCalled()
+  })
+
+  test("on an API service the wizard keeps its Convex calls", async () => {
+    renderWizard({ route: { engine: null } })
+    await planPage()
+    expect(fn("agents/contentWriter:generatePageOutline")).toHaveBeenCalledOnce()
+    expect(generatePageOutlineLocal).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    ["en", "Writing runs with a local tool. Open the admin on the computer that runs formulacms, or choose an API connection in Settings › AI.", "Settings › AI"],
+    ["fr", "La rédaction utilise un outil local. Ouvrez l'administration sur l'ordinateur qui exécute formulacms, ou choisissez une connexion API dans Paramètres › IA.", "Paramètres › IA"],
+  ] as const)("a stale tab (%s): Convex refuses the API run and the wizard says why, with a link", async (locale, text, link) => {
+    fn("agents/contentWriter:generatePageOutline").mockRejectedValue(new ConvexError("AI_ASSISTANT_RUNS_ON_LOCAL_TOOL"))
+    renderWizard({ locale })
+    fireEvent.change(screen.getByLabelText("Brief"), { target: { value: "About" } })
+    fireEvent.click(screen.getByRole("button", { name: locale === "fr" ? "Planifier la page" : "Plan the page" }))
+    expect(await screen.findByTestId("local-tool-elsewhere")).toHaveTextContent(text)
+    expect(screen.getByRole("link", { name: link })).toHaveAttribute("href", "/admin/settings/ai")
+  })
+
+  test("a local action's other-device refusal shows the same message", async () => {
+    vi.mocked(generatePageOutlineLocal).mockResolvedValue({ ok: false, refusal: "LOCAL_TOOL_OTHER_DEVICE" } as never)
+    renderWizard({ route: { engine: "codex" } })
+    fireEvent.change(screen.getByLabelText("Brief"), { target: { value: "About" } })
+    fireEvent.click(screen.getByRole("button", { name: "Plan the page" }))
+    expect(await screen.findByTestId("local-tool-elsewhere")).toBeInTheDocument()
+  })
 })

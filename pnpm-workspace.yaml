@@ -22,6 +22,18 @@ overrides:
   "postcss-selector-parser@>=6.0.0 <6.1.5": "6.1.5"
   "source-map-js@>=1.0.0 <1.2.2": "1.2.2"
   "systeminformation@>=5.0.0 <5.33.16": "5.33.16"
+  # The Claude Agent SDK (Settings › AI model list, localhost only) runs the
+  # owner's installed `claude`; never install its bundled native binary
+  # (about 350 MB) on any platform. pnpm 11 has no `:optional` selector, so
+  # each platform package is removed by name.
+  "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-arm64": "-"
+  "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-x64": "-"
+  "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-arm64": "-"
+  "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "-"
+  "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-x64": "-"
+  "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-x64-musl": "-"
+  "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-arm64": "-"
+  "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-x64": "-"
 
 audit:
   ignore:
@@ -29,6 +41,8 @@ audit:
     - GHSA-g3hv-75wg-m249
     # Dev-only (eslint/typescript-eslint, ts-morph via shadcn CLI, scripts/check-token-boundary.ts); `pnpm why -P` shows no production path; only fix is a major (minimatch 11 / glob 14). Decision 2026-11-06; remove in the majors unit (eslint 10 et al.)
     - GHSA-3g3m-2fjr-6pw4
+    # No patched release exists: registry latest is 4.0.7 and the advisory names no fixed version (upstream issue micromatch/picomatch#234 open, checked 2026-11-17). Paths: next-intl -> @parcel/watcher (its build-time message extractor watches project files) and dev tools (vite, vitest, tinyglobby; fast-glob -> micromatch -> picomatch 2.3.2). The ReDoS needs attacker-supplied glob patterns; formulacms passes none from visitors or editors (no direct picomatch use). Decision 2026-11-17 (PER-LANG-FIELDS CI repair); remove when patched 4.x and 2.x releases exist.
+    - GHSA-fc5q-39xc-vjpf
 
 # Reject any package update whose supply-chain trust signals (provenance,
 # signatures) are weaker than an earlier published version. Guards against a

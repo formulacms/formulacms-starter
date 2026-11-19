@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
 import { getFunctionName, type FunctionReturnType } from "convex/server"
+import { ConvexError } from "convex/values"
 import { beforeEach, expect, test, vi } from "vitest"
 import { LOCAL_API_KEY_NAMES } from "@/lib/local-api-keys"
 import { api } from "@/convex/_generated/api"
@@ -8,13 +9,30 @@ import en from "@/messages/admin/en.json"
 import fr from "@/messages/admin/fr.json"
 import AiSettingsPage from "@/app/(core)/admin/(authenticated)/settings/ai/page"
 import { ADMIN_AI_SETTINGS_SERVER_BINDING } from "@/components/admin/contributions/ai-settings.server"
+import { anyProviderSetUp, statusWord, type LocalToolStatus } from "./ai-settings-screen"
 
 const mocks = vi.hoisted(() => ({
-  gate: "on", status: undefined as unknown, creator: undefined as unknown, save: vi.fn(), saveCreator: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn(), replace: vi.fn(), failStatus: false,
+  gate: "on", status: undefined as unknown, creator: undefined as unknown, save: vi.fn(), saveCreator: vi.fn(), refreshLists: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn(), replace: vi.fn(), failStatus: false,
   queries: [] as [string, unknown][],
+  urlListeners: new Set<() => void>(),
 }))
 vi.mock("./admin-module-state-provider", () => ({ useModuleGate: () => ({ state: mocks.gate }) }))
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }), notFound: () => { throw new Error("NEXT_NOT_FOUND") } }))
+// The page reads .env.local at each call; here the reader maps the stubbed
+// environment (`setLocalKeys`) instead, so no test reads a real .env.local.
+vi.mock("@/lib/local-api-keys-file", async () => {
+  const { localProviderKeyPresence } = await import("@/lib/local-api-keys")
+  return { localProviderKeyPresenceNow: () => localProviderKeyPresence(process.env) }
+})
+// `useSearchParams` follows `history.pushState`, as Next.js does (no server render).
+vi.mock("next/navigation", async () => {
+  const { useSyncExternalStore } = await import("react")
+  const subscribe = (listener: () => void) => { mocks.urlListeners.add(listener); return () => { mocks.urlListeners.delete(listener) } }
+  return {
+    useRouter: () => ({ replace: mocks.replace }),
+    notFound: () => { throw new Error("NEXT_NOT_FOUND") },
+    useSearchParams: () => new URLSearchParams(useSyncExternalStore(subscribe, () => window.location.search, () => "")),
+  }
+})
 vi.mock("convex/react", () => ({
   useQuery: (reference: Parameters<typeof getFunctionName>[0], args: unknown) => {
     const name = getFunctionName(reference)
@@ -27,13 +45,14 @@ vi.mock("convex/react", () => ({
   useMutation: (reference: Parameters<typeof getFunctionName>[0]) => {
     const name = getFunctionName(reference)
     if (name === "cms/aiSettings:setSliceCreator") return mocks.saveCreator
+    if (name === "cms/vendorModelCatalog:refreshModelCatalogs") return mocks.refreshLists
     expect(name).toBe("cms/aiSettings:setAssistant")
     return mocks.save
   },
 }))
 vi.mock("sonner", () => ({ toast: { success: mocks.success, error: mocks.error, info: mocks.info, dismiss: vi.fn() } }))
 
-type Status = FunctionReturnType<typeof api.cms.aiSettings.status>
+type Status = NonNullable<FunctionReturnType<typeof api.cms.aiSettings.status>>
 type Assistant = Status["assistants"][number]
 function fixture(): Status {
   const anthropic = { mode: "catalog", provider: "anthropic", model: "claude-sonnet-5-5", reasoning: { kind: "effort", effort: "high" } } as const
@@ -77,6 +96,8 @@ function creatorFixture(): Creator {
       openai: [{ model: openai.model, name: "Sol", efforts: ["high"], providerDefault: "high" }],
     },
     defaults: { anthropic, openrouter, openai },
+    catalog: [],
+    newerModels: [],
   }
 }
 function setLocalKeys(present: Partial<Record<keyof typeof LOCAL_API_KEY_NAMES, boolean>>) {
@@ -87,22 +108,25 @@ function setLocalKeys(present: Partial<Record<keyof typeof LOCAL_API_KEY_NAMES, 
 }
 function status() { return mocks.status as Status }
 function assistant(id: Assistant["id"] = "writing") { return status().assistants.find((a) => a.id === id)! }
-/** Renders the page; `local: false` renders the production body. Opens every card unless `expand` is false. */
-async function mount(locale: "en" | "fr" = "en", { local = true, expand = true } = {}) {
+/** Renders the page; `local: false` renders the production body. */
+async function mount(locale: "en" | "fr" = "en", { local = true } = {}) {
   const page = local ? await AiSettingsPage() : await ADMIN_AI_SETTINGS_SERVER_BINDING!.renderSettingsPage({ isLocal: false })
-  const mounted = render(<NextIntlClientProvider locale={locale} messages={locale === "en" ? en : fr}>{page}</NextIntlClientProvider>)
-  if (expand) document.querySelectorAll<HTMLElement>('[data-slot="accordion-trigger"][aria-expanded="false"]').forEach((trigger) => fireEvent.click(trigger))
-  return mounted
+  return render(<NextIntlClientProvider locale={locale} messages={locale === "en" ? en : fr}>{page}</NextIntlClientProvider>)
 }
-function toggle(testId: string) {
-  const trigger = screen.getByTestId(testId).querySelector<HTMLElement>('[data-slot="accordion-trigger"]')!
-  fireEvent.click(trigger)
-}
-function expanded(testId: string) {
-  return screen.getByTestId(testId).querySelector('[data-slot="accordion-trigger"]')!.getAttribute("aria-expanded") === "true"
+/** Opens a tab from the AI rail, in the browser only. */
+function openTab(tab: string) {
+  fireEvent.click(screen.getByTestId(`rail-${tab}`))
 }
 function writing() { return within(screen.getByTestId("assistant-writing")) }
-function selects() { return writing().getAllByRole("combobox") }
+function effort(id = "writing") { return screen.getByTestId(`effort-${id}`) }
+/** Opens a card's provider menu and returns it. */
+async function providerMenu(id = "writing") {
+  fireEvent.click(screen.getByTestId(`provider-${id}`))
+  return within(await screen.findByTestId(`provider-menu-${id}`))
+}
+async function chooseProvider(provider: string, id = "writing") {
+  fireEvent.click((await providerMenu(id)).getByTestId(`option-${provider}`))
+}
 async function chooseModel(name: string) {
   fireEvent.click(writing().getByRole("button", { name: "Writing assistant Model" }))
   fireEvent.click(await screen.findByRole("button", { name }))
@@ -110,6 +134,12 @@ async function chooseModel(name: string) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.history.replaceState(null, "", "/admin/settings/ai")
+  const push = History.prototype.pushState
+  vi.spyOn(window.history, "pushState").mockImplementation(function (this: History, ...args: Parameters<History["pushState"]>) {
+    push.apply(window.history, args)
+    mocks.urlListeners.forEach((listener) => listener())
+  })
   vi.unstubAllEnvs()
   setLocalKeys({ anthropic: true })
   mocks.gate = "on"
@@ -119,24 +149,32 @@ beforeEach(() => {
   mocks.queries = []
   mocks.save.mockResolvedValue(null)
   mocks.saveCreator.mockResolvedValue(null)
+  mocks.refreshLists.mockResolvedValue(null)
 })
 
-test.each(["en", "fr"] as const)("Q screen %s shows effective settings and only Connections/Assistants", async (locale) => {
+test.each(["en", "fr"] as const)("Q screen %s shows effective settings, the rail and the Assistants tab", async (locale) => {
   await mount(locale, { local: false })
   expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(locale === "en" ? "AI" : "IA")
-  expect(screen.getByTestId("ai-page-status")).toHaveTextContent(locale === "en" ? "Active" : "Actif")
-  expect(screen.getByTestId("connections")).toBeInTheDocument()
+  // No page badge or page sentence (approved prototype 96be6727).
+  expect(screen.queryByTestId("ai-page-status")).not.toBeInTheDocument()
+  expect(screen.queryByText(/Active|Actif|Not configured|Non configuré :/)).not.toBeInTheDocument()
   expect(screen.getByTestId("assistants")).toBeInTheDocument()
-  expect(screen.queryByText(/Usage|Block creator|subscription|plan credits/i)).not.toBeInTheDocument()
-  expect(selects()[1]).toHaveValue("high")
+  expect([...screen.getByTestId("ai-rail").querySelectorAll("a")].map((a) => a.textContent))
+    .toEqual(locale === "en" ? ["Assistants", "Your AI providers"] : ["Assistants", "Vos fournisseurs d’IA"])
+  expect(screen.getByTestId("rail-assistants")).toHaveAttribute("aria-current", "page")
+  // No Block creator or subscription off localhost, and no billing words.
+  expect(screen.queryByText(/Block creator|Créateur de blocs|subscription|abonnement|billed|facturé/i)).not.toBeInTheDocument()
+  expect(screen.queryByTestId("no-provider")).not.toBeInTheDocument()
+  expect(effort()).toHaveValue("high")
   expect(screen.getByRole("button", { name: locale === "en" ? "Save" : "Enregistrer" })).toBeDisabled()
 })
 
-test("Runs with uses status.defaults then the exact tuple is sent to setAssistant", async () => {
+test("Provider uses status.defaults then the exact tuple is sent to setAssistant", async () => {
   await mount()
-  fireEvent.change(selects()[0], { target: { value: "openrouter" } })
+  await chooseProvider("openrouter")
+  expect(screen.getByTestId("provider-writing")).toHaveTextContent("OpenRouter")
   expect(writing().getByRole("button", { name: "Writing assistant Model" })).toHaveTextContent("Provider default")
-  expect(selects()[1]).toHaveValue("medium")
+  expect(effort()).toHaveValue("medium")
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(mocks.save).toHaveBeenCalledWith({ id: "writing", tuple: assistant().defaults.openrouter }))
   expect(mocks.save).toHaveBeenCalledTimes(1)
@@ -148,7 +186,7 @@ test("an explicit effective model is never replaced by an offered default", asyn
   assistant().effective = { mode: "catalog", provider: "openrouter", model: "saved/removed", reasoning: { kind: "effort", effort: "high" } }
   await mount()
   expect(writing().getByRole("button", { name: "Writing assistant Model" })).toHaveTextContent("saved/removed")
-  expect(selects()[1]).toHaveValue("high")
+  expect(effort()).toHaveValue("high")
 })
 
 test("legacy-chain display uses its exact first model, then choosing a model writes an explicit tuple", async () => {
@@ -176,68 +214,144 @@ test("search filters names and IDs, reports no match, and has no price/default r
 test("model effort retains a supported value, else medium, else providerDefault; effortless saves no reasoning", async () => {
   await mount()
   await chooseModel("Sonnetclaude-sonnet-5-5")
-  expect(selects()[1]).toHaveValue("high")
+  expect(effort()).toHaveValue("high")
   await chooseModel("Medium onlynew/medium")
-  expect(selects()[1]).toHaveValue("medium")
+  expect(effort()).toHaveValue("medium")
   await chooseModel("Low onlynew/low")
-  expect(selects()[1]).toHaveValue("low")
+  expect(effort()).toHaveValue("low")
   await chooseModel("Effortlessnew/no-effort")
-  expect(selects()[1]).toBeDisabled()
-  expect(selects()[1]).toHaveDisplayValue("Not available for this model")
+  expect(effort()).toBeDisabled()
+  expect(effort()).toHaveDisplayValue("Not available for this model")
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(mocks.save).toHaveBeenCalledWith({ id: "writing", tuple: { mode: "catalog", provider: "anthropic", model: "new/no-effort" } }))
 })
 
 test("Translation effort is disabled high and unavailable Translation is hidden", async () => {
   const mounted = await mount()
-  const translation = within(screen.getByTestId("assistant-translation"))
-  expect(translation.getAllByRole("combobox")[1]).toBeDisabled()
-  expect(translation.getAllByRole("combobox")[1]).toHaveValue("high")
+  expect(effort("translation")).toBeDisabled()
+  expect(effort("translation")).toHaveValue("high")
   assistant("translation").available = false
   mounted.rerender(<NextIntlClientProvider locale="en" messages={en}>{await AiSettingsPage()}</NextIntlClientProvider>)
   expect(screen.queryByTestId("assistant-translation")).not.toBeInTheDocument()
 })
 
+test.each(["en", "fr"] as const)("Your AI providers in %s: one word per API key, from the one word map", async (locale) => {
+  const messages = (locale === "en" ? en : fr).settings.aiScreen
+  status().connections[0].state = "refused"
+  status().connections[1].state = "unreachable"
+  status().connections[2].state = "missing"
+  await mount(locale, { local: false })
+  openTab("providers")
+  expect(window.location.search).toBe("?tab=providers")
+  expect(screen.getByTestId("rail-providers")).toHaveAttribute("aria-current", "page")
+  // The live site: no Subscriptions group, and no .env.local note.
+  expect(screen.queryByTestId("group-subscriptions")).not.toBeInTheDocument()
+  expect(screen.queryByTestId("keys-note")).not.toBeInTheDocument()
+  const rows = [...screen.getByTestId("group-api-keys").querySelectorAll("li")]
+  expect(rows.map((row) => [row.dataset.testid, row.dataset.word, row.textContent])).toEqual([
+    ["row-anthropic", "invalidKey", `Anthropic${messages.words.invalidKey}`],
+    ["row-openai", "notSetUp", `OpenAI${messages.words.notSetUp}`],
+    ["row-openrouter", "ready", `OpenRouter${messages.words.ready}`],
+  ])
+  expect(screen.getByTestId("row-status-anthropic")).toHaveAttribute("data-tone", "bad")
+  // No key actions and no command words.
+  expect(within(screen.getByTestId("providers")).queryAllByRole("button")).toEqual([])
+  expect(within(screen.getByTestId("providers")).queryAllByRole("link")).toEqual([])
+})
+
+test("keysNote shows only in local development while an API key has a problem", async () => {
+  const first = await mount()
+  openTab("providers")
+  expect(screen.queryByTestId("keys-note")).not.toBeInTheDocument()
+  first.unmount()
+  status().connections[2].state = "refused"
+  await mount()
+  expect(screen.getByTestId("keys-note")).toHaveTextContent("Assistants use the keys set on your Convex deployment. The Block creator uses its own key from .env.local.")
+})
+
 test("a refused connection disables only its assistants; unreachable remains ready", async () => {
   status().connections[0].state = "refused"
-  status().connections[0].observedAt = Date.now()
   status().connections[1].state = "unreachable"
-  status().connections[1].observedAt = Date.now()
   assistant("help").effective = assistant("help").defaults.openrouter!
   await mount()
   expect(writing().getByRole("button", { name: "Writing assistant Model" })).toBeDisabled()
-  expect(selects()[1]).toBeDisabled()
-  expect(screen.getByTestId("assistant-status-writing")).toHaveTextContent("Key refused")
+  expect(effort()).toBeDisabled()
+  expect(screen.getByTestId("assistant-status-writing")).toHaveTextContent("Invalid key")
+  expect(screen.getByTestId("assistant-status-writing")).toHaveAttribute("data-tone", "warn")
   expect(screen.getByTestId("assistant-status-help")).toHaveTextContent("Ready")
   expect(within(screen.getByTestId("assistant-help")).getByRole("button", { name: "Help assistant Model" })).toBeEnabled()
-  expect(screen.getByText(/Key refused: Anthropic rejected ANTHROPIC_API_KEY.*today/)).toBeInTheDocument()
-  expect(screen.getByText(/Couldn't reach OpenRouter.*today/)).toBeInTheDocument()
+  // The problem badge links to Your AI providers.
+  fireEvent.click(screen.getByTestId("providers-link-writing"))
+  expect(window.location.search).toBe("?tab=providers")
+  expect(screen.getByTestId("row-anthropic")).toHaveAttribute("data-word", "invalidKey")
 })
 
-test("missing keys disable controls and show the environment names", async () => {
-  status().connections.forEach((connection) => { connection.state = "missing" })
-  status().card = { state: "missing" }
+test("the provider menu groups API keys and shows a word only for a problem", async () => {
+  status().connections[2].state = "refused"
+  status().connections[1].state = "missing"
   await mount()
-  expect(selects()[0]).toBeDisabled()
-  expect(writing().getByRole("button", { name: "Writing assistant Model" })).toBeDisabled()
-  expect(screen.getByTestId("ai-page-status")).toHaveTextContent("Not configured: API key is missing")
-  expect(screen.getByText("Not configured: OPENAI_API_KEY is missing")).toBeInTheDocument()
+  const menu = await providerMenu()
+  const group = menu.getByRole("group", { name: "API keys" })
+  expect(within(group).getAllByRole("button").map((option) => option.textContent))
+    .toEqual(["Anthropic", "OpenAI · Invalid key", "OpenRouter · Not set up"])
+  expect(screen.getByTestId("provider-writing")).toHaveTextContent(/^Anthropic$/)
 })
 
-test("refused wins over missing in the header and older observations use a localized date", async () => {
-  status().connections[0].state = "missing"
-  status().connections[1] = { ...status().connections[1], state: "refused", observedAt: new Date("2020-01-02T12:30:00Z").getTime() }
-  status().card = { state: "refused", provider: "openrouter" }
-  await mount("fr")
-  expect(screen.getByTestId("ai-page-status")).toHaveTextContent("OpenRouter a refusé la clé")
-  expect(screen.getByText(/Clé refusée : OpenRouter.*2020/)).not.toHaveTextContent("aujourd'hui")
+test.each(["en", "fr"] as const)("a saved model the list no longer offers: Choose another model in %s, unless the key has a problem", async (locale) => {
+  assistant("writing").effective = { ...assistant("writing").effective, model: "gone/model" }
+  status().connections[1].state = "refused"
+  assistant("help").effective = { ...assistant("help").defaults.openrouter!, model: "gone/model" }
+  await mount(locale)
+  const messages = (locale === "en" ? en : fr).settings.aiScreen
+  expect(screen.getByTestId("assistant-status-writing")).toHaveTextContent(messages.chooseAnotherModel)
+  expect(screen.getByTestId("assistant-status-writing")).toHaveAttribute("data-tone", "warn")
+  expect(writing().getByRole("button", { name: new RegExp(`${messages.model}$`) })).toBeEnabled()
+  // A provider with a problem keeps its own word first.
+  expect(screen.getByTestId("assistant-status-help")).toHaveTextContent(messages.words.invalidKey)
+  expect(screen.getByTestId("assistant-status-translation")).toHaveTextContent(messages.words.ready)
+})
+
+test.each(["en", "fr"] as const)("no provider set up in %s: one line links to Your AI providers and no card shows a badge", async (locale) => {
+  status().connections.forEach((connection) => { connection.state = "missing" })
+  setLocalKeys({})
+  await mount(locale)
+  const messages = (locale === "en" ? en : fr).settings.aiScreen
+  expect(screen.getByTestId("no-provider")).toHaveTextContent(`${messages.noProvider} ${messages.yourProviders}`)
+  expect(screen.queryAllByTestId(/^assistant-status-/)).toEqual([])
+  expect(writing().getByRole("button", { name: new RegExp(`${messages.model}$`) })).toBeDisabled()
+  expect(effort()).toBeDisabled()
+  expect(within(screen.getByTestId("assistant-sliceCreator")).getByRole("button", { name: new RegExp(`${messages.model}$`) })).toBeDisabled()
+  fireEvent.click(screen.getByTestId("no-provider-link"))
+  expect(screen.getAllByTestId(/^row-status-/).map((row) => row.textContent)).toEqual(Array(3).fill(messages.words.notSetUp))
+})
+
+test.each(["en", "fr"] as const)("only a Block creator file key in %s: no no-provider line, assistants Not set up, Block creator Ready", async (locale) => {
+  status().connections.forEach((connection) => { connection.state = "missing" })
+  setLocalKeys({ anthropic: true })
+  await mount(locale)
+  const messages = (locale === "en" ? en : fr).settings.aiScreen
+  expect(screen.queryByTestId("no-provider")).not.toBeInTheDocument()
+  for (const id of ["writing", "translation", "help"]) {
+    expect(screen.getByTestId(`assistant-status-${id}`)).toHaveTextContent(messages.words.notSetUp)
+    expect(screen.getByTestId(`providers-link-${id}`)).toHaveTextContent(messages.yourProviders)
+  }
+  expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent(messages.words.ready)
+})
+
+test("live site with no key: the provider menu is disabled, as on main", async () => {
+  status().connections.forEach((connection) => { connection.state = "missing" })
+  await mount("en", { local: false })
+  expect(screen.getByTestId("provider-writing")).toBeDisabled()
+  expect(screen.getByTestId("no-provider")).toBeInTheDocument()
 })
 
 test("instructions save and Reset clears the custom instructions", async () => {
   assistant().instructions = "Custom directions"
   await mount()
+  expect(writing().getByLabelText("Instructions")).toHaveValue("Custom directions")
   fireEvent.click(writing().getByRole("button", { name: "Reset to default" }))
   expect(writing().getByRole("textbox")).toHaveValue(en.settings.aiScreen.tasks.writing.prompt)
+  expect(writing().queryByRole("button", { name: "Reset to default" })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(mocks.save).toHaveBeenCalledWith({ id: "writing", tuple: assistant().effective }))
 })
@@ -252,14 +366,18 @@ test("save refusal reuses the existing generic save error and preserves edits", 
   expect(mocks.success).not.toHaveBeenCalled()
 })
 
-test("AI off unmounts the screen and redirects to Modules with Q's note", async () => {
-  const mounted = await mount()
+test.each(["en", "fr"] as const)("AI off in %s: only the off line with its Modules link, and no AI read", async (locale) => {
+  const mounted = await mount(locale)
   expect(screen.getByTestId("assistants")).toBeInTheDocument()
   mocks.gate = "off"
-  mounted.rerender(<NextIntlClientProvider locale="en" messages={en}>{await AiSettingsPage()}</NextIntlClientProvider>)
-  await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/admin/settings/modules"))
-  expect(mocks.info).toHaveBeenCalledWith("AI is not enabled. You can enable it here.")
+  mocks.queries = []
+  mounted.rerender(<NextIntlClientProvider locale={locale} messages={locale === "en" ? en : fr}>{await AiSettingsPage()}</NextIntlClientProvider>)
+  expect(screen.getByTestId("ai-off")).toHaveTextContent(locale === "en" ? "AI is off. Turn it on in Modules." : "L’IA est désactivée. Activez-la dans Modules.")
+  expect(screen.getByRole("link", { name: "Modules" })).toHaveAttribute("href", "/admin/settings/modules")
   expect(screen.queryByTestId("assistants")).not.toBeInTheDocument()
+  expect(screen.queryByRole("heading")).not.toBeInTheDocument()
+  expect(mocks.queries).toEqual([])
+  expect(mocks.replace).not.toHaveBeenCalled()
 })
 
 test("needs_setup renders the screen; gate loading and error hide it", async () => {
@@ -286,7 +404,7 @@ test("S3 catalog drift: choosing a model always selects one of its offered effor
   await mount()
   await chooseModel("New reasoning modelnew/reasoning")
   const offered = assistant().choices.openrouter[1].efforts
-  expect(offered).toContain((selects()[1] as HTMLSelectElement).value)
+  expect(offered).toContain((effort() as HTMLSelectElement).value)
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(mocks.save).toHaveBeenCalled())
   const saved = mocks.save.mock.calls[0][0]
@@ -301,7 +419,7 @@ test("S3 model change uses an offered providerDefault before the first effort wh
   ]
   await mount()
   await chooseModel("Default highnew/default-high")
-  expect(selects()[1]).toHaveValue("high")
+  expect(effort()).toHaveValue("high")
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(mocks.save).toHaveBeenCalledWith({ id: "writing", tuple: {
     mode: "catalog", provider: "openrouter", model: "new/default-high", reasoning: { kind: "effort", effort: "high" },
@@ -312,7 +430,7 @@ test.each([{ efforts: ["low", "high"] }, { efforts: [] }] as const)("S3 refused 
   assistant().effective = { mode: "catalog", provider: "openrouter", model: "saved/refused", reasoning: { kind: "effort", effort: "medium" } }
   assistant().choices.openrouter = [{ model: "saved/refused", name: "Saved refused", efforts: [...efforts], providerDefault: "high" }]
   await mount()
-  expect(selects()[1]).toHaveValue("medium")
+  expect(effort()).toHaveValue("medium")
   fireEvent.change(writing().getByRole("textbox"), { target: { value: "Keep refused tuple" } })
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(mocks.save).toHaveBeenCalledWith({ id: "writing", tuple: assistant().effective, instructions: "Keep refused tuple" }))
@@ -330,18 +448,18 @@ test.each([
   saved.choices.openrouter = [{ model: saved.effective.model, name: "Gemini", efforts: ["high", "medium", "low"], providerDefault: "medium" }]
   await mount()
   const task = within(screen.getByTestId(`assistant-${id}`))
-  const effort = task.getByRole("combobox", { name: "Effort" })
-  expect(effort).toBeEnabled()
-  expect(effort).toHaveValue("")
-  const selected = within(effort).getByRole("option", { selected: true })
+  const select = task.getByRole("combobox", { name: "Effort" })
+  expect(select).toBeEnabled()
+  expect(select).toHaveValue("")
+  const selected = within(select).getByRole("option", { selected: true })
   expect(selected).toHaveTextContent(/^Not set$/)
   expect(selected).toBeDisabled()
-  expect(within(effort).getAllByRole("option")[0]).toBe(selected)
-  expect(within(effort).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual(["", "high", "medium", "low"])
+  expect(within(select).getAllByRole("option")[0]).toBe(selected)
+  expect(within(select).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual(["", "high", "medium", "low"])
   if (nextEffort) {
-    fireEvent.change(effort, { target: { value: nextEffort } })
-    expect(effort).toHaveValue("medium")
-    expect(within(effort).queryByRole("option", { name: "Not set" })).not.toBeInTheDocument()
+    fireEvent.change(select, { target: { value: nextEffort } })
+    expect(select).toHaveValue("medium")
+    expect(within(select).queryByRole("option", { name: "Not set" })).not.toBeInTheDocument()
   }
   fireEvent.change(task.getByRole("textbox"), { target: { value: "Keep saved choice" } })
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
@@ -359,74 +477,77 @@ test.each(["en", "fr"] as const)("S3 saved absent reasoning shows disabled Trans
   saved.tuple = saved.effective
   saved.choices.openrouter = [{ model: saved.effective.model, name: "Gemini", efforts: ["high", "medium", "low"], providerDefault: "medium" }]
   await mount(locale)
-  const effort = within(screen.getByTestId("assistant-translation")).getByRole("combobox", { name: "Effort" })
-  expect(effort).toBeDisabled()
-  expect(effort).toHaveValue("")
-  const selected = within(effort).getByRole("option", { selected: true })
+  const select = within(screen.getByTestId("assistant-translation")).getByRole("combobox", { name: "Effort" })
+  expect(select).toBeDisabled()
+  expect(select).toHaveValue("")
+  const selected = within(select).getByRole("option", { selected: true })
   expect(selected).toHaveTextContent(locale === "en" ? /^Not set$/ : /^Non défini$/)
   expect(selected).toBeDisabled()
 })
 
-test("collapse: with every key connected the cards start collapsed with their summaries", async () => {
-  await mount("en", { expand: false })
-  expect(expanded("connections")).toBe(false)
-  expect(screen.getByTestId("connections-status")).toHaveTextContent("Ready")
-  expect(screen.getByText("3 of 3 API keys connected")).toBeInTheDocument()
-  expect(screen.queryByText("API keys")).not.toBeInTheDocument()
-  expect(expanded("assistant-writing")).toBe(false)
-  expect(writing().queryByRole("combobox")).not.toBeInTheDocument()
-  expect(writing().getByText("Anthropic · Sonnet · high")).toBeInTheDocument()
-  expect(within(screen.getByTestId("assistant-translation")).getByText("Anthropic · Sonnet")).toBeInTheDocument()
+test("every card is open: badge, summary, provider, model, effort and Instructions; no top line or newer-model line", async () => {
+  assistant().newerModel = { provider: "anthropic", model: "new/medium", name: "Medium only" }
+  await mount()
+  for (const id of ["writing", "translation", "help", "sliceCreator"]) {
+    const card = within(screen.getByTestId(`assistant-${id}`))
+    expect(card.getByLabelText("Instructions")).toBeInTheDocument()
+    expect(screen.getByTestId(`assistant-status-${id}`)).toHaveTextContent("Ready")
+  }
+  expect(screen.queryByText(/^Uses |billed per use|newer model/)).not.toBeInTheDocument()
+  expect(document.querySelector('[data-slot="accordion-trigger"]')).toBeNull()
 })
 
-test("collapse: a missing key opens Connections; the badge says Ready while another key works", async () => {
-  status().connections[2].state = "missing"
-  await mount("en", { expand: false })
-  expect(expanded("connections")).toBe(true)
-  expect(screen.getByTestId("connections-status")).toHaveTextContent("Ready")
-  expect(screen.getByText(en.settings.aiScreen.connectionsDescription)).toBeInTheDocument()
-  expect(screen.getByText("Not configured: OPENAI_API_KEY is missing")).toBeInTheDocument()
+test("an unknown or old provider tab shows Assistants", async () => {
+  for (const tab of ["nope", "claude-code", "openai-api"]) {
+    window.history.replaceState(null, "", `/admin/settings/ai?tab=${tab}`)
+    const mounted = await mount()
+    expect(screen.getByTestId("assistants")).toBeInTheDocument()
+    mounted.unmount()
+  }
 })
 
-test.each(["en", "fr"] as const)("Connections badge in %s: Ready with one working key and none refused", async (locale) => {
-  status().connections[1].state = "missing"
-  status().connections[2].state = "unreachable"
-  status().connections[2].observedAt = Date.now()
-  await mount(locale, { expand: false })
-  expect(screen.getByTestId("connections-status")).toHaveTextContent(locale === "en" ? "Ready" : "Prêt")
-})
-
-test("Connections badge: a refused key means Needs attention, even with a working key", async () => {
-  status().connections[2].state = "refused"
-  status().connections[2].observedAt = Date.now()
-  await mount("en", { expand: false })
-  expect(screen.getByTestId("connections-status")).toHaveTextContent("Needs attention")
-})
-
-test("Connections badge: no working key means Needs attention", async () => {
-  for (const c of status().connections) c.state = "missing"
-  await mount("en", { expand: false })
-  expect(screen.getByTestId("connections-status")).toHaveTextContent("Needs attention")
-})
-
-test("collapse: an assistant that is not ready starts open", async () => {
-  status().connections[0].state = "missing"
-  await mount("en", { expand: false })
-  expect(expanded("assistant-writing")).toBe(true)
-  expect(writing().getByText(en.settings.aiScreen.tasks.writing.summary)).toBeInTheDocument()
-})
-
-test("collapse: an edit survives closing and reopening the card, and Save sends it", async () => {
-  await mount("en", { expand: false })
-  toggle("assistant-writing")
-  expect(writing().getByText(en.settings.aiScreen.tasks.writing.summary)).toBeInTheDocument()
-  fireEvent.change(writing().getByRole("textbox"), { target: { value: "Kept while closed" } })
-  toggle("assistant-writing")
-  expect(writing().queryByRole("textbox")).not.toBeInTheDocument()
-  toggle("assistant-writing")
-  expect(writing().getByRole("textbox")).toHaveValue("Kept while closed")
+test("a tab change stays in the browser and keeps unsaved edits; Save sends them", async () => {
+  await mount()
+  fireEvent.change(writing().getByRole("textbox"), { target: { value: "Kept across tabs" } })
+  openTab("providers")
+  expect(window.location.search).toBe("?tab=providers")
+  expect(screen.queryByTestId("assistants")).not.toBeInTheDocument()
+  openTab("assistants")
+  expect(window.location.search).toBe("?tab=assistants")
+  expect(writing().getByRole("textbox")).toHaveValue("Kept across tabs")
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
-  await waitFor(() => expect(mocks.save).toHaveBeenCalledWith({ id: "writing", tuple: assistant().effective, instructions: "Kept while closed" }))
+  await waitFor(() => expect(mocks.save).toHaveBeenCalledWith({ id: "writing", tuple: assistant().effective, instructions: "Kept across tabs" }))
+})
+
+test("lists footer in the model picker: Refresh, then Updated once a list read succeeds; a refusal within 5 minutes says so", async () => {
+  status().catalogSync = {
+    anthropic: { status: "success", lastSuccessAt: new Date("2020-01-02T12:30:00Z").getTime(), keyRefused: false },
+    openrouter: { status: "never", keyRefused: false },
+    openai: { status: "success", lastSuccessAt: Date.now() - 60_000, keyRefused: false },
+  }
+  const mounted = await mount()
+  const rerender = async () => mounted.rerender(<NextIntlClientProvider locale="en" messages={en}>{await AiSettingsPage()}</NextIntlClientProvider>)
+  fireEvent.click(writing().getByRole("button", { name: "Writing assistant Model" }))
+  expect(await screen.findByTestId("lists-updated")).toHaveTextContent(/Lists updated .*2020.* · Refresh/)
+  mocks.refreshLists.mockRejectedValueOnce(new ConvexError({ kind: "RateLimited", name: "modelCatalogRefresh", retryAfter: 1000 }))
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }))
+  await waitFor(() => expect(mocks.error).toHaveBeenCalledWith("The model lists were just updated. Try again in a few minutes."))
+  mocks.refreshLists.mockResolvedValueOnce(null)
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }))
+  await waitFor(() => expect(mocks.refreshLists).toHaveBeenCalledTimes(2))
+  status().catalogSync = { ...status().catalogSync!, anthropic: { status: "success", lastSuccessAt: new Date("2020-01-02T12:31:00Z").getTime(), keyRefused: false } }
+  await rerender()
+  await waitFor(() => expect(screen.getByTestId("lists-updated")).toHaveTextContent(/Updated$/))
+})
+
+test("switching Provider back restores the saved API choice, not the first row", async () => {
+  assistant().effective = { mode: "catalog", provider: "anthropic", model: "new/low", reasoning: { kind: "effort", effort: "low" } }
+  await mount()
+  await chooseProvider("openai")
+  expect(writing().getByRole("button", { name: "Writing assistant Model" })).toHaveTextContent("Terra")
+  await chooseProvider("anthropic")
+  expect(writing().getByRole("button", { name: "Writing assistant Model" })).toHaveTextContent("Low only")
+  expect(effort()).toHaveValue("low")
 })
 
 function creator() { return within(screen.getByTestId("assistant-sliceCreator")) }
@@ -444,49 +565,71 @@ test("Slice creator is absent when the page passes no local keys", async () => {
   expect(mocks.queries.filter(([name]) => name === "cms/aiSettings:sliceCreator").every(([, args]) => args === "skip")).toBe(true)
 })
 
-test("Slice creator with its local key: Ready, collapsed, after Help", async () => {
-  await mount("en", { expand: false })
+test("Slice creator with its local key: Ready, after Help", async () => {
+  await mount()
   const rows = [...screen.getByTestId("assistants").querySelectorAll("[data-testid^=assistant-]")].map((row) => row.getAttribute("data-testid"))
   expect(rows.filter((id) => !id!.startsWith("assistant-status"))).toEqual(["assistant-writing", "assistant-translation", "assistant-help", "assistant-sliceCreator"])
   expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent("Ready")
-  expect(expanded("assistant-sliceCreator")).toBe(false)
-  expect(creator().getByText("Anthropic · Claude Opus 5.5 · high")).toBeInTheDocument()
+  expect(screen.getByTestId("provider-sliceCreator")).toHaveTextContent("Anthropic")
+  expect(creator().getByRole("button", { name: "Block creator Model" })).toHaveTextContent("Claude Opus 5.5")
 })
 
 test("Slice creator with nothing saved uses the first provider that has a local key", async () => {
   setLocalKeys({ openai: true })
-  await mount("en", { expand: false })
+  await mount()
+  expect(screen.getByTestId("provider-sliceCreator")).toHaveTextContent("OpenAI")
   expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent("Ready")
-  expect(creator().getByText("OpenAI · Sol · high")).toBeInTheDocument()
 })
 
-test.each(["en", "fr"] as const)("Slice creator with no local key at all starts open, names every provider's key in %s", async (locale) => {
-  setLocalKeys({})
-  await mount(locale, { expand: false })
-  const messages = (locale === "en" ? en : fr).settings.aiScreen.sliceCreator
-  expect(expanded("assistant-sliceCreator")).toBe(true)
-  expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent(messages.finishSetup)
-  expect(creator().getByText(messages.keyMissingAny)).toBeInTheDocument()
-  const help = messages.keyHelpAny.replace("{openrouter}", "FORMULACMS_DEV_OPENROUTER_API_KEY")
-    .replace("{anthropic}", "FORMULACMS_DEV_ANTHROPIC_API_KEY").replace("{openai}", "FORMULACMS_DEV_OPENAI_API_KEY")
-  expect(creator().getByText(help)).toBeInTheDocument()
-  expect(creator().queryByText(/API_KEY is missing|API_KEY est manquante/)).not.toBeInTheDocument()
-  expect(creator().queryByText(/restart|redémarrez/)).not.toBeInTheDocument()
-  const instructions = creator().getByRole("textbox")
-  expect(instructions).toHaveValue("")
-  expect(instructions).toHaveAttribute("placeholder", messages.prompt)
-  expect(creator().queryByRole("button", { name: (locale === "en" ? en : fr).settings.aiScreen.reset })).not.toBeInTheDocument()
+// The Block creator runs on its .env.local key; the assistants and the provider rows read the Convex key.
+test.each([
+  { file: true, convex: false, creatorWord: "ready", rowWord: "notSetUp" },
+  { file: false, convex: true, creatorWord: "notSetUp", rowWord: "ready" },
+  { file: true, convex: true, creatorWord: "ready", rowWord: "ready" },
+  { file: false, convex: false, creatorWord: "notSetUp", rowWord: "notSetUp" },
+] as const)("Block creator badge follows its .env.local key: file $file, Convex $convex", async ({ file, convex, creatorWord, rowWord }) => {
+  setLocalKeys({ anthropic: file })
+  // OpenRouter and OpenAI stay set up on Convex, so the no-provider line never hides the badges.
+  status().connections[0].state = convex ? "connected" : "missing"
+  await mount()
+  expect(screen.getByTestId("provider-sliceCreator")).toHaveTextContent(/^Anthropic$/)
+  const badge = screen.getByTestId("assistant-status-sliceCreator")
+  expect(badge).toHaveAttribute("data-word", creatorWord)
+  expect(badge).toHaveTextContent(creatorWord === "ready" ? "Ready" : "Not set up")
+  expect(badge).toHaveAttribute("data-tone", creatorWord === "ready" ? "ok" : "warn")
+  const model = creator().getByRole("button", { name: "Block creator Model" })
+  if (creatorWord === "ready") {
+    expect(screen.queryByTestId("providers-link-sliceCreator")).not.toBeInTheDocument()
+    expect(model).toBeEnabled()
+  } else {
+    expect(screen.getByTestId("providers-link-sliceCreator")).toHaveTextContent("Your AI providers")
+    expect(model).toBeDisabled()
+  }
+  // Writing, on Anthropic too, keeps the Convex word.
+  expect(screen.getByTestId("assistant-status-writing")).toHaveAttribute("data-word", rowWord)
+  openTab("providers")
+  expect(screen.getByTestId("row-anthropic")).toHaveAttribute("data-word", rowWord)
 })
 
-test.each(["en", "fr"] as const)("Slice creator with a key for another provider names the chosen provider's key in %s", async (locale) => {
+test("Slice creator with nothing saved and two local keys: the first in connection order, Ready from its file key", async () => {
+  setLocalKeys({ openai: true, openrouter: true })
+  status().connections[1].state = "missing"
+  await mount()
+  expect(screen.getByTestId("provider-sliceCreator")).toHaveTextContent(/^OpenRouter$/)
+  expect(creator().getByRole("button", { name: "Block creator Model" })).toHaveTextContent("Creator default")
+  expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveAttribute("data-word", "ready")
+})
+
+test("Slice creator on a provider with a problem: its word, no key lines, and model and effort wait", async () => {
   mocks.creator = { ...creatorFixture(), tuple: { mode: "catalog", provider: "openrouter", model: "creator/default", reasoning: { kind: "effort", effort: "medium" } } }
-  await mount(locale, { expand: false })
-  const messages = (locale === "en" ? en : fr).settings.aiScreen.sliceCreator
-  const envVar = "FORMULACMS_DEV_OPENROUTER_API_KEY"
-  expect(creator().getByText(messages.keyMissing.replace("{envVar}", envVar))).toBeInTheDocument()
-  expect(creator().getByText(messages.keyHelp.replace("{envVar}", envVar))).toBeInTheDocument()
-  expect(creator().queryByText(messages.keyMissingAny)).not.toBeInTheDocument()
-  expect(creator().queryByText(/restart|redémarrez/)).not.toBeInTheDocument()
+  status().connections[1].state = "missing"
+  await mount()
+  expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent("Not set up")
+  expect(creator().queryByText(/API_KEY|\.env\.local|restart/)).not.toBeInTheDocument()
+  expect(creator().getByRole("button", { name: "Block creator Model" })).toBeDisabled()
+  expect(effort("sliceCreator")).toBeDisabled()
+  // As on main: the Block creator's API services stay selectable.
+  expect((await providerMenu("sliceCreator")).getByTestId("option-anthropic")).toBeEnabled()
 })
 
 test("Slice creator Save sends its tuple and instructions together, once, and never setAssistant", async () => {
@@ -506,19 +649,17 @@ test("Slice creator Save sends its tuple and instructions together, once, and ne
 test("Slice creator keeps a saved choice and Reset clears saved instructions", async () => {
   mocks.creator = { ...creatorFixture(), tuple: { mode: "catalog", provider: "openrouter", model: "creator/default", reasoning: { kind: "effort", effort: "medium" } }, instructions: "Saved words" }
   await mount()
-  expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent("Finish setup")
-  expect(creator().getByText(/FORMULACMS_DEV_OPENROUTER_API_KEY is missing/)).toBeInTheDocument()
-  expect(creator().getAllByRole("combobox")[0]).toHaveValue("openrouter")
-  expect(within(creator().getAllByRole("combobox")[0]).getByRole("option", { name: "OpenRouter · not set up" })).toBeEnabled()
+  expect(screen.getByTestId("provider-sliceCreator")).toHaveTextContent("OpenRouter")
   expect(creator().getByRole("textbox")).toHaveValue("Saved words")
   fireEvent.click(creator().getByRole("button", { name: "Reset to default" }))
   expect(creator().getByRole("textbox")).toHaveValue("")
+  expect(creator().getByRole("textbox")).toHaveAttribute("placeholder", en.settings.aiScreen.sliceCreator.prompt)
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(mocks.saveCreator).toHaveBeenCalledWith({ tuple: mocks.creator && (mocks.creator as Creator).tuple }))
 })
 
-test("the page and assistant badges are the same with and without the Slice creator", async () => {
-  const badges = () => ["ai-page-status", "assistant-status-writing", "assistant-status-translation", "assistant-status-help"].map((id) => screen.getByTestId(id).textContent)
+test("the assistant badges are the same with and without the Slice creator", async () => {
+  const badges = () => ["assistant-status-writing", "assistant-status-translation", "assistant-status-help"].map((id) => screen.getByTestId(id).textContent)
   status().connections[1].state = "missing"
   const live = await mount("en", { local: false })
   const without = badges()
@@ -529,12 +670,17 @@ test("the page and assistant badges are the same with and without the Slice crea
   expect(badges()).toEqual(without)
 })
 
-test("card header triggers have no border width, so the admin border colour draws no outline", async () => {
-  await mount("en", { expand: false })
-  const triggers = [...document.querySelectorAll('[data-slot="accordion-trigger"]')]
-  expect(triggers).toHaveLength(5)
-  for (const trigger of triggers) {
-    expect(trigger).toHaveClass("border-0")
-    expect(trigger).not.toHaveClass("border")
-  }
+test("the word map and the set-up rule", () => {
+  const connections = (state: "missing" | "refused" | "connected" | "unreachable") =>
+    (["anthropic", "openrouter", "openai"] as const).map((provider) => ({ provider, state, envVar: "X" }))
+  expect((["missing", "refused", "connected", "unreachable"] as const).map((state) => statusWord("openai", connections(state), undefined)))
+    .toEqual(["notSetUp", "invalidKey", "ready", "ready"])
+  const tools = (status: LocalToolStatus) => ({ tools: [{ tool: "claude" as const, status }, { tool: "codex" as const, status: "signed-out" as const }] })
+  expect((["plan", "api-key", "unknown", "signed-out", "not-installed"] as const).map((status) => statusWord("claude", [], tools(status))))
+    .toEqual(["ready", "ready", "ready", "signedOut", "signedOut"])
+  expect(statusWord("codex", [], undefined)).toBe("signedOut")
+  // A subscription alone counts; refused keys do not.
+  expect(anyProviderSetUp(connections("refused"), tools("plan"))).toBe(true)
+  expect(anyProviderSetUp(connections("refused"), tools("signed-out"))).toBe(false)
+  expect(anyProviderSetUp(connections("unreachable"), undefined)).toBe(true)
 })
