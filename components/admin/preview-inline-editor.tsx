@@ -4,7 +4,7 @@ import type {
   ResolvedFieldContract,
 } from "@/convex/lib/richtext/contracts"
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
 import { UndoRedo } from "@tiptap/extensions/undo-redo"
 import { Editor, type JSONContent } from "@tiptap/core"
 import { extensionsForContract } from "@/lib/rich-text/extensions"
@@ -20,6 +20,10 @@ import { isLegacyTitleHtml } from "@/convex/lib/richtext/write"
 import { parseLegacyTitle } from "@/lib/rich-text/title-write"
 import { TitleInput } from "@/lib/rich-text/title-input"
 import { normalizePreviewInlineDocument } from "./preview-inline-document"
+import {
+  applyPreviewClickToEditor,
+  type PreviewClickPoint,
+} from "./rich-text-caret"
 import {
   withInlineHeadingProjection,
   selectedHeadingLevel,
@@ -121,7 +125,7 @@ export function PreviewInlineEditor({
   fieldPath: string
   label: string
   className?: string
-  initialPoint?: { left: number; top: number }
+  initialPoint?: PreviewClickPoint
   onChange(value: string, removedLinks?: RemovedRichTextLink[]): void
   onCancel(): void
   onCommit(): void
@@ -176,7 +180,31 @@ export function PreviewInlineEditor({
         : prepareInlineValue(value, contract, initialAttributes.resolvedContract)
   )
   const removedLinks = useRef(seed.removedLinks)
-  useEffect(() => {
+  // Declared before the mount effect, so it runs (as a no-op) before the
+  // editor exists and keeps the mount-time class until a later prop change.
+  useLayoutEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    editor.setOptions({
+      editorProps: {
+        ...editor.options.editorProps,
+        attributes: {
+          role: "textbox",
+          "aria-multiline": "true",
+          "aria-label": label,
+          "data-preview-inline-editor": "",
+          class: cn(
+            className,
+            contract === "basic" && BASIC_PARAGRAPH_GAP,
+            "outline outline-1 outline-primary/60"
+          ),
+        },
+      },
+    })
+  }, [className, label, fieldPath, contract])
+  // A layout effect: the editor's text is in the host before the browser
+  // paints, so opening the field never shows an empty host.
+  useLayoutEffect(() => {
     if (!host.current) return
     function retainLinks(links: RemovedRichTextLink[]) {
       removedLinks.current = mergeRemovedLinks(removedLinks.current, links)
@@ -469,12 +497,11 @@ export function PreviewInlineEditor({
         return completed(chain.toggleMark(command).run())
       },
     })
-    // The mounted view shares the click's frame viewport. Map once, before
-    // focus can scroll; later prop echoes must preserve the active selection.
-    const hit = initialAttributes.initialPoint
-      ? editor.view.posAtCoords(initialAttributes.initialPoint)
-      : null
-    editor.commands.focus(hit?.pos ?? "end")
+    // Prefer the text offset read at click time: the frame can scroll
+    // between the click and this mount, so the point may no longer be over
+    // the clicked word. Map once, without scrolling; later prop echoes
+    // must preserve the active selection.
+    applyPreviewClickToEditor(editor, initialAttributes.initialPoint)
     return () => {
       editorRef.current = null
       onFlushHandleChange?.(null)
@@ -490,26 +517,6 @@ export function PreviewInlineEditor({
     block,
     floor,
   ])
-  useLayoutEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    editor.setOptions({
-      editorProps: {
-        ...editor.options.editorProps,
-        attributes: {
-          role: "textbox",
-          "aria-multiline": "true",
-          "aria-label": label,
-          "data-preview-inline-editor": "",
-          class: cn(
-            className,
-            contract === "basic" && BASIC_PARAGRAPH_GAP,
-            "outline outline-1 outline-primary/60"
-          ),
-        },
-      },
-    })
-  }, [className, label, fieldPath, contract])
 
   // No prop echo into Tiptap: its active text DOM, range and history stay owned
   // by the editor until this island exits. The session projects emitted values.

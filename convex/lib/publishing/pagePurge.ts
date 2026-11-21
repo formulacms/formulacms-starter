@@ -156,7 +156,7 @@ export const PAGE_KEYED_TABLES: Record<string, PageKeyedRole> = {
     role: "owned",
     phase: "intents",
     reason:
-      "Only `complete` rows are deleted. pending and running block (revalidation_pending); failed rows stay until the existing drain finishes them (it never reads the Page).",
+      "Only `complete` rows are deleted. The worker waits at the start of the intents phase (and again in the final step) while a row is pending or running; failed rows stay until the existing drain finishes them (it never reads the Page).",
   },
   pagePublicationMigrationPages: {
     role: "owned",
@@ -335,10 +335,20 @@ export async function assertNoPagePurge(
     throw new ConvexError("PAGE_PURGE_IN_PROGRESS")
 }
 
-/** Language operations start only when no purge is running. */
+/**
+ * Language, module and content-type operations start only when no purge has
+ * started. A queued request (no `startedAt`) does not count: the daily batch
+ * waits for an open language operation before it starts a purge instead.
+ */
 export async function assertNoPagePurgeInProgress(ctx: ReadCtx): Promise<void> {
-  const any = await ctx.db.query("pagePurges").first()
-  if (any) throw new ConvexError("PAGE_PURGE_IN_PROGRESS")
+  // The common case (no marker at all) stays one cheap read.
+  if (!(await ctx.db.query("pagePurges").first())) return
+  for await (const row of ctx.db
+    .query("pagePurges")
+    .withIndex("by_requestedAt")) {
+    if (row.startedAt !== undefined)
+      throw new ConvexError("PAGE_PURGE_IN_PROGRESS")
+  }
 }
 
 // ─── Refusal rules ─────────────────────────────────────────────────────────
@@ -347,7 +357,6 @@ export type PagePurgeReason =
   | "children"
   | "incoming_links"
   | "menus"
-  | "revalidation_pending"
   | "language_operation"
   | "not_trashed"
   | "stale"
@@ -418,7 +427,7 @@ async function titlesOf(ctx: ReadCtx, ids: Iterable<Id<"pages">>) {
 }
 
 /** The open language transition or default migration, if any. */
-async function languageOperationOpen(ctx: ReadCtx): Promise<boolean> {
+export async function languageOperationOpen(ctx: ReadCtx): Promise<boolean> {
   try {
     const state = await readSiteLanguageState(ctx)
     if (state.kind === "invalid") return true
@@ -572,15 +581,27 @@ export async function checkPagePurge(
       },
     }
 
-  // Revalidation still in flight. `failed` never blocks.
+  // Revalidation in flight never refuses the start: the worker waits for it
+  // (`revalidationInFlight`) before it removes anything the drain still needs.
+  return null
+}
+
+/**
+ * True while a revalidation intent of the Page is `pending` or `running`.
+ * `failed` and `complete` never count. The worker waits on this, the start
+ * does not refuse on it.
+ */
+export async function revalidationInFlight(
+  ctx: ReadCtx,
+  pageId: Id<"pages">
+): Promise<boolean> {
   const intents = ctx.db
     .query("pagePublicationRevalidationIntents")
     .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", pageId))
   for await (const intent of intents) {
-    if (intent.status === "pending" || intent.status === "running")
-      return { reason: "revalidation_pending" }
+    if (intent.status === "pending" || intent.status === "running") return true
   }
-  return null
+  return false
 }
 
 /** Pages already queued and still moving (not stalled). */
@@ -893,6 +914,13 @@ async function runPhase(
     case "redirects":
       return drainRedirects(ctx, pageId, budget)
     case "intents":
+      // The revalidation drain still reads this Page's intent rows (and the
+      // reference rows its later phases delete). Wait here, before the first
+      // phase that removes them; the start never refuses on it.
+      if (await revalidationInFlight(ctx, pageId)) {
+        hold({ kind: "wait", reason: "revalidation_pending" })
+        return false
+      }
       return drainCompleteIntents(ctx, pageId, budget)
     case "routes":
       return drain(
@@ -1157,11 +1185,10 @@ async function runFinal(
     strictLinks: true,
   })
   if (refusal) {
-    // Revalidation and language operations end by themselves; a child that is
-    // still queued will be gone first once the worker reaches it. Everything
-    // else is a real new reference: stop and keep the marker.
+    // Language operations end by themselves; a child that is still queued
+    // will be gone first once the worker reaches it. Everything else is a
+    // real new reference: stop and keep the marker.
     const waits =
-      refusal.reason === "revalidation_pending" ||
       refusal.reason === "language_operation" ||
       (refusal.reason === "children" &&
         (await childrenAllQueued(ctx, pageId, queued))) ||
@@ -1171,6 +1198,11 @@ async function runFinal(
         (refusal.blockers?.length ?? 0) > 0 &&
         refusal.blockers!.every((id) => queued.has(id)))
     hold({ kind: waits ? "wait" : "stop", reason: refusal.reason })
+    return false
+  }
+  // Revalidation that started after the intents phase ends by itself.
+  if (await revalidationInFlight(ctx, pageId)) {
+    hold({ kind: "wait", reason: "revalidation_pending" })
     return false
   }
   // A trashed Page still accepts presence, editor-lock and preview writes, so

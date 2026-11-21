@@ -1309,6 +1309,20 @@ async function expectedAfterC1(
       (write) => (write === oldWrite ? newWrite : write)
     )
   }
+  // Publication now schedules one immediate revalidation drain per mutation
+  // that inserts intents. The frozen fixture predates it: publish and withdraw
+  // gain exactly one "schedule" write, and the setup's own publishes drain
+  // right away, so the initial census holds more revalidation attempts (one
+  // per drained intent step: S0 and S1 two more, S2 four more).
+  for (const operation of ["publish", "withdraw"] as const) {
+    const node = selectionWrites[operation]!
+    node.writes = [
+      ...node.writes,
+      "schedule cms/revalidate:drainPublicationRevalidationIntents",
+    ].sort()
+  }
+  ;(expected.initialCensus as Record<string, number>).revalidationAttempts +=
+    key.startsWith("S2/") ? 4 : 2
   // Bootstrap initializes one counter per catalog presentation (staging.ts).
   // Source has nine; the five-Type starter has six, and no-Hero has four.
   // Adapt only S1's selection census; every other field stays exact.

@@ -23,8 +23,56 @@ const mocks = vi.hoisted(() => ({
   defaultLocale: "en" as string | undefined,
   pages: [] as unknown[],
   snapshotPages: [] as unknown[],
+  pagesStatus: "Exhausted" as string,
+  loadMorePages: vi.fn(),
+  contentPages: [] as unknown[],
   images: [] as unknown[],
 }))
+
+type Store = {
+  getAllQueries: (reference: unknown) => Array<{ args: object; value: object }>
+  setQuery: (reference: unknown, args: object, value: object) => void
+}
+
+/** Runs an optimistic update against the Trash and Content lists. */
+function optimistic(
+  update: (store: Store, args: unknown) => void,
+  args: unknown
+) {
+  const opts = { numItems: 25, cursor: null }
+  update(
+    {
+      getAllQueries: (reference) =>
+        getFunctionName(reference as never) === "cms/publication:listAdminPages"
+          ? [
+              {
+                args: { scope: "trash", paginationOpts: opts },
+                value: {
+                  page: mocks.snapshotPages,
+                  isDone: true,
+                  continueCursor: "",
+                },
+              },
+              {
+                args: { scope: "content", paginationOpts: opts },
+                value: {
+                  page: mocks.contentPages,
+                  isDone: true,
+                  continueCursor: "",
+                },
+              },
+            ]
+          : [],
+      setQuery: (_reference, args, value) => {
+        const page = (value as { page: unknown[] }).page
+        if ((args as { scope: string }).scope === "trash")
+          mocks.snapshotPages = page
+        else mocks.contentPages = page
+      },
+    },
+    args
+  )
+}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: mocks.refresh }),
@@ -54,9 +102,9 @@ vi.mock("convex/react", () => ({
       return { status: "Exhausted", results: mocks.images, loadMore: vi.fn() }
     if (name === "cms/publication:listAdminPages")
       return {
-        status: "Exhausted",
+        status: mocks.pagesStatus,
         results: mocks.snapshotPages,
-        loadMore: vi.fn(),
+        loadMore: mocks.loadMorePages,
       }
     throw new Error(`unexpected paginated query ${name}`)
   },
@@ -70,8 +118,15 @@ vi.mock("convex/react", () => ({
       "cms/media:restore": mocks.restoreMedia,
       "cms/media:purgeTrashedMedia": mocks.purgeMedia,
     }
-    if (!byName[name]) throw new Error(`unexpected mutation ${name}`)
-    return byName[name]
+    const mutation = byName[name] as (args: unknown) => unknown
+    if (!mutation) throw new Error(`unexpected mutation ${name}`)
+    return Object.assign((args: unknown) => mutation(args), {
+      withOptimisticUpdate:
+        (update: (store: Store, args: unknown) => void) => (args: unknown) => {
+          optimistic(update, args)
+          return mutation(args)
+        },
+    })
   }),
 }))
 
@@ -134,7 +189,11 @@ beforeEach(() => {
   mocks.restoreLegacy.mockResolvedValue(null)
   mocks.restoreSnapshot.mockResolvedValue({ addressNotices: [] })
   mocks.restoreMedia.mockResolvedValue(null)
-  mocks.deleteImpact.mockResolvedValue({ children: [], redirects: 0, menus: [] })
+  mocks.deleteImpact.mockResolvedValue({
+    children: [],
+    redirects: 0,
+    menus: [],
+  })
   mocks.purgeImpact.mockImplementation(({ pageIds }: { pageIds: string[] }) =>
     Promise.resolve(
       pageIds.map((pageId) => ({ pageId, canPurge: true, redirects: 0 }))
@@ -153,6 +212,8 @@ beforeEach(() => {
   mocks.authority = "legacy"
   mocks.pages = [page]
   mocks.snapshotPages = []
+  mocks.pagesStatus = "Exhausted"
+  mocks.contentPages = []
   mocks.images = []
 })
 
@@ -220,8 +281,12 @@ describe("TrashList legacy pages", () => {
   test("renders trash actions in French", () => {
     render(<TrashList />, { locale: "fr" })
 
-    expect(screen.getByRole("button", { name: "Restaurer" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Supprimer" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Restaurer" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Supprimer" })
+    ).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Supprimer la sélection" })
     ).toBeDisabled()
@@ -333,7 +398,9 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }))
 
     await waitFor(() =>
-      expect(mocks.success).toHaveBeenCalledWith("1 page is being deleted.")
+      expect(mocks.success).toHaveBeenCalledWith(
+        "“Summer sale” will be deleted permanently."
+      )
     )
     expect(mocks.confirm).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -360,12 +427,19 @@ describe("TrashList snapshot pages", () => {
     render(<TrashList />)
     const all = screen.getByRole("checkbox", { name: "Select all" })
     expect(all).toHaveAttribute("aria-checked", "false")
-    expect(screen.getByRole("button", { name: "Restore selected" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Delete selected" })).toBeDisabled()
+    expect(
+      screen.getByRole("button", { name: "Restore selected" })
+    ).toBeDisabled()
+    expect(
+      screen.getByRole("button", { name: "Delete selected" })
+    ).toBeDisabled()
 
     tick("About us")
     tick("Contact")
-    expect(screen.getByText("2 selected")).toHaveAttribute("aria-live", "polite")
+    expect(screen.getByText("2 selected")).toHaveAttribute(
+      "aria-live",
+      "polite"
+    )
     expect(all).toHaveAttribute("aria-checked", "mixed")
     expect(screen.getByRole("button", { name: "Restore 2" })).toBeEnabled()
     expect(screen.getByRole("button", { name: "Delete 2" })).toBeEnabled()
@@ -443,7 +517,7 @@ describe("TrashList snapshot pages", () => {
       })),
     })
     expect(mocks.error).toHaveBeenCalledWith(
-      "1 page is being deleted. “About us” was not deleted: it has 2 child pages. Move or delete them first. “Contact” was not deleted: menu main links to it. Remove those links or delete the menu first."
+      "“Old team news” will be deleted permanently. “About us” was not deleted: it has 2 child pages. Move or delete them first. “Contact” was not deleted: menu main links to it. Remove those links or delete the menu first."
     )
     expect(mocks.success).not.toHaveBeenCalled()
   })
@@ -457,13 +531,19 @@ describe("TrashList snapshot pages", () => {
       {
         pageId: "p1",
         canPurge: false,
-        reason: "revalidation_pending",
+        reason: "menus",
+        detail: { count: 1, menus: ["main"] },
         redirects: 0,
       },
       { pageId: "p2", canPurge: true, redirects: 2 },
     ])
     mocks.purge.mockResolvedValue([
-      { pageId: "p1", status: "refused", reason: "revalidation_pending" },
+      {
+        pageId: "p1",
+        status: "refused",
+        reason: "menus",
+        detail: { count: 1, menus: ["main"] },
+      },
       { pageId: "p2", status: "started" },
     ])
 
@@ -486,7 +566,7 @@ describe("TrashList snapshot pages", () => {
       })),
     })
     expect(mocks.error).toHaveBeenCalledWith(
-      "1 page is being deleted. “Winter campaign” was not deleted: it is still being removed from the public site. Try again in a minute."
+      "“Summer sale” will be deleted permanently. “Winter campaign” was not deleted: menu main links to it. Remove those links or delete the menu first."
     )
   })
 
@@ -513,7 +593,7 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete 30" }))
     await waitFor(() =>
       expect(mocks.success).toHaveBeenCalledWith(
-        "30 pages are being deleted."
+        "30 pages will be deleted permanently."
       )
     )
     expect(mocks.purge).toHaveBeenCalledTimes(2)
@@ -577,7 +657,7 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete 4" }))
     await waitFor(() =>
       expect(mocks.error).toHaveBeenCalledWith(
-        "1 page is being deleted. “About us” changed since this list loaded. Refresh the page and try again. A language change is running. Try again when it is finished."
+        "“Home” will be deleted permanently. “About us” changed since this list loaded. Refresh the page and try again. A language change is running. Try again when it is finished."
       )
     )
   })
@@ -592,60 +672,128 @@ describe("TrashList snapshot pages", () => {
     )
   })
 
-  test("a stopped delete: own text, Delete retries it, Restore is off", async () => {
+  test("a stopped delete: a notice above the list, Retry deletion, no row", async () => {
     mocks.snapshotPages = [
       snapshotPage("p1", "Old team news", { purgeStalled: true }),
       snapshotPage("p2", "Contact"),
     ]
-    // The page's drafts are already gone, so the check alone would refuse.
-    mocks.purgeImpact.mockResolvedValue([
-      { pageId: "p1", canPurge: false, reason: "not_trashed", redirects: 0 },
-    ])
     const view = render(<TrashList />)
-    const row = screen.getByTestId("row-p1")
-    expect(row).toHaveTextContent(
-      "Delete stopped before it finished. Select Delete to try again."
-    )
-    expect(row).not.toHaveTextContent("Deleting…")
-    expect(row).not.toHaveTextContent("Moved")
+    const notice = screen.getByTestId("stalled-p1")
+    expect(notice).toHaveTextContent("Deletion of “Old team news” stopped.")
+    expect(screen.queryByTestId("row-p1")).not.toBeInTheDocument()
     expect(
-      screen.getByRole("checkbox", { name: "Old team news" })
-    ).toBeEnabled()
-    const restore = row.querySelectorAll("button:not([role=checkbox])")[0]!
-    const remove = row.querySelectorAll("button:not([role=checkbox])")[1]!
-    expect(restore).toHaveTextContent("Restore")
-    expect(restore).toBeDisabled()
-    expect(remove).toBeEnabled()
-
-    // Bar Restore leaves the stopped page out.
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select all" }))
-    expect(screen.getByText("2 selected")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Restore 1" })).toBeEnabled()
-    expect(screen.getByRole("button", { name: "Delete 2" })).toBeEnabled()
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select all" }))
-    tick("Old team news")
+      screen.queryByRole("checkbox", { name: "Old team news" })
+    ).not.toBeInTheDocument()
+    // The notice comes before the list.
     expect(
-      screen.getByRole("button", { name: "Restore selected" })
-    ).toBeDisabled()
-    tick("Old team news")
+      notice.compareDocumentPosition(screen.getByTestId("trash-bar")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
 
-    // Delete retries it through the real handler; the row then runs again.
-    fireEvent.click(remove)
+    // Retry re-queues at once: no check, no confirm; the notice leaves.
+    fireEvent.click(screen.getByRole("button", { name: "Retry deletion" }))
     await waitFor(() =>
-      expect(mocks.success).toHaveBeenCalledWith("1 page is being deleted.")
+      expect(mocks.success).toHaveBeenCalledWith(
+        "“Old team news” will be deleted permanently."
+      )
     )
     expect(mocks.purge).toHaveBeenCalledWith({
       items: [{ pageId: "p1", expectedLifecycleGeneration: 5 }],
     })
-    mocks.snapshotPages = [
-      snapshotPage("p1", "Old team news", { purging: true }),
-      snapshotPage("p2", "Contact"),
-    ]
+    expect(mocks.purgeImpact).not.toHaveBeenCalled()
+    expect(mocks.confirm).not.toHaveBeenCalled()
     view.rerender(<TrashList />)
-    expect(screen.getByTestId("row-p1")).toHaveTextContent("Deleting…")
-    mocks.snapshotPages = [snapshotPage("p2", "Contact")]
+    expect(screen.queryByTestId("stalled-p1")).not.toBeInTheDocument()
+    expect(screen.getByTestId("row-p2")).toBeInTheDocument()
+  })
+
+  test("a stopped delete alone: the notice, never “Trash is empty”, in French", () => {
+    mocks.snapshotPages = [
+      snapshotPage("p1", "Old team news", { purgeStalled: true }),
+    ]
+    render(<TrashList />, { locale: "fr" })
+    expect(screen.getByTestId("stalled-p1")).toHaveTextContent(
+      "La suppression de « Old team news » s’est arrêtée."
+    )
+    expect(
+      screen.getByRole("button", { name: "Relancer la suppression" })
+    ).toBeEnabled()
+    expect(screen.queryByText("La corbeille est vide.")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Restaurer" })).toBeNull()
+  })
+
+  test("Delete removes rows at once; a refused row comes back", async () => {
+    mocks.snapshotPages = [
+      snapshotPage("p1", "About us"),
+      snapshotPage("p2", "Contact"),
+      snapshotPage("p3", "Pricing"),
+    ]
+    mocks.contentPages = [snapshotPage("c1", "Live page")]
+    let answer!: (value: unknown) => void
+    mocks.purge.mockReturnValue(new Promise((resolve) => (answer = resolve)))
+    const view = render(<TrashList />)
+    tick("About us")
+    tick("Contact")
+    fireEvent.click(screen.getByRole("button", { name: "Delete 2" }))
+    await waitFor(() => expect(mocks.purge).toHaveBeenCalledTimes(1))
+
+    // Before the server answers, both rows are gone and unselected.
     view.rerender(<TrashList />)
     expect(screen.queryByTestId("row-p1")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("row-p2")).not.toBeInTheDocument()
+    expect(screen.getByTestId("row-p3")).toBeInTheDocument()
+    expect(screen.queryByText(/^\d+ selected$/)).not.toBeInTheDocument()
+    expect(mocks.contentPages).toHaveLength(1)
+
+    // The server refuses "About us": its list still holds it, so it returns.
+    mocks.snapshotPages = [
+      snapshotPage("p1", "About us"),
+      snapshotPage("p3", "Pricing"),
+    ]
+    answer([
+      {
+        pageId: "p1",
+        status: "refused",
+        reason: "menus",
+        detail: { count: 1, menus: ["main"] },
+      },
+      { pageId: "p2", status: "started" },
+    ])
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "“Contact” will be deleted permanently. “About us” was not deleted: menu main links to it. Remove those links or delete the menu first."
+      )
+    )
+    view.rerender(<TrashList />)
+    expect(screen.getByTestId("row-p1")).toBeInTheDocument()
+    expect(screen.getByRole("checkbox", { name: "About us" })).toHaveAttribute(
+      "aria-checked",
+      "false"
+    )
+    expect(screen.queryByTestId("row-p2")).not.toBeInTheDocument()
+  })
+
+  test("an empty loaded page loads the next one, five times at most", () => {
+    mocks.pagesStatus = "CanLoadMore"
+    const view = render(<TrashList />)
+    expect(mocks.loadMorePages).toHaveBeenCalledWith(25)
+    expect(screen.queryByText("Trash is empty.")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Load more" })).toBeEnabled()
+    for (let i = 0; i < 6; i += 1) {
+      mocks.pagesStatus = "LoadingMore"
+      view.rerender(<TrashList />)
+      expect(screen.queryByText("Trash is empty.")).not.toBeInTheDocument()
+      mocks.pagesStatus = "CanLoadMore"
+      view.rerender(<TrashList />)
+    }
+    expect(mocks.loadMorePages).toHaveBeenCalledTimes(5)
+    // The owner can still load on by hand.
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }))
+    expect(mocks.loadMorePages).toHaveBeenCalledTimes(6)
+
+    mocks.pagesStatus = "Exhausted"
+    view.rerender(<TrashList />)
+    expect(screen.getByText("Trash is empty.")).toBeInTheDocument()
   })
 
   test("pages refused for a selected child or link are sent again", async () => {
@@ -681,7 +829,7 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete 26" }))
     await waitFor(() =>
       expect(mocks.success).toHaveBeenCalledWith(
-        "26 pages are being deleted."
+        "26 pages will be deleted permanently."
       )
     )
     expect(mocks.error).not.toHaveBeenCalled()
@@ -724,7 +872,7 @@ describe("TrashList snapshot pages", () => {
     await waitFor(() => expect(mocks.error).toHaveBeenCalledTimes(1))
     expect(mocks.purge).toHaveBeenCalledTimes(2)
     expect(mocks.error).toHaveBeenCalledWith(
-      "1 page is being deleted. “About us” was not deleted: it has 1 child page. Move or delete it first."
+      "“Contact” will be deleted permanently. “About us” was not deleted: it has 1 child page. Move or delete it first."
     )
   })
 
@@ -738,7 +886,7 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Supprimer 2" }))
     await waitFor(() =>
       expect(mocks.success).toHaveBeenCalledWith(
-        "Suppression de 2 pages en cours."
+        "2 pages seront supprimées définitivement."
       )
     )
   })
@@ -756,7 +904,9 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Select all" }))
     fireEvent.click(screen.getByRole("button", { name: "Delete 12" }))
     await waitFor(() =>
-      expect(mocks.success).toHaveBeenCalledWith("12 pages are being deleted.")
+      expect(mocks.success).toHaveBeenCalledWith(
+        "12 pages will be deleted permanently."
+      )
     )
     expect(
       mocks.purgeImpact.mock.calls.map((call) => call[0].pageIds.length)
@@ -774,18 +924,25 @@ describe("TrashList snapshot pages", () => {
     mocks.snapshotPages = Array.from({ length: 7 }, (_, i) =>
       snapshotPage(`p${i}`, `Page ${i}`)
     )
-    mocks.purgeImpact.mockImplementation(({ pageIds }: { pageIds: string[] }) =>
-      pageIds.includes("p0")
-        ? Promise.reject(new Error("too many reads"))
-        : Promise.resolve(
-            pageIds.map((pageId) => ({ pageId, canPurge: true, redirects: 3 }))
-          )
+    mocks.purgeImpact.mockImplementation(
+      ({ pageIds }: { pageIds: string[] }) =>
+        pageIds.includes("p0")
+          ? Promise.reject(new Error("too many reads"))
+          : Promise.resolve(
+              pageIds.map((pageId) => ({
+                pageId,
+                canPurge: true,
+                redirects: 3,
+              }))
+            )
     )
     render(<TrashList />)
     fireEvent.click(screen.getByRole("checkbox", { name: "Select all" }))
     fireEvent.click(screen.getByRole("button", { name: "Delete 7" }))
     await waitFor(() =>
-      expect(mocks.success).toHaveBeenCalledWith("7 pages are being deleted.")
+      expect(mocks.success).toHaveBeenCalledWith(
+        "7 pages will be deleted permanently."
+      )
     )
     // Only the group that answered adds its redirects (2 pages × 3).
     expect(mocks.confirm).toHaveBeenCalledWith(
@@ -797,57 +954,34 @@ describe("TrashList snapshot pages", () => {
     expect(mocks.error).not.toHaveBeenCalled()
   })
 
-  test("a page still being deleted is greyed with everything disabled", () => {
-    mocks.snapshotPages = [
-      snapshotPage("p1", "Old team news", { purging: true }),
-      snapshotPage("p2", "Contact"),
-    ]
-    render(<TrashList />)
-    const row = screen.getByTestId("row-p1")
-    expect(row).toHaveTextContent("Deleting…")
-    expect(row).not.toHaveTextContent("Moved")
-    expect(
-      screen.getByRole("checkbox", { name: "Old team news" })
-    ).toBeDisabled()
-    for (const button of row.querySelectorAll("button:not([role=checkbox])"))
-      expect(button).toBeDisabled()
-    expect(screen.getByTestId("row-p2")).toHaveTextContent("Moved")
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select all" }))
-    expect(screen.getByText("1 selected")).toBeInTheDocument()
-    fireEvent.click(row)
-    expect(screen.getByText("1 selected")).toBeInTheDocument()
-  })
-
   test("bar Restore restores one at a time and keeps every address notice", async () => {
     mocks.snapshotPages = [
       snapshotPage("p1", "Workshops"),
       snapshotPage("p2", "Contact"),
     ]
-    mocks.restoreSnapshot.mockImplementation(
-      ({ pageId }: { pageId: string }) =>
-        Promise.resolve({
-          addressNotices:
-            pageId === "p1"
-              ? [
-                  {
+    mocks.restoreSnapshot.mockImplementation(({ pageId }: { pageId: string }) =>
+      Promise.resolve({
+        addressNotices:
+          pageId === "p1"
+            ? [
+                {
+                  locale: "en",
+                  oldPath: "/workshops",
+                  newPath: "/workshops-2",
+                  check: {
+                    kind: "taken",
                     locale: "en",
-                    oldPath: "/workshops",
-                    newPath: "/workshops-2",
-                    check: {
-                      kind: "taken",
-                      locale: "en",
-                      path: "/workshops",
-                      holder: {
-                        pageId: "holder",
-                        pageType: "landing-page",
-                        title: "Workshops 2026",
-                      },
+                    path: "/workshops",
+                    holder: {
+                      pageId: "holder",
+                      pageType: "landing-page",
+                      title: "Workshops 2026",
                     },
                   },
-                ]
-              : [],
-        })
+                },
+              ]
+            : [],
+      })
     )
 
     render(<TrashList />)
@@ -909,9 +1043,7 @@ describe("TrashList images", () => {
     ])
     render(<TrashList />)
     openImagesTab()
-    fireEvent.click(
-      screen.getAllByRole("button", { name: "Delete" })[0]!
-    )
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]!)
 
     await waitFor(() => expect(mocks.error).toHaveBeenCalledTimes(1))
     expect(mocks.confirm).toHaveBeenCalledWith(

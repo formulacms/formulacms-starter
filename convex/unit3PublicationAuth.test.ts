@@ -141,7 +141,10 @@ async function publish(f: Fixture) {
   const write = await publishArguments(f)
   if (write.kind === "snapshot") {
     await f.owner.mutation(api.cms.publication.publishLocale, write.args)
+    // The publish inserts one intent and schedules one immediate drain, which
+    // (with no revalidation target configured) records one attempt.
     scheduledExpectations.get(f.t)!.intents += 1
+    scheduledExpectations.get(f.t)!.jobs += 1
   } else {
     await f.owner.mutation(api.cms.pages.publish, write.args)
     scheduledExpectations.get(f.t)!.jobs += 1
@@ -196,7 +199,10 @@ async function settleScheduledWork(t: App) {
   expect(intents).toHaveLength(expected.intents)
   for (const job of jobs) expect(job.state.kind).toBe("success")
   for (const attempt of attempts) expect(attempt.status).toBe("unconfigured")
-  for (const intent of intents) expect(intent.status).toBe("pending")
+  for (const intent of intents) {
+    expect(intent.status).toBe("complete")
+    expect(intent.lastErrorCode).toBe("REVALIDATION_UNCONFIGURED")
+  }
 }
 
 describe("Unit3 selected publication and write authorization", () => {

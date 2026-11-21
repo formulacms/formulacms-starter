@@ -60,12 +60,14 @@ crons.cron(
   {}
 )
 
-// PERMANENT-DELETE: restart the purge worker when a queued Page has not moved
-// for ten minutes (the worker normally reschedules itself).
+// PERMANENT-DELETE: Delete in Trash only queues a purge request. This daily
+// batch (08:07 UTC, about 3-4 am in Montreal) starts the worker, which then
+// reschedules itself batch by batch until no queued purge is left. It also
+// restarts a chain that was lost.
 crons.cron(
-  "page purge resume",
-  "20 4 * * *",
-  internal.cms.publication.resumePagePurges,
+  "page purge daily batch",
+  "7 8 * * *",
+  internal.cms.publication.startQueuedPagePurges,
   {}
 )
 

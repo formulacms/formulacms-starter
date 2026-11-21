@@ -3,6 +3,10 @@ import { sliceValidator, type Slice } from "@/convex/lib/slices"
 import { hasValidSliceOccurrencePresentation } from "@/convex/lib/slices/occurrencePresentation"
 import { validateSlicesRichText } from "@/convex/lib/slices/validate"
 import {
+  contentTypeDefs,
+  type DescriptorFieldMap,
+} from "@/convex/lib/contentTypes"
+import {
   applyPageField,
   pageFieldEcho,
   reconcilePageFieldEcho,
@@ -36,6 +40,12 @@ export type LiveFrameInput = LiveFrameIdentity & {
   catalogRevision?: string
   title: string
   slices: Slice[]
+  /** Unsaved descriptor values shared by every language (e.g. author name). */
+  sharedFields?: Record<string, unknown>
+  /** Unsaved descriptor values of this language (e.g. author role title). */
+  localizedFields?: Record<string, unknown>
+  /** Unsaved Post author selection in byline order, lead author first. */
+  authorIds?: string[]
   contentEpoch?: number
   /** Parent-qualified own-edit receipt, scoped to one inline activation. */
   inlineEditEcho?: PreviewInlineEditCommit
@@ -107,6 +117,11 @@ export function validLiveFrameInput(value: unknown): value is LiveFrameInput {
     typeof input.buildId !== "string" ||
     !input.buildId ||
     typeof input.title !== "string" ||
+    !optionalPlainObject(input.sharedFields) ||
+    !optionalPlainObject(input.localizedFields) ||
+    (input.authorIds !== undefined &&
+      (!Array.isArray(input.authorIds) ||
+        !input.authorIds.every((id) => typeof id === "string" && id))) ||
     typeof input.inlineEditingEnabled !== "boolean" ||
     (input.mode !== "light" && input.mode !== "dark") ||
     (input.selectedSliceId !== null &&
@@ -125,6 +140,35 @@ export function validLiveFrameInput(value: unknown): value is LiveFrameInput {
     return false
   }
   return true
+}
+
+function optionalPlainObject(value: unknown) {
+  return (
+    value === undefined ||
+    (value !== null && typeof value === "object" && !Array.isArray(value))
+  )
+}
+
+/**
+ * The unsaved field values the frame may render: only fields the content type
+ * declares, and only values that pass that field's validator. Any other value
+ * is dropped, so the frame shows the stored value for it instead.
+ */
+export function liveFrameFieldValues(
+  pageType: LivePreviewPageType,
+  scope: "sharedFields" | "localizedFields",
+  values: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const fields: DescriptorFieldMap = contentTypeDefs[pageType][scope]
+  const accepted: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(values ?? {})) {
+    if (
+      Object.prototype.hasOwnProperty.call(fields, key) &&
+      validate(fields[key].validator, value)
+    )
+      accepted[key] = value
+  }
+  return accepted
 }
 
 export function sameLiveFrameIdentity(

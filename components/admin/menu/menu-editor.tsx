@@ -20,7 +20,6 @@ import {
   MenuValidationContext,
   useMenuReorder,
 } from "./menu-validation"
-import { MenuPublicationNotice } from "./menu-target-field"
 import { useMutation, useQuery } from "convex/react"
 import {
   ArrowLeft,
@@ -519,9 +518,6 @@ function LocalizedNavItemEditor({
         </Button>
       </div>
 
-      <div className="px-3">
-        <MenuPublicationNotice target={item.target} />
-      </div>
       {expanded && item.panel && !isColumnPanel(item.panel) && (
         <div className="space-y-3 border-t p-3">
           <section className="space-y-3 rounded-md border p-3">

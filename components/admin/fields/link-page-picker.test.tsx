@@ -63,8 +63,10 @@ describe("LinkPagePicker", () => {
     const onChange = vi.fn()
     render(<LinkPagePicker value={undefined} onChange={onChange} locale="fr" />)
 
+    // Block link fields list drafts too; their publish check refuses them.
     expect(mocks.useQuery).toHaveBeenCalledWith(expect.anything(), {
       locale: "fr",
+      includeDrafts: true,
       limit: 100,
     })
     fireEvent.click(screen.getByRole("button", { name: /select a page/i }))
@@ -74,6 +76,23 @@ describe("LinkPagePicker", () => {
     fireEvent.click(screen.getByRole("button", { name: /services français/i }))
 
     expect(onChange).toHaveBeenCalledWith(liveId)
+  })
+
+  it("requests only pages published in the locale when publishedOnly is set", () => {
+    render(
+      <LinkPagePicker
+        value={undefined}
+        onChange={() => {}}
+        locale="fr"
+        publishedOnly
+      />
+    )
+
+    expect(mocks.useQuery).toHaveBeenCalledWith(expect.anything(), {
+      locale: "fr",
+      includeDrafts: false,
+      limit: 100,
+    })
   })
 
   it("keeps an archived selection visible and diagnoses it", () => {

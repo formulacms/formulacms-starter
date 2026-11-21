@@ -914,3 +914,39 @@ test("transport acceptance does not acknowledge replacement before projected DOM
     post.mockRestore()
   }
 })
+
+test("a simulator double click opens the field with the clicked word selected, through the shared click rule", sliceProfile([]), async () => {
+  vi.spyOn(window.parent, "postMessage").mockImplementation(() => {})
+  const { container } = render(frame())
+  currentSimBridge(window)!.connect("parent", {
+    change: vi.fn(() => true),
+    history: vi.fn(),
+    groupEnd: vi.fn(),
+    save: vi.fn(),
+  })
+  const question = container.querySelector<HTMLElement>(
+    '[data-sim-field="items.0.question"]'
+  )!
+  const walker = document.createTreeWalker(question, NodeFilter.SHOW_TEXT)
+  const node = walker.nextNode() as Text
+  const words = node.data.split(" ")
+  expect(words.length).toBeGreaterThan(1)
+  // jsdom has no hit testing: only the browser's caret lookup is shimmed.
+  Object.defineProperty(document, "caretPositionFromPoint", {
+    configurable: true,
+    value: () => ({ offsetNode: node, offset: words[0].length + 2 }),
+  })
+  try {
+    fireEvent.click(question, { detail: 2, clientX: 1, clientY: 1 })
+    const editor = await waitFor(() => {
+      const host = container.querySelector("[data-preview-inline-editor]")
+      expect(host).not.toBeNull()
+      return (host as HTMLElement & { editor: import("@tiptap/core").Editor })
+        .editor
+    })
+    const { from, to } = editor.state.selection
+    expect(editor.state.doc.textBetween(from, to)).toBe(words[1])
+  } finally {
+    Reflect.deleteProperty(document, "caretPositionFromPoint")
+  }
+})

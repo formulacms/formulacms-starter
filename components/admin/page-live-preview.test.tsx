@@ -21,6 +21,7 @@ import { act, fireEvent, waitFor } from "@testing-library/react"
 import { render } from "@/test-utils/admin-i18n"
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -38,7 +39,10 @@ import {
 import type { PreviewInlineEditCommit } from "./visual-editing-types"
 import type { PreviewActiveEditHandle } from "./visual-editing-types"
 import { RichTextContent } from "@/components/slices/rich-text-content"
-import { PageLivePreviewCanvas as PageLivePreview } from "./page-live-preview-canvas"
+import {
+  isBlockMostlyInView,
+  PageLivePreviewCanvas as PageLivePreview,
+} from "./page-live-preview-canvas"
 import type { SliceRenderContext } from "@/lib/slices/links"
 import type { HeroWithImageSlice } from "@/convex/lib/slices"
 import { createSampleSlice } from "@/lib/slices/sample"
@@ -1391,9 +1395,12 @@ describe("descriptor-bound migration click targeting", () => {
     expect(selectSliceFallback).not.toHaveBeenCalled()
   })
 
-  it.each(["primary.eyebrow", "primary.image"])(
+  it.each([
+    ["primary.eyebrow", []],
+    ["primary.image", [{ status: "refused", reason: "unsupported" }]],
+  ] as const)(
     "keeps off-toggle double-click focus exact for %s instead of selecting the slice fallback", sliceProfile([]),
-    (fieldPath) => {
+    (fieldPath, notice) => {
       const migrated = createSampleSlice(
         "hero-with-image"
       ) as HeroWithImageSlice
@@ -1406,9 +1413,10 @@ describe("descriptor-bound migration click targeting", () => {
       )!
       fireEvent.doubleClick(field)
 
+      // Off-toggle text has no "form only" notice; an image keeps it.
       expect(view.baseProps.onSelectField).toHaveBeenCalledWith(
         { sliceId: migrated.id, fieldPath },
-        { status: "refused", reason: "unsupported" }
+        ...notice
       )
       expect(selectSliceFallback).not.toHaveBeenCalled()
     }
@@ -1674,7 +1682,10 @@ describe("Caret placement NEW coordinate consumer contract", () => {
         expect(heading.querySelectorAll("p, div")).toHaveLength(0)
         expect(editor.state.selection.from).toBe(offset + 1)
         expect(editor.state.selection.to).toBe(offset + 1)
-        expect(mapping.caret).toHaveBeenCalledExactlyOnceWith(clientX, clientY)
+        // Once at the click (no preview text there in this shim), then once
+        // by posAtCoords on mount.
+        expect(mapping.caret).toHaveBeenCalledTimes(2)
+        expect(mapping.caret).toHaveBeenCalledWith(clientX, clientY)
         expect(mapping.element).toHaveBeenCalledExactlyOnceWith(
           clientX,
           clientY
@@ -1712,7 +1723,7 @@ describe("Caret placement NEW coordinate consumer contract", () => {
         view.rerender(<PageLivePreview {...view.baseProps} />)
         expect(view.getByRole("textbox")).toBe(host)
         expect(editor.state.selection.from).toBe(offset + 2)
-        expect(mapping.caret).toHaveBeenCalledTimes(1)
+        expect(mapping.caret).toHaveBeenCalledTimes(2)
         expect(view.onConflict).not.toHaveBeenCalled()
         fireEvent.keyDown(host, { key: "Escape" })
         expect(view.queryByRole("textbox")).toBeNull()
@@ -1724,6 +1735,42 @@ describe("Caret placement NEW coordinate consumer contract", () => {
       }
     }
   )
+
+  it("places the caret from the click-time text offset even if the frame scrolls before mount", sliceProfile(["hero-with-image"]), async () => {
+    const view = await centeredTitles()
+    const heading = view.container.querySelector<HTMLElement>(
+      '#caret-first-heading[data-preview-field="primary.title"]'
+    )!
+    const clicked = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT)
+      .nextNode()!
+    const caret = vi.fn((): { offsetNode: Node; offset: number } | null => {
+      // After the click the block has scrolled: the same point is now over
+      // another letter of the mounted editor.
+      if (caret.mock.calls.length > 1) {
+        const node = view.container.querySelector(
+          "[data-preview-inline-editor] span"
+        )?.firstChild
+        return node ? { offsetNode: node, offset: 11 } : null
+      }
+      return { offsetNode: clicked, offset: 4 }
+    })
+    Object.defineProperty(document, "caretPositionFromPoint", {
+      configurable: true,
+      value: caret,
+    })
+    try {
+      fireEvent.click(heading, { detail: 1, clientX: 460, clientY: 180 })
+      const host = await view.findByRole("textbox")
+      const editor = (host as HTMLElement & { editor: Editor }).editor
+      expect(caret).toHaveBeenCalledOnce()
+      expect(editor.state.selection.from).toBe(5)
+      expect(editor.state.selection.to).toBe(5)
+      act(() => editor.commands.insertContent("X"))
+      expect(editor.getText()).toBe("RepeXated headline")
+    } finally {
+      Reflect.deleteProperty(document, "caretPositionFromPoint")
+    }
+  })
 
   it("NEW falls back to the end when a pointing click cannot map into the mounted editor", sliceProfile(["hero-with-image"]), async () => {
     const view = await centeredTitles()
@@ -1742,7 +1789,8 @@ describe("Caret placement NEW coordinate consumer contract", () => {
       expectSoleTitleHeadingMarker(heading)
       expect(editor.view.dom.closest("h1")).toBe(heading)
       expect(heading.querySelectorAll("p, div")).toHaveLength(0)
-      expect(mapping.caret).toHaveBeenCalledExactlyOnceWith(460, 180)
+      expect(mapping.caret).toHaveBeenCalledTimes(2)
+      expect(mapping.caret).toHaveBeenCalledWith(460, 180)
       expect(editor.state.selection.from).toBe(18)
       expect(editor.state.selection.to).toBe(18)
       expect(view.onCommit).not.toHaveBeenCalled()
@@ -2652,4 +2700,128 @@ describe("ED10 preview behaviour", () => {
       frameBody.remove()
     }
   )
+})
+
+describe("form-only rich-text click carries the clicked spot", () => {
+  const body = JSON.stringify({
+    type: "doc",
+    content: [
+      { type: "paragraph", content: [{ type: "text", text: "First one" }] },
+      { type: "paragraph", content: [{ type: "text", text: "Second two" }] },
+    ],
+  })
+  function bodyView() {
+    const slice = createSampleSlice("rich-text-body") as Slice & {
+      primary: { body: string }
+    }
+    slice.primary.body = body
+    const view = setup([slice])
+    enableEditing(view)
+    const field = view.container.querySelector<HTMLElement>(
+      '[data-preview-field="primary.body"]'
+    )!
+    const second = [...field.querySelectorAll("p")].at(-1)!.firstChild!
+    const range = document.createRange()
+    range.setStart(second, 7)
+    Object.defineProperty(document, "caretRangeFromPoint", {
+      configurable: true,
+      value: () => range,
+    })
+    return { view, slice, field }
+  }
+  afterEach(() => {
+    Reflect.deleteProperty(document, "caretRangeFromPoint")
+  })
+
+  it("sends the text offset of a pointer click in paragraph 2", sliceProfile(["rich-text-body"]), () => {
+    const { view, slice, field } = bodyView()
+    fireEvent.click(field.querySelectorAll("p")[1]!, {
+      detail: 1,
+      clientX: 5,
+      clientY: 5,
+    })
+    // 1 + "First one" + 1 + "Second ".
+    expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(
+      { sliceId: slice.id, fieldPath: "primary.body", textOffset: 18 },
+      { status: "refused", reason: "unsupported" }
+    )
+  })
+
+  it("sends no offset for a keyboard click", sliceProfile(["rich-text-body"]), () => {
+    const { view, slice, field } = bodyView()
+    fireEvent.click(field, { detail: 0 })
+    expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(
+      { sliceId: slice.id, fieldPath: "primary.body" },
+      { status: "refused", reason: "unsupported" }
+    )
+  })
+})
+
+describe("plain-text field click carries the clicked letter", () => {
+  function eyebrowView(enabled: boolean) {
+    const view = setup()
+    if (enabled) enableEditing(view)
+    const field = view.container.querySelector<HTMLElement>(
+      '[data-preview-field="primary.eyebrow"]'
+    )!
+    const range = document.createRange()
+    range.setStart(field.firstChild!, 3)
+    Object.defineProperty(document, "caretRangeFromPoint", {
+      configurable: true,
+      value: () => range,
+    })
+    return { view, field }
+  }
+  afterEach(() => {
+    Reflect.deleteProperty(document, "caretRangeFromPoint")
+  })
+
+  it.each([true, false])(
+    "sends the offset with edit-in-preview %s",
+    sliceProfile([]),
+    (enabled) => {
+      const { view, field } = eyebrowView(enabled)
+      expect(field.textContent).toBe("Agency")
+      fireEvent.click(field, { detail: 1, clientX: 5, clientY: 5 })
+      // One implicit block, then "Age". With editing in the preview off,
+      // every field is edited in the form: no "form only" notice.
+      const target = {
+        sliceId: "hero-1",
+        fieldPath: "primary.eyebrow",
+        textOffset: 4,
+      }
+      if (enabled)
+        expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(target, {
+          status: "refused",
+          reason: "unsupported",
+        })
+      else
+        expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(target)
+    }
+  )
+})
+
+describe("selected block scroll condition", () => {
+  const rect = (top: number, height: number) => ({
+    top,
+    bottom: top + height,
+    height,
+  })
+  it("keeps a block that is fully or mostly on screen", () => {
+    expect(isBlockMostlyInView(rect(85, 400), 900)).toBe(true)
+    expect(isBlockMostlyInView(rect(-150, 400), 900)).toBe(true)
+    expect(isBlockMostlyInView(rect(600, 400), 900)).toBe(true)
+  })
+  it("scrolls a block that is out of view or mostly hidden", () => {
+    expect(isBlockMostlyInView(rect(1200, 400), 900)).toBe(false)
+    expect(isBlockMostlyInView(rect(-500, 400), 900)).toBe(false)
+    expect(isBlockMostlyInView(rect(750, 400), 900)).toBe(false)
+  })
+  it("measures a block taller than the viewport against the viewport", () => {
+    expect(isBlockMostlyInView(rect(-1000, 2000), 900)).toBe(true)
+    expect(isBlockMostlyInView(rect(600, 2000), 900)).toBe(false)
+  })
+  it("treats a block without layout as out of view", () => {
+    expect(isBlockMostlyInView(rect(0, 0), 900)).toBe(false)
+  })
 })

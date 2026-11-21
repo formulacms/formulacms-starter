@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import { PREVIEW_BUILD_ID } from "@/lib/preview-build-id"
 import { useTheme } from "next-themes"
 import { useTranslations } from "next-intl"
@@ -36,6 +42,11 @@ import {
 export type PageLivePreviewProps = {
   title: string
   slices: Slice[]
+  /** Unsaved descriptor field values; the frame shows them live. */
+  sharedFieldValues?: Record<string, unknown>
+  localizedFieldValues?: Record<string, unknown>
+  /** Unsaved Post author selection, lead author first. */
+  authorIds?: string[]
   locale: string
   defaultLocale: string
   pageId?: string
@@ -60,6 +71,8 @@ export type PageLivePreviewProps = {
   onActiveEditConflict?(): void
   onSave(): void
   onOpenSavedPreview(): void
+  /** Extra control at the right end of the toolbar (the editor's "Hide preview"). */
+  toolbarEnd?: ReactNode
 }
 const VIEWPORTS = {
   desktop: { width: 1280, height: 900, Icon: Monitor },
@@ -76,6 +89,9 @@ export function LivePreviewFrame(props: PageLivePreviewProps) {
   )
     return (
       <div className="space-y-3 p-4">
+        {props.toolbarEnd && (
+          <div className="@container flex">{props.toolbarEnd}</div>
+        )}
         <p role="status">{t("frameUnsupported")}</p>
         <button type="button" onClick={props.onOpenSavedPreview}>
           {t("saved")}
@@ -169,6 +185,9 @@ function BoundLivePreviewFrame(
     pageType: props.pageType,
     title: props.title,
     slices: props.slices,
+    sharedFields: props.sharedFieldValues,
+    localizedFields: props.localizedFieldValues,
+    authorIds: props.authorIds,
     contentEpoch: props.contentEpoch ?? 0,
     selectedSliceId: props.selectedSliceId,
     inlineEditingEnabled:
@@ -345,58 +364,62 @@ function BoundLivePreviewFrame(
   const src = `/admin/pages/${encodeURIComponent(props.pageId)}/live-frame/${encodeURIComponent(props.locale)}?session=${encodeURIComponent(sessionId)}`
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {(Object.keys(VIEWPORTS) as (keyof typeof VIEWPORTS)[]).map((key) => {
-          const { Icon } = VIEWPORTS[key]
-          return (
-            <button
-              type="button"
-              key={key}
-              aria-label={t(`viewports.${key}`)}
-              aria-pressed={viewport === key}
-              onClick={() => setViewport(key as keyof typeof VIEWPORTS)}
-            >
-              <Icon className="size-4" />
-            </button>
-          )
-        })}
-        <select
-          aria-label={t("zoom.label")}
-          value={zoom}
-          onChange={(event) => setZoom(event.target.value)}
-        >
-          <option value="fit">{t("zoom.fit")}</option>
-          <option value="75">75%</option>
-          <option value="100">100%</option>
-        </select>
-        <Button
-          type="button"
-          size="sm"
-          variant={effectiveInlineEnabled ? "default" : "outline"}
-          data-preview-save-control
-          disabled={props.inlineEditingBlocked || status === "updated"}
-          title={
-            props.inlineEditingBlocked
-              ? t("frameResolveRecovery")
-              : t(
-                  effectiveInlineEnabled
-                    ? "inlineEditingOn"
-                    : "inlineEditingOff"
-                )
-          }
-          aria-label={t(
-            effectiveInlineEnabled ? "inlineEditingOn" : "inlineEditingOff"
-          )}
-          aria-pressed={effectiveInlineEnabled}
-          onClick={() => setInlineEditingEnabled((enabled) => !enabled)}
-        >
-          <PencilLine className="size-4" />
-          {t(effectiveInlineEnabled ? "inlineEditingOn" : "inlineEditingOff")}
-        </Button>
-        <button type="button" onClick={props.onOpenSavedPreview}>
-          <ExternalLink className="mr-1 inline size-4" />
-          {t("saved")}
-        </button>
+      {/* The toolbar's own controls wrap; the end slot stays on the first row. */}
+      <div className="@container flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          {(Object.keys(VIEWPORTS) as (keyof typeof VIEWPORTS)[]).map((key) => {
+            const { Icon } = VIEWPORTS[key]
+            return (
+              <button
+                type="button"
+                key={key}
+                aria-label={t(`viewports.${key}`)}
+                aria-pressed={viewport === key}
+                onClick={() => setViewport(key as keyof typeof VIEWPORTS)}
+              >
+                <Icon className="size-4" />
+              </button>
+            )
+          })}
+          <select
+            aria-label={t("zoom.label")}
+            value={zoom}
+            onChange={(event) => setZoom(event.target.value)}
+          >
+            <option value="fit">{t("zoom.fit")}</option>
+            <option value="75">75%</option>
+            <option value="100">100%</option>
+          </select>
+          <Button
+            type="button"
+            size="sm"
+            variant={effectiveInlineEnabled ? "default" : "outline"}
+            data-preview-save-control
+            disabled={props.inlineEditingBlocked || status === "updated"}
+            title={
+              props.inlineEditingBlocked
+                ? t("frameResolveRecovery")
+                : t(
+                    effectiveInlineEnabled
+                      ? "inlineEditingOn"
+                      : "inlineEditingOff"
+                  )
+            }
+            aria-label={t(
+              effectiveInlineEnabled ? "inlineEditingOn" : "inlineEditingOff"
+            )}
+            aria-pressed={effectiveInlineEnabled}
+            onClick={() => setInlineEditingEnabled((enabled) => !enabled)}
+          >
+            <PencilLine className="size-4" />
+            {t(effectiveInlineEnabled ? "inlineEditingOn" : "inlineEditingOff")}
+          </Button>
+          <button type="button" onClick={props.onOpenSavedPreview}>
+            <ExternalLink className="mr-1 inline size-4" />
+            {t("saved")}
+          </button>
+        </div>
+        {props.toolbarEnd}
       </div>
       {status !== "ready" && (
         <p role="status">

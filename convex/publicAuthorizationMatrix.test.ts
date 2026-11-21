@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { sliceProfile } from "@/test-utils/slice-profile"
-import { describe, expect, test } from "vitest"
+import { afterEach, describe, expect, test, vi } from "vitest"
 import { coreRows } from "../test-utils/authorization-matrix/core"
 import { coreLanguageRows } from "../test-utils/authorization-matrix/core_language"
 import { coreMultilingualRows } from "../test-utils/authorization-matrix/core_multilingual"
@@ -27,6 +27,10 @@ const functionModules = import.meta.glob([
   "!./schema.ts",
 ])
 const testModules = import.meta.glob("./**/*.ts")
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 type Registration = ((...args: never[]) => unknown) & {
   isPublic?: boolean

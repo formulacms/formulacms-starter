@@ -1475,6 +1475,10 @@ export default defineSchema({
     stalledAt: v.optional(v.number()),
     // A closure wait (revalidation, language operation, queued child).
     waitUntil: v.optional(v.number()),
+    // Set when the worker begins this purge. A marker without it is only a
+    // queued request: it protects its page from new links but blocks no
+    // language, module or content-type operation.
+    startedAt: v.optional(v.number()),
     // Trash list display while the Page's own draft rows are already gone.
     slug: v.string(),
     localizedTitles: v.record(v.string(), v.string()),

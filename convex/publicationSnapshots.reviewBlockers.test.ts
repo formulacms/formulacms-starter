@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { describe, expect, test } from "vitest"
+import { afterEach, describe, expect, test, vi } from "vitest"
 import { api } from "./_generated/api"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import schema from "./schema"
@@ -17,7 +17,16 @@ const OWNER = {
 
 type TestApp = ReturnType<typeof convexTest>
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 function app() {
+  // Publishing schedules an immediate revalidation drain. Hold the timers so
+  // the drain cannot race this test's state snapshots.
+  if (!vi.isFakeTimers()) {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  }
   return convexTest({
     schema,
     modules,

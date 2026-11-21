@@ -910,7 +910,7 @@ test("Page intent clears a previous URL and refuses save before a selection", as
   ]
   renderEditor()
   fireEvent.click(screen.getByRole("button", { name: "Expand item" }))
-  fireEvent.mouseDown(screen.getByRole("tab", { name: "Page" }))
+  fireEvent.mouseDown(screen.getByRole("tab", { name: "Internal link" }))
   expect(screen.queryByRole("alert")).toBeNull()
   fireEvent.click(screen.getByRole("button", { name: "Save menu" }))
   await waitFor(() =>
@@ -1029,7 +1029,7 @@ test("empty secondary-locale icons distinguish every field type and authored emp
   expect(
     screen.getAllByLabelText("Empty: this block does not appear in EN.")
   ).toHaveLength(1)
-  expect(screen.queryByRole("tab", { name: "Page" })).toBeNull()
+  expect(screen.queryByRole("tab", { name: "Internal link" })).toBeNull()
 })
 
 test("link deletion confirms and cancellation keeps the complete group", async () => {

@@ -40,8 +40,8 @@ is green.
 Classify a source-to-target transition with the first matching rule:
 `unsupported` → `breaking upgrade` → `guided upgrade` → `update`. A declared
 path must be verified by release CI; tooling must not infer its class from a
-diff. Patch releases contain updates only; minor releases may contain updates
-or guided upgrades; major releases may contain breaking upgrades. Before 1.0.0,
+diff. Patch releases contain updates only, or declare the path unsupported;
+minor releases may contain updates or guided upgrades; major releases may contain breaking upgrades. Before 1.0.0,
 a minor release may also contain a breaking upgrade; its upgrade file then says
 what the backup must hold and how to go back. A release
 may declare no path from an older release. The checker then prints
@@ -51,7 +51,10 @@ installs only. Release 0.3.0 declares no path from 0.2.0: it supports fresh
 installs only, and `starter.transitions.json` declares the 0.2.0 to 0.3.0 hop
 `unsupported`, so the checker tells the owner to install 0.3.0 fresh. Owner
 decision, 2026-11-19: 0.3.0 supports fresh installs only; start a new site
-from v0.3.0. Per-hop transitions may be non-composable.
+from v0.3.0. Release 0.3.1 declares no path from 0.3.0: it supports fresh
+installs only, and `starter.transitions.json` declares the 0.3.0 to 0.3.1 hop
+`unsupported`. Owner decision, 2026-11-20: breaking changes are accepted until
+0.5; start a new site from v0.3.1. Per-hop transitions may be non-composable.
 
 `engine.manifest.json` records schema version 5 as the fresh-install baseline. It supports no upgrade from schema version 4 (release 0.2.0), and schema version 3 or older is unsupported.
 The separate `starter.transitions.json` is the

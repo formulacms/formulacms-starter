@@ -18,6 +18,10 @@ import {
   PreviewInlineEditor,
   type PreviewInlineController,
 } from "@/components/admin/preview-inline-editor"
+import {
+  readPreviewClick,
+  type PreviewClickPoint,
+} from "@/components/admin/rich-text-caret"
 import type { Slice } from "@/convex/lib/slices"
 import type { SliceRenderContext } from "@/lib/slices/links"
 import {
@@ -50,7 +54,7 @@ import {
 type Active = {
   field: SampleField
   id: string
-  point?: { left: number; top: number }
+  point?: PreviewClickPoint
   value: string
 }
 /** Same-document editor island; only the parent reducer owns accepted samples. */
@@ -408,10 +412,10 @@ export function SimSampleFrame({
           field,
           value,
           id: crypto.randomUUID(),
-          point:
-            event.clientX || event.clientY
-              ? { left: event.clientX, top: event.clientY }
-              : undefined,
+          // The page preview's click rule: the clicked letter, word (double
+          // click) or whole field (triple click), read before the editor
+          // mounts. It mounts before paint, so later clicks reach it natively.
+          point: readPreviewClick(event.currentTarget as HTMLElement, event),
         }
         selected.current = { from: 1, to: 1 }
         controller.current = null

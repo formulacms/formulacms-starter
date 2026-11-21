@@ -15,6 +15,7 @@ import { SLICE_METADATA, type SliceMetadata } from "@/lib/slices/builder"
 import { PageSaveRefusedError } from "@/components/admin/page-editor/lib/page-save-refused-error"
 import type { FieldGenerate } from "./fields/field-editor"
 import { SliceBuilder } from "./slice-builder"
+import { Transaction } from "@tiptap/pm/state"
 import { readSlicePresentationCatalog } from "@/convex/lib/slices/presentations"
 
 const mocks = vi.hoisted(() => ({
@@ -112,6 +113,8 @@ function renderBuilder({
     sliceId: string
     fieldPath: string
     nonce: number
+    textOffset?: number
+    clickCount?: 2 | 3
   } | null
   focusedFirstControlTarget?: { sliceId: string; nonce: number } | null
   onSelectedSliceIdChange?: (sliceId: string | null) => void
@@ -417,7 +420,9 @@ describe("SliceBuilder slice list editing", () => {
       expect(enabledControl.tagName).toBe("INPUT")
       expect(enabledControl).toHaveAttribute("aria-label", "Eyebrow")
       expect(document.activeElement).toBe(enabledControl)
-      expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" })
+      // Focused in place: no centring scroll; one, if needed, waits for the
+      // click sequence.
+      expect(scrollIntoView).not.toHaveBeenCalledWith({ block: "center" })
       expect(
         scrollIntoView.mock.calls.every(
           ([options]) =>
@@ -541,7 +546,7 @@ describe("SliceBuilder slice list editing", () => {
     }
   })
 
-  it("scrolls the selected slice and focused field without forcing smooth motion", sliceProfile([]), async () => {
+  it("scrolls a selected block without a preview click marker, never forcing smooth motion", sliceProfile([]), async () => {
     const slice = sampleSlice("hero-with-image", "scroll-target")
     const scrollIntoView = vi.fn()
     const original = Object.getOwnPropertyDescriptor(
@@ -569,7 +574,9 @@ describe("SliceBuilder slice list editing", () => {
         )
       })
       expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" })
-      expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" })
+      // A preview field is not centred at once; it comes into view after
+      // the clicks, and only when it cannot be seen (see below).
+      expect(scrollIntoView).not.toHaveBeenCalledWith({ block: "center" })
       expect(
         scrollIntoView.mock.calls.every(
           ([options]) =>
@@ -587,6 +594,59 @@ describe("SliceBuilder slice list editing", () => {
       else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView")
     }
   })
+  it("puts a plain-text field caret on the letter clicked in the preview", async () => {
+    const slice = sampleSlice("hero-with-image", "caret-target")
+    renderBuilder({
+      slices: [slice],
+      selectedSliceId: slice.id,
+      focusedFieldTarget: {
+        sliceId: slice.id,
+        fieldPath: "primary.eyebrow",
+        nonce: 1,
+        // One implicit block, then three letters.
+        textOffset: 4,
+      },
+    })
+    await act(async () => {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve())
+      )
+    })
+    const input = document.activeElement as HTMLInputElement
+    expect(input.closest('[data-slice-field-path="primary.eyebrow"]')).not.toBeNull()
+    expect([input.selectionStart, input.selectionEnd]).toEqual([3, 3])
+  })
+  it.each([
+    [2, "word"],
+    [3, "field"],
+  ] as const)(
+    "selects the %s-click %s in a plain-text field, through the shared click rule",
+    async (clickCount, expected) => {
+      const slice = sampleSlice("hero-with-image", "caret-target")
+      renderBuilder({
+        slices: [slice],
+        selectedSliceId: slice.id,
+        focusedFieldTarget: {
+          sliceId: slice.id,
+          fieldPath: "primary.eyebrow",
+          nonce: 1,
+          textOffset: 4,
+          clickCount,
+        },
+      })
+      await act(async () => {
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve())
+        )
+      })
+      const input = document.activeElement as HTMLInputElement
+      const value = input.value
+      const selected = value.slice(input.selectionStart!, input.selectionEnd!)
+      // Letter 3 of "We're hiring!": the apostrophe stays inside the word.
+      expect(value).toBe("We're hiring!")
+      expect(selected).toBe(expected === "field" ? value : "We're")
+    }
+  )
   beforeEach(() => {
     mocks.confirm.mockReset()
     mocks.prompt.mockReset()
@@ -1510,3 +1570,307 @@ it(
     )
   }
 )
+
+// The form and the preview share one scroller (the split view), so any
+// scroll the form makes while a preview click sequence runs moves the
+// preview under the pointer: the second click of a double click lands on
+// another line. A click on a preview field selects its block and focuses its
+// form control without a scroll; a form field comes into view, once and
+// only when it cannot be seen, after the last click.
+describe("SliceBuilder: a click sequence in the preview never scrolls", () => {
+  type FieldTarget = {
+    sliceId: string
+    fieldPath: string
+    nonce: number
+    textOffset?: number
+    clickCount?: 2 | 3
+  }
+  const slice = sampleSlice("hero-with-image", "preview-click-scroll")
+  const other = sampleSlice("faq-simple", "preview-click-other")
+  const slices = [slice, other]
+
+  function spyScrolls() {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      writable: true,
+      value: scrollIntoView,
+    })
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {})
+    const proseMirrorScroll = vi.spyOn(Transaction.prototype, "scrollIntoView")
+    const focus = vi.spyOn(HTMLElement.prototype, "focus")
+    return {
+      scrollIntoView,
+      /** Every scroll request made so far, of any kind. */
+      scrolls: () => [
+        ...scrollIntoView.mock.calls.map((call) => ["scrollIntoView", call]),
+        ...scrollTo.mock.calls.map((call) => ["window.scrollTo", call]),
+        ...proseMirrorScroll.mock.calls.map(() => ["ProseMirror", []]),
+        ...focus.mock.calls
+          .filter(([options]) => options?.preventScroll !== true)
+          .map((call) => ["focus without preventScroll", call]),
+      ],
+      restore() {
+        scrollTo.mockRestore()
+        proseMirrorScroll.mockRestore()
+        focus.mockRestore()
+      },
+    }
+  }
+
+  function builder(
+    selectedSliceId: string | null,
+    previewClick: { sliceId: string; nonce: number } | null,
+    focusedFieldTarget: FieldTarget | null = null
+  ) {
+    return (
+      <SliceBuilder
+        slices={slices}
+        currentLocale="en"
+        onChange={vi.fn()}
+        pickerOpen={false}
+        onPickerOpenChange={vi.fn()}
+        selectedSliceId={selectedSliceId}
+        previewClickSelection={previewClick}
+        focusedFieldTarget={focusedFieldTarget}
+        onSelectedSliceIdChange={vi.fn()}
+      />
+    )
+  }
+
+  const nextFrame = () =>
+    act(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    )
+  const wait = (ms: number) =>
+    act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+  const row = (view: ReturnType<typeof render>) =>
+    view.container.querySelectorAll<HTMLElement>("[tabindex='-1']")[0]!
+
+  it(
+    "(a) selects the block of a field opened in place without scrolling the form",
+    sliceProfile([]),
+    async () => {
+      const spy = spyScrolls()
+      try {
+        const view = render(builder(null, null))
+        view.rerender(builder(slice.id, { sliceId: slice.id, nonce: 1 }))
+        await nextFrame()
+        await wait(650)
+        expect(spy.scrolls()).toEqual([])
+        // The row still shows as selected.
+        expect(row(view).className).toContain("border-primary/60")
+      } finally {
+        spy.restore()
+      }
+    }
+  )
+
+  it.each([
+    ["(b) a form-only rich-text field", "primary.description", 6],
+    ["(c) a plain-text field", "primary.eyebrow", 4],
+    ["(d) a title with editing in the preview off", "primary.title", 3],
+  ] as const)(
+    "%s: focuses at once with no scroll, then one nearest scroll after the last click",
+    sliceProfile([]),
+    async (_name, fieldPath, textOffset) => {
+      const spy = spyScrolls()
+      try {
+        const target = (nonce: number, clickCount?: 2 | 3): FieldTarget => ({
+          sliceId: slice.id,
+          fieldPath,
+          nonce,
+          textOffset,
+          ...(clickCount ? { clickCount } : {}),
+        })
+        const view = render(builder(null, null))
+        // Click 1 selects the block and focuses the field.
+        view.rerender(
+          builder(slice.id, { sliceId: slice.id, nonce: 1 }, target(1))
+        )
+        const field = view.container.querySelector<HTMLElement>(
+          `[data-slice-field-path="${fieldPath}"]`
+        )!
+        // The field is below the visible area.
+        Object.defineProperty(field, "getBoundingClientRect", {
+          configurable: true,
+          value: () => new DOMRect(0, 2_000, 300, 40),
+        })
+        await waitFor(
+          () => expect(field.contains(document.activeElement)).toBe(true),
+          { timeout: 5_000 }
+        )
+        // Clicks 2 and 3 of a triple click, 150 ms apart.
+        await wait(150)
+        view.rerender(
+          builder(slice.id, { sliceId: slice.id, nonce: 2 }, target(2, 2))
+        )
+        await nextFrame()
+        await wait(150)
+        view.rerender(
+          builder(slice.id, { sliceId: slice.id, nonce: 3 }, target(3, 3))
+        )
+        await nextFrame()
+        await wait(400)
+        expect(spy.scrolls()).toEqual([])
+        expect(field.contains(document.activeElement)).toBe(true)
+        // About 500 ms after the last click: one scroll, to the nearest edge.
+        await wait(250)
+        expect(spy.scrolls()).toEqual([
+          ["scrollIntoView", [{ block: "nearest" }]],
+        ])
+        expect(spy.scrollIntoView.mock.instances[0]).toBe(field)
+      } finally {
+        spy.restore()
+      }
+    }
+  )
+
+  it(
+    "does not scroll to a form field the owner can already see",
+    sliceProfile([]),
+    async () => {
+      const spy = spyScrolls()
+      try {
+        const view = render(builder(null, null))
+        view.rerender(
+          builder(
+            slice.id,
+            { sliceId: slice.id, nonce: 1 },
+            { sliceId: slice.id, fieldPath: "primary.eyebrow", nonce: 1 }
+          )
+        )
+        await nextFrame()
+        await wait(650)
+        expect(spy.scrolls()).toEqual([])
+      } finally {
+        spy.restore()
+      }
+    }
+  )
+
+  it(
+    "(e) an empty-spot click focuses the first control with no scroll, then one nearest scroll after the click",
+    sliceProfile([]),
+    async () => {
+      const spy = spyScrolls()
+      try {
+        const firstControl = (nonce: number) => (
+          <SliceBuilder
+            slices={slices}
+            currentLocale="en"
+            onChange={vi.fn()}
+            pickerOpen={false}
+            onPickerOpenChange={vi.fn()}
+            selectedSliceId={slice.id}
+            previewClickSelection={{ sliceId: slice.id, nonce }}
+            focusedFirstControlTarget={{ sliceId: slice.id, nonce }}
+            onSelectedSliceIdChange={vi.fn()}
+          />
+        )
+        const view = render(builder(null, null))
+        view.rerender(firstControl(1))
+        const control = view.container.querySelector<HTMLElement>(
+          '[data-slice-field-path="primary.eyebrow"] input'
+        )!
+        // The control is below the visible area.
+        Object.defineProperty(control, "getBoundingClientRect", {
+          configurable: true,
+          value: () => new DOMRect(0, 2_000, 300, 40),
+        })
+        await nextFrame()
+        expect(document.activeElement).toBe(control)
+        await wait(400)
+        expect(spy.scrolls()).toEqual([])
+        await wait(150)
+        expect(spy.scrolls()).toEqual([
+          ["scrollIntoView", [{ block: "nearest" }]],
+        ])
+        expect(spy.scrollIntoView.mock.instances[0]).toBe(control)
+      } finally {
+        spy.restore()
+      }
+    }
+  )
+
+  it(
+    "lets the owner's own scrolling cancel the later scroll",
+    sliceProfile([]),
+    async () => {
+      const spy = spyScrolls()
+      try {
+        const view = render(builder(null, null))
+        view.rerender(
+          builder(
+            slice.id,
+            { sliceId: slice.id, nonce: 1 },
+            { sliceId: slice.id, fieldPath: "primary.eyebrow", nonce: 1 }
+          )
+        )
+        const field = view.container.querySelector<HTMLElement>(
+          '[data-slice-field-path="primary.eyebrow"]'
+        )!
+        Object.defineProperty(field, "getBoundingClientRect", {
+          configurable: true,
+          value: () => new DOMRect(0, 2_000, 300, 40),
+        })
+        await nextFrame()
+        fireEvent.wheel(document.body)
+        await wait(650)
+        expect(spy.scrolls()).toEqual([])
+      } finally {
+        spy.restore()
+      }
+    }
+  )
+
+  it(
+    "still scrolls to a block chosen by navigation, even one a preview click chose before",
+    sliceProfile([]),
+    async () => {
+      const spy = spyScrolls()
+      try {
+        const view = render(builder(null, null))
+        const click = { sliceId: slice.id, nonce: 1 }
+        view.rerender(builder(slice.id, click))
+        expect(spy.scrolls()).toEqual([])
+        // The block button in the preview or the keyboard: no click marker.
+        view.rerender(builder(other.id, click))
+        expect(spy.scrolls()).toEqual([
+          ["scrollIntoView", [{ block: "nearest" }]],
+        ])
+        spy.scrollIntoView.mockClear()
+        view.rerender(builder(slice.id, click))
+        expect(spy.scrolls()).toEqual([
+          ["scrollIntoView", [{ block: "nearest" }]],
+        ])
+        expect(spy.scrollIntoView.mock.instances[0]).toBe(row(view))
+      } finally {
+        spy.restore()
+      }
+    }
+  )
+
+  it(
+    "does not keep a click marker across a cleared selection",
+    sliceProfile([]),
+    async () => {
+      const spy = spyScrolls()
+      try {
+        const view = render(builder(slice.id, null))
+        spy.scrollIntoView.mockClear()
+        // A preview click on the block already selected: no selection change.
+        view.rerender(builder(slice.id, { sliceId: slice.id, nonce: 1 }))
+        view.rerender(builder(null, { sliceId: slice.id, nonce: 1 }))
+        // Navigation selects the block again, with no new click.
+        view.rerender(builder(slice.id, { sliceId: slice.id, nonce: 1 }))
+        expect(spy.scrolls()).toEqual([
+          ["scrollIntoView", [{ block: "nearest" }]],
+        ])
+      } finally {
+        spy.restore()
+      }
+    }
+  )
+})

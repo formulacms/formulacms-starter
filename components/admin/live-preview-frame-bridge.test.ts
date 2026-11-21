@@ -21,6 +21,7 @@ import {
 } from "./page-editor/lib/page-inline-draft"
 import {
   createLiveFrameController,
+  liveFrameFieldValues,
   liveFrameMessageMatches,
   LIVE_FRAME_SOURCE,
   validLiveFrameInput,
@@ -135,11 +136,33 @@ it("accepts a well-formed retained choice without rewriting frame input", sliceP
   expect(JSON.stringify(retained)).toBe(before)
 })
 
-it.each(["page", "landing-page"])("accepts a %s frame input", sliceProfile([]), (pageType) => {
+it.each(["page", "landing-page", "post", "author"])("accepts a %s frame input", sliceProfile([]), (pageType) => {
   expect(validLiveFrameInput({ ...input, pageType })).toBe(true)
 })
 
-it.each(["post", "author", "testimonial", "", undefined])(
+it.each([
+  { sharedFields: null },
+  { localizedFields: ["roleTitle"] },
+  { authorIds: "author-1" },
+  { authorIds: ["author-1", ""] },
+])("refuses malformed unsaved field values %j", sliceProfile([]), (extra) => {
+  expect(validLiveFrameInput({ ...input, pageType: "post", ...extra })).toBe(
+    false
+  )
+})
+
+it("keeps only declared fields with valid values", () => {
+  expect(
+    liveFrameFieldValues("author", "sharedFields", {
+      name: "Ada",
+      socials: [{ platform: "GitHub" }],
+      pageType: "post",
+    })
+  ).toEqual({ name: "Ada" })
+  expect(liveFrameFieldValues("post", "localizedFields", undefined)).toEqual({})
+})
+
+it.each(["testimonial", "job", "", undefined])(
   "refuses a frame input of type %j",
   sliceProfile([]),
   (pageType) => {

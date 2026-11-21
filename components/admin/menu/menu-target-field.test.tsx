@@ -81,7 +81,7 @@ describe("MenuTargetField shared page picker", () => {
       onChange,
     })
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Page" }))
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Internal link" }))
     fireEvent.click(screen.getByRole("button", { name: /select page \(fr\)/i }))
     fireEvent.click(screen.getByRole("button", { name: /services français/i }))
 
@@ -100,29 +100,47 @@ describe("MenuTargetField shared page picker", () => {
   })
 })
 
-it("marks unpublished languages from publication states, not the page's overall status", () => {
-  mocks.useQuery.mockImplementation((reference) => {
-    const page = {
-      _id: archivedId,
-      slug: "services",
-      localizedTitles: { fr: "Services" },
-      status: "published",
-      pageType: "page",
-      localePublicationStates: { fr: "published", en: "not_translated" },
-    }
-    return getFunctionName(reference) === "cms/pages:listLinkablePages"
+it("lists only pages published in the menu language, with no unpublished badge or hint", () => {
+  const page = {
+    _id: archivedId,
+    slug: "services",
+    localizedTitles: { fr: "Services" },
+    status: "published",
+    pageType: "page",
+    localePublicationStates: { fr: "published", en: "not_translated" },
+  }
+  mocks.useQuery.mockImplementation((reference) =>
+    getFunctionName(reference) === "cms/pages:listLinkablePages"
       ? [page]
       : { status: "available", page }
-  })
+  )
   renderField({}, fr, "fr")
-  expect(
-    screen.getByText(
-      "Pas encore publiée en EN : en EN, les visiteurs voient le libellé sans lien."
-    )
-  ).toBeTruthy()
+  expect(mocks.useQuery).toHaveBeenCalledWith(expect.anything(), {
+    locale: "fr",
+    includeDrafts: false,
+    limit: 100,
+  })
   fireEvent.click(screen.getByRole("button", { name: "Choisir une page (FR)" }))
-  expect(screen.getByText("EN non publiée")).toBeTruthy()
   expect(screen.getByText("/services")).toBeTruthy()
+  expect(screen.queryByText(/non publiée/)).toBeNull()
+  expect(screen.queryByText(/sans lien/)).toBeNull()
+})
+
+it.each([
+  [en, "en" as const, "No published pages in FR yet. Publish a page first."],
+  [
+    fr,
+    "fr" as const,
+    "Aucune page publiée en FR pour le moment. Publiez d'abord une page.",
+  ],
+])("explains an empty picker when no page is published (%#)", (messages, adminLocale, text) => {
+  mocks.useQuery.mockImplementation((reference) =>
+    getFunctionName(reference) === "cms/pages:listLinkablePages" ? [] : undefined
+  )
+  renderField({ value: undefined }, messages, adminLocale)
+  fireEvent.mouseDown(screen.getByRole("tab", { name: messages.menus.link.page }))
+  fireEvent.click(screen.getByRole("button", { name: /\(FR\)/ }))
+  expect(screen.getByText(text)).toBeTruthy()
 })
 
 it("URL errors start on blur, update as typed, and use visible accessible labels", () => {
@@ -158,6 +176,6 @@ it.each([true, false])("offers no anchor chooser with allowEmpty=%s; leaves stor
   expect(screen.getAllByRole("tab").map((tab) => tab.getAttribute("data-state"))).toHaveLength(allowEmpty ? 3 : 2)
   expect(onChange).not.toHaveBeenCalled()
   expect(value).toEqual({ type: "anchor", anchor: "#retained" })
-  fireEvent.mouseDown(screen.getByRole("tab", { name: "URL" }))
+  fireEvent.mouseDown(screen.getByRole("tab", { name: "External link" }))
   expect(onChange).toHaveBeenCalledWith({ type: "external", url: "", openInNewTab: true })
 })

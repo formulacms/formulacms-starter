@@ -1,27 +1,41 @@
+import {
+  contentTypeDefs,
+  isActiveContentType,
+  type ContentType,
+} from "@/convex/lib/contentTypes"
+import type { SliceBodyDoc } from "@/convex/lib/pages/sliceBodyContent"
+
 /**
- * Content types that reach the private live preview frame. `page` and
- * `landing-page` share the slice-body renderer with the same props. Post and
- * Author stay out: their renderer needs route-resolved bylines that the frame
- * does not supply.
+ * Content types that reach the private live preview frame: every active
+ * content type with a block body, derived from the content-type registry so
+ * no second list can drift (owner, 2026-11-20: every content type has a live
+ * preview). The enforcement test in `live-preview-page-type.test.ts` fails when
+ * a registered type is refused or lacks a block-body renderer.
  *
- * This module has no server-only imports, so the client frame, the bridge, the
- * frame route and its server action all share this one predicate.
+ * This module imports descriptors only, never the renderers, so the parent
+ * editor bundle stays free of the child document's renderers. The client
+ * frame, the bridge, the frame route and its server action share it.
  */
-export const LIVE_PREVIEW_PAGE_TYPES = ["landing-page", "page"] as const
-export type LivePreviewPageType = (typeof LIVE_PREVIEW_PAGE_TYPES)[number]
+export type LivePreviewPageType = ContentType
 
 export function supportsLivePreviewFrame(
   pageType: unknown
 ): pageType is LivePreviewPageType {
   return (
     typeof pageType === "string" &&
-    (LIVE_PREVIEW_PAGE_TYPES as readonly string[]).includes(pageType)
+    // Active implies registered: the active set is checked against the registry.
+    isActiveContentType(pageType) &&
+    contentTypeDefs[pageType as ContentType].capabilities.sliceBody === true
   )
 }
 
-/** Narrows a stored page row to the types that have a live preview frame. */
-export function isLivePreviewPage<T extends { pageType: string }>(
-  page: T
-): page is Extract<T, { pageType: LivePreviewPageType }> {
+/**
+ * Narrows a stored page row to the types that have a live preview frame. The
+ * gate requires the block-body capability, so the row is a block-body arm.
+ */
+export function isLivePreviewPage(page: {
+  pageType: string
+  content?: Record<string, unknown>
+}): page is SliceBodyDoc {
   return supportsLivePreviewFrame(page.pageType)
 }

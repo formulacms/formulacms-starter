@@ -47,7 +47,7 @@ beforeEach(() => {
   reads.context.mockReset().mockResolvedValue({ marker: "context" })
 })
 
-it.each(["page", "landing-page"] as const)(
+it.each(["page", "landing-page", "post", "author"] as const)(
   "resolves a render context for a stored %s row",
   sliceProfile([]),
   async (pageType) => {
@@ -78,7 +78,7 @@ it(
     expect(result).not.toBeNull()
   }
 )
-it.each(["post", "author"])(
+it.each(["testimonial", "job"])(
   "refuses a stored %s row",
   sliceProfile([]),
   async (pageType) => {

@@ -34,6 +34,11 @@ const bodySlice = (id: string, text: string) => ({
 })
 
 function app() {
+  // Publishing schedules an immediate revalidation drain. Hold the timers so
+  // the drain cannot race this test's state snapshots.
+  if (!vi.isFakeTimers()) {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  }
   const t = convexTest({
     schema,
     modules,
@@ -111,6 +116,10 @@ async function publishEn(
     expectedReleaseGeneration: 0,
   })
 }
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe("F08a corrective authority and ownership proof", () => {
   test.each(["mediaId", "storageId"] as const)(

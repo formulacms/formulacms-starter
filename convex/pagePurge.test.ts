@@ -187,7 +187,8 @@ type PurgeResult = {
   reason?: string
   detail?: { count?: number; titles?: string[]; menus?: string[] }
 }
-const purge = (
+/** Delete is a request only: it queues markers and starts no worker. */
+const requestPurge = (
   f: Site,
   items: Array<{ pageId: Id<"pages">; generation: number }>
 ): Promise<PurgeResult[]> =>
@@ -197,6 +198,15 @@ const purge = (
       expectedLifecycleGeneration: item.generation,
     })),
   })
+/** The request followed by the daily batch start (what the cron does). */
+const purge = async (
+  f: Site,
+  items: Array<{ pageId: Id<"pages">; generation: number }>
+): Promise<PurgeResult[]> => {
+  const out = await requestPurge(f, items)
+  await f.t.mutation(internal.cms.publication.startQueuedPagePurges, {})
+  return out
+}
 
 /** Rows of every owned table that still name the Page. */
 async function leftovers(f: Site, pageId: Id<"pages">) {
@@ -219,6 +229,14 @@ async function leftovers(f: Site, pageId: Id<"pages">) {
       if (hits.length > 0) out[table] = hits.length
     }
     return out
+  })
+}
+
+/** Marks every queued marker as started (what the first worker step does). */
+async function markStarted(f: Pick<Site, "t">) {
+  await f.t.run(async (ctx) => {
+    for (const marker of await ctx.db.query("pagePurges").collect())
+      await ctx.db.patch("pagePurges", marker._id, { startedAt: Date.now() })
   })
 }
 
@@ -569,7 +587,7 @@ describe("refusals", () => {
     expect(result!.detail?.menus).toEqual(["primary"])
   })
 
-  test("a pending revalidation intent refuses; a failed one does not", async () => {
+  test("a pending revalidation intent does not refuse the start; the worker waits for it", async () => {
     const f = await setup()
     const pageId = await newPage(f, "intents")
     const g = await gens(f, pageId, "en")
@@ -582,9 +600,8 @@ describe("refusals", () => {
       ctx.db.query("pagePublicationRevalidationIntents").collect()
     )
     // Only published locales write intents; make one pending on purpose.
-    const intentId =
-      pending[0]?._id ??
-      (await f.t.run((ctx) =>
+    if (pending.length === 0)
+      await f.t.run((ctx) =>
         ctx.db.insert("pagePublicationRevalidationIntents", {
           operationId: "test-pending",
           operationKind: "soft_delete",
@@ -598,13 +615,28 @@ describe("refusals", () => {
           createdAt: 1,
           updatedAt: 1,
         })
-      ))
-    const [refused] = await purge(f, [{ pageId, generation }])
-    expect(refused).toMatchObject({
-      status: "refused",
-      reason: "revalidation_pending",
+      )
+    const [impact] = await f.owner.query(api.cms.publication.pagePurgeImpact, {
+      pageIds: [pageId],
     })
-    void intentId
+    expect(impact).toMatchObject({ pageId, canPurge: true })
+    const [started] = await purge(f, [{ pageId, generation }])
+    expect(started!.status).toBe("started")
+    const step = () =>
+      f.t.mutation(internal.cms.publication.runPagePurgeStep, {})
+    await step()
+    const marker = await f.t.run((ctx) =>
+      ctx.db
+        .query("pagePurges")
+        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+        .unique()
+    )
+    // Held at the intents phase, before anything the drain needs is removed.
+    expect(marker!.phase).toBe("intents")
+    expect(marker!.waitUntil).toBeGreaterThan(Date.now())
+    expect(marker!.stalledAt).toBeUndefined()
+    expect(await f.t.run((ctx) => ctx.db.get("pages", pageId))).not.toBeNull()
+    // The drain fails it: a failed intent never blocks, and stays for the drain.
     await f.t.run(async (ctx) => {
       for (const row of await ctx.db
         .query("pagePublicationRevalidationIntents")
@@ -613,14 +645,36 @@ describe("refusals", () => {
           status: "failed",
         })
     })
-    const [started] = await purge(f, [{ pageId, generation }])
-    expect(started!.status).toBe("started")
+    vi.setSystemTime(Date.now() + 120_000)
     await f.t.finishAllScheduledFunctions(vi.runAllTimers)
     // Failed intents stay for the existing drain; nothing else is left.
     expect(Object.keys(await leftovers(f, pageId))).toEqual([
       "pagePublicationRevalidationIntents",
     ])
     expect(await f.t.run((ctx) => ctx.db.get("pages", pageId))).toBeNull()
+  })
+
+  test("a bulk start accepts pages that have a running intent", async () => {
+    const f = await setup()
+    const pageId = await newPage(f, "bulk-intent")
+    const g = await trash(f, pageId)
+    await f.t.run((ctx) =>
+      ctx.db.insert("pagePublicationRevalidationIntents", {
+        operationId: "bulk-running",
+        operationKind: "soft_delete",
+        pageId,
+        locale: "en",
+        oldPublicGeneration: 1,
+        newPublicGeneration: 1,
+        phase: "self",
+        status: "running",
+        attempts: 1,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+    )
+    const [started] = await purge(f, [{ pageId, generation: g }])
+    expect(started!.status).toBe("started")
   })
 
   test("an open language transition refuses, and a purge blocks starting one", async () => {
@@ -661,7 +715,7 @@ describe("refusals", () => {
     await t.finishAllScheduledFunctions(vi.runAllTimers)
   })
 
-  test("a queued purge refuses to start a language transition", async () => {
+  test("a started purge refuses to start a language transition", async () => {
     const t = convexTest({
       schema,
       modules,
@@ -678,6 +732,7 @@ describe("refusals", () => {
     const pageId = await newPage(f, "queued")
     const generation = await trash(f, pageId)
     await purge(f, [{ pageId, generation }])
+    await markStarted(f)
     const { settings, authority } = await t.run(async (ctx) => ({
       settings: await ctx.db.query("siteSettings").first(),
       authority: await ctx.db.query("siteLanguageAuthority").first(),
@@ -782,12 +837,12 @@ describe("stale closure and failures", () => {
         statusCode: 301,
       })
     ).rejects.toThrow()
-    // The listing marks the row as purging.
+    // An accepted delete is no longer listed.
     const trashList = await f.owner.query(api.cms.publication.listAdminPages, {
       paginationOpts: { numItems: 10, cursor: null },
       scope: "trash",
     })
-    expect(trashList.page.find((row) => row._id === pageId)?.purging).toBe(true)
+    expect(trashList.page.find((row) => row._id === pageId)).toBeUndefined()
     await f.t.finishAllScheduledFunctions(vi.runAllTimers)
   })
 
@@ -948,7 +1003,7 @@ describe("stale closure and failures", () => {
     expect(await f.t.run((ctx) => ctx.db.get("pages", pageId))).toBeNull()
   })
 
-  test("the Trash list keeps a row for a page whose own drafts are already gone", async () => {
+  test("the Trash list hides an accepted delete and keeps a stalled one with its marker title", async () => {
     const f = await setup()
     const pageId = await newPage(f, "half-gone")
     const g = await trash(f, pageId)
@@ -960,16 +1015,32 @@ describe("stale closure and failures", () => {
         .unique()
       await ctx.db.delete("pageSharedDrafts", shared!._id)
     })
-    const list = await f.owner.query(api.cms.publication.listAdminPages, {
-      paginationOpts: { numItems: 10, cursor: null },
-      scope: "trash",
+    const list = () =>
+      f.owner.query(api.cms.publication.listAdminPages, {
+        paginationOpts: { numItems: 10, cursor: null },
+        scope: "trash",
+      })
+    // Accepted and running: not listed, and the list says it is complete.
+    const running = await list()
+    expect(running.page).toHaveLength(0)
+    expect(running.isDone).toBe(true)
+    // Stalled: listed again, with the title and address kept in the marker.
+    await f.t.run(async (ctx) => {
+      const marker = await ctx.db
+        .query("pagePurges")
+        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+        .unique()
+      await ctx.db.patch("pagePurges", marker!._id, { stalledAt: Date.now() })
     })
-    expect(list.page).toHaveLength(1)
-    expect(list.page[0]).toMatchObject({
+    const stalled = await list()
+    expect(stalled.page).toHaveLength(1)
+    expect(stalled.page[0]).toMatchObject({
       _id: pageId,
-      purging: true,
+      slug: "half-gone",
+      purgeStalled: true,
       localizedTitles: { en: "half-gone en", fr: "half-gone fr" },
     })
+    expect(stalled.page[0]!.purging).toBeUndefined()
   })
 
   test("a menu cannot be restored with a link to a page being purged", async () => {
@@ -1158,7 +1229,7 @@ describe("stale closure and failures", () => {
     expect(await f.t.run((ctx) => ctx.db.get("pages", other))).not.toBeNull()
   })
 
-  test("a queued purge blocks the module enable and the multilingual adoption", async () => {
+  test("a started purge blocks the module enable and the multilingual adoption", async () => {
     const t = convexTest({
       schema,
       modules,
@@ -1184,6 +1255,7 @@ describe("stale closure and failures", () => {
       const pageId = await newPage(f, slug)
       const generation = await trash(f, pageId)
       await purge(f, [{ pageId, generation }])
+      await markStarted(f)
     }
     // Module off: enabling is refused while a purge is queued, then allowed.
     await queuePurge("module-op-a")
@@ -1207,25 +1279,26 @@ describe("stale closure and failures", () => {
     await t.finishAllScheduledFunctions(vi.runAllTimers)
   })
 
-  test("the resume sweep restarts a stale queue", async () => {
+  test("the daily batch restarts a lost chain", async () => {
     const f = await setup()
     const pageId = await newPage(f, "resumed")
     const g = await trash(f, pageId)
     await purge(f, [{ pageId, generation: g }])
-    // Drop the scheduled step to simulate a lost chain, then age the marker.
+    // Drop the scheduled step to simulate a lost chain.
     await f.t.run(async (ctx) => {
       for (const job of await ctx.db.system
         .query("_scheduled_functions")
         .collect())
         await ctx.scheduler.cancel(job._id)
-      const marker = (await ctx.db.query("pagePurges").first())!
-      await ctx.db.patch("pagePurges", marker._id, { updatedAt: 1 })
     })
     expect(
-      await f.t.mutation(internal.cms.publication.resumePagePurges, {})
-    ).toBe(1)
+      await f.t.mutation(internal.cms.publication.startQueuedPagePurges, {})
+    ).toBe(true)
     await f.t.finishAllScheduledFunctions(vi.runAllTimers)
     expect(await leftovers(f, pageId)).toEqual({})
+    expect(
+      await f.t.mutation(internal.cms.publication.startQueuedPagePurges, {})
+    ).toBe(false)
   })
 })
 
@@ -1265,6 +1338,71 @@ describe("review round 1 fixes", () => {
         })
       ).rejects.toThrow("PAGE_PURGE_IN_PROGRESS")
       await f.t.finishAllScheduledFunctions(vi.runAllTimers)
+      expect(await leftovers(f, pageId)).toEqual({})
+    }
+  )
+
+  test(
+    "snapshots and locale states stay while an intent is pending, and go once it completes",
+    sliceProfile(["rich-text-body"]),
+    async () => {
+      const f = await setup()
+      const pageId = await publishedPage(f, "held-published", 1)
+      const generation = await trash(f, pageId)
+      const intentId = await f.t.run((ctx) =>
+        ctx.db.insert("pagePublicationRevalidationIntents", {
+          operationId: "held-pending",
+          operationKind: "soft_delete",
+          pageId,
+          locale: "en",
+          oldPublicGeneration: 1,
+          newPublicGeneration: 1,
+          phase: "self",
+          status: "pending",
+          attempts: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        })
+      )
+      const [started] = await purge(f, [{ pageId, generation }])
+      expect(started!.status).toBe("started")
+      const counts = () =>
+        f.t.run(async (ctx) => ({
+          snapshots: (
+            await ctx.db
+              .query("pagePublishedSnapshots")
+              .withIndex("by_pageId_and_locale_and_generation", (q) =>
+                q.eq("pageId", pageId)
+              )
+              .collect()
+          ).length,
+          states: (
+            await ctx.db
+              .query("pageLocalePublicationStates")
+              .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+              .collect()
+          ).length,
+        }))
+      const before = await counts()
+      expect(before.snapshots).toBeGreaterThan(0)
+      expect(before.states).toBeGreaterThan(0)
+      // Several worker rounds, each after the 30 s wait: nothing is removed.
+      for (let round = 0; round < 3; round += 1) {
+        await step(f)
+        vi.setSystemTime(Date.now() + 40_000)
+      }
+      expect(await counts()).toEqual(before)
+      expect((await markerOf(f, pageId))?.phase).toBe("intents")
+      expect(await f.t.run((ctx) => ctx.db.get("pages", pageId))).not.toBeNull()
+      // The drain completes it; the worker then finishes.
+      await f.t.run((ctx) =>
+        ctx.db.patch("pagePublicationRevalidationIntents", intentId, {
+          status: "complete",
+          phase: "complete",
+        })
+      )
+      await f.t.finishAllScheduledFunctions(vi.runAllTimers)
+      expect(await f.t.run((ctx) => ctx.db.get("pages", pageId))).toBeNull()
       expect(await leftovers(f, pageId)).toEqual({})
     }
   )
@@ -1312,7 +1450,8 @@ describe("review round 1 fixes", () => {
         status: "failed",
         attempts: 3,
         createdAt: 1,
-        updatedAt: 1,
+        // Inside the retry delay, so the drain scheduled by the trash leaves it.
+        updatedAt: Date.now(),
       })
     )
     await purge(f, [{ pageId, generation }])
@@ -1626,4 +1765,336 @@ describe("review round 1 fixes", () => {
       expect(Object.keys(schema.tables).length).toBeGreaterThan(80)
     }
   )
+})
+
+describe("delete is a request; the daily batch does the work", () => {
+  const markerOf = (f: Site, pageId: Id<"pages">) =>
+    f.t.run((ctx) =>
+      ctx.db
+        .query("pagePurges")
+        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+        .first()
+    )
+  // Publication intents now schedule an instant-refresh drain; these tests count purge work only.
+  const pendingJobs = (f: Site) =>
+    f.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.state.kind === "pending" && job.name !== "cms/revalidate:drainPublicationRevalidationIntents"
+      )
+    )
+  const trashList = (f: Site) =>
+    f.owner.query(api.cms.publication.listAdminPages, {
+      paginationOpts: { numItems: 50, cursor: null },
+      scope: "trash",
+    })
+
+  test("a request queues the marker, starts no worker, and hides the row", async () => {
+    const f = await setup()
+    const pageId = await newPage(f, "queued")
+    const g = await trash(f, pageId)
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers)
+    expect((await pendingJobs(f)).length).toBe(0)
+    const [res] = await requestPurge(f, [{ pageId, generation: g }])
+    expect(res).toMatchObject({ pageId, status: "started" })
+    const marker = await markerOf(f, pageId)
+    expect(marker).toMatchObject({ attempts: 0, slug: "queued" })
+    expect(marker!.stalledAt).toBeUndefined()
+    expect((await pendingJobs(f)).length).toBe(0)
+    // Nothing was removed yet; the row is hidden from Trash.
+    expect(await f.t.run((ctx) => ctx.db.get("pages", pageId))).not.toBeNull()
+    const list = await trashList(f)
+    expect(list.page.find((row) => row._id === pageId)).toBeUndefined()
+    // Restore is refused for a queued page.
+    await expect(
+      f.owner.mutation(api.cms.publication.restoreSoftDeletedPage, {
+        pageId,
+        expectedLifecycleGeneration: g,
+      })
+    ).rejects.toThrow("PAGE_PURGE_IN_PROGRESS")
+  })
+
+  test("a second Delete on a queued page changes nothing", async () => {
+    const f = await setup()
+    const pageId = await newPage(f, "twice")
+    const g = await trash(f, pageId)
+    await requestPurge(f, [{ pageId, generation: g }])
+    const before = await markerOf(f, pageId)
+    const [again] = await requestPurge(f, [{ pageId, generation: g }])
+    expect(again).toMatchObject({ pageId, status: "started" })
+    expect(await markerOf(f, pageId)).toEqual(before)
+    expect(
+      await f.t.run((ctx) => ctx.db.query("pagePurges").collect())
+    ).toHaveLength(1)
+    expect((await pendingJobs(f)).length).toBe(0)
+  })
+
+  test("refusals stay immediate and queue nothing", async () => {
+    const f = await setup()
+    const g = await trash(f, f.homeId).catch(() => null)
+    const pageId = await newPage(f, "not-trashed")
+    const [notTrashed] = await requestPurge(f, [{ pageId, generation: 1 }])
+    expect(notTrashed).toMatchObject({ status: "refused", reason: "not_trashed" })
+    void g
+    expect(
+      await f.t.run((ctx) => ctx.db.query("pagePurges").collect())
+    ).toHaveLength(0)
+    expect((await pendingJobs(f)).length).toBe(0)
+  })
+
+  test("the daily batch removes more pages than one batch holds, across reschedules", async () => {
+    const f = await setup()
+    pagePurgeTuning.maxSourcesPerBatch = 1
+    const targets: Array<{ pageId: Id<"pages">; generation: number }> = []
+    for (let i = 0; i < 4; i += 1) {
+      const pageId = await newPage(f, `batch-${i}`)
+      targets.push({ pageId, generation: await trash(f, pageId) })
+    }
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers)
+    await requestPurge(f, targets)
+    expect((await pendingJobs(f)).length).toBe(0)
+    expect(
+      await f.t.run((ctx) => ctx.db.query("pagePurges").collect())
+    ).toHaveLength(4)
+    expect(
+      await f.t.mutation(internal.cms.publication.startQueuedPagePurges, {})
+    ).toBe(true)
+    // One tick only: the chain has begun but is not finished in one step.
+    await f.t.finishInProgressScheduledFunctions()
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers)
+    for (const t of targets) {
+      expect(await f.t.run((ctx) => ctx.db.get("pages", t.pageId))).toBeNull()
+      expect(await leftovers(f, t.pageId)).toEqual({})
+    }
+    expect(
+      await f.t.run((ctx) => ctx.db.query("pagePurges").collect())
+    ).toHaveLength(0)
+  })
+
+  test("a stalled purge shows in Trash with its title; a second Delete re-queues it without a worker", async () => {
+    const f = await setup()
+    const pageId = await newPage(f, "stalled")
+    const g = await trash(f, pageId)
+    await requestPurge(f, [{ pageId, generation: g }])
+    await f.t.run(async (ctx) => {
+      const marker = await ctx.db
+        .query("pagePurges")
+        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+        .first()
+      await ctx.db.patch("pagePurges", marker!._id, {
+        stalledAt: Date.now(),
+        attempts: 3,
+        lastError: "boom",
+      })
+    })
+    const stalled = (await trashList(f)).page.find((r) => r._id === pageId)
+    expect(stalled).toMatchObject({ purgeStalled: true, slug: "stalled" })
+    expect(
+      await f.t.mutation(internal.cms.publication.startQueuedPagePurges, {})
+    ).toBe(false)
+    await requestPurge(f, [{ pageId, generation: g }])
+    const marker = await markerOf(f, pageId)
+    expect(marker!.stalledAt).toBeUndefined()
+    expect(marker!.attempts).toBe(0)
+    expect((await pendingJobs(f)).length).toBe(0)
+    expect(
+      (await trashList(f)).page.find((r) => r._id === pageId)
+    ).toBeUndefined()
+  })
+
+  test("the trash list keeps loading: a filtered page still reports isDone and a cursor", async () => {
+    const f = await setup()
+    const ids: Id<"pages">[] = []
+    for (let i = 0; i < 3; i += 1) {
+      const pageId = await newPage(f, `list-${i}`)
+      ids.push(pageId)
+      await trash(f, pageId)
+    }
+    const gen = async (id: Id<"pages">) =>
+      (await gens(f, id, "en")).page.lifecycleGeneration
+    // Newest first: hide the two newest, so page 1 (size 2) is empty.
+    await requestPurge(f, [
+      { pageId: ids[2]!, generation: await gen(ids[2]!) },
+      { pageId: ids[1]!, generation: await gen(ids[1]!) },
+    ])
+    const first = await f.owner.query(api.cms.publication.listAdminPages, {
+      paginationOpts: { numItems: 2, cursor: null },
+      scope: "trash",
+    })
+    expect(first.page).toHaveLength(0)
+    expect(first.isDone).toBe(false)
+    const second = await f.owner.query(api.cms.publication.listAdminPages, {
+      paginationOpts: { numItems: 2, cursor: first.continueCursor },
+      scope: "trash",
+    })
+    expect(second.page.map((r) => r._id)).toEqual([ids[0]])
+    expect(second.isDone).toBe(true)
+  })
+
+  describe("the address of a deleted page can be created again", () => {
+    const TABLES = [
+      "pageSharedDrafts",
+      "pageLocaleDrafts",
+      "pageLocalePublicationStates",
+      "pagePublishedSnapshots",
+      "pageLocalePublicationReleases",
+      "pageHistoricalLocaleRoutes",
+      "pagePublicationPageStates",
+    ] as const
+    const rowsOf = (f: Site, pageId: Id<"pages">) =>
+      f.t.run(async (ctx) => {
+        const out: Record<string, unknown[]> = {}
+        for (const table of TABLES) {
+          const rows = (await ctx.db.query(table as never).collect()) as Array<
+            Record<string, unknown>
+          >
+          out[table] = rows.filter((row) => row.pageId === pageId)
+        }
+        return out
+      })
+    const resolve = (f: Site) =>
+      f.t.query(api.cms.pages.resolveLocalizedPathQuery, {
+        locale: "en",
+        path: "/page-demo",
+        languageVersion: 0,
+      })
+    const runBatchToEnd = async (f: Site) => {
+      while (
+        await f.t.mutation(internal.cms.publication.startQueuedPagePurges, {})
+      ) {
+        await f.t.finishAllScheduledFunctions(vi.runAllTimers)
+        vi.setSystemTime(Date.now() + 120_000)
+      }
+    }
+    const deletedOld = async (f: Site) => {
+      const oldId = await newPage(f, "page-demo")
+      await publish(f, oldId, "en")
+      expect(await resolve(f)).toBe(oldId)
+      const generation = await trash(f, oldId)
+      await requestPurge(f, [{ pageId: oldId, generation }])
+      return oldId
+    }
+    const createdNew = async (f: Site) => {
+      const newId = await newPage(f, "page-demo")
+      expect(
+        (await f.owner.query(api.cms.pages.getForEdit, { id: newId }))?.page
+          .slug
+      ).toBe("page-demo")
+      await publish(f, newId, "en")
+      expect(await resolve(f)).toBe(newId)
+      return newId
+    }
+
+    test("created while the delete is only queued, then the batch runs", async () => {
+      const f = await setup()
+      const oldId = await deletedOld(f)
+      const newId = await createdNew(f)
+      const before = await rowsOf(f, newId)
+      await runBatchToEnd(f)
+      expect(await f.t.run((ctx) => ctx.db.get("pages", oldId))).toBeNull()
+      expect(await leftovers(f, oldId)).toEqual({})
+      expect(await resolve(f)).toBe(newId)
+      expect(await rowsOf(f, newId)).toEqual(before)
+    })
+
+    test("created after the batch ran", async () => {
+      const f = await setup()
+      const oldId = await deletedOld(f)
+      await runBatchToEnd(f)
+      expect(await f.t.run((ctx) => ctx.db.get("pages", oldId))).toBeNull()
+      expect(await leftovers(f, oldId)).toEqual({})
+      expect(await resolve(f)).toBeNull()
+      const newId = await createdNew(f)
+      const after = await rowsOf(f, newId)
+      expect(after.pageLocalePublicationStates).toHaveLength(2)
+      expect(await resolve(f)).toBe(newId)
+    })
+  })
+
+  async function languageSite() {
+    const t = convexTest({
+      schema,
+      modules,
+      ownerIdentity: OWNER,
+      publicationAuthority: "missing",
+    })
+    const owner = t.withIdentity(OWNER)
+    await owner.mutation(api.cms.settings.bootstrapInstallation, {
+      siteName: "Language op",
+      timezone: "UTC",
+      defaultLocale: "en",
+    })
+    const f = { t, owner } as unknown as Site
+    const start = async () => {
+      const { settings, authority } = await t.run(async (ctx) => ({
+        settings: await ctx.db.query("siteSettings").first(),
+        authority: await ctx.db.query("siteLanguageAuthority").first(),
+      }))
+      return owner.mutation(api.cms.language.startLanguageTransition, {
+        mode: "correct_label",
+        sourceLocale: "en",
+        targetLocale: "fr",
+        expectedSettingsUpdatedAt: settings!.updatedAt,
+        expectedAuthorityVersion: authority?.version ?? 0,
+      })
+    }
+    return { f, t, owner, start }
+  }
+
+  test("a language operation may start while a purge is only queued", async () => {
+    const { f, t, start } = await languageSite()
+    const pageId = await newPage(f, "queued-only")
+    const generation = await trash(f, pageId)
+    await requestPurge(f, [{ pageId, generation }])
+    await expect(start()).resolves.toBeDefined()
+    // The queued marker still protects its page from new links.
+    expect(
+      await t.run((ctx) => ctx.db.query("pagePurges").collect())
+    ).toHaveLength(1)
+  })
+
+  test("the batch waits for an open language operation, then finishes", async () => {
+    const { f, t, owner, start } = await languageSite()
+    const pageId = await newPage(f, "waits")
+    const generation = await trash(f, pageId)
+    await requestPurge(f, [{ pageId, generation }])
+    const transitionId = await start()
+    expect(
+      await t.mutation(internal.cms.publication.startQueuedPagePurges, {})
+    ).toBe(true)
+    await t.mutation(internal.cms.publication.runPagePurgeStep, {})
+    const waiting = await markerOf(f, pageId)
+    expect(waiting!.startedAt).toBeUndefined()
+    expect(waiting!.waitUntil).toBeGreaterThan(Date.now())
+    expect(waiting!.attempts).toBe(0)
+    expect(waiting!.stalledAt).toBeUndefined()
+    expect(await t.run((ctx) => ctx.db.get("pages", pageId))).not.toBeNull()
+    // A purge that has not started does not block the operation's own steps,
+    // and a started one would; here the operation ends and the batch goes on.
+    const transition = await t.run((ctx) =>
+      ctx.db.get("siteLanguageTransitions", transitionId)
+    )
+    await owner.mutation(api.cms.language.cancelLanguageTransition, {
+      transitionId,
+      expectedGeneration: transition!.generation,
+      discardTargetDrafts: true,
+    })
+    vi.setSystemTime(Date.now() + 120_000)
+    await t.finishAllScheduledFunctions(vi.runAllTimers)
+    expect(await t.run((ctx) => ctx.db.get("pages", pageId))).toBeNull()
+    expect(await markerOf(f, pageId)).toBeNull()
+  })
+
+  test("once a purge has started, a language operation is refused", async () => {
+    const { f, start } = await languageSite()
+    const pageId = await newPage(f, "started")
+    const generation = await trash(f, pageId)
+    await requestPurge(f, [{ pageId, generation }])
+    await f.t.mutation(internal.cms.publication.runPagePurgeStep, {})
+    const marker = await markerOf(f, pageId)
+    // One step may even finish a small page; only assert while it is open.
+    if (marker) {
+      expect(marker.startedAt).toBeDefined()
+      await expect(start()).rejects.toThrow("PAGE_PURGE_IN_PROGRESS")
+    }
+  })
 })

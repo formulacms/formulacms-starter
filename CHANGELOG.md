@@ -7,6 +7,52 @@ Fixed. The format follows Keep a Changelog 1.1.0.
 The known limits of each release are on its release page:
 https://github.com/formulacms/formulacms-starter/releases
 
+## 0.3.1
+
+0.3.1 supports fresh installs only; there is no upgrade path from 0.3.0.
+Do not merge or pull 0.3.1 into a site made from 0.3.0. Start a new site from
+v0.3.1 instead. `scripts/check-release-transition.ts` refuses the 0.3.0 to
+0.3.1 hop as unsupported.
+
+### Added
+
+- The page editor shows the block list and the live preview side by side.
+  You can drag the divider between them and hide either side. Your browser
+  remembers the layout. On a narrow screen, an Edit / Preview switch shows one
+  side at a time. <!-- 3353e795 6b85c089 -->
+- The Archive list has batch select. You can restore several items or move
+  them to Trash at once. <!-- #182 -->
+- Trash shows a Retry deletion button when a permanent delete stopped.
+  <!-- #180 -->
+- One runtime package: `react-resizable-panels` 4.24.1, for the resizable page
+  editor. <!-- 3353e795 -->
+
+### Changed
+
+- Delete in Trash no longer waits for the public site. It queues the page, and
+  one daily batch removes the queued pages. <!-- #180 -->
+- The background job "page purge daily batch" (daily, 08:07 UTC) replaces
+  "page purge resume" (daily, 04:20 UTC). <!-- #180 -->
+- The menu editor names link destinations "Internal link" and "External
+  link". <!-- #183 -->
+
+### Fixed
+
+- The menu page picker lists only the pages that are published in the menu
+  language. <!-- #179 -->
+- Every content type with a block body has a live preview. <!-- #181 -->
+- The public site refreshes at once after you publish, unpublish, archive or
+  trash a page. <!-- #184 -->
+- A click in the preview puts the caret on the letter or word that you
+  clicked, in plain text fields and in rich-text blocks.
+  <!-- 0b2159b5 4c0f3359 8ba2424b 5d656399 -->
+- A block that is already on screen stays in place when you select it in the
+  preview. <!-- 408ee75c -->
+- Nothing moves when you double-click or triple-click in the preview.
+  <!-- 41306a18, back-port of #189 -->
+- When the in-place editor fails to load, you edit the block in the form
+  instead. <!-- 41306a18, back-port of #189 -->
+
 ## 0.3.0
 
 0.3.0 supports fresh installs only; there is no upgrade path from 0.2.0.

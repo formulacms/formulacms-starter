@@ -160,6 +160,28 @@ describe("revalidation attempt persistence", () => {
     expect(attempts[0]).not.toHaveProperty("httpStatus")
   })
 
+  test("the post carries a timeout signal; a timed-out post is a failed attempt", async () => {
+    const { t, pageId } = await makeConfiguredPageTest()
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      // The signal is what ends a hanging site; the runtime aborts with this.
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
+      throw new DOMException(
+        "The operation was aborted due to timeout",
+        "TimeoutError"
+      )
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      t.action(internal.cms.revalidate.revalidatePage, { pageId })
+    ).resolves.toBeNull()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const attempts = await listAttempts(t)
+    expect(attempts).toHaveLength(1)
+    expect(attempts[0]).toMatchObject({ status: "network_error" })
+  })
+
   test("a missing secret records an unconfigured attempt without fetching", async () => {
     const { t, pageId } = await makeConfiguredPageTest()
     vi.stubEnv("REVALIDATE_SECRET", "")
@@ -1010,6 +1032,7 @@ describe("revalidation self-test", () => {
           "x-revalidate-secret": "test-revalidation-secret",
         },
         body: JSON.stringify({ paths: [], tags: [] }),
+        signal: expect.any(AbortSignal),
       }
     )
     await expect(listAttempts(t)).resolves.toMatchObject([

@@ -121,7 +121,7 @@ it("NEW B2 retries the anonymous bootstrap against fresh language authority rath
     "/new-published"
   )
 })
-it.each(["page", "landing-page"])(
+it.each(["page", "landing-page", "post", "author"])(
   "bootstraps the live frame for a %s row, including on a single-language site",
   async (pageType) => {
     reads.auth.mockImplementation(async (ref) =>
@@ -134,10 +134,10 @@ it.each(["page", "landing-page"])(
     expect(reads.anonymous).toHaveBeenCalledOnce()
   }
 )
-it.each(["session", "page-access", "post", "author", "locale"])(
+it.each(["session", "page-access", "testimonial", "job", "locale"])(
   "NEW B2 performs %s bootstrap refusal before an anonymous Page path read",
   async (kind) => {
-    if (kind === "page-access" || kind === "post" || kind === "author")
+    if (kind === "page-access" || kind === "testimonial" || kind === "job")
       reads.auth.mockImplementation(async (ref) =>
         getFunctionName(ref) === "cms/pages:getForEdit"
           ? kind === "page-access"

@@ -5,7 +5,7 @@ import { adminContentTypeSingularMessageKey } from "@/lib/admin/content-types"
 
 import { useId, useState } from "react"
 import { useQuery } from "convex/react"
-import { Check, ChevronsUpDown, Search, CircleDashed } from "lucide-react"
+import { Check, ChevronsUpDown, Search } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { Badge } from "@/components/ui/badge"
@@ -25,6 +25,8 @@ export type LinkPagePickerLabels = {
   missingPage: string
   missingWarning: string
   noPages: string
+  /** Shown instead of `noPages` when no page is eligible before searching. */
+  noPublishedPages?: string
   searchLabel: string
   searchPlaceholder: string
   selectPagePlaceholder: string
@@ -68,7 +70,8 @@ function slugFor(
 /**
  * Shared searchable picker for an internal link target. It deliberately owns
  * only the page id; menu targets and ADR-0008 link primitives keep their own
- * surrounding discriminated unions.
+ * surrounding discriminated unions. `publishedOnly` lists only pages
+ * published in `locale` (menus); block link fields keep listing drafts.
  */
 export function LinkPagePicker({
   value,
@@ -80,7 +83,7 @@ export function LinkPagePicker({
   pageTypeLabel,
   invalid,
   describedBy,
-  publicationLabels,
+  publishedOnly = false,
 }: {
   value: Id<"pages"> | undefined
   onChange: (pageId: Id<"pages">) => void
@@ -91,10 +94,7 @@ export function LinkPagePicker({
   pageTypeLabel?: (pageType: string) => string
   invalid?: boolean
   describedBy?: string
-  publicationLabels?: {
-    badge: (locale: string) => string
-    hint: (locale: string) => string
-  }
+  publishedOnly?: boolean
 }) {
   const t = useTranslations("editor.linkPagePicker")
   const tType = useTranslations("sidebar.contentType")
@@ -115,6 +115,7 @@ export function LinkPagePicker({
     })
   const pages = useQuery(api.cms.pages.listLinkablePages, {
     locale,
+    includeDrafts: !publishedOnly,
     limit: 100,
   })
   const selection = useQuery(
@@ -127,11 +128,11 @@ export function LinkPagePicker({
   const isUnavailable = selection?.status === "unavailable"
   const isArchived = selectedPage?.status === "archived"
   const query = searchQuery.trim().toLowerCase()
-  const filteredPages = (pages ?? [])
+  const eligiblePages = (pages ?? []).filter(
+    (page) => page.localizedTitles[locale] && page.status !== "archived"
+  )
+  const filteredPages = eligiblePages
     .filter((page) => {
-      if (!page.localizedTitles[locale] || page.status === "archived") {
-        return false
-      }
       if (!query) return true
       return (
         titleFor(page, locale).toLowerCase().includes(query) ||
@@ -228,7 +229,9 @@ export function LinkPagePicker({
               </p>
             ) : filteredPages.length === 0 ? (
               <p className="px-3 py-4 text-center text-xs text-muted-foreground">
-                {labels.noPages}
+                {eligiblePages.length === 0 && labels.noPublishedPages
+                  ? labels.noPublishedPages
+                  : labels.noPages}
               </p>
             ) : (
               filteredPages.map((page) => (
@@ -252,37 +255,12 @@ export function LinkPagePicker({
                       /{slugFor(page, locale)}
                     </span>
                   </span>
-                  {publicationLabels &&
-                    Object.entries(page.localePublicationStates ?? {})
-                      .filter(([, state]) => state !== "published")
-                      .map(([locale]) => (
-                        <Badge
-                          key={locale}
-                          variant="outline"
-                          className="shrink-0 text-xs"
-                        >
-                          {publicationLabels.badge(locale.toUpperCase())}
-                        </Badge>
-                      ))}
                 </button>
               ))
             )}
           </div>
         </PopoverContent>
       </Popover>
-      {publicationLabels &&
-        selectedPage &&
-        Object.entries(selectedPage.localePublicationStates ?? {})
-          .filter(([, state]) => state !== "published")
-          .map(([locale]) => (
-            <p
-              key={locale}
-              className="flex items-center gap-1 text-xs text-muted-foreground"
-            >
-              <CircleDashed className="size-3.5 shrink-0" aria-hidden />
-              {publicationLabels.hint(locale.toUpperCase())}
-            </p>
-          ))}
       {isArchived && (
         <p className="text-xs text-destructive">{labels.archivedWarning}</p>
       )}

@@ -24,6 +24,7 @@ import {
   type SetStateAction,
 } from "react"
 import { flushSync } from "react-dom"
+import { PREVIEW_CLICK_SETTLE_MS } from "./rich-text-caret"
 import {
   useMutation,
   useQuery,
@@ -73,6 +74,7 @@ import type {
   PreviewInlineEditCommit,
   SliceFieldFocusTarget,
   SliceFirstControlFocusTarget,
+  SlicePreviewClickSelection,
 } from "./visual-editing-types"
 import { useConfirm } from "@/components/providers/confirm-provider"
 import { DuplicatePageDialog } from "@/components/admin/duplicate-page-dialog"
@@ -1135,8 +1137,27 @@ function PageEditorSession({
     useState<SliceFieldFocusTarget | null>(null)
   const [focusedFirstControlTarget, setFocusedFirstControlTarget] =
     useState<SliceFirstControlFocusTarget | null>(null)
+  const [previewClickSelection, setPreviewClickSelection] =
+    useState<SlicePreviewClickSelection | null>(null)
   const [previewInlineRefusal, setPreviewInlineRefusal] =
     useState<PreviewInlineRefusalReason | null>(null)
+  // The "only in the form" notice sits above the split view: showing or
+  // hiding it moves the preview. A preview click updates it only once the
+  // click sequence is over; each further click restarts the wait.
+  const pendingRefusal = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    const pending = pendingRefusal
+    return () => window.clearTimeout(pending.current)
+  }, [])
+  function settlePreviewInlineRefusal(
+    reason: PreviewInlineRefusalReason | null
+  ) {
+    window.clearTimeout(pendingRefusal.current)
+    pendingRefusal.current = window.setTimeout(
+      () => setPreviewInlineRefusal(reason),
+      PREVIEW_CLICK_SETTLE_MS
+    )
+  }
 
   // SEO fields. The social title and description, noindex and nofollow belong
   // to each language (ADR-0037 amendment, 2026-11-17): they travel with the
@@ -3332,7 +3353,13 @@ function PageEditorSession({
   ) {
     setActivePanel("slices")
     setSelectedSliceId(target.sliceId)
-    setPreviewInlineRefusal(result?.status === "refused" ? result.reason : null)
+    setPreviewClickSelection((current) => ({
+      sliceId: target.sliceId,
+      nonce: (current?.nonce ?? 0) + 1,
+    }))
+    settlePreviewInlineRefusal(
+      result?.status === "refused" ? result.reason : null
+    )
     // A newer preview action replaces any pending form focus, so a slow
     // editor load cannot pull focus away from what the user chose since.
     if (result?.status === "activated") {
@@ -3348,7 +3375,15 @@ function PageEditorSession({
   function focusPreviewSliceForm(sliceId: string) {
     setActivePanel("slices")
     setSelectedSliceId(sliceId)
-    setPreviewInlineRefusal("unsupported")
+    setPreviewClickSelection((current) => ({
+      sliceId,
+      nonce: (current?.nonce ?? 0) + 1,
+    }))
+    // With editing in the preview off, every field is edited in the form, so
+    // no field is "form only": no notice.
+    settlePreviewInlineRefusal(
+      previewInlineEditingEnabled ? "unsupported" : null
+    )
     setFocusedFieldTarget(null)
     setFocusedFirstControlTarget((current) => ({
       sliceId,
@@ -4257,6 +4292,9 @@ function PageEditorSession({
                         defaultLocale={defaultLocale}
                         title={title}
                         slices={slices}
+                        sharedFieldValues={sharedFieldValues}
+                        localizedFieldValues={localizedFieldValues}
+                        authorIds={authorIds}
                         presentationCatalog={presentationCatalog}
                         otherLocales={otherLocales}
                         sourceSlices={fieldSourceSlices}
@@ -4268,6 +4306,7 @@ function PageEditorSession({
                         focusedFirstControlTarget={
                           effectiveFocusedFirstControlTarget
                         }
+                        previewClickSelection={previewClickSelection}
                         previewInlineRefusal={previewInlineRefusal}
                         previewInlineEditingEnabled={
                           previewInlineEditingEnabled

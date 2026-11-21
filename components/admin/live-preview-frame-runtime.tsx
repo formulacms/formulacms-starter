@@ -8,14 +8,25 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { useConvexAuth, useQuery } from "convex/react"
+import {
+  useConvexAuth,
+  useQueries,
+  useQuery,
+  type RequestForQueries,
+} from "convex/react"
 import { api } from "@/convex/_generated/api"
 import { PREVIEW_BUILD_ID } from "@/lib/preview-build-id"
-import type { Doc, Id } from "@/convex/_generated/dataModel"
+import type { Id } from "@/convex/_generated/dataModel"
+import type { SliceBodyDoc } from "@/convex/lib/pages/sliceBodyContent"
+import { postContentType } from "@/convex/lib/contentTypes/post"
+import { publicFieldsOf } from "@/convex/lib/contentTypes/exposure"
 import type { Slice } from "@/convex/lib/slices"
 import type { SlicePresentationCatalog } from "@/convex/lib/slices/presentationResolution"
 import { collectRelationIds } from "@/convex/lib/slices/resolve"
-import { getContentTypeRenderer } from "@/components/content-types"
+import {
+  getContentTypeRenderer,
+  type PublicByline,
+} from "@/components/content-types"
 import {
   PublicSiteShell,
   type PublicSiteShellProps,
@@ -31,6 +42,7 @@ import { useTranslations } from "next-intl"
 import { PageLivePreviewCanvas } from "./page-live-preview-canvas"
 import {
   LIVE_FRAME_SOURCE,
+  liveFrameFieldValues,
   sameLiveFrameIdentity,
   validLiveFrameInput,
   type LiveFrameBridge,
@@ -39,15 +51,12 @@ import {
   type LiveFrameInput,
   type LiveFrameWindow,
 } from "./live-preview-frame-bridge"
-import {
-  supportsLivePreviewFrame,
-  type LivePreviewPageType,
-} from "./live-preview-page-type"
+import { supportsLivePreviewFrame } from "./live-preview-page-type"
 import type { PreviewActiveEditHandle } from "./visual-editing-types"
 
 type FrameProps = {
   identity: LiveFrameIdentity
-  page: Extract<Doc<"pages">, { pageType: LivePreviewPageType }>
+  page: SliceBodyDoc
   config: {
     defaultLocale: string
     enabledLocales: string[]
@@ -233,7 +242,7 @@ function ConnectedLivePreviewFrame({
         onContext={(ready) => callbacks.current?.context(ready)}
         onUnavailable={() => callbacks.current?.unavailable()}
       >
-        {(ctx, mediaUrls, ready) => (
+        {(ctx, mediaUrls, ready, bylines) => (
           <PresentationLocaleProvider
             value={{
               locale: input.locale,
@@ -316,14 +325,33 @@ function ConnectedLivePreviewFrame({
                     renderPage={(slices, context) =>
                       SliceBody ? (
                         <SliceBody
-                          page={page}
-                          content={{ title: input.title, slices }}
+                          // Unsaved field values replace the stored ones, so
+                          // e.g. an author's name and role update live.
+                          page={
+                            {
+                              ...page,
+                              ...liveFrameFieldValues(
+                                page.pageType,
+                                "sharedFields",
+                                input.sharedFields
+                              ),
+                            } as SliceBodyDoc
+                          }
+                          content={{
+                            ...liveFrameFieldValues(
+                              page.pageType,
+                              "localizedFields",
+                              input.localizedFields
+                            ),
+                            title: input.title,
+                            slices,
+                          }}
                           slices={slices}
                           ctx={context}
                           locale={input.locale}
                           renderLocale={input.locale}
                           defaultLocale={input.defaultLocale}
-                          bylines={[]}
+                          bylines={bylines}
                         />
                       ) : null
                     }
@@ -335,6 +363,29 @@ function ConnectedLivePreviewFrame({
         )}
       </LiveFrameContext>
     </LiveFrameRenderBoundary>
+  )
+}
+
+const AUTHOR_IDS_PUBLIC =
+  "authorIds" in publicFieldsOf(postContentType.sharedFields)
+
+function bylineQueries(
+  authorIds: string[],
+  locale: string,
+  languageVersion: number
+): RequestForQueries {
+  return Object.fromEntries(
+    authorIds.map((authorPageId, index) => [
+      String(index),
+      {
+        query: api.cms.pages.getPublicByline,
+        args: {
+          authorPageId: authorPageId as Id<"pages">,
+          locale,
+          languageVersion,
+        },
+      },
+    ])
   )
 }
 
@@ -353,7 +404,8 @@ function LiveFrameContext({
   children(
     ctx: SliceRenderContext,
     mediaUrls: Record<string, string>,
-    ready: boolean
+    ready: boolean,
+    bylines: PublicByline[]
   ): ReactNode
 }) {
   const { isLoading, isAuthenticated } = useConvexAuth()
@@ -400,18 +452,51 @@ function LiveFrameContext({
       ? { ids: relationIds, locale: input.locale, includeDrafts: true }
       : "skip"
   )
+  // Post bylines use the public page's rules for this language: the same
+  // public query and exposure gate, so an author visitors cannot see (draft,
+  // archived, or missing this language) is left out here too.
+  // useQueries resubscribes whenever its argument object changes, so the
+  // request is rebuilt only when the selection, language or version changes.
+  const authorIds =
+    canResolve && view?.page.pageType === "post" && AUTHOR_IDS_PUBLIC
+      ? (input.authorIds ?? [])
+      : []
+  const bylineKey = JSON.stringify([
+    authorIds,
+    input.locale,
+    input.languageVersion,
+  ])
+  const [bylineRequest, setBylineRequest] = useState(() => ({
+    key: bylineKey,
+    queries: bylineQueries(authorIds, input.locale, input.languageVersion),
+  }))
+  if (bylineRequest.key !== bylineKey)
+    setBylineRequest({
+      key: bylineKey,
+      queries: bylineQueries(authorIds, input.locale, input.languageVersion),
+    })
+  const bylineResults = useQueries(bylineRequest.queries)
+  const bylineValues = authorIds.map((_, index) =>
+    bylineRequest.key === bylineKey
+      ? (bylineResults[String(index)] as PublicByline | null | undefined | Error)
+      : undefined
+  )
+  const bylineFailed = bylineValues.some((value) => value instanceof Error)
   const ready =
     canResolve &&
     (!storageIds.length || media !== undefined) &&
     (!pageIds.length || paths !== undefined) &&
-    (!relationIds.length || cards !== undefined)
+    (!relationIds.length || cards !== undefined) &&
+    !bylineFailed &&
+    bylineValues.every((value) => value !== undefined)
   const unavailable =
     (!isLoading && !isAuthenticated) ||
     (authenticated &&
       view !== undefined &&
       config !== undefined &&
       !authorized) ||
-    !withinMediaLimit
+    !withinMediaLimit ||
+    bylineFailed
   useLayoutEffect(() => {
     onContext(ready)
     if (unavailable) onUnavailable()
@@ -425,7 +510,12 @@ function LiveFrameContext({
     relationCards: ready ? (cards ?? {}) : {},
     presentationCatalog,
   }
-  return children(ctx, ready ? (media ?? {}) : {}, ready)
+  const bylines = ready
+    ? bylineValues.filter(
+        (value): value is PublicByline => !!value && !(value instanceof Error)
+      )
+    : []
+  return children(ctx, ready ? (media ?? {}) : {}, ready, bylines)
 }
 
 /** Rendering failures cannot destroy the parent draft or escape the frame. */

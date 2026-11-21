@@ -5,6 +5,10 @@ export type SliceFieldFocusTarget = {
   sliceId: string
   fieldPath: string
   nonce: number
+  /** Plain-text offset of the preview click; places the rich-text caret. */
+  textOffset?: number
+  /** 2 selects the clicked word, 3 the clicked paragraph; absent is one click. */
+  clickCount?: 2 | 3
 }
 
 export type PreviewFieldSelection = {
@@ -12,6 +16,10 @@ export type PreviewFieldSelection = {
   fieldPath: string
   /** True only after the preview has actually opened an inline session. */
   inlineEditing?: boolean
+  /** Plain-text offset of the click in a form-only rich-text field. */
+  textOffset?: number
+  /** 2 selects the clicked word, 3 the clicked paragraph; absent is one click. */
+  clickCount?: 2 | 3
 }
 
 export type PreviewInlineRefusalReason =
@@ -49,8 +57,20 @@ export function isPreviewFieldSelection(
     target.fieldPath.length > 0 &&
     (target.inlineEditing === undefined ||
       typeof target.inlineEditing === "boolean") &&
+    (target.textOffset === undefined ||
+      (Number.isInteger(target.textOffset) &&
+        (target.textOffset as number) >= 0)) &&
+    (target.clickCount === undefined ||
+      target.clickCount === 2 ||
+      target.clickCount === 3) &&
     Object.keys(target).every((key) =>
-      ["sliceId", "fieldPath", "inlineEditing"].includes(key)
+      [
+        "sliceId",
+        "fieldPath",
+        "inlineEditing",
+        "textOffset",
+        "clickCount",
+      ].includes(key)
     )
   )
 }
@@ -113,6 +133,16 @@ export type PreviewActiveEditHandle = {
 }
 
 export type SliceFirstControlFocusTarget = {
+  sliceId: string
+  nonce: number
+}
+
+/**
+ * The block a click on a preview field selected. The form shows that block's
+ * row as selected without scrolling to it, so the preview stays under the
+ * pointer for the rest of the click sequence. A new nonce per click.
+ */
+export type SlicePreviewClickSelection = {
   sliceId: string
   nonce: number
 }

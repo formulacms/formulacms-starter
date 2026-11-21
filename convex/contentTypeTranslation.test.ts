@@ -793,6 +793,7 @@ describe("translation switch: the owner command", () => {
           await ctx.db.insert("pagePurges", {
             pageId: site.contactId,
             requestedAt: FIXED_NOW,
+            startedAt: FIXED_NOW,
             phase: "queued",
             updatedAt: FIXED_NOW,
             attempts: 0,

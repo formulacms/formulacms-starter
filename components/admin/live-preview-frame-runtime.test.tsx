@@ -13,7 +13,8 @@ import type { Id } from "@/convex/_generated/dataModel"
 import { usePresentationLocale } from "@/components/public/presentation-locale"
 import type { SliceRenderContext } from "@/lib/slices/links"
 import { render } from "@/test-utils/admin-i18n"
-import type { Doc } from "@/convex/_generated/dataModel"
+import type { SliceBodyDoc } from "@/convex/lib/pages/sliceBodyContent"
+import type { PublicByline } from "@/components/content-types"
 import type { Slice } from "@/convex/lib/slices"
 import { captureSliceOccurrence } from "./page-editor/lib/slice-occurrence"
 import {
@@ -21,6 +22,8 @@ import {
   type PageLivePreviewProps,
 } from "./live-preview-frame"
 import { LivePreviewFrameRuntime } from "./live-preview-frame-runtime"
+import { supportsLivePreviewFrame } from "./live-preview-page-type"
+import { REGISTERED_CONTENT_TYPES } from "@/convex/lib/contentTypes"
 import type {
   LiveFrameCallbacks,
   LiveFrameInput,
@@ -43,6 +46,18 @@ const controls = vi.hoisted(() => ({
 }))
 vi.mock("convex/react", () => ({
   useQuery: controls.query,
+  useQueries: (
+    queries: Record<string, { query: unknown; args: unknown }>
+  ): Record<string, unknown> =>
+    Object.fromEntries(
+      Object.entries(queries).map(([key, { query, args }]) => {
+        try {
+          return [key, controls.query(query, args)]
+        } catch (error) {
+          return [key, error]
+        }
+      })
+    ),
   // The signed-in provider lives in the live-frame layout
   // (app/layout-provider-boundaries.test.ts checks it).
   useConvexAuth: () => controls.auth,
@@ -168,7 +183,7 @@ const activeQueryArgs = () =>
 function setup(
   config = { defaultLocale: "en", enabledLocales: ["en"], languageVersion: 2 },
   runtimeInput: LiveFrameInput = input,
-  pageType: "landing-page" | "page" = "landing-page"
+  pageType: "landing-page" | "page" | "post" | "author" = "landing-page"
 ) {
   const callbacks = {
     selectSlice: vi.fn(),
@@ -180,7 +195,7 @@ function setup(
     unavailable: vi.fn(),
     context: vi.fn(),
   } satisfies LiveFrameCallbacks
-  const page = { pageType } as Extract<Doc<"pages">, { pageType: typeof pageType }>
+  const page = { pageType } as SliceBodyDoc
   const props = {
     identity: runtimeInput,
     page,
@@ -527,7 +542,7 @@ describe("child frame context and generation", () => {
     )
     expect(view.callbacks.context).toHaveBeenLastCalledWith(true)
   })
-  it.each(["landing-page", "page"] as const)(
+  it.each(["landing-page", "page", "post", "author"] as const)(
     "NEW renders a %s row through the slice-body renderer registered for its own type",
     sliceProfile([]),
     async (pageType) => {
@@ -549,7 +564,7 @@ describe("child frame context and generation", () => {
       expect((element as ReactElement).type).toBe(
         registered.kind === "sliceBody" ? registered.Component : null
       )
-      expect((element as ReactElement<{ page: unknown }>).props.page).toBe(
+      expect((element as ReactElement<{ page: unknown }>).props.page).toEqual(
         view.props.page
       )
     }
@@ -759,8 +774,8 @@ describe("NEW B2 query safety", () => {
   )
   it.each([
     "permission",
-    "type",
-    "author",
+    "testimonial",
+    "job",
     "locale",
     "defaultLocale",
     "languageVersion",
@@ -769,13 +784,11 @@ describe("NEW B2 query safety", () => {
     (kind) => {
       const view = setup()
       const before = JSON.stringify(input)
-      if (kind === "permission" || kind === "type" || kind === "author")
+      if (kind === "permission" || kind === "testimonial" || kind === "job")
         setQuery(
           "cms/pages:getForEdit",
           { id: "page" },
-          kind === "permission"
-            ? null
-            : { page: { pageType: kind === "author" ? "author" : "post" } }
+          kind === "permission" ? null : { page: { pageType: kind } }
         )
       else
         setQuery(
@@ -975,5 +988,95 @@ describe("NEW B2 query safety", () => {
       ["cms/pages:getForEdit", { id: "page" }],
       ["cms/settings:getSiteConfig", {}],
     ])
+  })
+})
+
+type RenderedPage = ReactElement<{
+  page: Record<string, unknown>
+  content: Record<string, unknown>
+  bylines: PublicByline[]
+}>
+const renderedPage = () =>
+  controls.renderPage!([slice], {} as SliceRenderContext) as RenderedPage
+
+it.each(REGISTERED_CONTENT_TYPES.filter(supportsLivePreviewFrame))(
+  "gives the previewed type %s a block-body renderer",
+  (type) => {
+    expect(getContentTypeRenderer(type).kind).toBe("sliceBody")
+  }
+)
+
+describe("unsaved content-type fields in the live frame", () => {
+  it("shows an author's unsaved name, socials and role title, dropping invalid values", sliceProfile([]), async () => {
+    setQuery("cms/pages:getForEdit", { id: "page" }, { page: { pageType: "author" } })
+    const socials = [{ platform: "GitHub", url: "https://github.com/ada" }]
+    const view = setup(
+      undefined,
+      {
+        ...input,
+        pageType: "author",
+        sharedFields: { name: "Ada Draft", socials, pageType: "post" },
+        localizedFields: { roleTitle: "Editor", title: "ignored" },
+      },
+      "author"
+    )
+    await waitFor(() =>
+      expect(view.callbacks.context).toHaveBeenLastCalledWith(true)
+    )
+    const element = renderedPage()
+    expect(element.props.page).toMatchObject({
+      pageType: "author",
+      name: "Ada Draft",
+      socials,
+    })
+    expect(element.props.content).toMatchObject({
+      title: "Title",
+      roleTitle: "Editor",
+    })
+    act(() => {
+      view.bridge.replaceInput({
+        ...view.input,
+        sharedFields: { name: 42, socials: [] },
+        localizedFields: { roleTitle: "Lead" },
+      })
+    })
+    const next = renderedPage()
+    expect(next.props.page.name).toBeUndefined()
+    expect(next.props.page.socials).toEqual([])
+    expect(next.props.content.roleTitle).toBe("Lead")
+  })
+
+  it("resolves a Post's unsaved authors in order with the public byline rules", sliceProfile([]), async () => {
+    setQuery("cms/pages:getForEdit", { id: "page" }, { page: { pageType: "post" } })
+    const args = (authorPageId: string) => ({
+      authorPageId,
+      locale: "en",
+      languageVersion: 2,
+    })
+    const lead = { name: "Lead", roleTitle: "Editor", avatarUrl: null }
+    const second = { name: "Second", avatarUrl: "https://cdn/x.png" }
+    setQuery("cms/pages:getPublicByline", args("b"), second)
+    setQuery("cms/pages:getPublicByline", args("a"), lead)
+    // Not published in this language: the public page leaves it out.
+    setQuery("cms/pages:getPublicByline", args("hidden"), null)
+    const view = setup(
+      undefined,
+      { ...input, pageType: "post", authorIds: ["a", "hidden", "b"] },
+      "post"
+    )
+    await waitFor(() =>
+      expect(view.callbacks.context).toHaveBeenLastCalledWith(true)
+    )
+    expect(renderedPage().props.bylines).toEqual([lead, second])
+    act(() => {
+      view.bridge.replaceInput({ ...view.input, authorIds: ["b", "a"] })
+    })
+    await waitFor(() =>
+      expect(renderedPage().props.bylines).toEqual([second, lead])
+    )
+    act(() => {
+      view.bridge.replaceInput({ ...view.input, authorIds: [] })
+    })
+    await waitFor(() => expect(renderedPage().props.bylines).toEqual([]))
   })
 })

@@ -14,6 +14,7 @@ import {
 } from "../lib/richtext/write"
 import { ConvexError, v } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
+import type { WithoutSystemFields } from "convex/server"
 import { internalQuery, query } from "../_generated/server"
 import type { DataModel, Doc, Id } from "../_generated/dataModel"
 import { components, internal } from "../_generated/api"
@@ -117,11 +118,11 @@ import {
   PAGE_PURGE_MAX_BATCH_ITEMS,
   PAGE_PURGE_PHASES,
   PAGE_PURGE_MAX_FAILURES,
-  PAGE_PURGE_STALE_MS,
   PAGE_PURGE_WAIT_MS,
   assertNoPagePurge,
   evaluatePurgeSelection,
   pagePurgeTuning,
+  languageOperationOpen,
   readPagePurgeMarker,
   runPurgeBatch,
 } from "../lib/publishing/pagePurge"
@@ -501,13 +502,16 @@ export const listAdminPages = query({
         if (row) rows.push(row)
         continue
       }
-      // A page being purged keeps a row even after its own drafts are gone,
-      // so the Trash list can show it as "Deleting".
+      // An accepted delete is not listed: the owner asked for it and it only
+      // waits for the worker. A stalled one stays visible (with the retry
+      // action) and keeps its title and address from the marker, because its
+      // own drafts may already be gone.
       const marker = await readPagePurgeMarker(ctx, state.pageId)
       if (!marker) {
         if (row) rows.push(row)
         continue
       }
+      if (marker.stalledAt === undefined) continue
       const page = await ctx.db.get("pages", state.pageId)
       if (row) {
         rows.push({
@@ -515,9 +519,7 @@ export const listAdminPages = query({
           localizedTitles: Object.keys(row.localizedTitles).length
             ? row.localizedTitles
             : marker.localizedTitles,
-          ...(marker.stalledAt === undefined
-            ? { purging: true }
-            : { purgeStalled: true }),
+          purgeStalled: true,
         })
       } else if (page) {
         rows.push({
@@ -535,9 +537,7 @@ export const listAdminPages = query({
           sharedDraftGeneration: 0,
           locales: [],
           updatedAt: state.updatedAt,
-          ...(marker.stalledAt === undefined
-            ? { purging: true }
-            : { purgeStalled: true }),
+          purgeStalled: true,
         })
       }
     }
@@ -4693,7 +4693,7 @@ export const publishLocale = mutation({
       currentPublishedAt: publishedAt,
       updatedAt: publishedAt,
     })
-    await ctx.db.insert("pagePublicationRevalidationIntents", {
+    await insertRevalidationIntent(ctx, {
       operationId: `publish:${snapshotId}`,
       operationKind: localeState.hasCurrentSnapshot ? "republish" : "publish",
       pageId: args.pageId,
@@ -4874,7 +4874,7 @@ export const withdrawLocale = mutation({
       currentPublishedAt: undefined,
       updatedAt: now,
     })
-    await ctx.db.insert("pagePublicationRevalidationIntents", {
+    await insertRevalidationIntent(ctx, {
       operationId: `withdraw:${args.expectedSnapshotId}`,
       operationKind: "withdraw",
       pageId: args.pageId,
@@ -4915,6 +4915,27 @@ export const withdrawLocale = mutation({
   },
 })
 
+// One mutation may insert several revalidation intents (every locale of a
+// lifecycle change). Schedule the immediate drain once per mutation context so
+// the public site refreshes now instead of at the next cron tick. Scheduling
+// commits with the insert, so a rolled-back mutation schedules nothing. The
+// 1-minute cron stays as the safety net.
+const drainScheduledFor = new WeakSet<object>()
+
+async function insertRevalidationIntent(
+  ctx: MutationCtx,
+  intent: WithoutSystemFields<Doc<"pagePublicationRevalidationIntents">>
+): Promise<void> {
+  await ctx.db.insert("pagePublicationRevalidationIntents", intent)
+  if (drainScheduledFor.has(ctx)) return
+  drainScheduledFor.add(ctx)
+  await ctx.scheduler.runAfter(
+    0,
+    internal.cms.revalidate.drainPublicationRevalidationIntents,
+    {}
+  )
+}
+
 async function recordLifecycleIntents(
   ctx: MutationCtx,
   pageId: Id<"pages">,
@@ -4924,7 +4945,7 @@ async function recordLifecycleIntents(
 ): Promise<void> {
   for (const state of states) {
     const operationId = `${operationKind}:${pageId}:${state.locale}:${state.publicGeneration}:${now}`
-    await ctx.db.insert("pagePublicationRevalidationIntents", {
+    await insertRevalidationIntent(ctx, {
       operationId,
       operationKind,
       pageId,
@@ -5447,7 +5468,6 @@ const purgeReasonValidator = v.union(
   v.literal("children"),
   v.literal("incoming_links"),
   v.literal("menus"),
-  v.literal("revalidation_pending"),
   v.literal("language_operation"),
   v.literal("not_trashed"),
   v.literal("stale"),
@@ -5540,15 +5560,6 @@ export const purgeTrashedPages = mutation({
     const now = Date.now()
 
     // Every read happens before the first write.
-    let eligibleBefore = false
-    for await (const row of ctx.db
-      .query("pagePurges")
-      .withIndex("by_requestedAt")) {
-      if (row.stalledAt === undefined && (row.waitUntil ?? 0) <= now) {
-        eligibleBefore = true
-        break
-      }
-    }
     const verdicts = await evaluatePurgeSelection(
       ctx,
       items.map((item) => ({
@@ -5626,11 +5637,11 @@ export const purgeTrashedPages = mutation({
         localizedTitles: info.localizedTitles,
       })
     }
-    // A second call retries a purge that stopped after repeated failures.
-    let retried = false
+    // A second call re-queues a purge that stopped after repeated failures.
+    // Delete is a request only: no worker starts here. The daily batch
+    // (`startQueuedPagePurges`) picks every queued marker up.
     for (const marker of existing.values()) {
       if (marker.stalledAt === undefined) continue
-      retried = true
       await ctx.db.patch("pagePurges", marker._id, {
         stalledAt: undefined,
         attempts: 0,
@@ -5638,10 +5649,6 @@ export const purgeTrashedPages = mutation({
         waitUntil: undefined,
         updatedAt: now,
       })
-    }
-    if (ordered.length > 0 || retried) {
-      if (!eligibleBefore || retried)
-        await ctx.scheduler.runAfter(0, internal.cms.publication.runPagePurgeStep, {})
     }
     return items.map((item) => {
       if (existing.has(item.pageId))
@@ -5740,6 +5747,22 @@ export const runPagePurgeStep = internalMutation({
         )
       return null
     }
+    // A queued request becomes a started purge only while no language
+    // operation is open; from then on new operations are refused. Waiting here
+    // never touches `attempts`.
+    if (row.startedAt === undefined) {
+      if (await languageOperationOpen(ctx)) {
+        await ctx.db.patch("pagePurges", row._id, {
+          waitUntil: now + PAGE_PURGE_WAIT_MS,
+        })
+        await schedulePurgeStep(ctx)
+        return null
+      }
+      await ctx.db.patch("pagePurges", row._id, {
+        startedAt: now,
+        waitUntil: undefined,
+      })
+    }
     // A failed batch is retried with a smaller one.
     const maxSources = Math.max(
       1,
@@ -5784,21 +5807,30 @@ export const runPagePurgeStep = internalMutation({
   },
 })
 
-/** Daily safety net: restart the worker when a queued Page has not moved. */
-export const resumePagePurges = internalMutation({
+/**
+ * Daily batch (cron "page purge daily batch"). Permanent deletes are requests:
+ * `purgeTrashedPages` only queues a marker. This starts the single worker
+ * chain when any queued marker is not stalled; `runPagePurgeStep` then
+ * reschedules itself batch by batch until none is left. It also covers a lost
+ * chain, so it replaces the former stale-queue sweep. Internal only; tests and
+ * the seat call it to run the batch now.
+ */
+export const startQueuedPagePurges = internalMutation({
   args: {},
-  returns: v.number(),
+  returns: v.boolean(),
   handler: async (ctx) => {
-    const cutoff = Date.now() - PAGE_PURGE_STALE_MS
-    let stale = 0
     for await (const row of ctx.db
       .query("pagePurges")
-      .withIndex("by_updatedAt", (q) => q.lt("updatedAt", cutoff))) {
-      if (row.stalledAt === undefined) stale += 1
+      .withIndex("by_requestedAt")) {
+      if (row.stalledAt !== undefined) continue
+      await ctx.scheduler.runAfter(
+        0,
+        internal.cms.publication.runPagePurgeStep,
+        {}
+      )
+      return true
     }
-    if (stale > 0)
-      await ctx.scheduler.runAfter(0, internal.cms.publication.runPagePurgeStep, {})
-    return stale
+    return false
   },
 })
 
@@ -6289,7 +6321,7 @@ export async function publishPreparedTargetLocale(
     currentPublishedAt: publishedAt,
     updatedAt: publishedAt,
   })
-  await ctx.db.insert("pagePublicationRevalidationIntents", {
+  await insertRevalidationIntent(ctx, {
     operationId: `publish:${snapshotId}`,
     operationKind: localeState.hasCurrentSnapshot ? "republish" : "publish",
     pageId: input.pageId,
@@ -6408,7 +6440,7 @@ export async function withdrawPreparedTargetLocale(
     currentPublishedAt: undefined,
     updatedAt: now,
   })
-  await ctx.db.insert("pagePublicationRevalidationIntents", {
+  await insertRevalidationIntent(ctx, {
     operationId: `withdraw:${input.expectedSnapshotId}`,
     operationKind: "withdraw",
     pageId: input.pageId,

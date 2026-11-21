@@ -57,6 +57,7 @@ const EDITOR_DIALOG_TOAST_PATHS = new Set([
   "components/admin/media-image-editor.tsx",
   "components/admin/media-picker.tsx",
   "components/admin/page-editor.tsx",
+  "components/admin/page-editor/components/editor-split.tsx",
   "components/admin/page-editor/components/page-header-meta.tsx",
   "components/admin/page-editor/components/page-readiness.tsx",
   "components/admin/page-editor/components/pre-publish-checklist.tsx",
@@ -72,6 +73,7 @@ const EDITOR_DIALOG_TOAST_PATHS = new Set([
   "components/admin/preview-inline-editor.tsx",
   "components/admin/preview-inline-session.ts",
   "components/admin/relation-picker.tsx",
+  "components/admin/rich-text-caret.ts",
   "components/admin/rich-text-editor.tsx",
   "components/admin/slice-builder.tsx",
   "components/admin/slice-editor.tsx",
@@ -317,7 +319,7 @@ describe("admin literal ratchet", () => {
   test("R1 shipped UI has no unallowlisted literals", () => {
     const inventory = scanR1LiteralInventory(process.cwd())
     expect(inventory.files.length).toBeGreaterThan(0)
-    expect(inventory.files).toHaveLength(250)
+    expect(inventory.files).toHaveLength(252)
     if (inventory.findings.length > 0) {
       throw new Error(formatR1LiteralInventory(inventory))
     }
@@ -417,7 +419,7 @@ describe("admin literal ratchet", () => {
         EDITOR_DIALOG_TOAST_PATHS.has(finding.path)
       ),
     }
-    expect(editorInventory.files).toHaveLength(44)
+    expect(editorInventory.files).toHaveLength(46)
     if (editorInventory.findings.length > 0) {
       throw new Error(formatR1LiteralInventory(editorInventory))
     }

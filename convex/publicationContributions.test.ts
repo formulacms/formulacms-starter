@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { beforeEach, describe, expect, test, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { api } from "./_generated/api"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import type { Id } from "./_generated/dataModel"
@@ -64,6 +64,11 @@ const OWNER = {
 }
 
 function app() {
+  // Publishing schedules an immediate revalidation drain. Hold the timers so
+  // the drain cannot race this test's state snapshots.
+  if (!vi.isFakeTimers()) {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  }
   return convexTest({
     schema,
     modules,
@@ -208,6 +213,10 @@ function descriptor(
     contributions,
   }
 }
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 beforeEach(() => {
   slots.history = null

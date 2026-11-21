@@ -15,6 +15,7 @@ const NON_DISPOSABLE_FILES = [
   "content",
   "language-and-modules",
   "menus",
+  "preview-click-timing",
   "public-probes",
   "publication",
   "redirects",

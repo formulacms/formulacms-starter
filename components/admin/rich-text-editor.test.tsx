@@ -14,6 +14,16 @@ import { ConfirmProvider } from "@/components/providers/confirm-provider"
 import { PageSaveRefusedError } from "@/components/admin/page-editor/lib/page-save-refused-error"
 import type { FieldGenerate } from "./fields/field-editor"
 import { RichTextEditor } from "./rich-text-editor"
+import { placeRichTextCaret, registerRichTextCaret } from "./rich-text-caret"
+
+// The real lookup table, observed: registration must not churn on re-renders.
+vi.mock(import("./rich-text-caret"), async (importOriginal) => {
+  const original = await importOriginal()
+  return {
+    ...original,
+    registerRichTextCaret: vi.fn(original.registerRichTextCaret),
+  }
+})
 import { BASIC_PARAGRAPH_GAP } from "@/lib/rich-text/basic-text-paste"
 
 // jsdom has no layout; ProseMirror needs a rect to place the slash menu.
@@ -777,4 +787,57 @@ test.each([
   expect(editor.getJSON()).toEqual({ type: "doc", content: [
     { type: "paragraph", content: [{ type: "text", text: expected }] },
   ] })
+})
+
+test("a preview click offset puts the caret on the clicked word in paragraph 2", async () => {
+  const value = JSON.stringify({
+    type: "doc",
+    content: [
+      { type: "paragraph", content: [{ type: "text", text: "First one" }] },
+      { type: "paragraph", content: [{ type: "text", text: "Second two" }] },
+    ],
+  })
+  render(
+    <ConfirmProvider>
+      <RichTextEditor value={value} onChange={() => {}} profile="full" />
+    </ConfirmProvider>
+  )
+  const surface = await screen.findByRole("textbox")
+  const editor = (surface as HTMLElement & { editor: Editor }).editor
+  // "First one" is 1 + 9 characters; "Second " adds 1 + 7 more.
+  await act(async () => {
+    expect(placeRichTextCaret(surface, 18)).toBe(true)
+  })
+  const { $from } = editor.state.selection
+  expect($from.parent.textContent).toBe("Second two")
+  expect($from.parentOffset).toBe(7)
+  expect(document.activeElement).toBe(surface)
+})
+
+test("the caret handler registers once per editor, not on every re-render", async () => {
+  const register = vi.mocked(registerRichTextCaret)
+  register.mockClear()
+  const value = JSON.stringify({
+    type: "doc",
+    content: [{ type: "paragraph", content: [{ type: "text", text: "Body" }] }],
+  })
+  const view = render(
+    <ConfirmProvider>
+      <RichTextEditor value={value} onChange={() => {}} profile="full" />
+    </ConfirmProvider>
+  )
+  await screen.findByRole("textbox")
+  expect(register).toHaveBeenCalledOnce()
+  for (const label of ["First", "Second"])
+    view.rerender(
+      <ConfirmProvider>
+        <RichTextEditor
+          value={value}
+          onChange={() => {}}
+          profile="full"
+          label={label}
+        />
+      </ConfirmProvider>
+    )
+  expect(register).toHaveBeenCalledOnce()
 })

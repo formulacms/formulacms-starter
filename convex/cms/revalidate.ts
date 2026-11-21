@@ -438,6 +438,8 @@ export async function resolveTarget(
   return { baseUrl, secret }
 }
 
+export const REVALIDATE_POST_TIMEOUT_MS = 10_000
+
 // POST to the Next /api/revalidate endpoint. `tags` purges the shared Data
 // Cache (unstable_cache) by content type; `paths` purges the Full Route Cache
 // for specific public URLs. Both are best-effort.
@@ -453,6 +455,9 @@ async function postRevalidate(
         "x-revalidate-secret": target.secret,
       },
       body: JSON.stringify(body),
+      // A site that never answers must not hold a revalidation intent
+      // "running" until its lease ends; a timeout is a failed attempt.
+      signal: AbortSignal.timeout(REVALIDATE_POST_TIMEOUT_MS),
     })
     return response.ok
       ? { status: "ok", httpStatus: response.status }
@@ -942,7 +947,31 @@ export const drainPublicationRevalidationIntents = internalAction({
       {}
     )
     for (const claim of claims) {
-      await runPublicationRevalidationIntent(ctx, claim)
+      // One throwing intent must not strand the others in "running" until
+      // their lease ends: it goes through the ordinary fail path.
+      try {
+        await runPublicationRevalidationIntent(ctx, claim)
+      } catch (error) {
+        console.error("publication revalidation intent threw", error)
+        try {
+          const failed: null = await ctx.runMutation(
+            internal.cms.revalidate.failPublicationRevalidationIntent,
+            { ...claim, errorCode: "network_error" }
+          )
+          void failed
+        } catch (failError) {
+          console.error("publication revalidation fail path threw", failError)
+        }
+      }
+    }
+    // A full batch means more intents may wait (a 25-page batch action):
+    // continue now instead of waiting for the next cron tick.
+    if (claims.length >= PUBLICATION_REVALIDATION_CLAIM_LIMIT) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.cms.revalidate.drainPublicationRevalidationIntents,
+        {}
+      )
     }
     return null
   },

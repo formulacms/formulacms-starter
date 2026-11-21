@@ -8,7 +8,19 @@ import {
   adminSliceGroupLabel,
 } from "@/lib/i18n/admin-metadata"
 
-import { useEffect, useLayoutEffect, useId, useRef, useState } from "react"
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useId,
+  useRef,
+  useState,
+} from "react"
+import {
+  PREVIEW_CLICK_SETTLE_MS,
+  placeInputCaret,
+  placeRichTextCaret,
+} from "./rich-text-caret"
 import Image from "next/image"
 import { useTranslations } from "next-intl"
 import { useQuery_experimental } from "convex/react"
@@ -46,6 +58,7 @@ import { ImageFieldLocaleProvider } from "./fields/image-field-editor"
 import type {
   SliceFieldFocusTarget,
   SliceFirstControlFocusTarget,
+  SlicePreviewClickSelection,
 } from "./visual-editing-types"
 import {
   captureSliceOccurrence,
@@ -55,6 +68,47 @@ import {
 // How long a field selected from the preview may wait for a lazily loaded
 // editor before focus is abandoned.
 const FOCUS_WAIT_LIMIT_MS = 5_000
+// A field selected from the preview is focused at once, without scrolling,
+// and brought into view only PREVIEW_CLICK_SETTLE_MS after the last click.
+
+/**
+ * True when the field can be seen: wholly inside the window and every
+ * clipping ancestor, or, when it is taller than that area, crossing it.
+ */
+function isFieldInView(field: HTMLElement) {
+  const box = field.getBoundingClientRect()
+  let top = 0
+  let bottom = window.innerHeight
+  for (let node = field.parentElement; node; node = node.parentElement) {
+    if (!/(auto|scroll|hidden|clip)/.test(getComputedStyle(node).overflowY))
+      continue
+    const area = node.getBoundingClientRect()
+    top = Math.max(top, area.top)
+    bottom = Math.min(bottom, area.bottom)
+  }
+  if (box.height > bottom - top) return box.top < bottom && box.bottom > top
+  return box.top >= top && box.bottom <= bottom
+}
+
+/**
+ * Brings a field focused from a preview click into view once the click
+ * sequence is over. A further click on the preview starts the wait over; the
+ * owner's own scrolling or clicking in the page cancels it. Returns the cancel.
+ */
+function revealAfterPreviewClicks(field: HTMLElement) {
+  function stop() {
+    window.clearTimeout(reveal)
+    document.removeEventListener("pointerdown", stop, true)
+    document.removeEventListener("wheel", stop, true)
+  }
+  const reveal = window.setTimeout(() => {
+    stop()
+    if (!isFieldInView(field)) field.scrollIntoView({ block: "nearest" })
+  }, PREVIEW_CLICK_SETTLE_MS)
+  document.addEventListener("pointerdown", stop, true)
+  document.addEventListener("wheel", stop, { capture: true, passive: true })
+  return stop
+}
 
 /**
  * Resolve the source-locale slice that corresponds to `slices[index]` by ordinal
@@ -166,6 +220,7 @@ export function SliceBuilder({
   selectedSliceId,
   focusedFieldTarget,
   focusedFirstControlTarget,
+  previewClickSelection,
   onSelectedSliceIdChange,
   archiveStateVerificationFailure = false,
   presentationCatalog,
@@ -186,6 +241,8 @@ export function SliceBuilder({
   selectedSliceId?: string | null
   focusedFieldTarget?: SliceFieldFocusTarget | null
   focusedFirstControlTarget?: SliceFirstControlFocusTarget | null
+  /** A click on a preview field selected this block: do not scroll to it. */
+  previewClickSelection?: SlicePreviewClickSelection | null
   onSelectedSliceIdChange?: (sliceId: string | null) => void
   archiveStateVerificationFailure?: boolean
   presentationCatalog?: SlicePresentationCatalog
@@ -283,13 +340,24 @@ export function SliceBuilder({
     if (repaired !== slices) onChange(repaired)
   }, [slices, onChange])
 
+  // Each preview click counts once: a later keyboard or navigation selection
+  // of the same block scrolls to it again.
+  const handledPreviewClick = useRef<number | null>(null)
+  const selectedByPreviewClick = useEffectEvent((sliceId?: string | null) => {
+    const click = previewClickSelection
+    if (!click || click.nonce === handledPreviewClick.current) return false
+    handledPreviewClick.current = click.nonce
+    return click.sliceId === sliceId
+  })
   useEffect(() => {
     const selectedFromRow = rowSelectedSliceId.current === selectedSliceId
     rowSelectedSliceId.current = null
-    // Keep the control under the pointer between focus and click. Preview and
+    // Keep the control under the pointer between focus and click. A click on
+    // a preview field keeps the preview under the pointer: the row shows as
+    // selected without a scroll. The block button in the preview and
     // navigation selections still bring the whole row into view.
-    if (selectedFromRow) return
-    if (!selectedSliceId) return
+    const selectedFromPreviewClick = selectedByPreviewClick(selectedSliceId)
+    if (!selectedSliceId || selectedFromPreviewClick || selectedFromRow) return
     rowRefs.current?.get(selectedSliceId)?.scrollIntoView({
       block: "nearest",
     })
@@ -301,6 +369,11 @@ export function SliceBuilder({
     if (!row) return
     const target = focusedFieldTarget
     const rowNode = row
+    let stopReveal = () => {}
+    function revealAfterClicks(field: HTMLElement) {
+      stopReveal()
+      stopReveal = revealAfterPreviewClicks(field)
+    }
     function focusField(preferEditableOnly = false) {
       const field = Array.from(
         rowNode.querySelectorAll<HTMLElement>("[data-slice-field-path]")
@@ -314,9 +387,28 @@ export function SliceBuilder({
             "input, textarea, select, [contenteditable='true']"
           )
       if (!primaryFocusable && preferEditableOnly) return false
-      field.scrollIntoView({ block: "center" })
       if (primaryFocusable) {
-        primaryFocusable.focus({ preventScroll: true })
+        revealAfterClicks(field)
+        // A click in the preview names a text spot; a text input or a
+        // rich-text editor puts its caret there, or selects the word (double
+        // click) or the clicked paragraph (triple click: an input's value, a
+        // textarea's line). Anything else keeps its last caret position.
+        if (
+          target.textOffset === undefined ||
+          !(
+            placeInputCaret(
+              primaryFocusable,
+              target.textOffset,
+              target.clickCount
+            ) ||
+            placeRichTextCaret(
+              primaryFocusable,
+              target.textOffset,
+              target.clickCount
+            )
+          )
+        )
+          primaryFocusable.focus({ preventScroll: true })
         return true
       }
       // While a lazily loaded editor is still arriving, wait for it rather
@@ -328,6 +420,7 @@ export function SliceBuilder({
             "button:not(:disabled), [tabindex]:not(:disabled)"
           )
       focusable?.focus({ preventScroll: true })
+      revealAfterClicks(field)
       return Boolean(focusable) && document.activeElement === focusable
     }
 
@@ -369,6 +462,7 @@ export function SliceBuilder({
     return () => {
       cancelAnimationFrame(frame)
       stopWaiting()
+      stopReveal()
     }
   }, [focusedFieldTarget])
 
@@ -377,15 +471,21 @@ export function SliceBuilder({
     const row = rowRefs.current?.get(focusedFirstControlTarget.sliceId)
     if (!row) return
     const rowNode = row
+    let stopReveal = () => {}
     const frame = requestAnimationFrame(() => {
       const control = rowNode.querySelector<HTMLElement>(
         "input:not([type='hidden']):not(:disabled):not([disabled]):not([aria-disabled='true']), textarea:not(:disabled):not([disabled]):not([aria-disabled='true']), select:not(:disabled):not([disabled]):not([aria-disabled='true']), [contenteditable='true']:not([disabled]):not([aria-disabled='true']), [role='combobox']:not(:disabled):not([disabled]):not([aria-disabled='true'])"
       )
-      control?.scrollIntoView({ block: "center" })
-      if (control) control.focus({ preventScroll: true })
-      else rowNode.focus({ preventScroll: true })
+      // A click on the block in the preview: focus at once, scroll only
+      // after the click sequence, so nothing moves under the pointer.
+      const focused = control ?? rowNode
+      focused.focus({ preventScroll: true })
+      stopReveal = revealAfterPreviewClicks(focused)
     })
-    return () => cancelAnimationFrame(frame)
+    return () => {
+      cancelAnimationFrame(frame)
+      stopReveal()
+    }
   }, [focusedFirstControlTarget])
 
   function selectSlice(sliceId: string | null, fromRow = false) {

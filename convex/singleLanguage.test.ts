@@ -5428,6 +5428,10 @@ describe("F09c F1 readiness and bounded activation", () => {
     const owner = t.withIdentity(OWNER)
     const { id } = await readyCorrection(t, owner)
     const args = await activationArgs(t, id)
+    await drain(t)
+    const attemptsBefore = await t.run((ctx) =>
+      ctx.db.query("revalidationAttempts").collect()
+    )
     const before = await languageTables(t)
 
     await expect(
@@ -5439,9 +5443,10 @@ describe("F09c F1 readiness and bounded activation", () => {
     expect(await languageTables(t)).toEqual(before)
     expect((await transitionOf(t, id)).phase).toBe("ready")
     await drain(t)
+    // Setup publishes already drained; the aborted activation added nothing.
     expect(
       await t.run((ctx) => ctx.db.query("revalidationAttempts").collect())
-    ).toEqual([])
+    ).toEqual(attemptsBefore)
   })
 
   test("rows 26 and 32: rollback reuses the compensated source and later retained targets need a disposition", async () => {

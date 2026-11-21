@@ -526,6 +526,100 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
   )
 
   test(
+    "shows and hides the only-in-the-form notice only after a preview click sequence",
+    sliceProfile([]),
+    async () => {
+      // The notice sits above the split view, so a change during a double
+      // or triple click would move the preview under the pointer.
+      const slice = {
+        ...createSampleSlice("hero-with-image"),
+        id: "slice_notice",
+      }
+      const withSlice = page()
+      withSlice.content = { en: { title: "About", slices: [slice] } }
+      render(
+        <PageEditor
+          page={withSlice}
+          hasStaging={false}
+          stagingUpdatedAt={undefined}
+          publication={publication()}
+        />
+      )
+      const current = () => mocks.sliceProps.at(-1)!
+      const wait = (ms: number) =>
+        act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+      const formOnly = { sliceId: slice.id, fieldPath: "primary.eyebrow" }
+      const refused = { status: "refused", reason: "unsupported" } as const
+
+      // A form-only double click, clicks 150 ms apart: no notice yet.
+      act(() => current().onPreviewSelectField(formOnly, refused))
+      await wait(150)
+      act(() =>
+        current().onPreviewSelectField({ ...formOnly, clickCount: 2 }, refused)
+      )
+      await wait(400)
+      expect(current().previewInlineRefusal).toBeNull()
+      // About 500 ms after the last click it shows.
+      await wait(200)
+      expect(current().previewInlineRefusal).toBe("unsupported")
+
+      // A title opened in place: the notice stays during the sequence, and
+      // the owner's own scrolling does not keep it from updating.
+      const inPlace = { sliceId: slice.id, fieldPath: "primary.title" }
+      act(() =>
+        current().onPreviewSelectField(inPlace, { status: "activated" })
+      )
+      fireEvent.wheel(document.body)
+      await wait(400)
+      expect(current().previewInlineRefusal).toBe("unsupported")
+      await wait(200)
+      expect(current().previewInlineRefusal).toBeNull()
+    }
+  )
+
+  test(
+    "an empty-spot click with editing in the preview off focuses the first control with no notice",
+    sliceProfile([]),
+    async () => {
+      const slice = {
+        ...createSampleSlice("hero-with-image"),
+        id: "slice_fallback",
+      }
+      const withSlice = page()
+      withSlice.content = { en: { title: "About", slices: [slice] } }
+      render(
+        <PageEditor
+          page={withSlice}
+          hasStaging={false}
+          stagingUpdatedAt={undefined}
+          publication={publication()}
+        />
+      )
+      const current = () => mocks.sliceProps.at(-1)!
+      const wait = (ms: number) =>
+        act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+      expect(current().previewInlineEditingEnabled).toBe(false)
+      act(() => current().onPreviewSelectSliceFallback(slice.id))
+      await wait(650)
+      expect(current().focusedFirstControlTarget).toMatchObject({
+        sliceId: slice.id,
+      })
+      // Marked as a preview click: the form does not scroll to the row.
+      expect(current().previewClickSelection).toMatchObject({
+        sliceId: slice.id,
+      })
+      expect(current().previewInlineRefusal).toBeNull()
+
+      // With editing in the preview on, the notice still shows, after the
+      // click sequence.
+      act(() => current().onPreviewInlineEditingEnabledChange(true))
+      act(() => current().onPreviewSelectSliceFallback(slice.id))
+      await wait(650)
+      expect(current().previewInlineRefusal).toBe("unsupported")
+    }
+  )
+
+  test(
     "NEW Unit A wires preview Save to the actual Page save handler and keeps keyboard Save",
     sliceProfile([]),
     async () => {

@@ -27,6 +27,7 @@ type App = ReturnType<typeof convexTest>
 type Body = { paths: string[]; tags: string[] }
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
 })
@@ -67,6 +68,9 @@ const postedBodies = (fetchMock: ReturnType<typeof stubRevalidationTarget>) =>
   })
 
 async function activeApp() {
+  // Publishing now schedules an immediate drain. Hold scheduled timers so each
+  // test drives the drain by hand and sees exact, repeatable state.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
   const t = convexTest({
     schema,
     modules,
@@ -395,6 +399,115 @@ describe("F08c required revalidation worker", () => {
     })
   })
 
+  const drainJobs = (t: App) =>
+    t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.name.includes("drainPublicationRevalidationIntents")
+      )
+    )
+
+  test("publish, withdraw and archive each schedule exactly one immediate drain", async () => {
+    const { t, owner } = await activeApp()
+    const pageId = await owner.mutation(api.cms.pages.create, {
+      pageType: "landing-page",
+      status: "draft",
+      slug: "instant",
+      title: "Instant",
+      content: {
+        en: { title: "Instant", slices: [] },
+        fr: { title: "Instant", slices: [] },
+      },
+    })
+    const before = (await drainJobs(t)).length
+    await owner.mutation(
+      api.cms.publication.publishLocale,
+      firstPublish(pageId)
+    )
+    expect((await drainJobs(t)).length).toBe(before + 1)
+    const rows = await localeState(t, pageId, "en")
+    await owner.mutation(api.cms.publication.withdrawLocale, {
+      pageId,
+      locale: "en",
+      expectedSnapshotId: rows.currentSnapshotId!,
+      expectedPublicGeneration: rows.publicGeneration,
+      expectedLifecycleGeneration: 1,
+    })
+    expect((await drainJobs(t)).length).toBe(before + 2)
+    // Archive writes one intent per language state, but only one drain.
+    await owner.mutation(api.cms.publication.archivePage, {
+      pageId,
+      expectedLifecycleGeneration: 1,
+    })
+    const intents = await allIntents(t)
+    expect(intents.filter((i) => i.operationKind === "archive").length).toBeGreaterThan(1)
+    expect((await drainJobs(t)).length).toBe(before + 3)
+  })
+
+  test("two drains claiming at once never share an intent, even after a lease expires", async () => {
+    const { t, owner } = await activeApp()
+    const pageId = await owner.mutation(api.cms.pages.create, {
+      pageType: "landing-page",
+      status: "draft",
+      slug: "claims",
+      title: "Claims",
+      content: { en: { title: "Claims", slices: [] } },
+    })
+    const ids: Id<"pagePublicationRevalidationIntents">[] = []
+    for (let i = 0; i < 5; i += 1) ids.push(await insertIntent(t, pageId, "/claims"))
+    const stale = await insertIntent(t, pageId, "/claims", {
+      status: "running",
+      attempts: 3,
+      updatedAt: Date.now() - PUBLICATION_REVALIDATION_LEASE_MS - 1,
+    })
+    const claim = () =>
+      t.mutation(internal.cms.revalidate.claimPublicationRevalidationIntents, {})
+    const [a, b] = await Promise.all([claim(), claim()])
+    const claimed = [...a, ...b].map((c) => c.intentId)
+    expect(new Set(claimed).size).toBe(claimed.length)
+    expect(claimed.length).toBeLessThanOrEqual(6)
+    // The expired lease is reclaimed by exactly one drain, attempts + 1.
+    const reclaimed = [...a, ...b].filter((c) => c.intentId === stale)
+    expect(reclaimed.length).toBeLessThanOrEqual(1)
+    const next = await Promise.all([claim(), claim()])
+    const all = [...a, ...b, ...next.flat()].map((c) => c.intentId)
+    expect(new Set(all).size).toBe(all.length)
+    expect(new Set(all)).toEqual(new Set([...ids, stale]))
+    expect(
+      await t.run((ctx) => ctx.db.get("pagePublicationRevalidationIntents", stale))
+    ).toMatchObject({ status: "running", attempts: 4 })
+  })
+
+  test("one throwing intent fails alone; the others still complete", async () => {
+    const { t, owner } = await activeApp()
+    const pageId = await owner.mutation(api.cms.pages.create, {
+      pageType: "landing-page",
+      status: "draft",
+      slug: "throws",
+      title: "Throws",
+      content: { en: { title: "Throws", slices: [] } },
+    })
+    const first = await insertIntent(t, pageId, "/throws-a")
+    const second = await insertIntent(t, pageId, "/throws-b")
+    vi.stubEnv("REVALIDATE_SECRET", "f08c-secret")
+    let calls = 0
+    // An out-of-range HTTP status makes the attempt log throw inside the action.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        calls++ === 0
+          ? ({ ok: false, status: 700, text: async () => "" } as unknown as Response)
+          : new Response("{}", { status: 200 })
+      )
+    )
+    await drain(t)
+    const rows = await Promise.all(
+      [first, second].map((id) =>
+        t.run((ctx) => ctx.db.get("pagePublicationRevalidationIntents", id))
+      )
+    )
+    expect(rows.map((r) => r?.status).sort()).toEqual(["complete", "failed"])
+  })
+
   test("an unconfigured target completes the intent without fetching", async () => {
     const { t, owner } = await activeApp()
     const pageId = await owner.mutation(api.cms.pages.create, {
@@ -456,7 +569,15 @@ describe("F08c required revalidation worker", () => {
       publicationSource.slice(purgeEnd, sitemapStart)
     const sitemap = publicationSource.slice(sitemapStart)
     const schedulerCalls = publication.match(/scheduler\.run(?:After|At)\(/g)
-    expect(schedulerCalls).toHaveLength(1)
+    // The one revalidation-intent helper schedules the immediate drain; the
+    // other call is the pre-existing publication follow-up.
+    expect(schedulerCalls).toHaveLength(2)
+    expect(publication).toContain(
+      "internal.cms.revalidate.drainPublicationRevalidationIntents"
+    )
+    expect(
+      publication.match(/ctx\.db\.insert\("pagePublicationRevalidationIntents"/g)
+    ).toHaveLength(1)
     const sitemapTargets = [
       ...sitemap.matchAll(
         /scheduler\.run(?:After|At)\(\s*0,\s*(internal\.[\w.]+)/g
@@ -479,3 +600,32 @@ describe("F08c required revalidation worker", () => {
   })
 })
 
+describe("drain loop error handling", () => {
+  test("an intent that throws fails alone; the others finish", async () => {
+    const { t, owner } = await activeApp()
+    const pageId = await owner.mutation(api.cms.pages.create, {
+      pageType: "landing-page",
+      status: "draft",
+      slug: "throws",
+      title: "Throws",
+      content: { en: { title: "Throws", slices: [] } },
+    })
+    const bad = await insertIntent(t, pageId, "/bad", { updatedAt: 1 })
+    await t.run((ctx) =>
+      ctx.db.patch("pagePublicationRevalidationIntents", bad, {
+        phase: "referrers",
+        cursor: "not-a-cursor",
+      })
+    )
+    const good = await insertIntent(t, pageId, "/good")
+    stubRevalidationTarget()
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    await drain(t)
+    const rows = await allIntents(t)
+    expect(rows.find((r) => r._id === bad)).toMatchObject({ status: "failed" })
+    expect(rows.find((r) => r._id === good)).toMatchObject({
+      status: "complete",
+    })
+    expect(rows.some((r) => r.status === "running")).toBe(false)
+  })
+})

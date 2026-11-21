@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "artifact": "community",
-  "recipeVersion": "0.3.0",
-  "engineSha": "f2c6b892684ba5338fb882314b224725c16e2bb9",
-  "overlayDigest": "30b4b06b65b56ba1806ca6c39a90caedffe4a816b7a7324f3cf7de9321e9ff1e",
-  "releaseManifestDigest": "1afbe61ae44bb084b58625286c92eb577ed27e86b047e52465a2c1fd51bef28f",
+  "recipeVersion": "0.3.1",
+  "engineSha": "015eae3366463fdcdbc638bd941cb6a7729c467c",
+  "overlayDigest": "83be6b47a2cff17af4b55e55552ca19e05fccbafce2aea09492a3e356711cd1d",
+  "releaseManifestDigest": "190af50cddf95fca8a6da6a8e89483baee2228b4adda96146782977b9dda9388",
   "distributionManifestDigest": "a3f1ec8d6964e127a32b89074a0e9a1bfe925d391570470b9bbf6c5280ad20eb",
   "shipListDigest": "62656e4574b898bf6e1f022b341cf590def62b35729ff0ce833a7a91c174cc47",
   "curationDigest": "8b21df99a0a5c381c6d77ca2dea8a32416a7617e01b0e918909a9a22c393b167",
-  "generatedTreeDigest": "c5caa3434edf579037866e5d73858cdad219ec419f4cfeec101fbc59fc710dac",
+  "generatedTreeDigest": "00697eb0c6a0cbd176f46210645dc3574e8d097d23bda96fce551098c93da323",
   "generatedTreeDigestExcludes": [
     "starter.release-lock.json"
   ]

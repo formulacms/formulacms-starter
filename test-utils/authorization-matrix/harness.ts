@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values"
 import { convexTest } from "convex-test"
-import { expect } from "vitest"
+import { expect, vi } from "vitest"
 import actionRetrierTest from "@convex-dev/action-retrier/test"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 import migrationsTest from "@convex-dev/migrations/test"
@@ -9,6 +9,11 @@ import { enableAuthSessions, prepareAuthSessions } from "../convexAuthFixtures"
 
 export type ModuleMap = Record<string, () => Promise<unknown>>
 export function makeSite(modules: ModuleMap) {
+  // Publishing schedules an immediate revalidation drain. Hold the timers so it
+  // cannot race the rows' before/after state comparisons.
+  if (!vi.isFakeTimers()) {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  }
   const t = convexTest(schema, modules)
   actionRetrierTest.register(t)
   rateLimiterTest.register(t)

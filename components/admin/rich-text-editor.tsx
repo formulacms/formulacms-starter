@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
 import {
+  registerRichTextCaret,
+  richTextPositionAtTextOffset,
+  richTextSelectionAtPos,
+} from "./rich-text-caret"
+import {
   useEditor,
   useEditorState,
   EditorContent,
@@ -812,6 +817,7 @@ export function RichTextEditor({
   // Raw JSON strings this editor emitted, newest last. The effect below reads
   // them to recognise the parent echoing our own output back.
   const emittedRef = useRef<string[]>([])
+  const caretHostRef = useRef<HTMLDivElement>(null)
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -1378,10 +1384,30 @@ export function RichTextEditor({
       .run()
   }, [value, editor, profile, contract])
 
+  // Lets a preview click place this editor's caret (see rich-text-caret.ts).
+  // Registered once per editor instance, never on a plain re-render. No
+  // scroll here: the block form brings the field into view after the clicks.
+  useEffect(() => {
+    const host = caretHostRef.current
+    if (!editor || !host) return
+    return registerRichTextCaret(host, (offset, clickCount) => {
+      const pos = richTextPositionAtTextOffset(editor.state.doc, offset)
+      editor.view.dom.focus({ preventScroll: true })
+      if (pos !== undefined)
+        editor
+          .chain()
+          .setTextSelection(
+            richTextSelectionAtPos(editor.state.doc, pos, clickCount)
+          )
+          .run()
+    })
+  }, [editor])
+
   if (!editor) return null
 
   return (
     <div
+      ref={caretHostRef}
       className="rounded-md border bg-background"
       onKeyDownCapture={handleSlashKeyDown}
     >

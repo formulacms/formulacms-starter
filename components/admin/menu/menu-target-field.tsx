@@ -9,7 +9,6 @@ import {
   FileText,
   Link2Off,
   LayoutGrid,
-  CircleDashed,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { LinkPagePicker } from "@/components/admin/fields/link-page-picker"
@@ -17,8 +16,6 @@ import { adminContentTypeSingularMessageKey } from "@/lib/admin/content-types"
 
 import { useMenuValidation } from "./menu-validation"
 import { targetError } from "@/lib/admin/menu/validation"
-import { useQuery } from "convex/react"
-import { api } from "@/convex/_generated/api"
 
 type TargetType = Target["type"] | "none" | "panel"
 
@@ -161,10 +158,7 @@ export function MenuTargetField({
           disabled={!canEditTarget}
           invalid={Boolean(showError)}
           describedBy={showError ? errorId : undefined}
-          publicationLabels={{
-            badge: (locale) => t("notPublished", { locale }),
-            hint: (locale) => t("notPublishedHint", { locale }),
-          }}
+          publishedOnly
           labels={{
             archived: t("archived"),
             archivedWarning: t("archivedWarning"),
@@ -173,6 +167,9 @@ export function MenuTargetField({
             missingPage: t("missingPage"),
             missingWarning: t("missingWarning"),
             noPages: t("noPages", { locale: locale.toUpperCase() }),
+            noPublishedPages: t("noPublishedPages", {
+              locale: locale.toUpperCase(),
+            }),
             searchLabel: t("searchLabel"),
             searchPlaceholder: t("searchPlaceholder"),
             selectPagePlaceholder: t("selectPagePlaceholder"),
@@ -254,30 +251,5 @@ export function MenuTargetField({
         </TabsContent>
       )}
     </Tabs>
-  )
-}
-
-/** Text-only locale editor still explains the selected page's publication state. */
-export function MenuPublicationNotice({ target }: { target?: Target }) {
-  const t = useTranslations("menus.link")
-  const selection = useQuery(
-    api.cms.pages.getLinkablePageSelection,
-    target?.type === "internal" ? { pageId: target.pageId } : "skip"
-  )
-  if (selection?.status !== "available") return null
-  return (
-    <>
-      {Object.entries(selection.page.localePublicationStates ?? {})
-        .filter(([, state]) => state !== "published")
-        .map(([locale]) => (
-          <p
-            key={locale}
-            className="flex items-center gap-1 text-xs text-muted-foreground"
-          >
-            <CircleDashed className="size-3.5 shrink-0" aria-hidden />
-            {t("notPublishedHint", { locale: locale.toUpperCase() })}
-          </p>
-        ))}
-    </>
   )
 }

@@ -42,7 +42,16 @@
       "restore": "Restaurer",
       "loadingMore": "Chargement…",
       "loadMore": "Charger plus",
-      "end": "Fin de l’archive"
+      "end": "Fin de l’archive",
+      "selectAll": "Tout sélectionner",
+      "selected": "Sélection : {count}",
+      "restoreSelected": "{count, plural, =0 {Restaurer la sélection} other {Restaurer #}}",
+      "trashSelected": "{count, plural, =0 {Déplacer la sélection vers la corbeille} other {Déplacer # vers la corbeille}}",
+      "restoredMany": "{count} pages restaurées",
+      "movedMany": "{count, plural, one {# page déplacée vers la corbeille.} other {# pages déplacées vers la corbeille.}}",
+      "notMoved": "« {title} » n’a pas été déplacée vers la corbeille. {reason}",
+      "trashManyTitle": "Déplacer {count} pages vers la corbeille ?",
+      "trashManyDescription": "Vous pourrez les restaurer plus tard depuis la corbeille."
     },
     "trash": {
       "title": "Corbeille",
@@ -81,12 +90,9 @@
       "deletedMany": "{count, plural, one {# page supprimée définitivement.} other {# pages supprimées définitivement.}}",
       "notDeleted": "« {title} » n’a pas été supprimée : {reason}",
       "linkBlocker": "{others, plural, =0 {« {first} » contient un lien} one {« {first} » et # autre page contiennent un lien} other {« {first} » et # autres pages contiennent un lien}} vers cette page. Retirez ces liens d’abord.",
-      "removingBlocker": "Cette page est encore en cours de retrait du site public. Réessayez dans une minute.",
       "childReason": "elle contient {count, plural, one {# page enfant} other {# pages enfants}}. Déplacez-{count, plural, one {la} other {les}} ou supprimez-{count, plural, one {la} other {les}} d’abord.",
       "menuReason": "{count, plural, one {le menu {menus} contient} other {les menus {menus} contiennent}} un lien vers elle. Retirez ces liens ou supprimez {count, plural, one {le menu} other {les menus}} d’abord.",
       "linkReason": "{others, plural, =0 {« {first} » contient un lien} one {« {first} » et # autre page contiennent un lien} other {« {first} » et # autres pages contiennent un lien}} vers elle. Retirez ces liens d’abord.",
-      "removingReason": "elle est encore en cours de retrait du site public. Réessayez dans une minute.",
-      "deleting": "Suppression…",
       "restoredMany": "{count} pages restaurées",
       "imageSize": "{width} × {height}",
       "imageDeleteDescription": "L’image « {title} » sera supprimée définitivement. Cette action est irréversible.",
@@ -102,8 +108,9 @@
       "imageDeletePending": "La suppression des images se prépare. Réessayez dans quelques minutes.",
       "changedRefusal": "« {title} » a changé depuis l’affichage de la liste. Rechargez la page et réessayez.",
       "languageRefusal": "Un changement de langue est en cours. Réessayez quand il sera terminé.",
-      "pagesDeleting": "{count, plural, one {Suppression de # page en cours.} other {Suppression de # pages en cours.}}",
-      "deleteStopped": "La suppression s’est arrêtée avant la fin. Cliquez sur Supprimer pour réessayer."
+      "pagesQueued": "{count, plural, one {« {title} » sera supprimée définitivement.} other {# pages seront supprimées définitivement.}}",
+      "deleteStopped": "La suppression de « {title} » s’est arrêtée.",
+      "retryDelete": "Relancer la suppression"
     },
     "contentTypes": {
       "title": "Types de contenu",
@@ -1842,8 +1849,8 @@
     "link": {
       "label": "Libellé",
       "labelPlaceholder": "Libellé de l’élément de menu",
-      "page": "Page",
-      "url": "URL",
+      "page": "Lien interne",
+      "url": "Lien externe",
       "jump": "Accéder à un endroit de la page",
       "none": "Aucun lien",
       "selectPage": "Choisir une page ({locale})",
@@ -1859,6 +1866,7 @@
       "searchLabel": "Rechercher des pages",
       "loadingPages": "Chargement des pages…",
       "noPages": "Aucune page trouvée pour {locale}.",
+      "noPublishedPages": "Aucune page publiée en {locale} pour le moment. Publiez d'abord une page.",
       "address": "Adresse : /{locale}/{slug}",
       "archivedWarning": "Cette page est archivée. Le lien n’apparaîtra pas sur le site.",
       "missingWarning": "La page liée n’existe plus. Choisissez une autre page ou Aucun.",
@@ -1869,10 +1877,8 @@
       "jumpPlaceholder": "#nom-section",
       "noneDescription": "Cet élément ne sera pas cliquable. Utilisez-le comme titre de section ou comme espace réservé.",
       "noTargetConfigured": "Aucune destination n’est définie pour ce lien.",
-      "urlError": "Saisissez une adresse complète, par exemple https://exemple.com. Pour une page du site, utilisez l’onglet Page.",
+      "urlError": "Saisissez une adresse complète, par exemple https://exemple.com. Pour une page du site, utilisez Lien interne.",
       "pageRequired": "Choisissez une page, ou un autre type de lien.",
-      "notPublished": "{locale} non publiée",
-      "notPublishedHint": "Pas encore publiée en {locale} : en {locale}, les visiteurs voient le libellé sans lien.",
       "panel": "Panneau"
     },
     "emptyText": {
@@ -2219,8 +2225,8 @@
     "linkDialog": {
       "editTitle": "Modifier le lien",
       "addTitle": "Ajouter un lien",
-      "pageTab": "Page",
-      "urlTab": "URL",
+      "pageTab": "Lien interne",
+      "urlTab": "Lien externe",
       "mediaTab": "Média",
       "searchPlaceholder": "Rechercher une page par titre ou identifiant d’URL…",
       "searchLabel": "Rechercher une page par titre ou identifiant d’URL",
@@ -2470,6 +2476,18 @@
       "archiveHint": "Une page doit être archivée avant d’être mise à la corbeille."
     },
     "slicesPanel": {
+      "split": {
+        "blocksLabel": "Blocs",
+        "hideBlocks": "Masquer les blocs",
+        "showBlocks": "Afficher les blocs",
+        "previewLabel": "Aperçu",
+        "hidePreview": "Masquer l’aperçu",
+        "showPreview": "Afficher l’aperçu",
+        "divider": "Faites glisser pour redimensionner. Double-cliquez pour rétablir.",
+        "view": "Afficher",
+        "edit": "Modifier",
+        "preview": "Aperçu"
+      },
       "heading": "Blocs de contenu : {locale}",
       "count": "{count, plural, one {# bloc} other {# blocs}}",
       "inlineRefusal": {
@@ -2541,7 +2559,7 @@
       "saved": "Enregistré",
       "frameLoading": "Préparation de l’aperçu de la page…",
       "frameUnavailable": "L’aperçu de la page est indisponible. Votre contenu reste accessible dans le formulaire.",
-      "frameUnsupported": "L’aperçu complet prend actuellement en charge les pages de destination dans une langue publique activée. Utilisez le formulaire pour cette page.",
+      "frameUnsupported": "L’aperçu en direct n’est pas disponible pour ce contenu pour le moment. Vous pouvez continuer à modifier dans le formulaire.",
       "frameConflict": "L’aperçu a changé pendant la modification. Récupérez votre contenu en attente dans l’avis de récupération de la page.",
       "frameResolveRecovery": "Restaurez ou supprimez le brouillon récupéré avant de modifier directement l’aperçu."
     },

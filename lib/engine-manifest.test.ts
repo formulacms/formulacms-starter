@@ -77,7 +77,7 @@ describe("engine.manifest.json", () => {
       []
     )
     expect(manifest.compatibility.note).toContain(
-      "Release 0.3.0 supports fresh installs only"
+      "Release 0.3.1 supports fresh installs only"
     )
     expect(manifest.compatibility.note).toContain(
       "Upgrades from schema version 3 or older are unsupported"

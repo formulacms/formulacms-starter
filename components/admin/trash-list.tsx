@@ -3,6 +3,8 @@
 import { usePageAddressMessages } from "@/lib/admin/page-address-messages"
 
 import {
+  useEffect,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -18,7 +20,7 @@ import {
 import type { FunctionReturnType } from "convex/server"
 import { useRouter } from "next/navigation"
 import { useLocale, useTranslations } from "next-intl"
-import { Loader2, RotateCcw, Trash2 } from "lucide-react"
+import { RotateCcw, Trash2 } from "lucide-react"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
 import { toast } from "sonner"
 
@@ -33,6 +35,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { AmberNotice } from "./amber-notice"
 import { RowTitle, RowUrlName } from "./list-row-text"
 import { useConfirm } from "@/components/providers/confirm-provider"
 import {
@@ -51,6 +54,9 @@ const IMAGE_BATCH = 50
 /** The check before the confirm reads much more per Page, so it asks about
  *  a few Pages at a time to stay within one query's read limit. */
 const IMPACT_BATCH = 5
+/** Trash hides queued deletes after it reads a page of rows, so a loaded page
+ *  can be empty while older rows remain: load on, up to this many times. */
+const EMPTY_PAGE_LOADS = 5
 // Visible checkbox border: the shadcn `--input` token is as pale as a divider,
 // too faint for the row-selection boxes Trash depends on.
 const VISIBLE_BOX =
@@ -65,7 +71,6 @@ type TrashPage = Pick<Doc<"pages">, "_id" | "pageType" | "slug"> & {
   deletedAt?: number
   updatedAt?: number
   lifecycleGeneration?: number
-  purging?: boolean
   purgeStalled?: boolean
 }
 
@@ -158,9 +163,6 @@ type Row = {
   titleLocale?: string
   meta: ReactNode
   preview?: string
-  deleting: boolean
-  /** A permanent delete stopped: Delete retries it, Restore is refused. */
-  stalled?: boolean
   pending: boolean
 }
 
@@ -172,24 +174,42 @@ function TrashRows({
   onDelete,
   onBarDelete,
   onLoadMore,
+  loadingMore,
+  hideEmpty,
 }: SelectionProps & {
   rows: Row[]
   onRestore: (ids: string[]) => void
   onDelete: (id: string) => void
   onBarDelete: (ids: string[]) => void
   onLoadMore?: () => void
+  /** More rows are on their way: never say the Trash is empty. */
+  loadingMore?: boolean
+  /** Something else (a notice) is shown, so an empty list says nothing. */
+  hideEmpty?: boolean
 }) {
   const t = useTranslations("inventory.trash")
 
+  const loadMore = onLoadMore && (
+    <div className="flex justify-center">
+      <Button type="button" variant="outline" size="sm" onClick={onLoadMore}>
+        {t("loadMore")}
+      </Button>
+    </div>
+  )
+
   if (rows.length === 0) {
+    if (loadMore) return loadMore
+    if (hideEmpty) return null
     return (
       <div className="rounded-lg border border-dashed p-10 text-center">
-        <p className="text-sm text-muted-foreground">{t("empty")}</p>
+        <p className="text-sm text-muted-foreground">
+          {loadingMore ? t("loading") : t("empty")}
+        </p>
       </div>
     )
   }
 
-  const selectable = rows.filter((row) => !row.deleting).map((row) => row.id)
+  const selectable = rows.map((row) => row.id)
   const picked = selected.filter((id) => selectable.includes(id))
   const allState =
     picked.length === 0
@@ -197,9 +217,6 @@ function TrashRows({
       : picked.length === selectable.length
         ? true
         : "indeterminate"
-  const restorable = picked.filter(
-    (id) => !rows.some((row) => row.id === id && row.stalled)
-  )
   const toggleRow = (id: string) =>
     setSelected(
       picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id]
@@ -231,9 +248,9 @@ function TrashRows({
           </span>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <RestoreButton
-              disabled={restorable.length === 0}
-              label={t("restoreSelected", { count: restorable.length })}
-              onClick={() => onRestore(restorable)}
+              disabled={picked.length === 0}
+              label={t("restoreSelected", { count: picked.length })}
+              onClick={() => onRestore(picked)}
             />
             <DeleteButton
               disabled={picked.length === 0}
@@ -253,12 +270,10 @@ function TrashRows({
                 key={row.id}
                 data-testid={`row-${row.id}`}
                 className={cn(
-                  "flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-4 py-3",
-                  !row.deleting && "cursor-pointer",
+                  "flex cursor-pointer flex-wrap items-start justify-between gap-x-4 gap-y-2 px-4 py-3",
                   isSelected && "bg-muted/50"
                 )}
                 onClick={(event) => {
-                  if (row.deleting) return
                   if (
                     (event.target as HTMLElement).closest(
                       "button, a, input, label"
@@ -273,17 +288,13 @@ function TrashRows({
                     className={cn("mt-0.5", VISIBLE_BOX)}
                     aria-label={row.title}
                     checked={isSelected}
-                    disabled={row.deleting}
                     onCheckedChange={() => toggleRow(row.id)}
                   />
                   {row.preview && (
                     <div
                       aria-hidden
                       data-testid="thumb"
-                      className={cn(
-                        "relative h-9 w-12 shrink-0 overflow-hidden rounded-md border bg-muted",
-                        row.deleting && "opacity-50"
-                      )}
+                      className="relative h-9 w-12 shrink-0 overflow-hidden rounded-md border bg-muted"
                     >
                       <Image
                         src={row.preview}
@@ -294,42 +305,20 @@ function TrashRows({
                       />
                     </div>
                   )}
-                  <div
-                    data-testid="rowbody"
-                    className={cn(
-                      "min-w-0 flex-1",
-                      row.deleting && "text-muted-foreground opacity-60"
-                    )}
-                  >
-                    <RowTitle locale={row.titleLocale} muted={row.deleting}>
-                      {row.title}
-                    </RowTitle>
+                  <div data-testid="rowbody" className="min-w-0 flex-1">
+                    <RowTitle locale={row.titleLocale}>{row.title}</RowTitle>
                     <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                       {row.meta}
-                      {row.deleting && (
-                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                          <Loader2
-                            className="size-3 animate-spin"
-                            aria-hidden
-                          />
-                          {t("deleting")}
-                        </span>
-                      )}
-                      {row.stalled && (
-                        <span className="text-xs text-muted-foreground">
-                          {t("deleteStopped")}
-                        </span>
-                      )}
                     </div>
                   </div>
                 </div>
                 <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2 sm:-mt-1.5">
                   <RestoreButton
-                    disabled={row.deleting || row.stalled || row.pending}
+                    disabled={row.pending}
                     onClick={() => onRestore([row.id])}
                   />
                   <DeleteButton
-                    disabled={row.deleting || row.pending}
+                    disabled={row.pending}
                     onClick={() => onDelete(row.id)}
                   />
                 </div>
@@ -338,18 +327,7 @@ function TrashRows({
           })}
         </div>
       </div>
-      {onLoadMore && (
-        <div className="flex justify-center">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onLoadMore}
-          >
-            {t("loadMore")}
-          </Button>
-        </div>
-      )}
+      {loadMore}
     </div>
   )
 }
@@ -437,8 +415,6 @@ function pageStandaloneRefusal(refusal: PageRefusal, title: string, t: T) {
         first: refusal.detail?.titles?.[0] ?? "",
         others: Math.max(count - 1, 0),
       })
-    case "revalidation_pending":
-      return t("removingBlocker")
     default:
       return pageSentenceRefusal(refusal, title, t) ?? t("deleteFailed")
   }
@@ -460,8 +436,6 @@ function pageRefusalReason(refusal: PageRefusal, t: T) {
         first: refusal.detail?.titles?.[0] ?? "",
         others: Math.max(count - 1, 0),
       })
-    case "revalidation_pending":
-      return t("removingReason")
     default:
       return t("deleteFailed")
   }
@@ -493,7 +467,21 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
     api.cms.publication.restoreSoftDeletedPage
   )
   const remove = useMutation(api.cms.pages.remove)
-  const purge = useMutation(api.cms.publication.purgeTrashedPages)
+  // The Pages leave Trash at once; the server only queues the delete. A Page
+  // the server refuses comes back when its answer arrives.
+  const purge = useMutation(
+    api.cms.publication.purgeTrashedPages
+  ).withOptimisticUpdate((store, { items }) => {
+    const ids = new Set<string>(items.map((item) => item.pageId))
+    const query = api.cms.publication.listAdminPages
+    for (const { args, value } of store.getAllQueries(query)) {
+      if (args.scope !== "trash" || !value) continue
+      store.setQuery(query, args, {
+        ...value,
+        page: value.page.filter((row) => !ids.has(row._id)),
+      })
+    }
+  })
   const [pendingIds, setPendingIds] = useState<string[]>([])
 
   const items: TrashPage[] =
@@ -505,6 +493,20 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
     (authority === "legacy" && legacyItems === undefined) ||
     (authority === "snapshot_active" &&
       snapshotItems.status === "LoadingFirstPage")
+  const canLoadMore =
+    authority === "snapshot_active" && snapshotItems.status === "CanLoadMore"
+  const { loadMore } = snapshotItems
+
+  // Queued deletes are left out after a page of rows is read, so a page can
+  // come back empty while older Pages remain. Load on, a few pages at most.
+  const emptyLoads = useRef(0)
+  useEffect(() => {
+    if (items.length > 0) emptyLoads.current = 0
+    else if (canLoadMore && emptyLoads.current < EMPTY_PAGE_LOADS) {
+      emptyLoads.current += 1
+      loadMore(PAGE_SIZE)
+    }
+  }, [items.length, canLoadMore, loadMore])
 
   const titleOf = (page: TrashPage) =>
     pageTitle(page, defaultLocale, t("untitled")).title
@@ -699,13 +701,16 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
     accepted: TrashPage[],
     refused: Map<string, PageRefusal>
   ) {
-    // Snapshot sites queue the delete; it finishes in the background.
-    const done = (count: number) =>
+    // Snapshot sites queue the delete; a daily batch finishes it.
+    const done = () =>
       authority === "snapshot_active"
-        ? t("pagesDeleting", { count })
-        : t("deletedMany", { count })
+        ? t("pagesQueued", {
+            count: accepted.length,
+            title: accepted[0] ? titleOf(accepted[0]) : "",
+          })
+        : t("deletedMany", { count: accepted.length })
     if (refused.size === 0) {
-      toast.success(done(accepted.length))
+      toast.success(done())
       return
     }
     if (targets.length === 1) {
@@ -718,7 +723,7 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
       )
       return
     }
-    const parts = accepted.length ? [done(accepted.length)] : []
+    const parts = accepted.length ? [done()] : []
     for (const page of targets) {
       const refusal = refused.get(page._id)
       if (!refusal) continue
@@ -742,9 +747,9 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
   ) {
     const ids = targets.map((page) => page._id)
     markPending(ids, true)
+    unselect(ids)
     try {
       const { accepted, refused } = await runDelete(targets, known)
-      unselect(ids)
       report(targets, accepted, refused)
       router.refresh()
     } catch (error) {
@@ -764,10 +769,7 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
       toast.error(displayError(error, t("referenceCheckFailed")))
       return
     }
-    // A stopped delete is retried by the server, whatever the check says.
-    const refusal = page.purgeStalled
-      ? undefined
-      : impact.refusals.get(page._id)
+    const refusal = impact.refusals.get(page._id)
     if (refusal) {
       toast.error(pageStandaloneRefusal(refusal, titleOf(page), t))
       return
@@ -841,56 +843,72 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
     )
   }
 
-  const rows: Row[] = items.map((page) => {
-    const row = pageTitle(page, defaultLocale, t("untitled"))
-    const changedAt = page.deletedAt ?? page.updatedAt
-    const changedLabel = changedAt
-      ? new Date(changedAt).toLocaleDateString(locale)
-      : "—"
-    const typeKey = adminContentTypeSingularMessageKey(page.pageType)
-    const typeLabel = typeKey
-      ? tContentType(typeKey)
-      : adminContentTypeLabel(page.pageType).singular
-    const deleting = page.purging === true
-    const stalled = page.purgeStalled === true
-    return {
-      id: page._id,
-      title: row.title,
-      titleLocale: row.titleLocale,
-      deleting,
-      stalled,
-      pending: pendingIds.includes(page._id),
-      meta: (
-        <>
-          <RowUrlName value={row.slug} locale={row.slugLocale} />
-          <Badge variant="outline" className="text-xs">
-            {typeLabel}
-          </Badge>
-          {!deleting && !stalled && (
+  // A stopped delete is no Trash row: it has its own notice and retry, and
+  // never a Restore (some of its data may already be gone).
+  const stalled = items.filter((page) => page.purgeStalled)
+  const rows: Row[] = items
+    .filter((page) => !page.purgeStalled)
+    .map((page) => {
+      const row = pageTitle(page, defaultLocale, t("untitled"))
+      const changedAt = page.deletedAt ?? page.updatedAt
+      const changedLabel = changedAt
+        ? new Date(changedAt).toLocaleDateString(locale)
+        : "—"
+      const typeKey = adminContentTypeSingularMessageKey(page.pageType)
+      const typeLabel = typeKey
+        ? tContentType(typeKey)
+        : adminContentTypeLabel(page.pageType).singular
+      return {
+        id: page._id,
+        title: row.title,
+        titleLocale: row.titleLocale,
+        pending: pendingIds.includes(page._id),
+        meta: (
+          <>
+            <RowUrlName value={row.slug} locale={row.slugLocale} />
+            <Badge variant="outline" className="text-xs">
+              {typeLabel}
+            </Badge>
             <span className="text-xs text-muted-foreground">
               {t("moved", { date: changedLabel })}
             </span>
-          )}
-        </>
-      ),
-    }
-  })
+          </>
+        ),
+      }
+    })
 
   return (
-    <TrashRows
-      rows={rows}
-      selected={selected}
-      setSelected={setSelected}
-      onRestore={(ids) => void handleRestore(ids)}
-      onDelete={(id) => void handleDelete(id)}
-      onBarDelete={(ids) => void handleBarDelete(ids)}
-      onLoadMore={
-        authority === "snapshot_active" &&
-        snapshotItems.status === "CanLoadMore"
-          ? () => snapshotItems.loadMore(PAGE_SIZE)
-          : undefined
-      }
-    />
+    <div className="space-y-3">
+      {stalled.map((page) => (
+        <AmberNotice key={page._id} testId={`stalled-${page._id}`}>
+          {t("deleteStopped", { title: titleOf(page) })}{" "}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="ml-1"
+            disabled={pendingIds.includes(page._id)}
+            onClick={() => void deletePages([page], new Map())}
+          >
+            {t("retryDelete")}
+          </Button>
+        </AmberNotice>
+      ))}
+      <TrashRows
+        rows={rows}
+        selected={selected}
+        setSelected={setSelected}
+        onRestore={(ids) => void handleRestore(ids)}
+        onDelete={(id) => void handleDelete(id)}
+        onBarDelete={(ids) => void handleBarDelete(ids)}
+        onLoadMore={canLoadMore ? () => loadMore(PAGE_SIZE) : undefined}
+        loadingMore={
+          authority === "snapshot_active" &&
+          snapshotItems.status !== "Exhausted"
+        }
+        hideEmpty={stalled.length > 0}
+      />
+    </div>
   )
 }
 
@@ -1078,7 +1096,6 @@ function ImagesTrash({ selected, setSelected }: SelectionProps) {
     id: image._id,
     title: image.filename,
     preview: image.url,
-    deleting: false,
     pending: pendingIds.includes(image._id),
     meta: (
       <>

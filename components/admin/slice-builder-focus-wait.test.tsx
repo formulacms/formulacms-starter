@@ -128,8 +128,10 @@ describe("SliceBuilder focus for a lazily loaded editor", () => {
   it("focuses the rich-text field once its editor finishes loading", sliceProfile([]), async () => {
     const { field } = await renderFocusedRichTextField()
     await waitPastFixedRetry()
-    // The field is brought into view while its editor is still loading.
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" })
+    // While its editor is still loading the field is not scrolled to: the
+    // form and the preview share one scroller, and a scroll would move the
+    // preview under a double click. It comes into view after the clicks.
+    expect(scrollIntoView).not.toHaveBeenCalledWith({ block: "center" })
     expect(field.querySelector("[contenteditable='true']")).toBeNull()
     expect(document.activeElement).toBe(document.body)
 

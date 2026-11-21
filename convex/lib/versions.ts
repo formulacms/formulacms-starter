@@ -1,6 +1,7 @@
 // ADR-0025 §2 — engine schema marker stamped on every record the engine writes
 // and read by future migrations to detect compatibility.
 // Release 0.3.0 (schema version 5): per-language page fields, the removed team tables and the new purge and AI model tables.
+// Release 0.3.1 keeps schema version 5: it only adds the optional pagePurges.startedAt field.
 export const SCHEMA_VERSION = 5
 
 // The other per-write stamp: edit-time tokens (`updatedAt`) compared by equality.

@@ -42,7 +42,16 @@
       "restore": "Restore",
       "loadingMore": "Loading more…",
       "loadMore": "Load more",
-      "end": "End of archive"
+      "end": "End of archive",
+      "selectAll": "Select all",
+      "selected": "{count} selected",
+      "restoreSelected": "{count, plural, =0 {Restore selected} other {Restore #}}",
+      "trashSelected": "{count, plural, =0 {Move selected to trash} other {Move # to trash}}",
+      "restoredMany": "{count} pages restored",
+      "movedMany": "{count, plural, one {# page moved to trash.} other {# pages moved to trash.}}",
+      "notMoved": "“{title}” was not moved to trash. {reason}",
+      "trashManyTitle": "Move {count} pages to trash?",
+      "trashManyDescription": "You can restore them later from the trash."
     },
     "trash": {
       "title": "Trash",
@@ -81,12 +90,9 @@
       "deletedMany": "{count, plural, one {# page deleted permanently.} other {# pages deleted permanently.}}",
       "notDeleted": "“{title}” was not deleted: {reason}",
       "linkBlocker": "{others, plural, =0 {“{first}” links} one {“{first}” and # other page link} other {“{first}” and # other pages link}} to this page. Remove those links first.",
-      "removingBlocker": "This page is still being removed from the public site. Try again in a minute.",
       "childReason": "it has {count, plural, one {# child page} other {# child pages}}. Move or delete {count, plural, one {it} other {them}} first.",
       "menuReason": "{count, plural, one {menu {menus} links} other {menus {menus} link}} to it. Remove those links or delete the {count, plural, one {menu} other {menus}} first.",
       "linkReason": "{others, plural, =0 {“{first}” links} one {“{first}” and # other page link} other {“{first}” and # other pages link}} to it. Remove those links first.",
-      "removingReason": "it is still being removed from the public site. Try again in a minute.",
-      "deleting": "Deleting…",
       "restoredMany": "{count} pages restored",
       "imageSize": "{width} × {height}",
       "imageDeleteDescription": "“{title}” will be deleted permanently. This cannot be undone.",
@@ -102,8 +108,9 @@
       "imageDeletePending": "Image delete is getting ready. Try again in a few minutes.",
       "changedRefusal": "“{title}” changed since this list loaded. Refresh the page and try again.",
       "languageRefusal": "A language change is running. Try again when it is finished.",
-      "pagesDeleting": "{count, plural, one {# page is being deleted.} other {# pages are being deleted.}}",
-      "deleteStopped": "Delete stopped before it finished. Select Delete to try again."
+      "pagesQueued": "{count, plural, one {“{title}” will be deleted permanently.} other {# pages will be deleted permanently.}}",
+      "deleteStopped": "Deletion of “{title}” stopped.",
+      "retryDelete": "Retry deletion"
     },
     "contentTypes": {
       "title": "Content Types",
@@ -1842,8 +1849,8 @@
     "link": {
       "label": "Label",
       "labelPlaceholder": "Menu item label",
-      "page": "Page",
-      "url": "URL",
+      "page": "Internal link",
+      "url": "External link",
       "jump": "Jump to a spot on the page",
       "none": "No link",
       "selectPage": "Select page ({locale})",
@@ -1859,6 +1866,7 @@
       "searchLabel": "Search pages",
       "loadingPages": "Loading pages…",
       "noPages": "No pages found for {locale}.",
+      "noPublishedPages": "No published pages in {locale} yet. Publish a page first.",
       "address": "Address: /{locale}/{slug}",
       "archivedWarning": "This page is archived, so the link will not appear on the site.",
       "missingWarning": "The linked page no longer exists. Pick another page or choose None.",
@@ -1869,10 +1877,8 @@
       "jumpPlaceholder": "#section-name",
       "noneDescription": "This item will not be clickable. Use it for section headings or placeholders.",
       "noTargetConfigured": "No link target is configured.",
-      "urlError": "Enter a complete address, for example https://example.com. For a page on this site, use the Page tab.",
+      "urlError": "Enter a complete address, for example https://example.com. For a page on this site, use Internal link.",
       "pageRequired": "Choose a page or another link type.",
-      "notPublished": "{locale} unpublished",
-      "notPublishedHint": "Not published in {locale} yet: visitors in {locale} see the label without a link.",
       "panel": "Panel"
     },
     "emptyText": {
@@ -2219,8 +2225,8 @@
     "linkDialog": {
       "editTitle": "Edit link",
       "addTitle": "Add link",
-      "pageTab": "Page",
-      "urlTab": "URL",
+      "pageTab": "Internal link",
+      "urlTab": "External link",
       "mediaTab": "Media",
       "searchPlaceholder": "Search pages by title or slug…",
       "searchLabel": "Search pages by title or slug",
@@ -2470,6 +2476,18 @@
       "archiveHint": "A page must be archived before it can be moved to trash."
     },
     "slicesPanel": {
+      "split": {
+        "blocksLabel": "Blocks",
+        "hideBlocks": "Hide blocks",
+        "showBlocks": "Show blocks",
+        "previewLabel": "Preview",
+        "hidePreview": "Hide preview",
+        "showPreview": "Show preview",
+        "divider": "Drag to resize. Double-click to reset.",
+        "view": "Show",
+        "edit": "Edit",
+        "preview": "Preview"
+      },
       "heading": "Content blocks: {locale}",
       "count": "{count, plural, one {# block} other {# blocks}}",
       "inlineRefusal": {
@@ -2541,7 +2559,7 @@
       "saved": "Saved",
       "frameLoading": "Preparing the page preview…",
       "frameUnavailable": "The page preview is unavailable. Your content remains accessible in the form.",
-      "frameUnsupported": "Full page preview currently supports landing pages in an enabled public language. Use the form for this page.",
+      "frameUnsupported": "The live preview is not available for this content right now. You can keep editing in the form.",
       "frameConflict": "The preview changed while you were editing. Recover your pending content from the page recovery notice.",
       "frameResolveRecovery": "Restore or discard recovered work before editing directly in the preview."
     },

@@ -30,6 +30,8 @@ import type { PreviewInlineEditCommit } from "./visual-editing-types"
 const controls = vi.hoisted(() => ({ query: vi.fn() }))
 vi.mock("convex/react", () => ({
   useQuery: controls.query,
+  // These frames render Landing pages, which read no Post bylines.
+  useQueries: () => ({}),
   useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),
 }))
 vi.mock("@/components/providers", () => ({

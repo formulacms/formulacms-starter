@@ -50,6 +50,14 @@ _Avoid_: Published locale (when indexability matters), draft with `noindex`
 A locale-specific internal reference whose target has a current Published Snapshot in that same locale. An unavailable target has no public `href`; it never falls through to another locale's URL.
 _Avoid_: Fallback link, cross-locale substitute
 
+**Internal link**:
+A link to a page on this site. Menus and the editor link dialog use this name for the tab that picks a Page.
+_Avoid_: Page (as a link type)
+
+**External link**:
+A link to a web address.
+_Avoid_: URL (as a link type)
+
 **Published Ancestry**:
 The chain of ancestor Pages whose matching Localized Contents all have current Published Snapshots. A child locale may be published only with complete same-locale Published Ancestry, which is also the sole source for its public path and breadcrumb.
 _Avoid_: Draft ancestry, fallback breadcrumb

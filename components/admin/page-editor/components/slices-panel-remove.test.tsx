@@ -11,6 +11,10 @@ import { SlicesPanel } from "./slices-panel"
 const mocks = vi.hoisted(() => ({
   archived: { status: "success", data: [] as string[] },
   error: vi.fn(),
+  preview: null as null | {
+    onSelectField(target: unknown, result?: unknown): void
+    onSelectSliceFallback(sliceId: string): void
+  },
 }))
 vi.mock("convex/react", () => ({
   useQuery: vi.fn(() => []),
@@ -20,7 +24,10 @@ vi.mock("sonner", () => ({ toast: { error: mocks.error } }))
 // Only the backend-driven preview is replaced. Panel, builder, slice editor,
 // ConfirmProvider and Radix Dialog retain their real event and state wiring.
 vi.mock("@/components/admin/page-live-preview", () => ({
-  PageLivePreview: () => null,
+  PageLivePreview: (props: NonNullable<typeof mocks.preview>) => {
+    mocks.preview = props
+    return null
+  },
 }))
 
 // ORDER11 r8 editor-intake.json: F09 EN, one shared-draft occurrence,
@@ -75,7 +82,13 @@ const storedSlice: Slice = {
 
 let catalog: Awaited<ReturnType<typeof readSlicePresentationCatalog>>
 
-function EditorSlices({ onChange }: { onChange: (slices: Slice[]) => void }) {
+function EditorSlices({
+  onChange,
+  onSelectField = () => {},
+}: {
+  onChange: (slices: Slice[]) => void
+  onSelectField?: (target: unknown, result?: unknown) => void
+}) {
   const [slices, setSlices] = useState<Slice[]>([storedSlice])
   const [selectedSliceId, setSelectedSliceId] = useState<string | null>(null)
   const [slicePickerOpen, setSlicePickerOpen] = useState(false)
@@ -100,7 +113,7 @@ function EditorSlices({ onChange }: { onChange: (slices: Slice[]) => void }) {
       onSelectedSliceIdChange={setSelectedSliceId}
       onPreviewSelectSlice={setSelectedSliceId}
       onPreviewSelectSliceFallback={setSelectedSliceId}
-      onPreviewSelectField={() => {}}
+      onPreviewSelectField={onSelectField}
       onPreviewInlineEditCommit={() => {}}
       onPreviewInlineEditingEnabledChange={() => {}}
       onSave={() => {}}
@@ -140,5 +153,72 @@ describe("SlicesPanel removal with the real confirmation dialog", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }))
     await waitFor(() => expect(onChange).toHaveBeenCalledExactlyOnceWith([]))
     expect(screen.queryByTitle("Remove block")).not.toBeInTheDocument()
+  })
+})
+
+describe("SlicesPanel: a click in the preview keeps the preview column still", () => {
+  const wait = (ms: number) =>
+    act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+
+  // jsdom has no layout: give the sticky preview column, and the scrolling
+  // panel around it, the places the browser measured at 600 px (round 6).
+  function layOut(container: HTMLElement) {
+    const column = container.querySelector<HTMLElement>("aside")!
+    column.style.position = "sticky"
+    Object.defineProperty(column, "getBoundingClientRect", {
+      configurable: true,
+      value: () => new DOMRect(0, 13, 600, 595),
+    })
+    const panel = container
+    panel.style.overflowY = "auto"
+    panel.style.paddingTop = "24px"
+    Object.defineProperty(panel, "getBoundingClientRect", {
+      configurable: true,
+      value: () => new DOMRect(0, 97, 1200, 500),
+    })
+    return column
+  }
+
+  it("holds the column in place until the click sequence is over", sliceProfile(["hero-with-image"]), async () => {
+    const onSelectField = vi.fn()
+    const view = render(
+      <ConfirmProvider>
+        <EditorSlices onChange={vi.fn()} onSelectField={onSelectField} />
+      </ConfirmProvider>
+    )
+    const column = layOut(view.container)
+    const target = { sliceId: storedSlice.id, fieldPath: "primary.description" }
+
+    // Click 1: the column keeps its place, 108 px above its sticky line.
+    act(() => mocks.preview!.onSelectField(target))
+    expect(onSelectField).toHaveBeenCalledWith(target)
+    expect(onSelectField.mock.calls[0]).toHaveLength(1)
+    expect(column.style.top).toBe("-108px")
+    // Click 2, 400 ms later, starts the wait over.
+    await wait(400)
+    act(() => mocks.preview!.onSelectField(target, { status: "refused" }))
+    await wait(400)
+    expect(column.style.top).toBe("-108px")
+    // About 500 ms after the last click the column returns to its rule.
+    await wait(150)
+    expect(column.style.top).toBe("")
+
+    // An empty-spot click holds it too; the owner's scrolling releases it.
+    act(() => mocks.preview!.onSelectSliceFallback(storedSlice.id))
+    expect(column.style.top).toBe("-108px")
+    fireEvent.wheel(document.body)
+    expect(column.style.top).toBe("")
+  })
+
+  it("leaves a column that is not sticky alone", sliceProfile(["hero-with-image"]), () => {
+    const view = render(
+      <ConfirmProvider>
+        <EditorSlices onChange={vi.fn()} />
+      </ConfirmProvider>
+    )
+    const column = layOut(view.container)
+    column.style.position = "static"
+    act(() => mocks.preview!.onSelectSliceFallback(storedSlice.id))
+    expect(column.style.top).toBe("")
   })
 })

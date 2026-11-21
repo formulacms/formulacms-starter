@@ -1,12 +1,12 @@
 {
   "$comment": "Engine version manifest (plan 023 Phase 4 #1-minimal, ADR-0025). Read by downstream forks (and the future upgrade CLI) to decide what an engine sync requires. Keep in lockstep with convex/lib/versions.ts — lib/engine-manifest.test.ts fails the gates on drift.",
   "name": "formulacms-engine",
-  "engineVersion": "0.3.0",
+  "engineVersion": "0.3.1",
   "schemaVersion": 5,
   "compatibility": {
     "freshInstallBaseline": 5,
     "supportedUpgradeFromSchemaVersions": [],
-    "note": "Schema version 5 removes 14 unused team, invitation and policy tables and pagePublicationReleases.roundId, narrows stored email delivery events, adds per-language search, social, card and category fields, and adds the aiVendorModels, pagePurges and purgedMediaUrls tables. Release 0.3.0 supports fresh installs only. Schema version 4 (release 0.2.0) has no upgrade path: the v0.2.0-to-v0.3.0 transition is declared unsupported, so start a new site from v0.3.0. Upgrades from schema version 3 or older are unsupported."
+    "note": "Schema version 5 removes 14 unused team, invitation and policy tables and pagePublicationReleases.roundId, narrows stored email delivery events, adds per-language search, social, card and category fields, and adds the aiVendorModels, pagePurges and purgedMediaUrls tables. Release 0.3.1 keeps schema version 5 and adds only the optional pagePurges.startedAt field. Release 0.3.1 supports fresh installs only: the v0.3.0-to-v0.3.1 transition is declared unsupported, so start a new site from v0.3.1. Schema version 4 (release 0.2.0) has no upgrade path: the v0.2.0-to-v0.3.0 transition is declared unsupported. Upgrades from schema version 3 or older are unsupported."
   },
   "migrations": [
     {

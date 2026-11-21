@@ -29,7 +29,6 @@ import {
   type ReactNode,
 } from "react"
 import { flushSync } from "react-dom"
-import dynamic from "next/dynamic"
 import { useTranslations } from "next-intl"
 import {
   type ImageField,
@@ -60,14 +59,34 @@ import {
   isPrimaryListPath,
 } from "./page-editor/lib/page-inline-draft"
 import type { PreviewInlineSession } from "./preview-inline-session"
+import {
+  nextPendingClick,
+  readPreviewClick,
+  type PreviewClickPoint,
+} from "./rich-text-caret"
 
-const PreviewInlineEditor = dynamic(
-  () =>
-    import("./preview-inline-editor").then(
-      (module) => module.PreviewInlineEditor
-    ),
-  { ssr: false }
-)
+type InlineEditorComponent =
+  typeof import("./preview-inline-editor").PreviewInlineEditor
+
+let inlineEditorLoad: Promise<InlineEditorComponent> | null = null
+
+/**
+ * Loads the in-place editor's code once, as soon as editing in the preview is
+ * on. Not `next/dynamic` or `React.lazy`: their Suspense fallback would empty
+ * the field (`loading` gets no field props) and React holds a revealed
+ * Suspense boundary back for up to 300 ms. Until the code is here the field
+ * keeps its rendered text, so clicks keep landing on the same words.
+ */
+function loadPreviewInlineEditor() {
+  inlineEditorLoad ??= import("./preview-inline-editor").then(
+    (module) => module.PreviewInlineEditor,
+    (error: unknown) => {
+      inlineEditorLoad = null
+      throw error
+    }
+  )
+  return inlineEditorLoad
+}
 
 type PreviewFieldTarget = {
   fieldPath: string
@@ -87,7 +106,25 @@ type PreviewFieldTarget = {
 type PreviewFieldMatch = {
   target: PreviewFieldTarget
   element: HTMLElement
-  point?: { left: number; top: number }
+  point?: PreviewClickPoint
+}
+
+/** The field selection a preview click reports: one click is the default,
+ *  only a double or triple click says so. */
+function previewFieldSelection(
+  sliceId: string,
+  fieldPath: string,
+  result?: PreviewInlineActivationResult,
+  click?: PreviewClickPoint
+): PreviewFieldSelection {
+  const clickCount = click?.clickCount
+  return {
+    sliceId,
+    fieldPath,
+    ...(result?.status === "activated" ? { inlineEditing: true } : {}),
+    ...(click?.textOffset !== undefined ? { textOffset: click.textOffset } : {}),
+    ...(clickCount === 2 || clickCount === 3 ? { clickCount } : {}),
+  }
 }
 
 function inlineActivationDiagnostic(
@@ -379,6 +416,7 @@ function AdminSlicePreviewZone({
   onBeginInlineEdit,
   registerSliceNode,
   activeSession,
+  inlineEditor: PreviewInlineEditor,
   initialPoint,
   onDraftChange,
   onCommit,
@@ -404,7 +442,9 @@ function AdminSlicePreviewZone({
   ) => PreviewInlineActivationResult
   registerSliceNode: (sliceId: string, node: HTMLDivElement | null) => void
   activeSession: PreviewInlineSession | null
-  initialPoint?: { left: number; top: number }
+  /** The loaded in-place editor; null while its code is still loading. */
+  inlineEditor: InlineEditorComponent | null
+  initialPoint?: PreviewClickPoint
   onDraftChange: (value: string, removedLinks?: RemovedRichTextLink[]) => void
   onCommit: () => void
   onCancel: () => void
@@ -447,13 +487,15 @@ function AdminSlicePreviewZone({
 
       function selectField(
         fieldPath: string,
-        result?: PreviewInlineActivationResult
+        result?: PreviewInlineActivationResult,
+        click?: PreviewClickPoint
       ) {
-        const target = {
-          sliceId: readSlice(slice).id,
+        const target = previewFieldSelection(
+          readSlice(slice).id,
           fieldPath,
-          ...(result?.status === "activated" ? { inlineEditing: true } : {}),
-        }
+          result,
+          click
+        )
         if (result) onSelectField(target, result)
         else onSelectField(target)
       }
@@ -462,15 +504,24 @@ function AdminSlicePreviewZone({
         match: PreviewFieldMatch,
         event: { detail: number; clientX: number; clientY: number }
       ) {
+        // The click is read now, on the field's own host: its spot and click
+        // count reach the form control or the in-place editor, and the frame
+        // may scroll the block before either one is ready.
+        const click =
+          match.target.kind !== "image" &&
+          match.element.dataset.previewField === match.target.fieldPath
+            ? readPreviewClick(match.element, event)
+            : undefined
         if (!inlineEditingEnabled) {
-          if (match.target.kind === "text" || match.target.kind === "image") {
-            selectField(match.target.fieldPath, {
-              status: "refused",
-              reason: "unsupported",
-            })
-          } else {
-            selectField(match.target.fieldPath)
-          }
+          // With editing in the preview off, every field is edited in the
+          // form, so no field is "form only": no notice, except for images.
+          selectField(
+            match.target.fieldPath,
+            match.target.kind === "image"
+              ? { status: "refused", reason: "unsupported" }
+              : undefined,
+            click
+          )
           return false
         }
         const supported =
@@ -505,18 +556,16 @@ function AdminSlicePreviewZone({
           )
         }
         if (!supported) {
-          selectField(match.target.fieldPath, {
-            status: "refused",
-            reason: "unsupported",
-          })
+          selectField(
+            match.target.fieldPath,
+            { status: "refused", reason: "unsupported" },
+            click
+          )
           return false
         }
         const result = onBeginInlineEdit(readSlice(slice).id, {
           ...match,
-          point:
-            event.detail > 0
-              ? { left: event.clientX, top: event.clientY }
-              : undefined,
+          point: click,
         })
         selectField(match.target.fieldPath, result)
         return result.status === "activated"
@@ -598,6 +647,10 @@ function AdminSlicePreviewZone({
             }
             event.preventDefault()
             event.stopPropagation()
+            // A pointer double click already reached onClickCapture as its
+            // second click, which owns the click count. Only a double click
+            // without clicks (detail 0, an assistive or synthetic one) selects.
+            if (event.detail > 0) return
             const match = fieldMatchFromClick(
               event.currentTarget,
               event.target,
@@ -655,6 +708,7 @@ function AdminSlicePreviewZone({
                   if (!target && !editingThisField) return rendered
                   if (
                     editingThisField &&
+                    PreviewInlineEditor &&
                     ["inline", "title", "basic"].includes(contract)
                   ) {
                     const editor = (
@@ -695,6 +749,7 @@ function AdminSlicePreviewZone({
                       : rendered
                   }
                   // Retain the exact public host, including flex-item geometry.
+                  // An opening field keeps it until its editor code is loaded.
                   return isValidElement<Record<string, unknown>>(rendered)
                     ? cloneElement(rendered, {
                         "data-preview-field": fieldPath,
@@ -773,6 +828,20 @@ function AdminSlicePreviewZone({
   )
 }
 
+/**
+ * True when at least half of the block, or half of the viewport for a block
+ * taller than it, is on screen. A block without layout height is not in view.
+ */
+export function isBlockMostlyInView(
+  rect: { top: number; bottom: number; height: number },
+  viewportHeight: number
+) {
+  if (rect.height <= 0 || viewportHeight <= 0) return false
+  const visible =
+    Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0)
+  return visible >= Math.min(rect.height, viewportHeight) / 2
+}
+
 export function PageLivePreviewCanvas({
   title,
   slices,
@@ -824,8 +893,10 @@ export function PageLivePreviewCanvas({
     slices: Slice[]
   } | null>(null)
   const [initialPoint, setInitialPoint] = useState<
-    { left: number; top: number } | undefined
+    PreviewClickPoint | undefined
   >()
+  const [inlineEditor, setInlineEditor] =
+    useState<InlineEditorComponent | null>(null)
   const sessionRef = useRef<PreviewInlineSession | null>(null)
   const composing = useRef(false)
   const conflict = useRef(false)
@@ -849,7 +920,11 @@ export function PageLivePreviewCanvas({
     onInlineEditCommit,
     onActiveEditChange,
     onActiveEditConflict,
+    onSelectField,
   })
+  // The latest pending click, also read when the editor's code fails.
+  const pendingClick = useRef<PreviewClickPoint | undefined>(undefined)
+  const loadingEditor = useRef(false)
   const enabled = controlledInlineEnabled ?? false
   const ctx: SliceRenderContext = renderContext ?? {
     locale,
@@ -888,6 +963,7 @@ export function PageLivePreviewCanvas({
       onInlineEditCommit,
       onActiveEditChange,
       onActiveEditConflict,
+      onSelectField,
     }
   })
   useLayoutEffect(() => {
@@ -990,9 +1066,16 @@ export function PageLivePreviewCanvas({
   }, [onActiveEditHandleChange])
   useEffect(() => {
     if (!selectedSliceId) return
-    const id = requestAnimationFrame(() =>
-      sliceRefs.current?.get(selectedSliceId)?.scrollIntoView({ block: "start" })
-    )
+    const id = requestAnimationFrame(() => {
+      const node = sliceRefs.current?.get(selectedSliceId)
+      // A block the owner can already see stays put: scrolling it would move
+      // the second click of a double-click onto another line.
+      if (
+        node &&
+        !isBlockMostlyInView(node.getBoundingClientRect(), window.innerHeight)
+      )
+        node.scrollIntoView({ block: "start" })
+    })
     return () => cancelAnimationFrame(id)
   }, [selectedSliceId])
   function leave() {
@@ -1019,6 +1102,45 @@ export function PageLivePreviewCanvas({
   useEffect(() => {
     // enabled crosses the frame/root boundary; the canvas owns the session.
     if (!enabled) finishFromEffect()
+  }, [enabled])
+  /**
+   * Loads the in-place editor's code. If it fails, an opening field falls
+   * back to the form, with the click's spot and count, as a form-only field;
+   * the next click tries the load again.
+   */
+  function ensureInlineEditor() {
+    if (inlineEditor || loadingEditor.current) return
+    loadingEditor.current = true
+    loadPreviewInlineEditor().then(
+      (component) => {
+        loadingEditor.current = false
+        setInlineEditor(() => component)
+      },
+      (error: unknown) => {
+        loadingEditor.current = false
+        inlineActivationDiagnostic("The in-place editor did not load", {
+          error: String(error),
+        })
+        const current = sessionRef.current
+        if (!current) return
+        composing.current = false
+        leave()
+        callbacks.current.onSelectField(
+          previewFieldSelection(
+            current.sliceId,
+            current.fieldPath,
+            undefined,
+            pendingClick.current
+          ),
+          { status: "refused", reason: "unsupported" }
+        )
+      }
+    )
+  }
+  const ensureFromEffect = useEffectEvent(ensureInlineEditor)
+  useEffect(() => {
+    // Preload as soon as editing in the preview is on.
+    if (enabled) ensureFromEffect()
   }, [enabled])
   useEffect(() => {
     const frameDocument =
@@ -1063,6 +1185,12 @@ export function PageLivePreviewCanvas({
       sessionRef.current.fieldPath === match.target.fieldPath
     ) {
       inlineActivationDiagnostic("Begin retained the active field session")
+      // A later click of a double or triple click that lands while the editor
+      // mounts raises its pending click count; a mounted editor ignores it.
+      if (match.point) {
+        pendingClick.current = nextPendingClick(pendingClick.current, match.point)
+        setInitialPoint(pendingClick.current)
+      }
       return { status: "activated" }
     }
     if (conflict.current) {
@@ -1116,6 +1244,7 @@ export function PageLivePreviewCanvas({
     inlineActivationDiagnostic("Capture accepted; reporting an active session")
     conflict.current = false
     endRequested.current = false
+    pendingClick.current = match.point
     setInitialPoint(match.point)
     report({
       ...binding,
@@ -1124,6 +1253,8 @@ export function PageLivePreviewCanvas({
       cancellationValue: binding.value,
       label: match.target.label,
     })
+    // A load that failed before is tried again by this click.
+    ensureInlineEditor()
     return { status: "activated" }
   }
   function change(value: string, removedLinks: RemovedRichTextLink[] = []) {
@@ -1197,6 +1328,7 @@ export function PageLivePreviewCanvas({
         else sliceRefs.current?.delete(id)
       }}
       activeSession={session}
+      inlineEditor={inlineEditor}
       initialPoint={initialPoint}
       onDraftChange={change}
       onCommit={leave}

@@ -209,25 +209,46 @@ describe("Page iframe consumer", () => {
     )
     expect(pushes()).toBe(before + 2)
   })
-  it.each(["post", "author"])(
-    "keeps unsupported %s type form-accessible without a fake page viewport",
+  it.each(["testimonial", "job"])(
+    "keeps a %s without a renderer form-accessible without a fake page viewport",
     (pageType) => {
       const view = setup({ pageType })
       expect(view.container.querySelector("iframe")).toBeNull()
       expect(view.getByRole("status")).toHaveTextContent(
-        "supports landing pages"
+        "live preview is not available"
       )
       fireEvent.click(view.getByRole("button", { name: "Saved" }))
       expect(view.props.onOpenSavedPreview).toHaveBeenCalledOnce()
     }
   )
-  it("gives a Page the same live frame a Landing page gets, bound to its own type", () => {
-    const view = setup({ pageType: "page" })
-    expect(view.container.querySelector("iframe")).not.toBeNull()
-    expect(view.queryByText(/supports landing pages/)).toBeNull()
+  it("sends the unsaved author fields and Post author selection to the frame", () => {
+    const sharedFieldValues = { name: "Ada", socials: [] }
+    const localizedFieldValues = { roleTitle: "Editor" }
+    const authorIds = ["author-1", "author-2"]
+    const view = setup({
+      pageType: "post",
+      sharedFieldValues,
+      localizedFieldValues,
+      authorIds,
+    })
     const { bridge } = handshake(view)
     expect(bridge.connect).toHaveBeenCalledWith(
-      expect.objectContaining({ pageType: "page", pageId: "page-id" }),
+      expect.objectContaining({
+        pageType: "post",
+        sharedFields: sharedFieldValues,
+        localizedFields: localizedFieldValues,
+        authorIds,
+      }),
+      expect.anything()
+    )
+  })
+  it.each(["page", "post", "author"])("gives a %s the same live frame a Landing page gets, bound to its own type", (pageType) => {
+    const view = setup({ pageType })
+    expect(view.container.querySelector("iframe")).not.toBeNull()
+    expect(view.queryByText(/live preview is not available/)).toBeNull()
+    const { bridge } = handshake(view)
+    expect(bridge.connect).toHaveBeenCalledWith(
+      expect.objectContaining({ pageType, pageId: "page-id" }),
       expect.anything()
     )
   })

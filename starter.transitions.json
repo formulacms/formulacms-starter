@@ -67,6 +67,37 @@
         "slice-registration",
         "tokens"
       ]
+    },
+    {
+      "id": "v0.3.0-to-v0.3.1",
+      "source": {
+        "tag": "v0.3.0",
+        "tagObjectOid": "439f75fc2a9d48cb2001a58aedef02a68148eb04",
+        "starterCommitOid": "3a3e3682bd30e76a3b91dc02f20b1de1b86b61c9",
+        "engineCommitOid": "f2c6b892684ba5338fb882314b224725c16e2bb9",
+        "generatedTreeDigest": "c5caa3434edf579037866e5d73858cdad219ec419f4cfeec101fbc59fc710dac"
+      },
+      "targetTag": "v0.3.1",
+      "class": "unsupported",
+      "composable": false,
+      "rollback": {
+        "codeArtifact": "unsupported",
+        "boundary": "There is no upgrade from v0.3.0 to v0.3.1: release 0.3.1 supports fresh installs only. Do not merge or pull v0.3.1 into a 0.3.0 site; start a new site from v0.3.1 instead. Owner decision 2026-11-20: breaking changes accepted until 0.5; fresh installs only."
+      },
+      "migrationIds": [],
+      "configurationChanges": [],
+      "manualActionIds": [],
+      "requirements": {
+        "membershipReconciliation": false
+      },
+      "checks": [
+        "frozen-install",
+        "typecheck",
+        "lint",
+        "tests",
+        "slice-registration",
+        "tokens"
+      ]
     }
   ]
 }
