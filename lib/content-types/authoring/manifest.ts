@@ -1,6 +1,6 @@
 export type ContentTypeRendererKind =
-  | "default-slice-body"
-  | "custom-slice-body"
+  | "default-block-body"
+  | "custom-block-body"
   | "custom-pure-form"
   | "none"
 
@@ -10,7 +10,7 @@ export type ContentTypeManifestEntry = {
   exportName: string
   labels: Record<string, { singular: string; plural: string }>
   selected: boolean
-  sliceBody: boolean
+  blockBody: boolean
   pathPrefix?: string
   renderer: ContentTypeRendererKind
   rendererModule?: string

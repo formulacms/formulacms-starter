@@ -86,7 +86,7 @@ async function createPage(
     content: Object.fromEntries(
       locales.map((locale) => [
         locale,
-        { title: `${slug} ${locale}`, slices: [] },
+        { title: `${slug} ${locale}`, blocks: [] },
       ])
     ),
   })
@@ -287,7 +287,7 @@ async function saveLocale(
     draft: {
       pageType: "landing-page",
       localized: { title },
-      slices: [],
+      blocks: [],
       ...extra,
     } as never,
     expectedDraftGeneration: state?.draftGeneration ?? 0,
@@ -749,8 +749,8 @@ describe("writers after the change", () => {
       slug: "created",
       title: "Created",
       content: {
-        en: { title: "Created", slices: [] },
-        fr: { title: "Créé", slices: [] },
+        en: { title: "Created", blocks: [] },
+        fr: { title: "Créé", blocks: [] },
       },
       seo: { noIndex: true, ogTitle: "Created social", ogImage: "/c.png" },
       cardExcerpt: "Created excerpt",
@@ -777,8 +777,8 @@ describe("writers after the change", () => {
       title: "A post",
       category: "News",
       content: {
-        en: { title: "A post", slices: [] },
-        fr: { title: "Un article", slices: [] },
+        en: { title: "A post", blocks: [] },
+        fr: { title: "Un article", blocks: [] },
       },
     })
     expect((await draftRow(site, pageId, "en"))!.content).toMatchObject({
@@ -794,7 +794,7 @@ describe("writers after the change", () => {
       draft: {
         pageType: "post",
         localized: { title: "Un article", category: "Actualités" },
-        slices: [],
+        blocks: [],
       } as never,
       expectedDraftGeneration: state!.draftGeneration,
       expectedLifecycleGeneration: page.lifecycleGeneration,

@@ -1,14 +1,25 @@
 /// <reference types="vite/client" />
 
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { ConvexError, type Value } from "convex/values"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { refreshMenuReferences } from "./lib/menu/references"
-import type { Slice } from "./lib/slices"
+import { referrerContentTypes } from "./lib/documentReferences"
+import type { Block } from "./lib/blocks"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import schema from "./schema"
+
+// Pass-through spy: no shipped type relates to itself, so the self-reference
+// test below widens the derived referrer set for one call.
+vi.mock(import("./lib/documentReferences"), async (importOriginal) => {
+  const original = await importOriginal()
+  return {
+    ...original,
+    referrerContentTypes: vi.fn(original.referrerContentTypes),
+  }
+})
 
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
@@ -43,7 +54,7 @@ async function activeFixture() {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   await t.run((ctx) =>
     ctx.db.insert("siteSettings", {
@@ -102,7 +113,7 @@ async function createStoredMedia(t: ReturnType<typeof convexTest>) {
   })
 }
 
-function imageSlice(storageId: Id<"_storage">): Slice {
+function imageBlock(storageId: Id<"_storage">): Block {
   return {
     id: "image",
     type: "hero-with-image",
@@ -124,7 +135,7 @@ function imageSlice(storageId: Id<"_storage">): Slice {
       },
     },
     items: [],
-  } as Slice
+  } as Block
 }
 
 describe("snapshot Page destructive refusals", () => {
@@ -135,7 +146,7 @@ describe("snapshot Page destructive refusals", () => {
       status: "draft",
       slug: "menu-target",
       title: "Menu target",
-      content: { en: { title: "Menu target", slices: [] } },
+      content: { en: { title: "Menu target", blocks: [] } },
     })
     const menuId = await t.run(async (ctx) => {
       const id = await ctx.db.insert("menus", {
@@ -233,7 +244,7 @@ describe("snapshot Page destructive refusals", () => {
       slug: "ada",
       title: "Ada",
       name: "Ada",
-      content: { en: { title: "Ada", slices: [] } },
+      content: { en: { title: "Ada", blocks: [] } },
     })
     const postId = await owner.mutation(api.cms.pages.create, {
       pageType: "post",
@@ -241,7 +252,7 @@ describe("snapshot Page destructive refusals", () => {
       slug: "proof",
       title: "Proof",
       authorIds: [authorId],
-      content: { en: { title: "Proof", slices: [] } },
+      content: { en: { title: "Proof", blocks: [] } },
     })
     await publishEn(owner, authorId)
     const postPublication = await publishEn(owner, postId)
@@ -323,10 +334,48 @@ describe("snapshot Page destructive refusals", () => {
       })
     ).resolves.toEqual({ pageId: authorId, lifecycleGeneration: 2 })
   })
+
+  test("a published page that references itself does not block its own deletion", async () => {
+    const { t, owner } = await activeFixture()
+    const authorId = await owner.mutation(api.cms.pages.create, {
+      pageType: "author",
+      status: "draft",
+      slug: "self",
+      title: "Self",
+      name: "Self",
+      content: { en: { title: "Self", blocks: [] } },
+    })
+    const publication = await publishEn(owner, authorId)
+    // A self-relation (for example a "related" field that may name its own
+    // page) records a current public row whose source is the target.
+    await t.run((ctx) =>
+      ctx.db.insert("pagePublicationDocumentReferences", {
+        pageId: authorId,
+        targetId: authorId,
+        targetType: "author",
+        sourcePath: "related",
+        referenceKind: "shared-field",
+        sourceKind: "current_public",
+        sourceId: publication.snapshotId,
+        publicGeneration: publication.publicGeneration,
+        locale: "en",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    )
+    vi.mocked(referrerContentTypes).mockReturnValueOnce(new Set(["author"]))
+    await expect(
+      owner.mutation(api.cms.publication.softDeletePage, {
+        pageId: authorId,
+        expectedLifecycleGeneration: 1,
+      })
+    ).resolves.toEqual({ pageId: authorId, lifecycleGeneration: 2 })
+    expect(vi.mocked(referrerContentTypes)).toHaveBeenCalledWith("author")
+  })
 })
 
 describe("media soft-delete destructive refusals", () => {
-  test("a snapshot Working Draft reference refuses before changing media or reference rows", sliceProfile(["hero-with-image"]), async () => {
+  test("a snapshot Working Draft reference refuses before changing media or reference rows", blockProfile(["hero-with-image"]), async () => {
     const { t, owner } = await activeFixture()
     const media = await createStoredMedia(t)
     const pageId = await owner.mutation(api.cms.pages.create, {
@@ -337,7 +386,7 @@ describe("media soft-delete destructive refusals", () => {
       content: {
         en: {
           title: "Draft image",
-          slices: [imageSlice(media.storageId)],
+          blocks: [imageBlock(media.storageId)],
         },
       },
     })
@@ -362,7 +411,7 @@ describe("media soft-delete destructive refusals", () => {
           pageId,
           locale: "en",
           sourceKind: "locale_draft",
-          sourcePath: "content.en.slices[0].primary.image",
+          sourcePath: "content.en.blocks[0].primary.image",
         },
       ],
       truncated: false,
@@ -378,7 +427,7 @@ describe("media soft-delete destructive refusals", () => {
     expect(after).toEqual(before)
   })
 
-  test("a current snapshot refuses, then candidate-only history permits the owner control", sliceProfile(["hero-with-image"]), async () => {
+  test("a current snapshot refuses, then candidate-only history permits the owner control", blockProfile(["hero-with-image"]), async () => {
     const { t, owner } = await activeFixture()
     const media = await createStoredMedia(t)
     const pageId = await owner.mutation(api.cms.pages.create, {
@@ -389,7 +438,7 @@ describe("media soft-delete destructive refusals", () => {
       content: {
         en: {
           title: "Published image",
-          slices: [imageSlice(media.storageId)],
+          blocks: [imageBlock(media.storageId)],
         },
       },
     })
@@ -401,7 +450,7 @@ describe("media soft-delete destructive refusals", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "Published image" },
-        slices: [],
+        blocks: [],
       },
       expectedDraftGeneration: 1,
       expectedLifecycleGeneration: 1,
@@ -427,7 +476,7 @@ describe("media soft-delete destructive refusals", () => {
           pageId,
           locale: "en",
           sourceKind: "current_public",
-          sourcePath: "content.en.slices[0].primary.image",
+          sourcePath: "content.en.blocks[0].primary.image",
         },
       ],
       truncated: false,

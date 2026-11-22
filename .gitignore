@@ -43,15 +43,15 @@ next-env.d.ts
 .roo/
 .vscode/
 
-# slice authoring CLI sign-in (tokens), its lock and temp files
-/.slice-authoring-session.*
+# block authoring CLI sign-in (tokens), its lock and temp files
+/.block-authoring-session.*
 
 # local design-time artifacts
 .cms-starter/
 .vercel
 
 # machine-local state: local AI tool choices, the Codex model list, design and
-# slice-authoring working files (.nextcms/ is its old name; the creation
+# block-authoring working files (.nextcms/ is its old name; the creation
 # records in .formulacms/ stay tracked)
 /.formulacms/local/
 /.nextcms/

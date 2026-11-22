@@ -8,8 +8,8 @@ import englishMessages from "@/messages/admin/en.json"
 import { SimIntlProvider } from "./intl-provider"
 import "../globals.css"
 
-// Root layout for the slice simulator (ADR-0016). Its own route group so the
-// rendered slice loads the production CSS/theme/fonts (faithful preview +
+// Root layout for the block simulator (ADR-0016). Its own route group so the
+// rendered block loads the production CSS/theme/fonts (faithful preview +
 // stable screenshots) with no public nav/footer or admin chrome bleeding in.
 // It follows the selected site theme, so the preview exercises both modes.
 export const metadata: Metadata = {
@@ -29,7 +29,7 @@ export default function SimLayout({ children }: { children: ReactNode }) {
           <SimIntlProvider
             messages={{
               accessibility: englishMessages.accessibility,
-              slices: { design: englishMessages.slices.design },
+              blocks: { design: englishMessages.blocks.design },
               caughtErrors: englishMessages.caughtErrors,
             }}
           >

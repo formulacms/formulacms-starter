@@ -9,7 +9,7 @@
   "setup": {
     "emailDelivery": "unconfigured"
   },
-  "slices": [
+  "blocks": [
     "faq-simple",
     "features-icon-grid",
     "hero-agency",

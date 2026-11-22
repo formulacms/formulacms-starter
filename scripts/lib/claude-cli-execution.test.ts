@@ -29,7 +29,7 @@ describe("executeClaudeCliGeneration", () => {
           prompt: "PRIVATE BUSINESS PROMPT",
           images: [{ path: "/private/design.png", mediaType: "image/png" }],
           profile: "vision-spec",
-          phase: "slice-spec",
+          phase: "block-spec",
           override: { model: "haiku", effort: "max" } as never,
         },
         { stageRun }
@@ -54,7 +54,7 @@ describe("executeClaudeCliGeneration", () => {
     prompt: "PRIVATE BUSINESS PROMPT",
     images: [],
     profile: "grounded-help" as const,
-    phase: "slice-spec" as const,
+    phase: "block-spec" as const,
     override: { model, effort: "high" as const },
     ...(signal ? { signal } : {}),
   })
@@ -561,7 +561,7 @@ describe("executeClaudeCliGeneration", () => {
         prompt: "PRIVATE BUSINESS PROMPT",
         images: [],
         profile: "vision-spec",
-        phase: "slice-spec",
+        phase: "block-spec",
         override: { model: "haiku", effort: "high" },
       },
       { stageRun, runProcess }
@@ -635,7 +635,7 @@ describe("executeClaudeCliGeneration", () => {
           type: "result",
           subtype: "success",
           is_error: false,
-          result: "COMPLETE SLICE SPEC",
+          result: "COMPLETE BLOCK SPEC",
           usage: { input_tokens: 13, output_tokens: 8 },
         }),
       ].join("\n"),
@@ -647,7 +647,7 @@ describe("executeClaudeCliGeneration", () => {
         prompt: "PRIVATE BUSINESS PROMPT",
         images: [{ path: "/private/design.png", mediaType: "image/png" }],
         profile: "vision-spec",
-        phase: "slice-spec",
+        phase: "block-spec",
         deadlineMs: 12_345,
       },
       { stageRun, runProcess }
@@ -674,8 +674,8 @@ describe("executeClaudeCliGeneration", () => {
     expect(processRequest.args).not.toContain("PRIVATE SYSTEM PROMPT")
     expect(processRequest.args).not.toContain("PRIVATE BUSINESS PROMPT")
     expect(result).toEqual({
-      text: "COMPLETE SLICE SPEC",
-      output: "COMPLETE SLICE SPEC",
+      text: "COMPLETE BLOCK SPEC",
+      output: "COMPLETE BLOCK SPEC",
       selected: {
         lane: "local-build",
         engine: "claude-cli",
@@ -704,7 +704,7 @@ describe("executeClaudeCliGeneration", () => {
         prompt: "PRIVATE BUSINESS PROMPT",
         images: [],
         profile: "vision-spec",
-        phase: "slice-spec",
+        phase: "block-spec",
       },
       {
         stageRun: async () => ({
@@ -726,7 +726,7 @@ describe("executeClaudeCliGeneration", () => {
     expect(error).toMatchObject({
       category: "AUTH_REQUIRED",
       attempts: 1,
-      phase: "slice-spec",
+      phase: "block-spec",
       retryable: false,
       nextAction: "authenticate-provider",
     })

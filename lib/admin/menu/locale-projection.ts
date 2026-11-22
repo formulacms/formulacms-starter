@@ -1,11 +1,11 @@
 import {
   isColumnPanel,
-  mapPanelBlocks,
+  mapPanelSections,
   menuConversionBaseline,
-  panelBlocks,
-  type Block,
+  panelSections,
+  type PanelSection,
   type L10n,
-  type LocaleBlock,
+  type LocalePanelSection,
   type LocaleNavItem,
   type NavItem,
   type NavLink,
@@ -13,51 +13,51 @@ import {
 import { menuTextKey, menuTextLeaves } from "@/convex/lib/menu/canonical"
 
 // Editor-only presence metadata: ordinary blank text still means omission.
-// A block spread retains this symbol; canonical writes select known leaves.
+// A section spread retains this symbol; canonical writes select known leaves.
 const altPresence = Symbol("menuAltPresence")
 type AltPresence = { [altPresence]?: boolean }
 
 export function withAuthoredAlt(
-  block: Extract<LocaleBlock, { kind: "featured" }>,
+  section: Extract<LocalePanelSection, { kind: "featured" }>,
   alt: string
 ) {
-  return { ...block, [altPresence]: true, image: { ...block.image, alt } }
+  return { ...section, [altPresence]: true, image: { ...section.image, alt } }
 }
 
-function projectBlock(
-  block: Block,
+function projectSection(
+  section: PanelSection,
   locale: string,
   texts: Map<string, string | undefined>
-): LocaleBlock & AltPresence {
-  const key = (field: string) => menuTextKey("block", block.id, field)
-  if (block.kind === "linkGroup") {
+): LocalePanelSection & AltPresence {
+  const key = (field: string) => menuTextKey("section", section.id, field)
+  if (section.kind === "linkGroup") {
     return {
-      ...block,
+      ...section,
       heading: texts.get(key("heading")),
-      links: block.links.map((link) => ({
+      links: section.links.map((link) => ({
         ...link,
         label: texts.get(menuTextKey("link", link.id, "label")) ?? "",
         description: texts.get(menuTextKey("link", link.id, "description")),
       })),
     }
   }
-  if (block.kind === "dynamicList") {
+  if (section.kind === "dynamicList") {
     return {
-      ...block,
+      ...section,
       heading: texts.get(key("heading")),
-      seeAll: block.seeAll
-        ? { ...block.seeAll, label: texts.get(key("seeAll/label")) ?? "" }
+      seeAll: section.seeAll
+        ? { ...section.seeAll, label: texts.get(key("seeAll/label")) ?? "" }
         : undefined,
     }
   }
   return {
-    ...block,
-    [altPresence]: block.image ? Object.hasOwn(block.image.alt, locale) : false,
-    image: block.image
-      ? { ...block.image, alt: texts.get(key("image/alt")) ?? "" }
+    ...section,
+    [altPresence]: section.image ? Object.hasOwn(section.image.alt, locale) : false,
+    image: section.image
+      ? { ...section.image, alt: texts.get(key("image/alt")) ?? "" }
       : undefined,
-    link: block.link
-      ? { ...block.link, label: texts.get(key("link/label")) ?? "" }
+    link: section.link
+      ? { ...section.link, label: texts.get(key("link/label")) ?? "" }
       : undefined,
     heading: texts.get(key("heading")) ?? "",
     description: texts.get(key("description")),
@@ -83,8 +83,8 @@ export function projectLocale(
   return nav.map((item) => {
     const panel =
       item.panel &&
-      mapPanelBlocks(item.panel, (values) =>
-        values.map((block) => projectBlock(block, locale, texts))
+      mapPanelSections(item.panel, (values) =>
+        values.map((section) => projectSection(section, locale, texts))
       )
 
     return {
@@ -115,24 +115,24 @@ export function retainAuthoredAlt(
   previous: readonly LocaleNavItem[],
   next: LocaleNavItem[]
 ): LocaleNavItem[] {
-  const oldBlocks = new Map(
+  const oldSections = new Map(
     previous
-      .flatMap((item) => panelBlocks(item.panel).map((entry) => entry.block))
-      .map((block) => [block.id, block])
+      .flatMap((item) => panelSections(item.panel).map((entry) => entry.section))
+      .map((section) => [section.id, section])
   )
-  const blocks = (values: LocaleBlock[]) =>
-    values.map((block) => {
-      const old = oldBlocks.get(block.id)
-      return block.kind === "featured" &&
+  const sections = (values: LocalePanelSection[]) =>
+    values.map((section) => {
+      const old = oldSections.get(section.id)
+      return section.kind === "featured" &&
         old?.kind === "featured" &&
-        block.image &&
-        old.image?.alt !== block.image.alt
-        ? withAuthoredAlt(block, block.image.alt)
-        : block
+        section.image &&
+        old.image?.alt !== section.image.alt
+        ? withAuthoredAlt(section, section.image.alt)
+        : section
     })
   return next.map((item) => ({
     ...item,
-    panel: item.panel ? mapPanelBlocks(item.panel, blocks) : undefined,
+    panel: item.panel ? mapPanelSections(item.panel, sections) : undefined,
   }))
 }
 
@@ -176,13 +176,13 @@ function withOptionalLocale(
 }
 
 function sharedShape(nav: readonly NavItem[] | readonly LocaleNavItem[]) {
-  const blockShape = (block: Block | LocaleBlock) => {
-    if (block.kind === "linkGroup") {
+  const sectionShape = (section: PanelSection | LocalePanelSection) => {
+    if (section.kind === "linkGroup") {
       return {
-        id: block.id,
-        kind: block.kind,
-        span: block.span,
-        links: block.links.map((link) => ({
+        id: section.id,
+        kind: section.kind,
+        span: section.span,
+        links: section.links.map((link) => ({
           id: link.id,
           icon: link.icon,
           target: link.target,
@@ -190,26 +190,26 @@ function sharedShape(nav: readonly NavItem[] | readonly LocaleNavItem[]) {
         })),
       }
     }
-    if (block.kind === "dynamicList") {
+    if (section.kind === "dynamicList") {
       return {
-        id: block.id,
-        kind: block.kind,
-        span: block.span,
-        source: block.source,
-        seeAll: block.seeAll ? { target: block.seeAll.target } : undefined,
+        id: section.id,
+        kind: section.kind,
+        span: section.span,
+        source: section.source,
+        seeAll: section.seeAll ? { target: section.seeAll.target } : undefined,
       }
     }
     return {
-      id: block.id,
-      kind: block.kind,
-      span: block.span,
+      id: section.id,
+      kind: section.kind,
+      span: section.span,
       image:
-        block.image &&
+        section.image &&
         Object.fromEntries(
-          Object.entries(block.image).filter(([key]) => key !== "alt")
+          Object.entries(section.image).filter(([key]) => key !== "alt")
         ),
-      target: block.target,
-      link: block.link ? { target: block.link.target } : undefined,
+      target: section.target,
+      link: section.link ? { target: section.link.target } : undefined,
     }
   }
   return nav.map((item) => ({
@@ -218,11 +218,11 @@ function sharedShape(nav: readonly NavItem[] | readonly LocaleNavItem[]) {
     isDisabled: item.isDisabled,
     panel: item.panel
       ? (() => {
-          const panel = mapPanelBlocks<
-            Block | LocaleBlock,
-            ReturnType<typeof blockShape>,
+          const panel = mapPanelSections<
+            PanelSection | LocalePanelSection,
+            ReturnType<typeof sectionShape>,
             unknown
-          >(item.panel, (values) => values.map(blockShape))
+          >(item.panel, (values) => values.map(sectionShape))
           if (!isColumnPanel(panel)) return panel
           const { title: _title, description: _description, ...shape } = panel
           void _title
@@ -246,19 +246,19 @@ function requireMatchingSharedShape(
   }
 }
 
-function mergeBlockLocale(
-  block: Block,
-  edited: LocaleBlock,
+function mergeSectionLocale(
+  section: PanelSection,
+  edited: LocalePanelSection,
   locale: string
-): Block {
-  if (block.kind !== edited.kind || block.id !== edited.id) {
-    throw new Error("Localized menu block IDs and kinds must match")
+): PanelSection {
+  if (section.kind !== edited.kind || section.id !== edited.id) {
+    throw new Error("Localized menu section IDs and kinds must match")
   }
-  if (block.kind === "linkGroup" && edited.kind === "linkGroup") {
+  if (section.kind === "linkGroup" && edited.kind === "linkGroup") {
     return {
-      ...block,
-      heading: withOptionalLocale(block.heading, locale, edited.heading),
-      links: block.links.map((link, index) => {
+      ...section,
+      heading: withOptionalLocale(section.heading, locale, edited.heading),
+      links: section.links.map((link, index) => {
         const editedLink = edited.links[index]
         if (!editedLink || editedLink.id !== link.id) {
           throw new Error("Localized menu link IDs and order must match")
@@ -275,15 +275,15 @@ function mergeBlockLocale(
       }),
     }
   }
-  if (block.kind === "featured" && edited.kind === "featured") {
+  if (section.kind === "featured" && edited.kind === "featured") {
     return {
-      ...block,
+      ...section,
       image:
-        block.image && edited.image
+        section.image && edited.image
           ? {
-              ...block.image,
+              ...section.image,
               alt: withAltLocale(
-                block.image.alt,
+                section.image.alt,
                 locale,
                 edited.image.alt,
                 (edited as typeof edited & AltPresence)[altPresence]
@@ -291,30 +291,30 @@ function mergeBlockLocale(
             }
           : undefined,
       link:
-        block.link && edited.link
+        section.link && edited.link
           ? {
-              ...block.link,
-              label: withLocale(block.link.label, locale, edited.link.label),
+              ...section.link,
+              label: withLocale(section.link.label, locale, edited.link.label),
             }
           : undefined,
-      heading: withLocale(block.heading, locale, edited.heading),
+      heading: withLocale(section.heading, locale, edited.heading),
       description: withOptionalLocale(
-        block.description,
+        section.description,
         locale,
         edited.description
       ),
     }
   }
-  if (block.kind === "dynamicList" && edited.kind === "dynamicList") {
+  if (section.kind === "dynamicList" && edited.kind === "dynamicList") {
     return {
-      ...block,
-      heading: withOptionalLocale(block.heading, locale, edited.heading),
+      ...section,
+      heading: withOptionalLocale(section.heading, locale, edited.heading),
       seeAll:
-        block.seeAll && edited.seeAll
+        section.seeAll && edited.seeAll
           ? {
-              ...block.seeAll,
+              ...section.seeAll,
               label: withLocale(
-                block.seeAll.label,
+                section.seeAll.label,
                 locale,
                 edited.seeAll.label
               ),
@@ -322,7 +322,7 @@ function mergeBlockLocale(
           : undefined,
     }
   }
-  throw new Error("Localized menu block kinds must match")
+  throw new Error("Localized menu section kinds must match")
 }
 
 /**
@@ -341,17 +341,17 @@ export function mergeLocale(
     if (!editedItem || editedItem.id !== item.id) {
       throw new Error("Localized menu item IDs and order must match")
     }
-    const editedBlocks = new Map(
-      panelBlocks(editedItem.panel).map((entry) => [
-        entry.block.id,
-        entry.block,
+    const editedSections = new Map(
+      panelSections(editedItem.panel).map((entry) => [
+        entry.section.id,
+        entry.section,
       ])
     )
     const panel =
       item.panel && editedItem.panel
-        ? mapPanelBlocks(item.panel, (values) =>
-            values.map((block) =>
-              mergeBlockLocale(block, editedBlocks.get(block.id)!, locale)
+        ? mapPanelSections(item.panel, (values) =>
+            values.map((section) =>
+              mergeSectionLocale(section, editedSections.get(section.id)!, locale)
             )
           )
         : undefined
@@ -399,14 +399,14 @@ function optionalDefaultBag(
   return Object.keys(next).length > 0 ? next : undefined
 }
 
-function replaceDefaultBlock(
-  edited: LocaleBlock,
-  existing: Block | undefined,
+function replaceDefaultSection(
+  edited: LocalePanelSection,
+  existing: PanelSection | undefined,
   existingLinks: ReadonlyMap<string, NavLink>,
   defaultLocale: string
-): Block {
+): PanelSection {
   if (existing && existing.kind !== edited.kind)
-    throw new Error("Use a new block to change its kind")
+    throw new Error("Use a new section to change its kind")
   if (edited.kind === "linkGroup") {
     const existingGroup = existing?.kind === "linkGroup" ? existing : undefined
     return {
@@ -544,16 +544,16 @@ export function replaceDefaultLocale(
 ): NavItem[] {
   const baseline = menuConversionBaseline(nav, edited)
   const existingItems = new Map(baseline.map((item) => [item.id, item]))
-  const existingBlocks = new Map(
+  const existingSections = new Map(
     baseline.flatMap((item) =>
-      panelBlocks(item.panel).map(({ block }) => [block.id, block] as const)
+      panelSections(item.panel).map(({ section }) => [section.id, section] as const)
     )
   )
   const existingLinks = new Map(
     baseline.flatMap((item) =>
-      panelBlocks(item.panel).flatMap(({ block }) =>
-        block.kind === "linkGroup"
-          ? block.links.map((link) => [link.id, link] as const)
+      panelSections(item.panel).flatMap(({ section }) =>
+        section.kind === "linkGroup"
+          ? section.links.map((link) => [link.id, link] as const)
           : []
       )
     )
@@ -562,11 +562,11 @@ export function replaceDefaultLocale(
     const existing = existingItems.get(item.id)
     const mapped =
       item.panel &&
-      mapPanelBlocks(item.panel, (values) =>
-        values.map((block) =>
-          replaceDefaultBlock(
-            block,
-            existingBlocks.get(block.id),
+      mapPanelSections(item.panel, (values) =>
+        values.map((section) =>
+          replaceDefaultSection(
+            section,
+            existingSections.get(section.id),
             existingLinks,
             defaultLocale
           )

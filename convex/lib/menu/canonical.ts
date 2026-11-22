@@ -1,11 +1,11 @@
 import {
   isColumnPanel,
-  mapPanelBlocks,
-  panelBlocks,
-  type Block,
+  mapPanelSections,
+  panelSections,
+  type PanelSection,
   type L10n,
   type LocaleNavItem,
-  type LocaleBlock,
+  type LocalePanelSection,
   type NavItem,
 } from "../menu"
 
@@ -43,12 +43,15 @@ export function localeText(
     : undefined
 }
 
-function localizeBlock(block: Block, locale: string): LocaleBlock | null {
-  if (block.kind === "linkGroup") {
+function localizeSection(
+  section: PanelSection,
+  locale: string
+): LocalePanelSection | null {
+  if (section.kind === "linkGroup") {
     return {
-      ...block,
-      heading: localeText(block.heading, locale),
-      links: block.links.flatMap((link) => {
+      ...section,
+      heading: localeText(section.heading, locale),
+      links: section.links.flatMap((link) => {
         const label = localeText(link.label, locale)
         if (label === undefined) return []
         return [
@@ -57,42 +60,43 @@ function localizeBlock(block: Block, locale: string): LocaleBlock | null {
       }),
     }
   }
-  if (block.kind === "dynamicList") {
-    const seeAllLabel = block.seeAll && localeText(block.seeAll.label, locale)
+  if (section.kind === "dynamicList") {
+    const seeAllLabel =
+      section.seeAll && localeText(section.seeAll.label, locale)
     return {
-      ...block,
-      heading: localeText(block.heading, locale),
+      ...section,
+      heading: localeText(section.heading, locale),
       seeAll:
-        block.seeAll && seeAllLabel !== undefined
-          ? { ...block.seeAll, label: seeAllLabel }
+        section.seeAll && seeAllLabel !== undefined
+          ? { ...section.seeAll, label: seeAllLabel }
           : undefined,
     }
   }
-  const heading = localeText(block.heading, locale)
-  const alt = block.image && localeText(block.image.alt, locale, true)
-  const linkLabel = block.link && localeText(block.link.label, locale)
+  const heading = localeText(section.heading, locale)
+  const alt = section.image && localeText(section.image.alt, locale, true)
+  const linkLabel = section.link && localeText(section.link.label, locale)
   if (
     heading === undefined ||
-    (block.image && alt === undefined) ||
-    (block.link && linkLabel === undefined)
+    (section.image && alt === undefined) ||
+    (section.link && linkLabel === undefined)
   )
     return null
   return {
-    ...block,
+    ...section,
     heading,
-    image: block.image ? { ...block.image, alt: alt! } : undefined,
-    link: block.link ? { ...block.link, label: linkLabel! } : undefined,
-    description: localeText(block.description, locale),
+    image: section.image ? { ...section.image, alt: alt! } : undefined,
+    link: section.link ? { ...section.link, label: linkLabel! } : undefined,
+    description: localeText(section.description, locale),
   }
 }
 
-function localizeBlocks(blocks: readonly Block[], locale: string) {
-  return blocks.flatMap((block) => localizeBlock(block, locale) ?? [])
+function localizeSections(sections: readonly PanelSection[], locale: string) {
+  return sections.flatMap((section) => localizeSection(section, locale) ?? [])
 }
 
 /**
  * The canonical menu as `locale` alone authored it (M05 C6). A node whose
- * required text is missing — an item or link label, a featured block's
+ * required text is missing — an item or link label, a featured section's
  * heading or image alt, a see-all label — is omitted with its subtree;
  * optional text (descriptions, group and list headings) drops field by
  * field. Targets are untouched: hrefs keep their same-locale rule where they
@@ -119,8 +123,8 @@ function localizePanel(
   panel: NonNullable<NavItem["panel"]>,
   locale: string
 ): NonNullable<LocaleNavItem["panel"]> {
-  const mapped = mapPanelBlocks(panel, (values) =>
-    localizeBlocks(values, locale)
+  const mapped = mapPanelSections(panel, (values) =>
+    localizeSections(values, locale)
   )
   return isColumnPanel(mapped)
     ? {
@@ -153,7 +157,7 @@ export type MenuTextLeaf = {
   path: string
   /** Surviving owner, including removable link/seeAll roles. */
   nodePath: string
-  /** One missing node: featured fields and seeAll group under their block. */
+  /** One missing node: featured fields and seeAll group under their section. */
   countPath: string
   kind: MenuTextClass
   bag: L10n | undefined
@@ -164,7 +168,7 @@ export type MenuTextLeaf = {
 
 /** Menu-scoped identity: encode the node ID once, never its layout location. */
 export function menuTextKey(
-  owner: "item" | "panel" | "block" | "link",
+  owner: "item" | "panel" | "section" | "link",
   id: string,
   field?: string
 ): string {
@@ -194,23 +198,23 @@ export function menuTextLeaves(nav: readonly NavItem[]): MenuTextLeaf[] {
       strictLocale,
     })
   }
-  function blocks(block: Block) {
-    if (block.kind === "linkGroup" || block.kind === "dynamicList") {
+  function sections(section: PanelSection) {
+    if (section.kind === "linkGroup" || section.kind === "dynamicList") {
       add(
-        "block",
-        block.id,
+        "section",
+        section.id,
         "heading",
         "optional",
-        block.heading,
+        section.heading,
         (bag) => {
-          if (bag === undefined) delete block.heading
-          else block.heading = bag
+          if (bag === undefined) delete section.heading
+          else section.heading = bag
         },
         true
       )
     }
-    if (block.kind === "linkGroup") {
-      for (const link of block.links) {
+    if (section.kind === "linkGroup") {
+      for (const link of section.links) {
         add("link", link.id, "label", "required", link.label, (bag) => {
           link.label = bag ?? {}
         })
@@ -226,12 +230,12 @@ export function menuTextLeaves(nav: readonly NavItem[]): MenuTextLeaf[] {
           }
         )
       }
-    } else if (block.kind === "dynamicList") {
-      if (block.seeAll) {
-        const seeAll = block.seeAll
+    } else if (section.kind === "dynamicList") {
+      if (section.seeAll) {
+        const seeAll = section.seeAll
         add(
-          "block",
-          block.id,
+          "section",
+          section.id,
           "seeAll/label",
           "required",
           seeAll.label,
@@ -243,30 +247,37 @@ export function menuTextLeaves(nav: readonly NavItem[]): MenuTextLeaf[] {
         )
       }
     } else {
-      add("block", block.id, "heading", "required", block.heading, (bag) => {
-        block.heading = bag ?? {}
-      })
       add(
-        "block",
-        block.id,
-        "description",
-        "optional",
-        block.description,
+        "section",
+        section.id,
+        "heading",
+        "required",
+        section.heading,
         (bag) => {
-          if (bag === undefined) delete block.description
-          else block.description = bag
+          section.heading = bag ?? {}
         }
       )
-      const image = block.image
+      add(
+        "section",
+        section.id,
+        "description",
+        "optional",
+        section.description,
+        (bag) => {
+          if (bag === undefined) delete section.description
+          else section.description = bag
+        }
+      )
+      const image = section.image
       if (image)
-        add("block", block.id, "image/alt", "alt", image.alt, (bag) => {
+        add("section", section.id, "image/alt", "alt", image.alt, (bag) => {
           image.alt = bag ?? {}
         })
-      const link = block.link
+      const link = section.link
       if (link)
         add(
-          "block",
-          block.id,
+          "section",
+          section.id,
           "link/label",
           "required",
           link.label,
@@ -291,7 +302,7 @@ export function menuTextLeaves(nav: readonly NavItem[]): MenuTextLeaf[] {
         })
       }
     }
-    for (const { block } of panelBlocks(panel)) blocks(block)
+    for (const { section } of panelSections(panel)) sections(section)
   }
   return leaves
 }

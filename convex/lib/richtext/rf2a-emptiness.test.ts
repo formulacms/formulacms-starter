@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { isRichTextEmpty } from "./emptiness"
-import { isPrimitiveValueEmpty, richText } from "../slices/primitives"
+import { isPrimitiveValueEmpty, richText } from "../blocks/primitives"
 import { fieldHasContent } from "@/components/admin/fields/field-utils"
 
 describe("shared rich-text emptiness", () => {

@@ -27,7 +27,7 @@ import type { AiConnectionStatus } from "@/lib/ai/connection-validation"
 // not. This action only exists under `pnpm dev`; a deployed admin renders the
 // lane read-only instead.
 //
-// Deliberately a STATIC import, unlike the sibling slice actions, which defer
+// Deliberately a STATIC import, unlike the sibling block actions, which defer
 // their much heavier authoring graph into a lazy chunk: this store module is
 // tiny and side-effect-free at load, and the local-development gate guards the
 // write. Either way the import must never carry `turbopackIgnore` — that leaves

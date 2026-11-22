@@ -8,10 +8,10 @@
  * `convex/cms/publication.ts`; this module imports nothing from it.
  *
  * Why batches commit separately: a large Page cannot be deleted in one
- * transaction (16,000 written documents, 16 MiB). Slice-occurrence counts are
+ * transaction (16,000 written documents, 16 MiB). Block-occurrence counts are
  * the reason the unit of work is never smaller than "one source row plus every
  * reference row that describes it": the accounting compares a source with its
- * `pagePublicationSliceReferences` rows when it reconciles, so a half-removed
+ * `pagePublicationBlockReferences` rows when it reconciles, so a half-removed
  * source would be marked invalid.
  */
 import { ConvexError } from "convex/values"
@@ -146,7 +146,7 @@ export const PAGE_KEYED_TABLES: Record<string, PageKeyedRole> = {
     reason:
       "Cleared with each source row (shared draft, draft, candidate, snapshot).",
   },
-  pagePublicationSliceReferences: {
+  pagePublicationBlockReferences: {
     role: "owned",
     phase: "snapshots",
     reason:
@@ -199,7 +199,7 @@ export const PAGE_KEYED_TABLES: Record<string, PageKeyedRole> = {
     reason:
       "Deleted through the legacy candidate id. `targetId` rows of other Pages are frozen since the cutover (legacy writers are blocked) and do not block.",
   },
-  pageCandidateSliceReferences: {
+  pageCandidateBlockReferences: {
     role: "owned",
     phase: "legacy",
     reason: "Deleted through the legacy candidate id.",
@@ -234,7 +234,7 @@ export const PAGE_KEYED_TABLES: Record<string, PageKeyedRole> = {
   aiJobUnits: {
     role: "kept",
     reason:
-      "Job history. The Page id sits inside a stored slice `output` (a link value); output is shown, never dereferenced.",
+      "Job history. The Page id sits inside a stored block `output` (a link value); output is shown, never dereferenced.",
   },
   siteLanguageDisclosurePages: {
     role: "kept",
@@ -279,11 +279,11 @@ export const PAGE_KEYED_TABLES: Record<string, PageKeyedRole> = {
  */
 export const PAGE_STRING_KEYED: Array<{ where: string; safe: string }> = [
   {
-    where: "sliceOccurrenceUsage.pageId (string) and sliceOccurrenceUsage.key",
+    where: "blockOccurrenceUsage.pageId (string) and blockOccurrenceUsage.key",
     safe: "Derived counts; every source row is removed through the occurrence writer, which drops its members and refcounts.",
   },
   {
-    where: "sliceOccurrenceSources.key / sourceId (`table:id`)",
+    where: "blockOccurrenceSources.key / sourceId (`table:id`)",
     safe: "Removed by the same reconcile when the source row is deleted.",
   },
   {
@@ -712,7 +712,7 @@ type SourceKind =
 const REFERENCE_TABLES = [
   "pagePublicationDocumentReferences",
   "pagePublicationMediaReferences",
-  "pagePublicationSliceReferences",
+  "pagePublicationBlockReferences",
 ] as const
 
 /** One source row and every reference row that describes it, together. */
@@ -1145,7 +1145,7 @@ async function runLegacy(
           for (const table of [
             "pageCandidateMediaReferences",
             "pageCandidateDocumentReferences",
-            "pageCandidateSliceReferences",
+            "pageCandidateBlockReferences",
           ] as const) {
             const rows = await ctx.db
               .query(table)

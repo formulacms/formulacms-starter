@@ -294,7 +294,7 @@ export function AdminCommandPaletteProvider({
   //
   // The provider mounts in `admin-shell.tsx` on EVERY admin screen, so this ran
   // for every admin page view with the palette closed — and `pages.list`
-  // returns full page documents (all slice bodies, all locales). Latching on
+  // returns full page documents (all block bodies, all locales). Latching on
   // first open means users who never press Cmd-K cost nothing, and
   // `listSummaries` keeps the payload small for those who do.
   const [hasOpened, setHasOpened] = useState(false)

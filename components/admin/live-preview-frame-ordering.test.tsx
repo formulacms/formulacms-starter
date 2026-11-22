@@ -6,15 +6,15 @@ const titleDoc = (text: string, level = 2) =>
     ],
   })
 vi.mock("@/lib/preview-build-id", () => ({ PREVIEW_BUILD_ID: "test-build" }))
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { act, fireEvent } from "@testing-library/react"
 import { beforeAll, beforeEach, expect, it, vi } from "vitest"
 import type { ReactNode } from "react"
 import type { Editor } from "@tiptap/core"
 import { getFunctionName } from "convex/server"
 import type { Doc } from "@/convex/_generated/dataModel"
-import type { Slice } from "@/convex/lib/slices"
-import { readSlicePresentationCatalog } from "@/convex/lib/slices/presentations"
+import type { Block } from "@/convex/lib/blocks"
+import { readBlockPresentationCatalog } from "@/convex/lib/blocks/presentations"
 import { render } from "@/test-utils/admin-i18n"
 import { LivePreviewFrameRuntime } from "./live-preview-frame-runtime"
 import {
@@ -99,7 +99,7 @@ const titleField = (container: HTMLElement) =>
 
 // No synthetic reconciliation: transport only delays the real runtime bridge.
 async function setup() {
-  const catalog = await readSlicePresentationCatalog()
+  const catalog = await readBlockPresentationCatalog()
   let draftRevision = 0
   let inputRevision = 0
   let parent = {
@@ -111,7 +111,7 @@ async function setup() {
     defaultLocale: "en",
     languageVersion: 3,
     title: "Preview",
-    slices: [
+    blocks: [
       {
         id: "hero",
         type: "hero-agency",
@@ -123,10 +123,10 @@ async function setup() {
         },
         items: [],
       },
-    ] as Slice[],
+    ] as Block[],
     contentEpoch: 0,
     catalogRevision: catalog.revision,
-    selectedSliceId: null,
+    selectedBlockId: null,
     inlineEditingEnabled: true,
     mode: "light",
     ordering: { draftRevision, inputRevision, generation: "" },
@@ -170,18 +170,18 @@ async function setup() {
   const snapshots: LiveFrameInput[] = []
   const queued: LiveFrameInput[] = []
   const accepted = vi.fn((commit: PreviewInlineEditCommit) => {
-    const slices = applyPageField(
-      parent.slices,
+    const blocks = applyPageField(
+      parent.blocks,
       parent.locale,
       commit,
       parent.contentEpoch ?? 0,
       parent.catalogRevision ?? ""
     )
-    if (!slices) return false
+    if (!blocks) return false
     draftRevision += 1
     parent = {
       ...parent,
-      slices,
+      blocks,
       ordering: {
         draftRevision,
         inputRevision: ++inputRevision,
@@ -193,7 +193,7 @@ async function setup() {
   })
   const conflict = vi.fn()
   const controller = createLiveFrameController(parent, {
-    selectSlice: vi.fn(),
+    selectBlock: vi.fn(),
     selectField: vi.fn(),
     commit: accepted,
     change: vi.fn(),
@@ -261,7 +261,7 @@ async function setup() {
   }
 }
 
-it("renders the lead Hero title as the frame's single h1", sliceProfile(["hero-agency"]), async () => {
+it("renders the lead Hero title as the frame's single h1", blockProfile(["hero-agency"]), async () => {
   const frame = await setup()
   expect([...frame.view.container.querySelectorAll("h1")]).toEqual([
     titleField(frame.view.container)?.closest("h1"),
@@ -269,7 +269,7 @@ it("renders the lead Hero title as the frame's single h1", sliceProfile(["hero-a
 })
 
 it.each(["child", "parent"] as const)(
-  "NEW R1 actual runtime drops late %s snapshots after Escape without restoring write authority", sliceProfile(["hero-agency"]),
+  "NEW R1 actual runtime drops late %s snapshots after Escape without restoring write authority", blockProfile(["hero-agency"]),
   async (channel) => {
     const frame = await setup()
     const { host, editor } = await frame.begin()
@@ -289,13 +289,13 @@ it.each(["child", "parent"] as const)(
     expect(frame.heading()).toBe("Firstabcd")
     expect(frame.accepted).toHaveBeenCalledTimes(4)
     expect(frame.conflict).not.toHaveBeenCalled()
-    expect(frame.parent().slices[0].primary).toMatchObject({
+    expect(frame.parent().blocks[0].primary).toMatchObject({
       title: titleDoc("Firstabcd"),
     })
   }
 )
 
-it("NEW R1 acknowledgment rejects the earliest queued echo before any own input was applied", sliceProfile(["hero-agency"]), async () => {
+it("NEW R1 acknowledgment rejects the earliest queued echo before any own input was applied", blockProfile(["hero-agency"]), async () => {
   const frame = await setup()
   const { host, editor } = await frame.begin()
   for (const char of ["a", "b", "c"]) {
@@ -311,7 +311,7 @@ it("NEW R1 acknowledgment rejects the earliest queued echo before any own input 
 })
 
 it.each(["child", "parent"] as const)(
-  "NEW R1 preserves authoritative external and unrelated changes against late %s snapshots", sliceProfile(["hero-agency"]),
+  "NEW R1 preserves authoritative external and unrelated changes against late %s snapshots", blockProfile(["hero-agency"]),
   async (channel) => {
     const frame = await setup()
     const { host, editor } = await frame.begin()
@@ -325,11 +325,11 @@ it.each(["child", "parent"] as const)(
       if (channel === "parent") await frame.echo(old)
       await frame.deliver(channel === "parent" ? -1 : 0)
     }
-    const slices = frame.parent().slices.map((slice) => ({
-      ...slice,
-      primary: { ...slice.primary, eyebrow: "Updated elsewhere" },
-    })) as Slice[]
-    await frame.echo(frame.external({ slices }))
+    const blocks = frame.parent().blocks.map((block) => ({
+      ...block,
+      primary: { ...block.primary, eyebrow: "Updated elsewhere" },
+    })) as Block[]
+    await frame.echo(frame.external({ blocks }))
     await frame.deliver(-1)
     await late()
     expect(frame.heading()).toBe("Firstabc")
@@ -337,10 +337,10 @@ it.each(["child", "parent"] as const)(
     for (const text of ["External", "Firsta"]) {
       await frame.echo(
         frame.external({
-          slices: slices.map((slice) => ({
-            ...slice,
-            primary: { ...slice.primary, title: titleDoc(text) },
-          })) as Slice[],
+          blocks: blocks.map((block) => ({
+            ...block,
+            primary: { ...block.primary, title: titleDoc(text) },
+          })) as Block[],
         })
       )
       await frame.deliver(-1)
@@ -355,7 +355,7 @@ it.each(["child", "parent"] as const)(
 )
 
 it.each(["epoch", "disabled", "removed"] as const)(
-  "NEW R1 late snapshots cannot undo an authoritative %s invalidation", sliceProfile(["hero-agency"]),
+  "NEW R1 late snapshots cannot undo an authoritative %s invalidation", blockProfile(["hero-agency"]),
   async (kind) => {
     const frame = await setup()
     const { host, editor } = await frame.begin()
@@ -365,14 +365,14 @@ it.each(["epoch", "disabled", "removed"] as const)(
     await frame.echo(
       frame.external({
         ...(kind === "epoch" ? { contentEpoch: 1 } : {}),
-        slices:
+        blocks:
           kind === "removed"
             ? []
-            : (frame.parent().slices.map((slice) => ({
-                ...slice,
+            : (frame.parent().blocks.map((block) => ({
+                ...block,
                 ...(kind === "disabled" ? { enabled: false } : {}),
-                primary: { ...slice.primary, title: titleDoc("External") },
-              })) as Slice[]),
+                primary: { ...block.primary, title: titleDoc("External") },
+              })) as Block[]),
       })
     )
     await frame.deliver(-1)
@@ -386,7 +386,7 @@ it.each(["epoch", "disabled", "removed"] as const)(
   }
 )
 
-it("NEW R1 same-draft context inputs advance transport ordering without rolling back content", sliceProfile(["hero-agency"]), async () => {
+it("NEW R1 same-draft context inputs advance transport ordering without rolling back content", blockProfile(["hero-agency"]), async () => {
   const frame = await setup()
   const { host, editor } = await frame.begin()
   for (const char of ["a", "b", "c"]) {
@@ -416,7 +416,7 @@ it("NEW R1 same-draft context inputs advance transport ordering without rolling 
   expect(frame.conflict).not.toHaveBeenCalled()
 })
 
-it("NEW R1 authorized new generation admits lower ordering while old-generation inputs stay refused", sliceProfile(["hero-agency"]), async () => {
+it("NEW R1 authorized new generation admits lower ordering while old-generation inputs stay refused", blockProfile(["hero-agency"]), async () => {
   const frame = await setup()
   const { host, editor } = await frame.begin()
   act(() => editor.commands.insertContent("a"))
@@ -429,7 +429,7 @@ it("NEW R1 authorized new generation admits lower ordering while old-generation 
   const bridge = (window as LiveFrameWindow).__formulacmsLiveFrame!
   expect(bridge.generation).not.toBe(frame.actual.generation)
   const callbacks = {
-    selectSlice: vi.fn(),
+    selectBlock: vi.fn(),
     selectField: vi.fn(),
     commit: vi.fn(),
     change: vi.fn(),
@@ -440,10 +440,10 @@ it("NEW R1 authorized new generation admits lower ordering while old-generation 
   }
   const initial = {
     ...frame.parent(),
-    slices: frame.parent().slices.map((slice) => ({
-      ...slice,
-      primary: { ...slice.primary, title: titleDoc("New generation") },
-    })) as Slice[],
+    blocks: frame.parent().blocks.map((block) => ({
+      ...block,
+      primary: { ...block.primary, title: titleDoc("New generation") },
+    })) as Block[],
     ordering: {
       draftRevision: 0,
       inputRevision: 0,
@@ -470,7 +470,7 @@ it("NEW R1 authorized new generation admits lower ordering while old-generation 
   expect(titleField(fresh.container)?.textContent).toBe("New generation")
 })
 
-it("NEW R1 same-bridge reconnect cannot reset watermarks or downgrade ordered input", sliceProfile(["hero-agency"]), async () => {
+it("NEW R1 same-bridge reconnect cannot reset watermarks or downgrade ordered input", blockProfile(["hero-agency"]), async () => {
   const frame = await setup()
   const { host, editor } = await frame.begin()
   act(() => editor.commands.insertContent("a"))
@@ -481,7 +481,7 @@ it("NEW R1 same-bridge reconnect cannot reset watermarks or downgrade ordered in
   await frame.echo(frame.external({ title: "New transport context" }, false))
   await frame.deliver(-1)
   const callbacks = {
-    selectSlice: vi.fn(),
+    selectBlock: vi.fn(),
     selectField: vi.fn(),
     commit: vi.fn(),
     change: vi.fn(),
@@ -505,7 +505,7 @@ it("NEW R1 same-bridge reconnect cannot reset watermarks or downgrade ordered in
   expect(callbacks.commit).not.toHaveBeenCalled()
 })
 
-it("NEW R1 a new authoritative historical array remains an external conflict while active", sliceProfile(["hero-agency"]), async () => {
+it("NEW R1 a new authoritative historical array remains an external conflict while active", blockProfile(["hero-agency"]), async () => {
   const frame = await setup()
   const { host, editor } = await frame.begin()
   for (const char of ["a", "b", "c"]) {
@@ -513,14 +513,14 @@ it("NEW R1 a new authoritative historical array remains an external conflict whi
     await frame.echo(frame.snapshots.at(-1)!)
   }
   // Reusing an old helper output with a NEW authoritative revision is an Undo/external update, not an old own echo.
-  await frame.echo(frame.external({ slices: frame.snapshots[0].slices }))
+  await frame.echo(frame.external({ blocks: frame.snapshots[0].blocks }))
   await frame.deliver(-1)
   expect(frame.conflict).toHaveBeenCalled()
   act(() => editor.commands.insertContent("d"))
   expect(frame.accepted).toHaveBeenCalledTimes(3)
   await frame.deliver(2)
   expect(editor.getText()).toBe("Firstabcd")
-  expect(frame.parent().slices[0].primary).toMatchObject({
+  expect(frame.parent().blocks[0].primary).toMatchObject({
     title: titleDoc("Firsta"),
   })
   fireEvent.keyDown(host, { key: "Escape" })
@@ -530,19 +530,19 @@ it("NEW R1 a new authoritative historical array remains an external conflict whi
 
 const W64 = "z".repeat(64)
 const withTitle = (frame: Awaited<ReturnType<typeof setup>>, text: string) =>
-  frame.parent().slices.map((slice) => ({
-    ...slice,
-    primary: { ...slice.primary, title: titleDoc(text) },
-  })) as Slice[]
+  frame.parent().blocks.map((block) => ({
+    ...block,
+    primary: { ...block.primary, title: titleDoc(text) },
+  })) as Block[]
 
-it("an open, unedited preview title session yields to a same-field form edit without a conflict", sliceProfile(["hero-agency"]), async () => {
+it("an open, unedited preview title session yields to a same-field form edit without a conflict", blockProfile(["hero-agency"]), async () => {
   const frame = await setup()
-  await frame.echo(frame.external({ slices: withTitle(frame, W64) }))
+  await frame.echo(frame.external({ blocks: withTitle(frame, W64) }))
   await frame.deliver(-1)
   await frame.begin()
   for (const copies of [2, 3]) {
     await frame.echo(
-      frame.external({ slices: withTitle(frame, W64.repeat(copies)) })
+      frame.external({ blocks: withTitle(frame, W64.repeat(copies)) })
     )
     await frame.deliver(-1)
   }

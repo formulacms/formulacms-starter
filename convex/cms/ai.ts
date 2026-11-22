@@ -709,13 +709,13 @@ export async function settleAttempt(
               ? "page-generate-meta"
               : row.phase === "content-refinement"
                 ? "field-refine"
-                : row.phase === "slice-spec" || row.phase === "renderer-jsx"
-                  ? "slice-author-propose"
+                : row.phase === "block-spec" || row.phase === "renderer-jsx"
+                  ? "block-author-propose"
                   : "field-generate"
   await writePostAdmissionAudit(ctx, {
     authId: row.authId,
     kind,
-    sliceCount: 0,
+    blockCount: 0,
     modelId: row.modelId,
     ...(row.runId ? { runId: row.runId } : {}),
     ...(row.unitId ? { unitId: row.unitId } : {}),

@@ -845,14 +845,14 @@ test("parked cap admits and records spend above five dollars", async () => {
 
 // OpenRouter prices come only from the synchronized catalog table. A new site
 // has no rows until the first refresh succeeds, so admission is refused then.
-const SLICE_ADMISSION = {
-  "vision-spec": "slice-spec",
+const BLOCK_ADMISSION = {
+  "vision-spec": "block-spec",
   "renderer-jsx": "renderer-jsx",
 } as const
 
-function sliceRequest(
+function blockRequest(
   provider: "anthropic" | "openai" | "openrouter",
-  profile: keyof typeof SLICE_ADMISSION,
+  profile: keyof typeof BLOCK_ADMISSION,
   attemptKey: string
 ) {
   return {
@@ -861,7 +861,7 @@ function sliceRequest(
     modelId: taskProfileTuple(provider, profile).model,
     lane: "local-build" as const,
     profile,
-    phase: SLICE_ADMISSION[profile],
+    phase: BLOCK_ADMISSION[profile],
     inputTokens: 1,
     imageTokens: 0,
     maxOutputTokens: 1,
@@ -877,7 +877,7 @@ test("OpenRouter local admission uses the bundled price while the price list is 
   ).toHaveLength(0)
   expect(
     await owner.mutation(api.cms.ai.admitLocalAttempt, {
-      request: sliceRequest("openrouter", "vision-spec", "or-empty"),
+      request: blockRequest("openrouter", "vision-spec", "or-empty"),
     })
   ).toMatchObject({ admitted: true, priceRevision: `openrouter-${OPENROUTER_GENERATED_AT}` })
 })
@@ -892,7 +892,7 @@ test.each([
   async (provider, profile) => {
     const { owner } = await app()
     const admission = await owner.mutation(api.cms.ai.admitLocalAttempt, {
-      request: sliceRequest(provider, profile, `direct-${provider}-${profile}`),
+      request: blockRequest(provider, profile, `direct-${provider}-${profile}`),
     })
     expect(admission.admitted).toBe(true)
   }
@@ -918,7 +918,7 @@ test("OpenRouter local admission passes once the default model has a published p
     syncedAt: Date.now(),
   })
   const admission = await owner.mutation(api.cms.ai.admitLocalAttempt, {
-    request: sliceRequest("openrouter", "vision-spec", "or-published"),
+    request: blockRequest("openrouter", "vision-spec", "or-published"),
   })
   expect(admission.admitted).toBe(true)
 })
@@ -996,7 +996,7 @@ test("ensureFirstRefresh retries after a failed first attempt", async () => {
   expect(after?.runId).not.toBe("old-run")
 })
 
-test("live status has no Slice creator and module readiness is unchanged", async () => {
+test("live status has no Block creator and module readiness is unchanged", async () => {
   vi.stubEnv("ANTHROPIC_API_KEY", KEY)
   vi.stubEnv("OPENAI_API_KEY", KEY)
   const { t, owner } = await app()
@@ -1029,13 +1029,13 @@ test("live status has no Slice creator and module readiness is unchanged", async
   expect(before.configured).toBe(false)
 
   const tuple = taskProfileTuple("anthropic", "vision-spec")
-  await owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple, instructions: "Keep it plain." })
+  await owner.mutation(api.cms.aiSettings.setBlockCreator, { tuple, instructions: "Keep it plain." })
   const stored = await t.run((ctx) => ctx.db.query("siteSettings").unique())
-  expect(stored?.aiRuntime?.assistants?.sliceCreator).toEqual({ tuple, instructions: "Keep it plain." })
+  expect(stored?.aiRuntime?.assistants?.blockCreator).toEqual({ tuple, instructions: "Keep it plain." })
 
   const after = await observe()
   expect(after).toEqual(before)
   expect(after.status.assistants.map(({ id }) => id)).toEqual(["writing", "translation", "help"])
   expect(after.status.card.state).not.toBe("active")
-  expect(JSON.stringify(after.status)).not.toContain("sliceCreator")
+  expect(JSON.stringify(after.status)).not.toContain("blockCreator")
 })

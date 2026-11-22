@@ -1,12 +1,12 @@
 /// <reference types="vite/client" />
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { convexTest } from "convex-test"
 import { describe, expect, test, vi } from "vitest"
 import schema from "./schema"
 import { collectMediaReferences, refreshMediaReferencesForPage } from "./lib/mediaReferences"
 import type { Doc } from "./_generated/dataModel"
-import * as slices from "./lib/slices"
-import { group, image, link, list, text } from "./lib/slices/primitives"
+import * as blocks from "./lib/blocks"
+import { group, image, link, list, text } from "./lib/blocks/primitives"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -14,7 +14,7 @@ const modules = import.meta.glob("./**/*.ts")
  * Plan 029 C10 — descriptor-image walker in `collectMediaReferences`.
  *
  * Testimonial's `personImage` is the first descriptor-level `image()`
- * field (`sliceBody: false`, no card image path, no slice canvas). The
+ * field (`blockBody: false`, no card image path, no block canvas). The
  * walker must emit a `descriptor-image` reference row for it or the
  * media asset gets orphan-swept when task 13 wires the pure-form writer.
  *
@@ -22,8 +22,8 @@ const modules = import.meta.glob("./**/*.ts")
  * 1. Testimonial with `personImage` mediaId → one row, source
  *    `descriptor-image`, path `personImage`.
  * 2. Clearing `personImage` on refresh → row removed.
- * 3. Slice-body arm without descriptor-level images → no descriptor rows
- *    (regression guard: pre-C10 the walker only saw card + slice images).
+ * 3. Block-body arm without descriptor-level images → no descriptor rows
+ *    (regression guard: pre-C10 the walker only saw card + block images).
  */
 
 async function createTestImage(t: ReturnType<typeof convexTest>) {
@@ -53,7 +53,7 @@ describe("mediaReferences descriptor-image walker", () => {
         remoteType: "remote", employmentType: "full-time", salaryCurrency: "USD",
         salaryMin: 0, salaryMax: 0, jobStatus: "open",
         applyUrl: { type: "media", mediaId: media.mediaId },
-        content: { en: { title: "Job", slices: [] } },
+        content: { en: { title: "Job", blocks: [] } },
         createdAt: Date.now(), updatedAt: Date.now(),
       })
       await refreshMediaReferencesForPage(ctx, (await ctx.db.get("pages", pageId))!)
@@ -61,27 +61,27 @@ describe("mediaReferences descriptor-image walker", () => {
         .withIndex("by_pageId", (q) => q.eq("pageId", pageId)).take(10))
         .toEqual([expect.objectContaining({
           mediaId: media.mediaId, storageId: media.storageId, path: "applyUrl",
-          source: "slice-media-link",
+          source: "block-media-link",
         })])
     })
   })
 
   // hero-with-image.items[].icon is a shipped item image. Named primary lists
   // use this fixture to exercise the same walker without changing the schema.
-  test("named primary list links and item images share the media leaf rule", sliceProfile([]), async () => {
+  test("named primary list links and item images share the media leaf rule", blockProfile([]), async () => {
     const t = convexTest(schema, modules)
     const media = await createTestImage(t)
     const row = group({ destination: link(), picture: image().optional(), caption: text() })
     const descriptor = {
-      ...slices.heroWithImageDef,
+      ...blocks.heroWithImageDef,
       primary: group({ downloads: list(row, { max: 50 }) }),
       items: list(row, { max: 50 }),
     }
-    const spy = vi.spyOn(slices, "readSliceDefinition").mockReturnValue(descriptor)
+    const spy = vi.spyOn(blocks, "readBlockDefinition").mockReturnValue(descriptor)
     try {
       const page = {
         pageType: "landing-page",
-        content: { en: { title: "Downloads", slices: [{
+        content: { en: { title: "Downloads", blocks: [{
           id: "downloads", type: "hero-with-image", enabled: true,
           primary: { downloads: [
             { destination: { type: "media", mediaId: media.mediaId }, caption: "Download" },
@@ -92,8 +92,8 @@ describe("mediaReferences descriptor-image walker", () => {
         }] } },
       } as unknown as Doc<"pages">
       expect(collectMediaReferences(page)).toEqual([
-        expect.objectContaining({ mediaId: media.mediaId, locale: "en", path: "content.en.slices[0].primary.downloads[0].destination", source: "slice-media-link" }),
-        { storageId: media.storageId, locale: "en", path: "content.en.slices[0].items[0].picture", source: "slice-image" },
+        expect.objectContaining({ mediaId: media.mediaId, locale: "en", path: "content.en.blocks[0].primary.downloads[0].destination", source: "block-media-link" }),
+        { storageId: media.storageId, locale: "en", path: "content.en.blocks[0].items[0].picture", source: "block-image" },
       ])
     } finally {
       spy.mockRestore()
@@ -169,7 +169,7 @@ describe("mediaReferences descriptor-image walker", () => {
     })
   })
 
-  test("slice-body arm without descriptor-level images emits no descriptor-image rows", async () => {
+  test("block-body arm without descriptor-level images emits no descriptor-image rows", async () => {
     const t = convexTest(schema, modules)
 
     await t.run(async (ctx) => {
@@ -179,9 +179,9 @@ describe("mediaReferences descriptor-image walker", () => {
         pageType: "post",
         status: "draft",
         content: {
-          en: { title: "Post", slices: [] },
-          fr: { title: "Article", slices: [] },
-          ar: { title: "مقال", slices: [] },
+          en: { title: "Post", blocks: [] },
+          fr: { title: "Article", blocks: [] },
+          ar: { title: "مقال", blocks: [] },
         },
         localizedSlugs: { en: "a-post" },
         featured: false,

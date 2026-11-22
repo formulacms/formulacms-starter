@@ -56,7 +56,7 @@ describe("publishChecklistCountLabel", () => {
 
 const knownCodes = [
   "missing_default_locale_title", "missing_default_locale_content", "missing_seo_title", "missing_seo_description", "missing_enabled_locale_translation",
-  "missing_required_slice_field", "missing_required_field", "missing_image_alt_text", "broken_internal_link", "archived_relation_target",
+  "missing_required_block_field", "missing_required_field", "missing_image_alt_text", "broken_internal_link", "archived_relation_target",
 ] as const
 
 describe.each([["en", en], ["fr", fr]] as const)("checklist code translation in %s", (locale, messages) => {
@@ -71,9 +71,9 @@ describe.each([["en", en], ["fr", fr]] as const)("checklist code translation in 
     expect(translateChecklistItem(item({ code: "future_code", message: "Future compatibility message" }), t)).toBe("Future compatibility message")
   })
   it("keeps distinct required image, related page, and body messages", () => {
-    const base = { code: "missing_required_slice_field", locales: ["fr"], field: "content.fr.slices.hero.title", message: "ENGLISH" }
-    const image = translateChecklistItem(item({ ...base, params: { variant: "image", sliceType: "hero" } }), t)
-    const relation = translateChecklistItem(item({ ...base, params: { variant: "relation", sliceType: "hero" } }), t)
+    const base = { code: "missing_required_block_field", locales: ["fr"], field: "content.fr.blocks.hero.title", message: "ENGLISH" }
+    const image = translateChecklistItem(item({ ...base, params: { variant: "image", blockType: "hero" } }), t)
+    const relation = translateChecklistItem(item({ ...base, params: { variant: "relation", blockType: "hero" } }), t)
     const body = translateChecklistItem(item({ code: "missing_required_field", field: "body", locales: ["fr"] }), t)
     expect(image).toBe(locale === "fr" ? "FR hero : une image obligatoire est manquante." : "FR hero is missing a required image.")
     expect(relation).toBe(locale === "fr" ? "FR hero : une page liée obligatoire est manquante." : "FR hero is missing a required related page.")
@@ -84,8 +84,8 @@ describe.each([["en", en], ["fr", fr]] as const)("checklist code translation in 
     expect(translateChecklistItem(item({ code: "missing_required_field", params: { contentType: "post", fieldName: "name" } }), t, labels)).toBe(locale === "fr" ? "Article : le champ obligatoire Nom est vide." : "Post is missing required Name.")
     const wrongType = translateChecklistItem(item({ code: "broken_internal_link", params: { variant: "disallowed_type", contentType: "post", targetTitle: "Équipe" } }), t, labels)
     expect(wrongType).toBe(t("disallowedTarget", { contentType: labels.contentType(), title: "Équipe" }))
-    const missingLink = translateChecklistItem(item({ code: "broken_internal_link", params: { variant: "missing_link_target", sliceType: "hero" }, locales: ["fr"] }), t)
-    expect(missingLink).toBe(t("missingLinkTarget", { scope: "FR ", sliceType: "hero" }))
+    const missingLink = translateChecklistItem(item({ code: "broken_internal_link", params: { variant: "missing_link_target", blockType: "hero" }, locales: ["fr"] }), t)
+    expect(missingLink).toBe(t("missingLinkTarget", { scope: "FR ", blockType: "hero" }))
     for (const contentType of [undefined, "post"]) {
       for (const localeSpecific of [false, true]) {
         const text = translateChecklistItem(item({ code: "archived_relation_target", params: { contentType, targetTitle: "Équipe", localeSpecific }, locales: ["en", "fr"] }), t, labels)

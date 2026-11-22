@@ -5,7 +5,7 @@ import {
 } from "@/convex/lib/richtext/profiles"
 import { resolveFieldContract } from "@/convex/lib/richtext/contracts"
 import { toFieldShape } from "@/convex/lib/richtext/shape"
-import { composeRel, type SliceRenderContext } from "@/lib/slices/links"
+import { composeRel, type BlockRenderContext } from "@/lib/blocks/links"
 import { normalizeRenderDocument } from "./tolerant-reader"
 import {
   generateRichTextDocument,
@@ -35,7 +35,7 @@ import {
 export function richTextToHtml(
   value: string,
   profile: RichTextProfile,
-  ctx?: SliceRenderContext
+  ctx?: BlockRenderContext
 ): string {
   if (!value) return ""
   let parsed: unknown
@@ -64,7 +64,7 @@ export function richTextToHtml(
 export function richTextToDocument(
   value: string,
   profile: RichTextProfile,
-  ctx?: SliceRenderContext
+  ctx?: BlockRenderContext
 ): JSONContent {
   const empty: JSONContent = { type: "doc", content: [] }
   if (!value) return empty
@@ -168,7 +168,7 @@ export function hasVisibleInlineRichText(value: unknown): boolean {
  */
 function resolveLinkMarks(
   node: unknown,
-  ctx: SliceRenderContext | undefined
+  ctx: BlockRenderContext | undefined
 ): unknown {
   if (typeof node !== "object" || node === null) return node
   const n = node as {

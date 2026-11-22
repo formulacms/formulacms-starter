@@ -1,6 +1,6 @@
 ---
 name: formulacms
-description: Guides implementation, maintenance, review, release work, and troubleshooting in formulacms source repositories and owner applications. Use for formulacms modules, admin or public behavior, Pages and Localized Content, typed content types and slices, generated starters, release projection, or formulacms project conventions.
+description: Guides implementation, maintenance, review, release work, and troubleshooting in formulacms source repositories and owner applications. Use for formulacms modules, admin or public behavior, Pages and Localized Content, typed content types and blocks, generated starters, release projection, or formulacms project conventions.
 ---
 
 # formulacms
@@ -38,10 +38,10 @@ starters contain only the planning guidance explicitly selected for them.
 - For Next.js code, read the relevant installed guide under
   `node_modules/next/dist/docs/` before editing; this repository's Next.js
   version is not safely covered by generic remembered conventions.
-- For a new content type, reusable entity, domain model, or slice, read and
+- For a new content type, reusable entity, domain model, or block, read and
   follow [AUTHORING.md](AUTHORING.md).
-- For a design reference, first decide whether it maps to an existing Slice
-  Type, a new structural Slice Type, or only token/CSS changes. A screenshot or
+- For a design reference, first decide whether it maps to an existing Block
+  Type, a new structural Block Type, or only token/CSS changes. A screenshot or
   Figma frame is evidence, not permission to copy another site's assets or
   create a new schema.
 - For a hard bug, diagnose and reproduce before implementing a fix. Search
@@ -63,8 +63,14 @@ provider documentation or MCP, then Context7 only as a fallback.
 - A generated starter, release checkout, or temporary generated tree is an
   immutable blueprint. Never patch, install, build, run, seed, connect, or
   deploy it.
-- Only a separately created, non-starter owner application may be a runtime or
-  deployment target, and only after the owner explicitly names the directory,
+- The official starter repository and its release tags are never changed. An
+  owner's own clone of the starter is their site: an owner application, not a
+  blueprint. When the owner works with you in that clone, you may change its
+  files and run local development, builds and checks there. Deployment,
+  hosting, production backends and domains still need the explicit naming in
+  the next rule.
+- Only a separately created, non-starter owner application, such as that
+  clone, may be a runtime or deployment target, and only after the owner explicitly names the directory,
   hosting project, backend project/deployment, domain, environment, and allowed
   operations required by the task.
 - Keep source proof, generated-blueprint proof, created-app runtime proof,
@@ -100,25 +106,25 @@ provider documentation or MCP, then Context7 only as a fallback.
   or authoritative. Never delete or narrow them without a separately reviewed
   migration boundary.
 
-For legacy slice data, the owner's October 18, 2026 amendment supersedes this migration prerequisite. Removal still requires authorized scope and quality/review gates; parked Contact, Search and CTA may be deleted only if they block an approved unit. Existing guards and the A2 hold remain.
+For legacy block data, the owner's October 18, 2026 amendment supersedes this migration prerequisite. Removal still requires authorized scope and quality/review gates; parked Contact, Search and CTA may be deleted only if they block an approved unit. Existing guards and the A2 hold remain.
 
 ## Content and Presentation Invariants
 
-- A slice is a code-first typed content block: Convex descriptor and validator,
+- A block is a code-first typed content unit: Convex descriptor and validator,
   local React renderer, `aiHint`, manifest/registry entry, preview data, and
   thumbnail/reference evidence as applicable. Never introduce Slice Machine,
   `@prismicio/*`, or Prismic custom-type JSON.
-- Run `docs/adr/0044-slice-scope-granularity-and-reuse-triage.md` before
-  creating a Slice Type. Reuse a registered type unchanged only for an exact
+- Run `docs/adr/0044-block-scope-granularity-and-reuse-triage.md` before
+  creating a Block Type. Reuse a registered type unchanged only for an exact
   editorial-and-structural contract match; never extend an existing schema to
   absorb a different design.
-- Never use `v.any()` for slice or document content.
+- Never use `v.any()` for block or document content.
 - Put editor-controlled meaning and structural intent in fields; keep color,
   spacing, type scale, radius, shadows, and other styling in tokens/CSS.
 - Runtime AI may change content within existing typed structures only. Schema
   and code generation belong to the developer/build loop with human review.
 - Content types must earn independent document semantics. Shipped content types
-  and slices are examples, not a closed catalog.
+  and blocks are examples, not a closed catalog.
 - User-facing admin copy must describe outcomes in plain language rather than
   exposing implementation jargon.
 
@@ -142,7 +148,8 @@ For legacy slice data, the owner's October 18, 2026 amendment supersedes this mi
 Useful source checks, selected in proportion to the change:
 
 ```sh
-corepack pnpm slices:sync --check
+corepack pnpm blocks:sync --check
+corepack pnpm check:blocks:render
 corepack pnpm vitest run path/to/focused.test.ts
 corepack pnpm typecheck
 corepack pnpm lint
@@ -165,12 +172,12 @@ still read for one release. When that server is available:
 3. Treat results as metadata only. Never infer installation, entitlement, or
    write authority that the result does not explicitly provide.
 
-When MCP is unavailable, inspect `lib/slices/slices.manifest.json` and
-`convex/lib/slices/index.ts`. Do not copy catalog entries into this skill.
+When MCP is unavailable, inspect `lib/blocks/blocks.manifest.json` and
+`convex/lib/blocks/index.ts`. Do not copy catalog entries into this skill.
 
 ## Examples
 
-- “Build this Figma section” -> reuse triage, typed slice or token/CSS decision,
+- “Build this Figma section” -> reuse triage, typed block or token/CSS decision,
   a check of the rendered page, and human review.
 - “Add events with dates, venues, and detail URLs” -> content-type triage, then
   the complete typed Event projection only when justified.
@@ -180,4 +187,5 @@ When MCP is unavailable, inspect `lib/slices/slices.manifest.json` and
   do not add runtime installation, fallback routing, or provider-specific
   consumers.
 - “Deploy this starter” -> stop: a starter is an immutable blueprint; require
-  an explicitly identified separately created owner application.
+  an explicitly identified owner application, such as the owner's own clone,
+  and its explicitly named hosting and backend targets.

@@ -1,11 +1,11 @@
 import { resolveFieldContract, type FieldAddress, type FieldContract } from "./contracts"
-import type { Primitive } from "../slices/primitives"
+import type { Primitive } from "../blocks/primitives"
 import { readTransitionField, transitionForField } from "./transitions"
 
 export function toComparisonForm(
   contract: FieldContract,
   value: string,
-  transitionAddress?: { sliceType: string; fieldPath: string }
+  transitionAddress?: { blockType: string; fieldPath: string }
 ): string {
   if (transitionAddress && transitionForField(transitionAddress)) {
     const read = readTransitionField(transitionAddress, value)
@@ -81,12 +81,12 @@ export function toDescriptorComparisonForm(
 }
 
 function flattenDoc(doc: Record<string, unknown>): string {
-  const blocks = Array.isArray(doc.content) ? doc.content : []
+  const nodes = Array.isArray(doc.content) ? doc.content : []
   const inline: unknown[] = []
-  blocks.forEach((block, index) => {
+  nodes.forEach((topNode, index) => {
     if (index > 0) inline.push({ type: "hardBreak" }, { type: "hardBreak" })
-    if (isRecord(block) && Array.isArray(block.content))
-      inline.push(...block.content)
+    if (isRecord(topNode) && Array.isArray(topNode.content))
+      inline.push(...topNode.content)
   })
   return stableSerialize({
     type: "doc",
@@ -101,7 +101,7 @@ function flattenDoc(doc: Record<string, unknown>): string {
  * compare as one space. Nothing is trimmed: a change at an edge still shows.
  */
 function flattenTitleDoc(doc: Record<string, unknown>): string {
-  const blocks = Array.isArray(doc.content) ? doc.content : []
+  const nodes = Array.isArray(doc.content) ? doc.content : []
   const inline: Record<string, unknown>[] = []
   const push = (node: Record<string, unknown>) => {
     const prev = inline[inline.length - 1]
@@ -116,10 +116,10 @@ function flattenTitleDoc(doc: Record<string, unknown>): string {
     else inline.push(node)
   }
   const space = { type: "text", text: " " }
-  blocks.forEach((block, index) => {
+  nodes.forEach((topNode, index) => {
     if (index > 0) push(space)
-    if (!isRecord(block) || !Array.isArray(block.content)) return
-    for (const node of block.content) {
+    if (!isRecord(topNode) || !Array.isArray(topNode.content)) return
+    for (const node of topNode.content) {
       if (!isRecord(node)) continue
       if (node.type === "hardBreak") push(space)
       else if (node.type === "text" && typeof node.text === "string")

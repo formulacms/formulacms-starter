@@ -22,8 +22,8 @@ import type {
   Primitive,
   CMSLinkField,
   ImageField,
-  Slice,
-} from "@/convex/lib/slices"
+  Block,
+} from "@/convex/lib/blocks"
 import type { RichTextProfile } from "@/convex/lib/richtext/profiles"
 import { buildFieldDoc } from "@/convex/lib/richtext/build"
 import {
@@ -45,7 +45,7 @@ import { RelationPicker, type RelationValue } from "./relation-picker"
 import type { PageType } from "@/convex/lib/pages/types"
 import { useConfirm, usePrompt } from "@/components/providers/confirm-provider"
 import { moveItem, useDragReorder } from "@/lib/use-drag-reorder"
-import { listItemKeys } from "@/lib/slices/keys"
+import { listItemKeys } from "@/lib/blocks/keys"
 import { fieldHasContent, inputClass } from "./field-utils"
 import type { LeafEditorKind } from "./editable-kinds"
 
@@ -55,12 +55,12 @@ import type { LeafEditorKind } from "./editable-kinds"
  * single field can be re-translated in isolation — pulling the source-locale
  * value, translating it, and writing the result back via the field's `onChange`.
  * Only text/richText fields render the affordance, and only when a non-empty
- * source value exists for that field (matching is resolved upstream by slice
- * index + type; see slice-editor.tsx).
+ * source value exists for that field (matching is resolved upstream by block
+ * index + type; see block-editor.tsx).
  */
 export interface FieldTranslate {
   sourceLocale: string
-  /** False when whole-page/slice brand translation is available locally but
+  /** False when whole-page/block brand translation is available locally but
    *  plain-field translation has no reachable Development or Production route. */
   supportsPlainText: boolean
   /** False when only plain-text translate is available (Development AI lane
@@ -72,18 +72,18 @@ export interface FieldTranslate {
     kind: "text" | "richText",
     address?: FieldAddress
   ) => Promise<string>
-  /** Translate a whole source slice, returning it with its text fields
-   *  translated (structure/marks preserved). Drives the slice-level toolbar.
-   *  Absent when whole-slice translate isn't available (Production AI off). */
-  runSlice?: (slice: Slice) => Promise<Slice>
+  /** Translate a whole source block, returning it with its text fields
+   *  translated (structure/marks preserved). Drives the block-level toolbar.
+   *  Absent when whole-block translate isn't available (Production AI off). */
+  runBlock?: (block: Block) => Promise<Block>
 }
 
 /**
  * Per-field AI generation (push model — the editor supplies a brief, the agent
  * writes content for one field). Phase-1 tracer of the content writer agent
  * (ADR-013): proves gating + registry + UI on the cheapest surface before
- * slice-level generation lands. The host (page-editor) supplies the action,
- * locale, and slice-type context so callsites don't have to know about Convex.
+ * block-level generation lands. The host (page-editor) supplies the action,
+ * locale, and block-type context so callsites don't have to know about Convex.
  */
 export interface FieldGenerate {
   /** Run a field-level generation. `profile` is required when `kind` is
@@ -105,11 +105,11 @@ export interface FieldGenerate {
     fieldLabel: string,
     kind: "text" | "richText"
   ) => Promise<string>
-  /** Generate a whole slice (one model call) and return the populated form.
-   *  Drives the slice-level "Write with AI" toolbar. The slice's id and
+  /** Generate a whole block (one model call) and return the populated form.
+   *  Drives the block-level "Write with AI" toolbar. The block's id and
    *  `enabled` are preserved by the caller; this returns only the editorial
    *  shape with structural fields at their schema defaults. */
-  runSlice: (sliceType: Slice["type"], brief: string) => Promise<Slice>
+  runBlock: (blockType: Block["type"], brief: string) => Promise<Block>
   /** Operator-curated picker entries the Write dialog renders as a dropdown
    *  above the brief input. Empty / undefined hides the picker. */
   writeBriefs?: ReadonlyArray<{ label: string; body: string }>
@@ -119,13 +119,13 @@ export interface FieldGenerate {
 }
 
 /**
- * Schema-driven field editors (ADR-0008, Phase C). A slice's `primary` group is
+ * Schema-driven field editors (ADR-0008, Phase C). A block's `primary` group is
  * a list of primitive descriptors; this walks them and renders one widget per
  * field, dispatched by `kind` and parameterized by the primitive's `config`.
- * That kills the per-slice form duplication — adding/changing a field is now a
- * one-place edit in the slice def, and the config drives the widget.
+ * That kills the per-block form duplication — adding/changing a field is now a
+ * one-place edit in the block def, and the config drives the widget.
  *
- * Scope (avoid creep): only the leaf kinds that actually appear in slice
+ * Scope (avoid creep): only the leaf kinds that actually appear in block
  * groups are registered (text, richText, select, number, image). Button lists
  * keep their bespoke editor; other bounded group lists use `ListItemsEditor`.
  */
@@ -138,7 +138,7 @@ const RichTextEditor = dynamic(
     loading: () => (
       <div
         className="h-32 rounded-md border bg-muted/30"
-        data-slice-field-loading=""
+        data-block-field-loading=""
       />
     ),
   }
@@ -159,7 +159,7 @@ export function Field({
   const controlId = useId()
   const labelId = `${controlId}-label`
   return (
-    <div className="space-y-1.5" data-slice-field-path={fieldPath} role="group" aria-labelledby={labelId}>
+    <div className="space-y-1.5" data-block-field-path={fieldPath} role="group" aria-labelledby={labelId}>
       <div className="flex min-h-5 items-center justify-between gap-2">
         <label id={labelId} htmlFor={typeof children === "function" ? controlId : undefined} className="block text-sm font-medium">{label}</label>
         {action}
@@ -445,7 +445,7 @@ export function FieldRefineButton({
   )
 }
 
-/** Field-level locale + AI actions. Copy is intentionally page/slice-level only. */
+/** Field-level locale + AI actions. Copy is intentionally page/block-level only. */
 export function FieldLocaleActions({
   label,
   sourceValue,
@@ -518,7 +518,7 @@ interface WidgetProps {
   onChange: (value: unknown) => void
   /** Active content locale used by locale-aware reference widgets. */
   locale: string
-  sliceType?: string
+  blockType?: string
   /** Source-locale value for this field, when a translate source is available. */
   sourceValue?: unknown
   /** Bound per-field AI translate API; absent when no source locale has content. */
@@ -538,14 +538,14 @@ function TextWidget({
   sourceValue,
   translate,
   generate,
-  sliceType,
+  blockType,
 }: WidgetProps) {
   const cfg = def.config as {
     multiline?: boolean
     maxLength?: number
     placeholder?: string
   }
-  const address = sliceType ? { sliceType, fieldPath } : undefined
+  const address = blockType ? { blockType, fieldPath } : undefined
   const str = readFieldText(address, (value as string) ?? "")
   const source =
     typeof sourceValue === "string"
@@ -808,7 +808,7 @@ function ImageWidget({
   onChange,
 }: WidgetProps) {
   return (
-    <div data-slice-field-path={fieldPath}>
+    <div data-block-field-path={fieldPath}>
       <ImageFieldEditor
         label={label}
         value={value as ImageField | undefined}
@@ -1327,7 +1327,7 @@ function RelationWidget({
  * The field-editor registry, keyed by primitive `kind`. `satisfies
  * Record<LeafEditorKind, …>` makes this the editor-side source of truth: a leaf
  * kind without a widget (or a stray widget for a kind that isn't declared
- * editable) is a tsc error here, and the verify gate rejects any slice whose
+ * editable) is a tsc error here, and the verify gate rejects any block whose
  * fields reference a kind outside that same declared set (`editable-kinds.ts`).
  */
 const EDITOR_REGISTRY = {
@@ -1356,7 +1356,7 @@ function FieldEditor({
   sourceValue,
   translate,
   generate,
-  sliceType,
+  blockType,
 }: {
   name: string
   fieldPath: string
@@ -1367,7 +1367,7 @@ function FieldEditor({
   sourceValue?: unknown
   translate?: FieldTranslate
   generate?: FieldGenerate
-  sliceType?: string
+  blockType?: string
 }) {
   const t = useTranslations("editor.fields")
   const tMetadata = useTranslations("metadata")
@@ -1387,7 +1387,7 @@ function FieldEditor({
         sourceValue={sourceValue}
         translate={translate}
         generate={generate}
-        sliceType={sliceType}
+        blockType={blockType}
       />
     )
   }
@@ -1404,7 +1404,7 @@ function FieldEditor({
             sourcePrimary={sourceValue as Record<string, unknown> | undefined}
             translate={translate}
             generate={generate}
-            sliceType={sliceType}
+            blockType={blockType}
           />
         </div>
       </Field>
@@ -1415,7 +1415,7 @@ function FieldEditor({
   // adoption. A new rich title toolbar is a separately approved UI change.
   const Widget =
     def.kind === "richText" &&
-    transitionForField(sliceType ? { sliceType, fieldPath } : undefined)
+    transitionForField(blockType ? { blockType, fieldPath } : undefined)
       ? TextWidget
       : (
           EDITOR_REGISTRY as Record<
@@ -1444,7 +1444,7 @@ function FieldEditor({
       sourceValue={typeof sourceValue === "string" ? sourceValue : undefined}
       translate={translate}
       generate={generate}
-      sliceType={sliceType}
+      blockType={blockType}
     />
   )
 }
@@ -1453,7 +1453,7 @@ function FieldEditor({
  * Walk a map of primitive descriptors, rendering one editor per field. The
  * descriptor-generic seam that C8 exposes so `ContentTypeFieldsPanel` can
  * render `descriptor.sharedFields` / `descriptor.localizedFields` through the
- * same code path that walks a slice's `primary` group.
+ * same code path that walks a block's `primary` group.
  *
  * `dir` is future-proofing for the i18n hardening chunk (plan 029): stamped on
  * the wrapper so child inputs inherit RTL visual direction via CSS. Widget-
@@ -1469,7 +1469,7 @@ export function FieldsEditor({
   sourceValues,
   translate,
   generate,
-  sliceType,
+  blockType,
   dir = "ltr",
 }: {
   fields: Record<string, Primitive>
@@ -1482,7 +1482,7 @@ export function FieldsEditor({
   sourceValues?: Record<string, unknown>
   translate?: FieldTranslate
   generate?: FieldGenerate
-  sliceType?: string
+  blockType?: string
   /** Reading direction of the values (not the admin chrome). Default `"ltr"`. */
   dir?: "ltr" | "rtl"
 }) {
@@ -1503,7 +1503,7 @@ export function FieldsEditor({
             sourceValue={src}
             translate={translate}
             generate={generate}
-            sliceType={sliceType}
+            blockType={blockType}
           />
         )
       })}
@@ -1513,7 +1513,7 @@ export function FieldsEditor({
 
 /**
  * Walk a `group` primitive's fields. Thin wrapper around {@link FieldsEditor}
- * so the slice editor's existing call-sites don't change.
+ * so the block editor's existing call-sites don't change.
  */
 export function GroupFields({
   def,
@@ -1524,18 +1524,18 @@ export function GroupFields({
   sourcePrimary,
   translate,
   generate,
-  sliceType,
+  blockType,
 }: {
   def: Primitive
   value: unknown
   onChange: (value: Record<string, unknown>) => void
   basePath?: string
   locale: string
-  /** The source-locale slice's `primary`, for per-field translation pulls. */
+  /** The source-locale block's `primary`, for per-field translation pulls. */
   sourcePrimary?: Record<string, unknown>
   translate?: FieldTranslate
   generate?: FieldGenerate
-  sliceType?: string
+  blockType?: string
 }) {
   return (
     <FieldsEditor
@@ -1547,7 +1547,7 @@ export function GroupFields({
       sourceValues={sourcePrimary}
       translate={translate}
       generate={generate}
-      sliceType={sliceType}
+      blockType={blockType}
     />
   )
 }
@@ -1564,7 +1564,7 @@ export function ListItemsEditor({
   sourceValue,
   translate,
   generate,
-  sliceType,
+  blockType,
 }: {
   label: string
   def: Primitive
@@ -1575,7 +1575,7 @@ export function ListItemsEditor({
   sourceValue?: unknown
   translate?: FieldTranslate
   generate?: FieldGenerate
-  sliceType?: string
+  blockType?: string
 }) {
   const t = useTranslations("editor.fields")
   const cfg = def.config as { item: Primitive; max?: number }
@@ -1708,7 +1708,7 @@ export function ListItemsEditor({
                 }
                 translate={translate}
                 generate={generate}
-                sliceType={sliceType}
+                blockType={blockType}
               />
             ) : (
               <FieldEditor
@@ -1725,7 +1725,7 @@ export function ListItemsEditor({
                 }
                 translate={translate}
                 generate={generate}
-                sliceType={sliceType}
+                blockType={blockType}
               />
             )}
           </div>

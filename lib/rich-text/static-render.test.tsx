@@ -1,4 +1,4 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { act, createElement } from "react"
 import { hydrateRoot, type Root } from "react-dom/client"
 import { renderToStaticMarkup, renderToString } from "react-dom/server"
@@ -8,12 +8,12 @@ import { Node as ProseMirrorNode } from "@tiptap/pm/model"
 import { describe, expect, it, vi } from "vitest"
 
 import {
-  REGISTERED_SLICE_TYPES,
-  sliceDefs,
-  type Slice,
-} from "@/convex/lib/slices"
-import { walkValue } from "@/convex/lib/slices/walk"
-import type { Primitive } from "@/convex/lib/slices/primitives"
+  REGISTERED_BLOCK_TYPES,
+  blockDefs,
+  type Block,
+} from "@/convex/lib/blocks"
+import { walkValue } from "@/convex/lib/blocks/walk"
+import type { Primitive } from "@/convex/lib/blocks/primitives"
 import {
   PROFILE_SPECS,
   type RichTextProfile,
@@ -21,9 +21,9 @@ import {
 } from "@/convex/lib/richtext/profiles"
 import { resolveFieldContract } from "@/convex/lib/richtext/contracts"
 import { toFieldShape } from "@/convex/lib/richtext/shape"
-import { RichTextContent } from "@/components/slices/rich-text-content"
-import { createSampleSlice } from "@/lib/slices/sample"
-import type { SliceRenderContext } from "@/lib/slices/links"
+import { RichTextContent } from "@/components/blocks/rich-text-content"
+import { createSampleBlock } from "@/lib/blocks/sample"
+import type { BlockRenderContext } from "@/lib/blocks/links"
 import { richTextToDocument } from "./render"
 import { extensionsForProfile } from "./extensions"
 import {
@@ -37,19 +37,19 @@ type CorpusCase = {
   readonly label: string
   readonly profile: RichTextProfile
   readonly value: string
-  readonly ctx?: SliceRenderContext
+  readonly ctx?: BlockRenderContext
   readonly fieldPath?: string
 }
 
 function descriptorContentCases(): CorpusCase[] {
   const cases: CorpusCase[] = []
-  for (const type of REGISTERED_SLICE_TYPES) {
-    const descriptor = sliceDefs[type]
-    const defaults = registeredDefaultSlice(type) as unknown as Record<
+  for (const type of REGISTERED_BLOCK_TYPES) {
+    const descriptor = blockDefs[type]
+    const defaults = registeredDefaultBlock(type) as unknown as Record<
       string,
       unknown
     >
-    const sample = createSampleSlice(type) as unknown as Record<string, unknown>
+    const sample = createSampleBlock(type) as unknown as Record<string, unknown>
     const collect = (label: string, def: Primitive, value: unknown) => {
       walkValue(def, value, (leaf) => {
         if (leaf.def.kind !== "richText" || typeof leaf.value !== "string")
@@ -959,12 +959,12 @@ const additionalExactSourceFixtures: ReadonlyArray<CorpusCase> = [
     },
   },
   {
-    label: "slice-kit empty paragraph rich text value",
+    label: "block-kit empty paragraph rich text value",
     profile: "inline",
     value: '{"type":"doc","content":[{"type":"paragraph"}]}',
   },
   {
-    label: "slice-kit descriptor heading exact document",
+    label: "block-kit descriptor heading exact document",
     profile: "inline",
     value:
       '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Heading"}]}]}',
@@ -1289,7 +1289,7 @@ function semanticSnapshot(markup: string): SemanticSnapshot {
 }
 
 describe("static renderer compatibility adapter", () => {
-  it("retains descriptor-owned supporting body cases in the renderer corpus", sliceProfile([]), () => {
+  it("retains descriptor-owned supporting body cases in the renderer corpus", blockProfile([]), () => {
     const cases = descriptorContentCases()
     for (const [type, path] of [
       ["features-icon-grid", "body"],
@@ -1344,7 +1344,7 @@ describe("static renderer compatibility adapter", () => {
         canonicalOracleMarkup(localized)
       )
       const previewHook = vi.fn<
-        NonNullable<SliceRenderContext["previewRichText"]>
+        NonNullable<BlockRenderContext["previewRichText"]>
       >(({ rendered }) => rendered)
       const preview: CorpusCase = {
         ...testCase,
@@ -1897,13 +1897,13 @@ describe("static renderer compatibility adapter", () => {
 
 // Reader coverage includes parked source Types; installed-only creation must not
 // be used to manufacture content for a disabled Type.
-function registeredDefaultSlice(type: Slice["type"]): Slice {
-  const def = sliceDefs[type]
+function registeredDefaultBlock(type: Block["type"]): Block {
+  const def = blockDefs[type]
   return {
     id: crypto.randomUUID(),
     type,
     enabled: true,
     primary: structuredClone(def.primary.default),
     ...("items" in def ? { items: structuredClone(def.items.default) } : {}),
-  } as Slice
+  } as Block
 }

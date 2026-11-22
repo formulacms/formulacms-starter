@@ -1,11 +1,12 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
 import type { MutationCtx } from "../_generated/server"
 import type { Doc, Id } from "../_generated/dataModel"
-import { type Primitive, type Slice } from "./slices"
-import { walkFieldMap, walkValue } from "./slices/walk"
+import { type Primitive, type Block } from "./blocks"
+import { walkDef, walkFieldMap, walkValue } from "./blocks/walk"
 import { contentTypeDefs, type ContentType } from "./contentTypes"
-import { hasSliceBody } from "./pages/sliceBodyContent"
+import type { ContentTypeDescriptor } from "./contentTypes/types"
+import { hasBlockBody } from "./pages/blockBodyContent"
 
 /**
  * Document-reference scanner (plan 028 C2, ADR-0037 §4).
@@ -14,7 +15,7 @@ import { hasSliceBody } from "./pages/sliceBodyContent"
  * row in `documentReferences`. The scanner walks three surfaces per save:
  *   1. The content-type descriptor's `sharedFields` (row-level, locale-agnostic).
  *   2. The content-type descriptor's `localizedFields` (one visit per locale).
- *   3. Slice content on locale bodies (`content[locale].slices[]`) — the same
+ *   3. Block content on locale bodies (`content[locale].blocks[]`) — the same
  *      walker path `mediaReferences` uses for image fields.
  *
  * `parentId` is deliberately NOT tracked here: it is a first-class hierarchy
@@ -30,7 +31,7 @@ import { hasSliceBody } from "./pages/sliceBodyContent"
  */
 
 export type DocumentReferenceSource =
-  "shared-field" | "localized-field" | "slice-body"
+  "shared-field" | "localized-field" | "block-body"
 
 export interface CollectedDocumentReference {
   targetId: Id<"pages">
@@ -72,6 +73,39 @@ function collectFromFieldMap(
   })
 }
 
+/**
+ * The content types whose descriptor declares a `relation()` field (shared or
+ * localized, at any list/group depth) that may point at `targetType`. Used by
+ * the delete guard: a page of `targetType` is protected while a published page
+ * of one of these types still references it. A new relation field protects its
+ * target type with no edit elsewhere.
+ */
+export function referrerContentTypes(
+  targetType: string,
+  defs: Record<
+    string,
+    Pick<ContentTypeDescriptor, "sharedFields" | "localizedFields">
+  > = contentTypeDefs
+): Set<string> {
+  const referrers = new Set<string>()
+  for (const [type, descriptor] of Object.entries(defs)) {
+    const maps = [descriptor.sharedFields, descriptor.localizedFields] as Record<
+      string,
+      Primitive
+    >[]
+    for (const fields of maps) {
+      for (const field of Object.values(fields)) {
+        walkDef(field, ({ def }) => {
+          if (def.kind !== "relation") return
+          const pageTypes = def.config.pageTypes as readonly string[]
+          if (pageTypes.includes(targetType)) referrers.add(type)
+        })
+      }
+    }
+  }
+  return referrers
+}
+
 export function collectDocumentReferences(
   page: Doc<"pages">
 ): CollectedDocumentReference[] {
@@ -109,48 +143,48 @@ export function collectDocumentReferences(
     )
   }
 
-  // 3. Slice content — mirrors mediaReferences.ts. Walks both `primary` and
+  // 3. Block content — mirrors mediaReferences.ts. Walks both `primary` and
   //    `items` primitive trees for `relation` leaves. Pure-form arms
-  //    (`sliceBody: false`) have no slice canvas — skip the walk.
-  if (!hasSliceBody(page)) return refs
+  //    (`blockBody: false`) have no block canvas — skip the walk.
+  if (!hasBlockBody(page)) return refs
 
   for (const [locale, localeContent] of Object.entries(page.content ?? {})) {
-    const slices = localeContent.slices ?? []
-    slices.forEach((slice: Slice, sliceIndex) => {
-      const def = readSliceDefinition(readSlice(slice).type)
+    const blocks = localeContent.blocks ?? []
+    blocks.forEach((block: Block, blockIndex) => {
+      const def = readBlockDefinition(readBlock(block).type)
       if (!def) return
-      const slicePath = `content.${locale}.slices[${sliceIndex}]`
-      const emitSliceLeaf = (root: "primary" | "items", leafPath: string) => {
+      const blockPath = `content.${locale}.blocks[${blockIndex}]`
+      const emitBlockLeaf = (root: "primary" | "items", leafPath: string) => {
         // walkValue emits `path === ""` when descriptor is a bare leaf primitive
         // (no group/list wrapping), and paths for list rows start with `[…]`.
-        // Compose: `<slicePath>.<root>` when leafPath is empty or begins with
+        // Compose: `<blockPath>.<root>` when leafPath is empty or begins with
         // `[`; otherwise separate with `.` — either the descriptor is a group
         // ("primary.title") or a list-of-groups ("items[0].title").
         const needsDot = leafPath.length > 0 && !leafPath.startsWith("[")
-        return `${slicePath}.${root}${needsDot ? "." : ""}${leafPath}`
+        return `${blockPath}.${root}${needsDot ? "." : ""}${leafPath}`
       }
-      walkValue(def.primary, readSlice(slice).primary, (leaf) => {
+      walkValue(def.primary, readBlock(block).primary, (leaf) => {
         if (leaf.def.kind !== "relation") return
         const targetId = relationTargetId(leaf.value)
         if (!targetId) return
         refs.push({
           targetId,
           sourceLocale: locale,
-          path: emitSliceLeaf("primary", leaf.path),
-          source: "slice-body",
+          path: emitBlockLeaf("primary", leaf.path),
+          source: "block-body",
         })
       })
 
-      if (!def.items || !("items" in slice)) return
-      walkValue(def.items as Primitive, readSlice(slice).items, (leaf) => {
+      if (!def.items || !("items" in block)) return
+      walkValue(def.items as Primitive, readBlock(block).items, (leaf) => {
         if (leaf.def.kind !== "relation") return
         const targetId = relationTargetId(leaf.value)
         if (!targetId) return
         refs.push({
           targetId,
           sourceLocale: locale,
-          path: emitSliceLeaf("items", leaf.path),
-          source: "slice-body",
+          path: emitBlockLeaf("items", leaf.path),
+          source: "block-body",
         })
       })
     })
@@ -183,7 +217,7 @@ export async function refreshDocumentReferencesForPage(
   const collected = collectDocumentReferences(page)
   if (collected.length === 0) return
 
-  // Dedup target IDs before fetching — a "featured picks" slice can reference
+  // Dedup target IDs before fetching — a "featured picks" block can reference
   // the same author across 20 items in 5 locales, and we want one db.get per
   // unique target, not 100.
   const uniqueTargetIds = Array.from(new Set(collected.map((r) => r.targetId)))

@@ -8,7 +8,7 @@ import { useQuery } from "convex/react"
 import { api } from "@/convex/_generated/api"
 import { FileDown, GripVertical, Plus, Trash2 } from "lucide-react"
 import { useDragReorder, moveItem } from "@/lib/use-drag-reorder"
-import type { ButtonField, CMSLinkField } from "@/convex/lib/slices"
+import type { ButtonField, CMSLinkField } from "@/convex/lib/blocks"
 import type { Id } from "@/convex/_generated/dataModel"
 import { ImageFieldEditor } from "./image-field-editor"
 import { MediaPicker } from "../media-picker"
@@ -142,7 +142,7 @@ export function ButtonsEditor({
                 onChange={(e) => update(i, { label: e.target.value })}
                 placeholder={t("labelPlaceholder")}
                 aria-label={t("label")}
-                data-slice-field-path={`${basePath}.${i}.label`}
+                data-block-field-path={`${basePath}.${i}.label`}
                 className="min-w-[120px] flex-1 rounded border bg-background px-2 py-1 text-sm focus:ring-1 focus:ring-ring focus:outline-none"
               />
               <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -316,7 +316,7 @@ export function ButtonsEditor({
                 {t("showIcon")}
               </label>
               {button.withIcon === true && (
-                <div data-slice-field-path={`${basePath}.${i}.icon`}>
+                <div data-block-field-path={`${basePath}.${i}.icon`}>
                   <ImageFieldEditor
                     label={t("icon")}
                     value={button.icon}

@@ -8,7 +8,7 @@ export const RELEASE_TRANSITION_CHECKS = {
   typecheck: ["pnpm", "typecheck"],
   lint: ["pnpm", "lint"],
   tests: ["pnpm", "test:run"],
-  "slice-registration": ["pnpm", "slices:sync", "--check"],
+  "block-registration": ["pnpm", "blocks:sync", "--check"],
   tokens: ["pnpm", "check:tokens"],
 } as const
 
@@ -17,7 +17,7 @@ const CheckIdSchema = z.enum([
   "typecheck",
   "lint",
   "tests",
-  "slice-registration",
+  "block-registration",
   "tokens",
 ])
 
@@ -196,6 +196,24 @@ export function verifyReleaseTransition(options: {
       )
     )
   )
+  // From 1.0.0 on, a release without an upgrade path comes only with a new
+  // major version (starter README, "Releases and upgrades"). Before 1.0.0 any
+  // release may declare its path unsupported.
+  for (const candidate of manifest.transitions) {
+    if (candidate.class !== "unsupported") continue
+    const source = parseSemVerTag(candidate.source.tag)
+    const target = parseSemVerTag(candidate.targetTag)
+    if (
+      source &&
+      target &&
+      source.core[0] >= 1n &&
+      source.core[0] === target.core[0]
+    ) {
+      throw new Error(
+        `Transition ${candidate.id} (${candidate.source.tag} -> ${candidate.targetTag}) cannot be unsupported: from 1.0.0 on, a release without an upgrade path must change the major version.`
+      )
+    }
+  }
   const transition = manifest.transitions.find(
     (candidate) =>
       candidate.source.tag === options.sourceTag &&

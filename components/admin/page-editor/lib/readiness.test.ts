@@ -77,7 +77,7 @@ describe("buildPageReadinessSuggestions", () => {
     ])
   })
 
-  it("offers the slice picker when the page has no content sections", () => {
+  it("offers the block picker when the page has no content sections", () => {
     const suggestions = buildPageReadinessSuggestions(
       checklist({
         warnings: [

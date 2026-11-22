@@ -28,10 +28,10 @@ Production code must follow the repo's conventions:
 - Next.js and React patterns already used by the app.
 - Tailwind v4 utilities for styling.
 - The site design-system tokens in `app/globals.css`.
-- Existing shared components and slice patterns before new primitives.
+- Existing shared components and block patterns before new primitives.
 - shadcn/Radix primitives for standard interface controls.
 - The existing `motion` package for meaningful animation.
-- Typed slice descriptors and field primitives for CMS-editable content.
+- Typed block descriptors and field primitives for CMS-editable content.
 
 This is the central contract:
 
@@ -63,7 +63,7 @@ Use this document when:
 
 - A designer prepares a page, section, or component for implementation.
 - A web designer turns visual direction into HTML, JSX, or CSS.
-- A developer turns design input into a formulacms slice or component.
+- A developer turns design input into a formulacms block or component.
 - An AI agent generates, reviews, or refactors design-derived code.
 - A reviewer decides whether the result is faithful to both the design and the
   system.
@@ -75,10 +75,10 @@ Use these terms consistently in briefs, code reviews, and agent prompts.
 | Term | Meaning |
 | --- | --- |
 | Design artifact | Any source input: Figma, screenshot, HTML, JSX, CSS, image, prototype, or written brief. |
-| Page | A routable document composed from slices and global layout chrome. |
-| Slice | A reusable, typed CMS section with a descriptor, renderer, fields, and AI hint. |
-| Component | A React building block used by pages, slices, admin UI, or shared UI. |
-| Variant | A named option inside a component or slice when the underlying structure stays the same. |
+| Page | A routable document composed from blocks and global layout chrome. |
+| Block | A reusable, typed CMS section with a descriptor, renderer, fields, and AI hint. |
+| Component | A React building block used by pages, blocks, admin UI, or shared UI. |
+| Variant | A named option inside a component or block when the underlying structure stays the same. |
 | Field | CMS-editable content or structural intent stored in a typed descriptor. |
 | Token | A named design-system value for color, type, spacing, radius, or container width. |
 | Renderer | The React component that turns typed content into public UI. |
@@ -128,12 +128,12 @@ remaining flexible enough to respect strong design work.
   brand asset or custom illustration is required.
 - Motion uses the existing `motion` package when animation needs JavaScript.
 - CMS fields store content and structural intent, not pure visual styling.
-- Slice descriptors are typed. Do not use `v.any()`.
+- Block descriptors are typed. Do not use `v.any()`.
 - Generated or pasted code must be reviewed and normalized before merge.
 
 ### Default
 
-- Prefer existing slices, field primitives, helpers, and UI components.
+- Prefer existing blocks, field primitives, helpers, and UI components.
 - Prefer semantic HTML over div-only structures.
 - Prefer mobile-first responsive Tailwind classes.
 - Prefer token utilities such as `text-display`, `text-heading`, `text-lead`,
@@ -226,11 +226,11 @@ system.
 
 Before implementing:
 
-- Inspect existing slices and shared components.
+- Inspect existing blocks and shared components.
 - Identify repeated groups, optional regions, and editor-controlled content.
 - Decide what belongs in the CMS model and what belongs in CSS.
 - Map colors, type, spacing, radius, and containers to existing tokens.
-- Identify whether the artifact is a page composition, a new slice, a slice
+- Identify whether the artifact is a page composition, a new block, a block
   renderer change, or a shared component.
 
 During implementation:
@@ -238,7 +238,7 @@ During implementation:
 - Use Server Components by default.
 - Add `"use client"` only for hooks, events, browser APIs, or client-side
   libraries.
-- Keep slice fields focused on content and structural intent.
+- Keep block fields focused on content and structural intent.
 - Keep pure styling in renderers, CSS, and tokens.
 - Use shared render helpers for buttons, links, rich text, and media where
   available.
@@ -251,7 +251,7 @@ After implementation:
 - Compare desktop and mobile output against the design artifact.
 - Test long content, missing optional content, and real CMS data.
 - Check keyboard focus, accessible names, heading order, and reduced motion.
-- Run the relevant typecheck, validation, and slice verification commands.
+- Run the relevant typecheck, validation, and block verification commands.
 
 ## AI Agent Guidance
 
@@ -262,7 +262,7 @@ When given a design artifact:
 1. Identify the artifact type: Figma, screenshot, HTML, JSX, CSS, prompt, or
    mixed input.
 2. Extract content, structure, design-system signals, and implementation needs.
-3. Search the repo for existing slices, components, helpers, and tokens before
+3. Search the repo for existing blocks, components, helpers, and tokens before
    creating new patterns.
 4. Preserve layout geometry and responsive intent.
 5. Translate color, type, spacing, radius, and container values into site tokens.
@@ -276,7 +276,7 @@ When given a design artifact:
 Agents should say what they normalized:
 
 ```md
-Normalized the provided JSX into a typed formulacms slice. Kept the two-column
+Normalized the provided JSX into a typed formulacms block. Kept the two-column
 layout and card repetition, mapped raw palette classes to `text-brand` and
 `bg-surface`, and used the shared button renderer for CTAs.
 ```
@@ -323,7 +323,7 @@ Only content and structural intent become CMS fields.
 
 Map the artifact into formulacms conventions:
 
-- Existing slice or new slice.
+- Existing block or new block.
 - Existing component or new component.
 - Existing token or proposed token.
 - Existing shadcn/Radix primitive or custom interaction.
@@ -331,7 +331,7 @@ Map the artifact into formulacms conventions:
 
 ### 5. Implementation
 
-Build the slice, component, or page using repo conventions.
+Build the block, component, or page using repo conventions.
 
 Keep implementation scoped to the request. If the design exposes a broader
 system gap, note it separately instead of smuggling a large refactor into the
@@ -353,7 +353,7 @@ Use this decision table.
 
 | Artifact detail | Treat as authoritative for | Normalize into |
 | --- | --- | --- |
-| Semantic markup | Content hierarchy and structure | React components and slice renderers |
+| Semantic markup | Content hierarchy and structure | React components and block renderers |
 | Repeated DOM blocks | Lists, groups, and field shape | Typed field primitives |
 | Tailwind classes | Layout, spacing, responsive clues | Tailwind v4 plus design-system tokens |
 | Raw CSS colors | Brand and surface intent | Token roles in `app/globals.css` |
@@ -387,7 +387,7 @@ export function Hero() {
             Build your site from your real design
           </h1>
           <p className="mt-6 text-lg text-indigo-100">
-            Turn approved visual sections into editable CMS slices.
+            Turn approved visual sections into editable CMS blocks.
           </p>
           <div className="mt-8 flex gap-3">
             <a className="rounded-md bg-white px-4 py-2 text-indigo-950">
@@ -416,7 +416,7 @@ Treat as authoritative for:
 Normalize into formulacms:
 
 ```md
-Slice type:
+Block type:
 hero-product-split
 
 Fields:
@@ -609,31 +609,31 @@ Needs review:
 This is better than silently guessing. It keeps the work moving while surfacing
 the decisions that need human confirmation.
 
-## Slice-Specific Rules
+## Block-Specific Rules
 
-formulacms slices are code-first and typed.
+formulacms blocks are code-first and typed.
 
-When a design becomes a slice:
+When a design becomes a block:
 
-- Follow the slice authoring guide in `.agents/skills/formulacms/AUTHORING.md`.
-- Use a slice name that describes layout or intent.
+- Follow the block authoring guide in `.agents/skills/formulacms/AUTHORING.md`.
+- Use a block name that describes layout or intent.
 - Model repeated structures as lists.
 - Model optional content as optional fields.
 - Use relation fields for references to existing content.
 - Keep styling out of the descriptor.
 - Put renderer styling in JSX classes, CSS, and tokens.
 - Include an `aiHint` that names fields clearly for content-generation agents.
-- Verify the slice after hand-tuning generated output.
+- Verify the block after hand-tuning generated output.
 
-Per ADR-0044, run reuse triage before creation. Reuse a registered Slice Type
+Per ADR-0044, run reuse triage before creation. Reuse a registered Block Type
 unchanged only when its editorial job and structural contract match exactly.
 Never widen an existing schema to absorb a meaningfully different design;
 structural siblings and genuinely new contracts receive new types.
 
-## SliceSpec JSON Skeleton
+## BlockSpec JSON Skeleton
 
-Include a SliceSpec skeleton when the handoff is meant for AI agents or
-developers who will generate a real formulacms slice. It gives the implementation
+Include a BlockSpec skeleton when the handoff is meant for AI agents or
+developers who will generate a real formulacms block. It gives the implementation
 step a machine-readable target and reduces ambiguity around fields, repeated
 items, and content-generation hints.
 
@@ -643,13 +643,13 @@ Figma frames, or design notes.
 Important rules:
 
 - The JSON must be strict JSON: no comments, no trailing commas, no TypeScript.
-- Use the real `SliceSpec` shape from `lib/slices/authoring/scaffold.ts`.
+- Use the real `BlockSpec` shape from `lib/blocks/authoring/scaffold.ts`.
 - Keep design notes outside the JSON block.
 - Use exact primitive names: `richText`, not `rich-text`.
 - Choose one existing group: `heroes`, `content`, `features`, `commerce`, or
   `navigation`.
 - Use `{ "kind": "ref", "ref": "button" }` for shared button fields.
-- Use `items` for a repeated top-level slice region.
+- Use `items` for a repeated top-level block region.
 - Use nested `list` fields for repeated content inside a group.
 - Do not include styling fields such as `backgroundColor`, `padding`, `fontSize`,
   `shadow`, or `radius`.
@@ -658,7 +658,7 @@ Template:
 
 ```json
 {
-  "type": "kebab-case-slice-name",
+  "type": "kebab-case-block-name",
   "label": "Human Label",
   "description": "Short picker description.",
   "icon": "Layers",
@@ -735,7 +735,7 @@ Template:
     "max": 6
   },
   "aiHint": {
-    "purpose": "Describe what this slice helps a page communicate.",
+    "purpose": "Describe what this block helps a page communicate.",
     "fields": [
       "Return the fields below, each wrapped in matching fenced tags.",
       "[eyebrow]\\nShort label\\n[/eyebrow]",
@@ -883,7 +883,7 @@ Use tokens for:
 - Radius scale.
 
 Do not invent raw hex colors, one-off fonts, or arbitrary type ramps inside a
-slice renderer. If a design needs a new reusable role, propose a token and
+block renderer. If a design needs a new reusable role, propose a token and
 explain why.
 
 Important distinction:
@@ -1007,7 +1007,7 @@ the content.
 
 ### Implementation Checklist
 
-- Existing slices and components were checked first.
+- Existing blocks and components were checked first.
 - The output uses Tailwind v4 and site tokens.
 - Standard UI uses shared components or shadcn/Radix.
 - Motion uses CSS or the existing `motion` package.
@@ -1032,16 +1032,16 @@ the content.
 
 ## Common Use Cases
 
-### Figma Section To Slice
+### Figma Section To Block
 
 Use the Figma frame or screenshot to identify content, repeated structures,
-responsive behavior, and token mapping. Generate or author a typed slice and
+responsive behavior, and token mapping. Generate or author a typed block and
 renderer, then compare the rendered output against the source design.
 
 ### Designer Provides JSX
 
 Use the JSX for hierarchy, repeated blocks, responsive clues, and interaction
-intent. Rewrite it into the repo's component and slice conventions. Preserve the
+intent. Rewrite it into the repo's component and block conventions. Preserve the
 design's layout geometry, but normalize UI controls, styling, and motion.
 
 ### Designer Provides CSS
@@ -1059,7 +1059,7 @@ content handling. Flag assumptions.
 ### Existing Page Redesign
 
 Separate content migration from visual redesign. Preserve existing content
-fields when they still match the new design. Create new slice types when the new
+fields when they still match the new design. Create new block types when the new
 design meaningfully changes the structure.
 
 ### AI-Generated UI Review

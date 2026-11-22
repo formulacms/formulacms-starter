@@ -1,7 +1,7 @@
 import { lexer, type Token, type Tokens } from "marked"
-import { readInstalledSliceDefinition } from "@/convex/lib/slices"
+import { readInstalledBlockDefinition } from "@/convex/lib/blocks"
 import { renderTemplate } from "../agents/registry"
-import { INSTALLED_SLICE_TYPES } from "../slices"
+import { INSTALLED_BLOCK_TYPES } from "../blocks"
 import { HELP_CORPUS } from "./corpus"
 import {
   intentEnumForPrompt,
@@ -149,10 +149,10 @@ function buildContext(): string {
   const corpus = HELP_CORPUS.map(
     (entry) => `## ${entry.title}\n${entry.body}`
   ).join("\n\n")
-  const slices = INSTALLED_SLICE_TYPES.map(
-    (type) => `- ${type}: ${readInstalledSliceDefinition(type).aiHint.purpose}`
+  const blocks = INSTALLED_BLOCK_TYPES.map(
+    (type) => `- ${type}: ${readInstalledBlockDefinition(type).aiHint.purpose}`
   ).join("\n")
-  return `${corpus}\n\nBlock types currently available:\n${slices}`
+  return `${corpus}\n\nBlock types currently available:\n${blocks}`
 }
 
 function tokenize(text: string): string[] {

@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, test, vi } from "vitest"
 import { render } from "@/test-utils/admin-i18n"
 import { ConfirmProvider } from "@/components/providers/confirm-provider"
-import { group, list, richText, text } from "@/convex/lib/slices/primitives"
+import { group, list, richText, text } from "@/convex/lib/blocks/primitives"
 import { toast } from "sonner"
 import { PageSaveRefusedError } from "@/components/admin/page-editor/lib/page-save-refused-error"
 import type { FieldGenerate } from "./field-editor"
@@ -37,7 +37,7 @@ describe("title field generation binding", () => {
     const generate: FieldGenerate = {
       run,
       runRefine: vi.fn(async () => ""),
-      runSlice: vi.fn(async () => ({ type: "section" }) as never),
+      runBlock: vi.fn(async () => ({ type: "section" }) as never),
     }
     const fields = {
       primary: group({
@@ -70,7 +70,7 @@ describe("title field generation binding", () => {
     )
 
     const question = document.querySelector(
-      '[data-slice-field-path="primary.questions.0.question"]'
+      '[data-block-field-path="primary.questions.0.question"]'
     )
     expect(question).not.toBeNull()
     const editorButton = await within(question as HTMLElement).findByRole(
@@ -116,7 +116,7 @@ describe("title field generation binding", () => {
       const generate: FieldGenerate = {
         run,
         runRefine: vi.fn(async () => ""),
-        runSlice: vi.fn(async () => ({ type: "section" }) as never),
+        runBlock: vi.fn(async () => ({ type: "section" }) as never),
       }
       const fields = {
         primary: group({
@@ -146,7 +146,7 @@ describe("title field generation binding", () => {
       )
 
       const question = document.querySelector(
-        '[data-slice-field-path="primary.questions.0.question"]'
+        '[data-block-field-path="primary.questions.0.question"]'
       )
       expect(question).not.toBeNull()
       const editorButton = await within(question as HTMLElement).findByRole(
@@ -213,7 +213,7 @@ describe("a refused pre-generation Save", () => {
         const generate: FieldGenerate = {
           run: vi.fn(),
           runRefine: vi.fn(),
-          runSlice: vi.fn(),
+          runBlock: vi.fn(),
           [method]: fail,
         }
         const view = render(

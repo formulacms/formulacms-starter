@@ -7,7 +7,7 @@ import { api } from "./_generated/api"
 import schema from "./schema"
 import * as languageState from "./lib/language/state"
 import { seedCommunityOwner } from "../convexTestWithExplicitAdmin"
-import { isColumnPanel, legacyToColumns, menuConversionBaseline, panelBlocks, walkCanonicalMenuTargets, type Block, type LegacyPanel, type LocaleNavItem, type NavItem } from "./lib/menu"
+import { isColumnPanel, legacyToColumns, menuConversionBaseline, panelSections, walkCanonicalMenuTargets, type PanelSection, type LegacyPanel, type LocaleNavItem, type NavItem } from "./lib/menu"
 import {
   validateCanonicalMenu,
   validateCanonicalMenuForLocale,
@@ -31,7 +31,7 @@ const target = { type: "external" as const, url: "https://example.com/path" }
 function rows(): (Omit<NavItem, "panel"> & {
   panel: Extract<NonNullable<NavItem["panel"]>, { columns: number }>
 })[] {
-  const blocks = (region: string): Block[] => [
+  const sections = (region: string): PanelSection[] => [
     {
       id: `${region}-group`,
       kind: "linkGroup",
@@ -57,8 +57,8 @@ function rows(): (Omit<NavItem, "panel"> & {
       label: { fr: "Menu" },
       panel: {
         columns: 2,
-        blocks: blocks("panel"),
-        footer: { blocks: blocks("footer") },
+        sections: sections("panel"),
+        footer: { sections: sections("footer") },
       },
     },
   ]
@@ -130,16 +130,16 @@ describe("D1 real menu saves", () => {
       for (const text of ['Read <more> [now] {"plain":true}', "   "]) {
         const canonical = (await f.load())!
         const draft = projectLocale(canonical.nav, "en", "fr")
-        const blocks =
+        const sections =
           region === "panel"
-            ? legacyPanel(draft[0]!.panel!).blocks
-            : draft[0]!.panel!.footer!.blocks
-        for (const block of blocks) {
-          if (block.kind === "linkGroup") {
-            block.heading = text
-            block.links[0]!.description = text
-          } else if (block.kind === "dynamicList") block.heading = text
-          else block.description = text
+            ? legacyPanel(draft[0]!.panel!).sections
+            : draft[0]!.panel!.footer!.sections
+        for (const section of sections) {
+          if (section.kind === "linkGroup") {
+            section.heading = text
+            section.links[0]!.description = text
+          } else if (section.kind === "dynamicList") section.heading = text
+          else section.description = text
         }
         await f.save(
           mergeLocale(canonical.nav, "en", draft),
@@ -150,7 +150,7 @@ describe("D1 real menu saves", () => {
         const leaves = menuTextLeaves(saved).filter(
           (leaf) =>
             leaf.kind === "optional" &&
-            (leaf.path.startsWith(`block/${region}-`) ||
+            (leaf.path.startsWith(`section/${region}-`) ||
               leaf.path.startsWith(`link/${region}-`))
         )
         expect(leaves).toHaveLength(4)
@@ -166,7 +166,7 @@ describe("D1 real menu saves", () => {
     const draft = projectLocale((await f.load())!.nav, "fr", "fr")
     draft[0]!.panel = {
       columns: 1,
-      blocks: [
+      sections: [
         {
           id: "new-list",
           kind: "dynamicList",
@@ -181,7 +181,7 @@ describe("D1 real menu saves", () => {
       1
     )
     expect(
-      legacyPanel((await f.load())!.nav[0]!.panel!).blocks[0]
+      legacyPanel((await f.load())!.nav[0]!.panel!).sections[0]
     ).not.toHaveProperty("heading")
   })
 
@@ -393,7 +393,7 @@ describe("D1 class-wide text rules", () => {
 
   test("F09 and retained migration keep strict optional-heading behavior; save does not", () => {
     const nav = rows()
-    legacyPanel(nav[0]!.panel!).blocks[0]!.heading = { nl: "Groep" }
+    legacyPanel(nav[0]!.panel!).sections[0]!.heading = { nl: "Groep" }
     expect(() => validateCanonicalMenu(nav)).not.toThrow()
     expect(() => validateCanonicalMenuForLocale(nav, "fr")).toThrow()
     expect(menuNodePathsMissingRequiredText(nav, "fr")).toContain(
@@ -407,8 +407,8 @@ function legacyMultiRow(): NavItem[] {
   const nav = rows()
   const panel = legacyPanel(nav[0]!.panel!)
   panel.columns = 3
-  panel.blocks[0]!.span = 2
-  panel.blocks.push(
+  panel.sections[0]!.span = 2
+  panel.sections.push(
     {
       id: "fourth",
       kind: "linkGroup",
@@ -446,7 +446,7 @@ test("R1a legacy multi-row resolver matches the base fixture", async () => {
         id: "menu",
         label: "Menu",
         panel: {
-          blocks: [
+          sections: [
             {
               id: "panel-group",
               kind: "linkGroup",
@@ -522,7 +522,7 @@ test("R1a legacy multi-row resolver matches the base fixture", async () => {
           ],
           columns: 3,
           footer: {
-            blocks: [
+            sections: [
               {
                 id: "footer-group",
                 kind: "linkGroup",
@@ -588,7 +588,7 @@ function columnRows(): NavItem[] {
         columns: [
           {
             id: "left",
-            blocks: [
+            sections: [
               {
                 id: "column-group",
                 kind: "linkGroup",
@@ -614,7 +614,7 @@ function columnRows(): NavItem[] {
           },
           {
             id: "right",
-            blocks: [
+            sections: [
               {
                 id: "column-list",
                 kind: "dynamicList",
@@ -628,7 +628,7 @@ function columnRows(): NavItem[] {
           },
         ],
         footer: {
-          blocks: [
+          sections: [
             {
               id: "column-footer",
               kind: "featured",
@@ -672,7 +672,7 @@ describe("R1a both stored panel shapes", () => {
     const nav = columnRows()
     columnPanel(nav).columns = Array.from({ length: count }, (_, index) => ({
       id: `col-${index}`,
-      blocks: [],
+      sections: [],
     }))
     expect(() => validateCanonicalMenu(nav)).not.toThrow()
   })
@@ -681,7 +681,7 @@ describe("R1a both stored panel shapes", () => {
     const nav = columnRows()
     columnPanel(nav).columns = Array.from({ length: 5 }, (_, index) => ({
       id: `col-${index}`,
-      blocks: [],
+      sections: [],
     }))
     expect(() => validateCanonicalMenu(nav)).toThrow(/at most 4/)
   })
@@ -705,7 +705,7 @@ describe("R1a both stored panel shapes", () => {
       if (defect === "duplicate column")
         panel.columns[1]!.id = panel.columns[0]!.id
       if (defect === "blank column") panel.columns[0]!.id = " "
-      const feature = panel.columns[0]!.blocks[1]!
+      const feature = panel.columns[0]!.sections[1]!
       if (feature.kind !== "featured") throw new Error("fixture")
       if (defect === "span") feature.span = 1
       if (defect === "featured target") feature.target = target
@@ -716,7 +716,7 @@ describe("R1a both stored panel shapes", () => {
 
   test("legacy featured Link refused; absent featured image valid in both shapes", () => {
     const nav = rows(),
-      feature = nav[0]!.panel.blocks[2]!
+      feature = nav[0]!.panel.sections[2]!
     if (feature.kind !== "featured") throw new Error("fixture")
     delete feature.image
     expect(() => validateCanonicalMenu(nav)).not.toThrow()
@@ -750,8 +750,8 @@ describe("R1a both stored panel shapes", () => {
     expect(resolved?.nav[0]?.target).toEqual({ type: "placeholder", url: "#" })
     const panel = resolved?.nav[0]?.panel
     if (!panel || !("layout" in panel)) throw new Error("Missing column panel")
-    expect(panel.columns[0]!.blocks).toHaveLength(2)
-    expect(panel.columns[0]!.blocks[1]).toMatchObject({
+    expect(panel.columns[0]!.sections).toHaveLength(2)
+    expect(panel.columns[0]!.sections[1]).toMatchObject({
       kind: "featured",
       link: { label: "Read", target: { type: "placeholder", url: "#" } },
     })
@@ -766,7 +766,7 @@ describe("R1a both stored panel shapes", () => {
       f = await fixture(nav)
     const before = await f.effects()
     await expect(
-      f.save([{ ...nav[0]!, panel: { columns: 1, blocks: [] } }], "fr", 1)
+      f.save([{ ...nav[0]!, panel: { columns: 1, sections: [] } }], "fr", 1)
     ).rejects.toThrow(/reload/)
     expect(await f.effects()).toEqual(before)
   })
@@ -788,7 +788,7 @@ describe("R1a both stored panel shapes", () => {
 
   test("two-locale missing-text counts omit absent images; Link label is required", async () => {
     const nav = columnRows(),
-      feature = columnPanel(nav).columns[0]!.blocks[1]!
+      feature = columnPanel(nav).columns[0]!.sections[1]!
     if (feature.kind !== "featured") throw new Error("fixture")
     delete feature.link!.label.en
     const f = await fixture(nav)
@@ -806,7 +806,7 @@ describe("R1a both stored panel shapes", () => {
   })
 })
 
-test("R1a column references include every target-bearing block kind and column IDs", async () => {
+test("R1a column references include every target-bearing section kind and column IDs", async () => {
   const nav = columnRows(),
     f = await fixture(nav)
   const pageId = await f.t.run((ctx) =>
@@ -822,17 +822,17 @@ test("R1a column references include every target-bearing block kind and column I
   const internalTarget = { type: "internal" as const, pageId }
   const panel = columnPanel(nav)
   for (const col of panel.columns)
-    for (const block of col.blocks) {
-      if (block.kind === "linkGroup") block.links[0]!.target = internalTarget
-      if (block.kind === "featured") block.link!.target = internalTarget
-      if (block.kind === "dynamicList") block.seeAll!.target = internalTarget
+    for (const section of col.sections) {
+      if (section.kind === "linkGroup") section.links[0]!.target = internalTarget
+      if (section.kind === "featured") section.link!.target = internalTarget
+      if (section.kind === "dynamicList") section.seeAll!.target = internalTarget
     }
   await f.save(nav, "fr", 1)
   expect((await f.effects()).refs.map((row) => row.path).sort()).toEqual(
     [
-      "nav/id:column-menu/panel/columns/id:left/blocks/id:column-group/links/id:column-link/target",
-      "nav/id:column-menu/panel/columns/id:left/blocks/id:column-feature/link/target",
-      "nav/id:column-menu/panel/columns/id:right/blocks/id:column-list/seeAll/target",
+      "nav/id:column-menu/panel/columns/id:left/sections/id:column-group/links/id:column-link/target",
+      "nav/id:column-menu/panel/columns/id:left/sections/id:column-feature/link/target",
+      "nav/id:column-menu/panel/columns/id:right/sections/id:column-list/seeAll/target",
     ].sort()
   )
 })
@@ -871,7 +871,7 @@ const conversionShapes: {
     groups: [[0], [1], []],
   },
   {
-    name: "wrap before a wide block",
+    name: "wrap before a wide section",
     n: 3,
     spans: [2, 2, 1],
     groups: [[0, 1], [], [2]],
@@ -899,7 +899,7 @@ const conversionShapes: {
   },
 ]
 
-function conversionBlock(index: number, region: string): Block {
+function conversionSection(index: number, region: string): PanelSection {
   const id = `${region}-${index}`
   const heading = { fr: `Titre ${id}`, en: `Heading ${id}`, nl: `Kop ${id}` }
   if (index % 3 === 0)
@@ -941,7 +941,7 @@ function conversionBlock(index: number, region: string): Block {
   }
 }
 
-function expectConvertedBlock(actual: Block, original: Block) {
+function expectConvertedSection(actual: PanelSection, original: PanelSection) {
   expect(actual.id).toBe(original.id)
   expect(actual).not.toHaveProperty("span")
   // Compare the entire surviving payload, including every locale bag and destination.
@@ -960,9 +960,9 @@ function expectConvertedBlock(actual: Block, original: Block) {
     delete restored.link
   }
   expect(restored).toEqual(original)
-  const words = (block: Block) =>
+  const words = (section: PanelSection) =>
     menuTextLeaves([
-      { id: "words", label: {}, panel: { columns: 1, blocks: [block] } },
+      { id: "words", label: {}, panel: { columns: 1, sections: [section] } },
     ]).flatMap(({ bag }) =>
       Object.values(bag ?? {}).flatMap((text) => text.match(/\S+/g) ?? [])
     )
@@ -981,15 +981,15 @@ test.each(conversionShapes)(
   ({ n, spans, groups, name }) => {
     const panel: LegacyPanel = {
       columns: n,
-      blocks: spans.map((span, index) => ({
-        ...conversionBlock(index, "panel"),
+      sections: spans.map((span, index) => ({
+        ...conversionSection(index, "panel"),
         span,
       })),
     }
     if (name !== "empty")
       panel.footer = {
-        blocks: [1, 3, 2].map((span, index) => ({
-          ...conversionBlock(index, "footer"),
+        sections: [1, 3, 2].map((span, index) => ({
+          ...conversionSection(index, "footer"),
           span: span === 3 ? 3 : span === 2 ? 2 : 1,
         })),
       }
@@ -1001,8 +1001,8 @@ test.each(conversionShapes)(
         "Services",
         "Derniers articles",
       ]
-      panel.blocks.forEach((block, index) => {
-        block.heading = {
+      panel.sections.forEach((section, index) => {
+        section.heading = {
           fr: names[index]!,
           en: `EN ${names[index]!}`,
           nl: `NL ${names[index]!}`,
@@ -1018,26 +1018,26 @@ test.each(conversionShapes)(
       groups.length
     )
     expect(
-      converted.columns.map((column) => column.blocks.map((block) => block.id))
+      converted.columns.map((column) => column.sections.map((section) => section.id))
     ).toEqual(groups.map((indices) => indices.map((index) => `panel-${index}`)))
-    const convertedBlocks = converted.columns.flatMap((column) => column.blocks)
-    expect(convertedBlocks).toHaveLength(panel.blocks.length)
+    const convertedSections = converted.columns.flatMap((column) => column.sections)
+    expect(convertedSections).toHaveLength(panel.sections.length)
     // Reconstruct approved row order by stable ID; column-major order intentionally changes at o6.
-    for (const block of panel.blocks) {
-      const actual = convertedBlocks.find(
-        (candidate) => candidate.id === block.id
+    for (const section of panel.sections) {
+      const actual = convertedSections.find(
+        (candidate) => candidate.id === section.id
       )
       expect(actual).toBeDefined()
-      if (!actual) throw new Error("Dropped panel block")
-      expectConvertedBlock(actual, block)
+      if (!actual) throw new Error("Dropped panel section")
+      expectConvertedSection(actual, section)
     }
     if (panel.footer) {
-      expect(converted.footer?.blocks.map((block) => block.id)).toEqual(
-        panel.footer.blocks.map((block) => block.id)
+      expect(converted.footer?.sections.map((section) => section.id)).toEqual(
+        panel.footer.sections.map((section) => section.id)
       )
-      expect(Object.keys(converted.footer!)).toEqual(["blocks"])
-      panel.footer.blocks.forEach((block, index) =>
-        expectConvertedBlock(converted.footer!.blocks[index]!, block)
+      expect(Object.keys(converted.footer!)).toEqual(["sections"])
+      panel.footer.sections.forEach((section, index) =>
+        expectConvertedSection(converted.footer!.sections[index]!, section)
       )
     } else expect(converted).not.toHaveProperty("footer")
     expect(() =>
@@ -1067,11 +1067,11 @@ test("R1a default conversion save rebuilds column references and preserves other
     })
   )
   const panel = nav[0]!.panel
-  for (const { block } of panelBlocks(panel)) {
+  for (const { section } of panelSections(panel)) {
     const internalTarget = { type: "internal" as const, pageId }
-    if (block.kind === "linkGroup") block.links[0]!.target = internalTarget
-    if (block.kind === "dynamicList") block.seeAll!.target = internalTarget
-    if (block.kind === "featured") block.target = internalTarget
+    if (section.kind === "linkGroup") section.links[0]!.target = internalTarget
+    if (section.kind === "dynamicList") section.seeAll!.target = internalTarget
+    if (section.kind === "featured") section.target = internalTarget
   }
   await f.save(nav, "fr", 1)
   const loaded = (await f.load())!
@@ -1085,20 +1085,20 @@ test("R1a default conversion save rebuilds column references and preserves other
   expectNoWidth(effects.menus)
   expect(effects.refs.map((row) => row.path).sort()).toEqual(
     [
-      "nav/id:menu/panel/columns/id:column-1/blocks/id:panel-group/links/id:panel-link/target",
-      "nav/id:menu/panel/columns/id:column-1/blocks/id:panel-feature/link/target",
-      "nav/id:menu/panel/columns/id:column-2/blocks/id:panel-recent/seeAll/target",
-      "nav/id:menu/panel/footer/blocks/id:footer-group/links/id:footer-link/target",
-      "nav/id:menu/panel/footer/blocks/id:footer-recent/seeAll/target",
-      "nav/id:menu/panel/footer/blocks/id:footer-feature/link/target",
+      "nav/id:menu/panel/columns/id:column-1/sections/id:panel-group/links/id:panel-link/target",
+      "nav/id:menu/panel/columns/id:column-1/sections/id:panel-feature/link/target",
+      "nav/id:menu/panel/columns/id:column-2/sections/id:panel-recent/seeAll/target",
+      "nav/id:menu/panel/footer/sections/id:footer-group/links/id:footer-link/target",
+      "nav/id:menu/panel/footer/sections/id:footer-recent/seeAll/target",
+      "nav/id:menu/panel/footer/sections/id:footer-feature/link/target",
     ].sort()
   )
   expect(effects.refs.every((row) => row.targetId === pageId)).toBe(true)
-  for (const { block } of panelBlocks(loaded.nav[0]!.panel)) {
-    const saved = panelBlocks((await f.load())!.nav[0]!.panel).find(
-      (entry) => entry.block.id === block.id
-    )!.block
-    expectConvertedBlock(saved, block)
+  for (const { section } of panelSections(loaded.nav[0]!.panel)) {
+    const saved = panelSections((await f.load())!.nav[0]!.panel).find(
+      (entry) => entry.section.id === section.id
+    )!.section
+    expectConvertedSection(saved, section)
   }
   // Reverse-shape refusal must preserve a NONEMPTY reference set and all effects.
   await expect(f.save(loaded.nav, "fr")).rejects.toThrow(/reload/)
@@ -1112,9 +1112,9 @@ test.each(["moved link label", "featured Link label", "footer Link label", "omit
     for (const leaf of menuTextLeaves(nav)) if (leaf.bag) leaf.bag.en = `English ${leaf.path}`
     const f = await fixture(nav)
     const converted = legacyToColumns(nav[0]!.panel)
-    const feature = converted.columns[0]!.blocks[1]!
-    const group = converted.columns[0]!.blocks[0]!
-    const footerFeature = converted.footer!.blocks[2]!
+    const feature = converted.columns[0]!.sections[1]!
+    const group = converted.columns[0]!.sections[0]!
+    const footerFeature = converted.footer!.sections[2]!
     if (feature.kind !== "featured" || group.kind !== "linkGroup" || footerFeature.kind !== "featured") throw new Error("Fixture shape")
     if (change === "moved link label") group.links[0]!.label.en = "Changed"
     if (change === "featured Link label") feature.link!.label.en = "Changed"
@@ -1130,13 +1130,13 @@ test.each(["moved link label", "featured Link label", "footer Link label", "omit
 function identityRows(): NavItem[] {
   const nav = columnRows()
   const panel = columnPanel(nav)
-  const feature = panel.columns[0]!.blocks[1]!
+  const feature = panel.columns[0]!.sections[1]!
   if (feature.kind !== "featured") throw new Error("Fixture feature")
   feature.image = { url: "https://example.com/card.jpg", alt: { fr: "" } }
-  const footerFeature = panel.footer!.blocks[0]!
+  const footerFeature = panel.footer!.sections[0]!
   if (footerFeature.kind !== "featured") throw new Error("Fixture footer")
   footerFeature.link = { label: { fr: "Pied" }, target }
-  panel.footer!.blocks.push({
+  panel.footer!.sections.push({
     id: "destination-group",
     kind: "linkGroup",
     links: [{ id: "destination-link", label: { fr: "Autre" }, target }],
@@ -1147,8 +1147,8 @@ function identityRows(): NavItem[] {
     panel: {
       layout: "columns",
       columns: [
-        { id: "left", blocks: [] },
-        { id: "right", blocks: [] },
+        { id: "left", sections: [] },
+        { id: "right", sections: [] },
       ],
     },
   })
@@ -1192,14 +1192,14 @@ async function identityFixture(nav = identityRows()) {
     })
   )
   for (const item of nav)
-    for (const { block } of panelBlocks(item.panel)) {
+    for (const { section } of panelSections(item.panel)) {
       const internal = { type: "internal" as const, pageId }
-      if (block.kind === "linkGroup")
-        for (const link of block.links) link.target = internal
-      if (block.kind === "featured" && block.link) block.link.target = internal
-      if (block.kind === "featured" && block.target) block.target = internal
-      if (block.kind === "dynamicList" && block.seeAll)
-        block.seeAll.target = internal
+      if (section.kind === "linkGroup")
+        for (const link of section.links) link.target = internal
+      if (section.kind === "featured" && section.link) section.link.target = internal
+      if (section.kind === "featured" && section.target) section.target = internal
+      if (section.kind === "dynamicList" && section.seeAll)
+        section.seeAll.target = internal
     }
   await f.save(nav, "fr", 1)
   return f
@@ -1207,34 +1207,34 @@ async function identityFixture(nav = identityRows()) {
 
 const identityMoves = [
   {
-    move: "block column A to B",
-    old: "columns/id:left/blocks/id:column-feature/link/target",
-    next: "columns/id:right/blocks/id:column-feature/link/target",
+    move: "section column A to B",
+    old: "columns/id:left/sections/id:column-feature/link/target",
+    next: "columns/id:right/sections/id:column-feature/link/target",
   },
   {
     move: "column renamed",
-    old: "columns/id:left/blocks/id:column-feature/link/target",
-    next: "columns/id:renamed/blocks/id:column-feature/link/target",
+    old: "columns/id:left/sections/id:column-feature/link/target",
+    next: "columns/id:renamed/sections/id:column-feature/link/target",
   },
   {
-    move: "block panel to footer",
-    old: "columns/id:left/blocks/id:column-feature/link/target",
-    next: "footer/blocks/id:column-feature/link/target",
+    move: "section panel to footer",
+    old: "columns/id:left/sections/id:column-feature/link/target",
+    next: "footer/sections/id:column-feature/link/target",
   },
   {
-    move: "block footer to panel",
-    old: "footer/blocks/id:column-footer/link/target",
-    next: "columns/id:right/blocks/id:column-footer/link/target",
+    move: "section footer to panel",
+    old: "footer/sections/id:column-footer/link/target",
+    next: "columns/id:right/sections/id:column-footer/link/target",
   },
   {
     move: "link to another group",
-    old: "columns/id:left/blocks/id:column-group/links/id:column-link/target",
-    next: "footer/blocks/id:destination-group/links/id:column-link/target",
+    old: "columns/id:left/sections/id:column-group/links/id:column-link/target",
+    next: "footer/sections/id:destination-group/links/id:column-link/target",
   },
   {
-    move: "block to another item",
-    old: "columns/id:left/blocks/id:column-feature/link/target",
-    next: "columns/id:left/blocks/id:column-feature/link/target",
+    move: "section to another item",
+    old: "columns/id:left/sections/id:column-feature/link/target",
+    next: "columns/id:left/sections/id:column-feature/link/target",
     item: "other-item",
   },
 ] as const
@@ -1246,25 +1246,25 @@ function moveIdentityDraft(draft: LocaleNavItem[], move: string) {
     return
   }
   if (move === "link to another group") {
-    const group = panel.columns[0]!.blocks[0]!
-    const other = panel.footer!.blocks[1]!
+    const group = panel.columns[0]!.sections[0]!
+    const other = panel.footer!.sections[1]!
     if (group.kind !== "linkGroup" || other.kind !== "linkGroup")
       throw new Error("Fixture groups")
     other.links.push(group.links.shift()!)
     return
   }
-  if (move === "block footer to panel") {
-    panel.columns[1]!.blocks.push(panel.footer!.blocks.shift()!)
+  if (move === "section footer to panel") {
+    panel.columns[1]!.sections.push(panel.footer!.sections.shift()!)
     return
   }
-  const feature = panel.columns[0]!.blocks.splice(1, 1)[0]!
-  if (move === "block panel to footer") panel.footer!.blocks.push(feature)
-  else if (move === "block to another item")
-    identityPanel(draft, 1).columns[0]!.blocks.push(feature)
-  else panel.columns[1]!.blocks.push(feature)
+  const feature = panel.columns[0]!.sections.splice(1, 1)[0]!
+  if (move === "section panel to footer") panel.footer!.sections.push(feature)
+  else if (move === "section to another item")
+    identityPanel(draft, 1).columns[0]!.sections.push(feature)
+  else panel.columns[1]!.sections.push(feature)
 }
 
-function movedIdentityPayload(nav: NavItem[], move = "block to another item") {
+function movedIdentityPayload(nav: NavItem[], move = "section to another item") {
   const draft = projectLocale(nav, "fr", "fr")
   moveIdentityDraft(draft, move)
   return replaceDefaultLocale(nav, "fr", draft)
@@ -1279,8 +1279,8 @@ describe("R4b menu-scoped translation identity", () => {
     { move: "e: link group to another column, no seed", kind: "linkGroup", sourceFooter: false, column: true, destinationFooter: false, removeOriginal: true },
   ] as const)("cross-item convert-and-move save path: $move", async (scenario) => {
     const nav: NavItem[] = rows()
-    const blockId = `${scenario.sourceFooter ? "footer" : "panel"}-${scenario.kind === "featured" ? "feature" : "group"}`
-    panelBlocks(nav[0]!.panel).find(({ block }) => block.id === blockId)!.block.span = 2
+    const sectionId = `${scenario.sourceFooter ? "footer" : "panel"}-${scenario.kind === "featured" ? "feature" : "group"}`
+    panelSections(nav[0]!.panel).find(({ section }) => section.id === sectionId)!.section.span = 2
     nav.push({
       id: "destination-item",
       label: { fr: "Destination" },
@@ -1289,10 +1289,10 @@ describe("R4b menu-scoped translation identity", () => {
             layout: "columns",
             title: { fr: "Titre destination" },
             description: { fr: "Description destination" },
-            columns: [{ id: "left", blocks: [] }, { id: "right", blocks: [] }],
-            footer: { blocks: [] },
+            columns: [{ id: "left", sections: [] }, { id: "right", sections: [] }],
+            footer: { sections: [] },
           }
-        : { columns: 2, blocks: [], footer: { blocks: [] } },
+        : { columns: 2, sections: [], footer: { sections: [] } },
     })
     for (const leaf of menuTextLeaves(nav))
       if (leaf.bag) {
@@ -1304,77 +1304,77 @@ describe("R4b menu-scoped translation identity", () => {
     const snapshot = structuredClone(before.nav)
     const oldEffects = await f.effects()
     expect(oldEffects.refs.length).toBeGreaterThan(0)
-    const storedBlock = panelBlocks(before.nav[0]!.panel).find(
-      ({ block }) => block.id === blockId
-    )!.block
+    const storedSection = panelSections(before.nav[0]!.panel).find(
+      ({ section }) => section.id === sectionId
+    )!.section
 
     // Build the expected full-bag result with the existing converter, independently
     // of the baseline. Then perform the same structural edit on the FR projection.
     const expected = structuredClone(before.nav)
     const expectedSource = legacyPanel(expected[0]!.panel)
-    const sourceBlocks = scenario.sourceFooter ? expectedSource.footer!.blocks : expectedSource.blocks
-    const originalBlock = sourceBlocks.splice(sourceBlocks.findIndex((block) => block.id === blockId), 1)[0]!
+    const sourceSections = scenario.sourceFooter ? expectedSource.footer!.sections : expectedSource.sections
+    const originalSection = sourceSections.splice(sourceSections.findIndex((section) => section.id === sectionId), 1)[0]!
     const converted = legacyToColumns(legacyPanel(before.nav[0]!.panel))
-    const expectedBlock = scenario.column
-      ? panelBlocks(converted).find(({ block }) => block.id === blockId)!.block
-      : originalBlock
+    const expectedSection = scenario.column
+      ? panelSections(converted).find(({ section }) => section.id === sectionId)!.section
+      : originalSection
     const expectedDestination = expected[1]!.panel!
-    if (scenario.destinationFooter) expectedDestination.footer!.blocks.push(expectedBlock)
-    else if (isColumnPanel(expectedDestination)) expectedDestination.columns[1]!.blocks.push(expectedBlock)
-    else expectedDestination.blocks.push(expectedBlock)
+    if (scenario.destinationFooter) expectedDestination.footer!.sections.push(expectedSection)
+    else if (isColumnPanel(expectedDestination)) expectedDestination.columns[1]!.sections.push(expectedSection)
+    else expectedDestination.sections.push(expectedSection)
     if (scenario.removeOriginal) expected.shift()
 
     const draft = projectLocale(before.nav, "fr", "fr")
     const draftSource = legacyPanel(draft[0]!.panel)
-    const draftBlocks = scenario.sourceFooter ? draftSource.footer!.blocks : draftSource.blocks
-    let moved = draftBlocks.splice(draftBlocks.findIndex((block) => block.id === blockId), 1)[0]!
+    const draftSections = scenario.sourceFooter ? draftSource.footer!.sections : draftSource.sections
+    let moved = draftSections.splice(draftSections.findIndex((section) => section.id === sectionId), 1)[0]!
     if (scenario.column) {
       const projectedConversion = projectLocale([{ ...before.nav[0]!, panel: converted }], "fr", "fr")
-      moved = panelBlocks(projectedConversion[0]!.panel).find(({ block }) => block.id === blockId)!.block
+      moved = panelSections(projectedConversion[0]!.panel).find(({ section }) => section.id === sectionId)!.section
     }
     const destination = draft[1]!.panel!
-    if (scenario.destinationFooter) destination.footer!.blocks.push(moved)
-    else if (isColumnPanel(destination)) destination.columns[1]!.blocks.push(moved)
-    else destination.blocks.push(moved)
+    if (scenario.destinationFooter) destination.footer!.sections.push(moved)
+    else if (isColumnPanel(destination)) destination.columns[1]!.sections.push(moved)
+    else destination.sections.push(moved)
     if (scenario.removeOriginal) draft.shift()
     const draftSnapshot = JSON.stringify(draft)
     const baseline = menuConversionBaseline(before.nav, draft)
     const baselineSnapshot = structuredClone(baseline)
     const next = replaceDefaultLocale(before.nav, "fr", draft)
     expect(identityBags(next)).toEqual(identityBags(expected))
-    const savedBlock = panelBlocks(next.find((item) => item.id === "destination-item")!.panel)
-      .find(({ block }) => block.id === blockId)!.block
-    const baselineBlock = panelBlocks(baseline[0]!.panel).find(({ block }) => block.id === blockId)!.block
+    const savedSection = panelSections(next.find((item) => item.id === "destination-item")!.panel)
+      .find(({ section }) => section.id === sectionId)!.section
+    const baselineSection = panelSections(baseline[0]!.panel).find(({ section }) => section.id === sectionId)!.section
     if (scenario.column) {
-      expect(savedBlock.span).toBeUndefined()
-      expect(baselineBlock.span).toBeUndefined()
-    } else expect(baselineBlock).toEqual(storedBlock)
-    if (savedBlock.kind === "featured" && storedBlock.kind === "featured") {
+      expect(savedSection.span).toBeUndefined()
+      expect(baselineSection.span).toBeUndefined()
+    } else expect(baselineSection).toEqual(storedSection)
+    if (savedSection.kind === "featured" && storedSection.kind === "featured") {
       if (scenario.column) {
-        expect(savedBlock.target).toBeUndefined()
-        expect(savedBlock.link!.target).toEqual(storedBlock.target)
-        expect(savedBlock.link!.label).toEqual(storedBlock.heading)
-        expect(savedBlock.link!.label.en).toBe(storedBlock.heading.en)
+        expect(savedSection.target).toBeUndefined()
+        expect(savedSection.link!.target).toEqual(storedSection.target)
+        expect(savedSection.link!.label).toEqual(storedSection.heading)
+        expect(savedSection.link!.label.en).toBe(storedSection.heading.en)
       } else {
-        expect(savedBlock.link).toBeUndefined()
-        expect(savedBlock.target).toEqual(storedBlock.target)
-        expect(savedBlock.span).toBe(2)
+        expect(savedSection.link).toBeUndefined()
+        expect(savedSection.target).toEqual(storedSection.target)
+        expect(savedSection.span).toBe(2)
       }
     }
     const seededKeys = Object.keys(identityBags(next)).filter((key) => !(key in identityBags(before.nav)))
-    expect(seededKeys).toEqual(scenario.column && scenario.kind === "featured" ? [`block/${blockId}/link/label`] : [])
+    expect(seededKeys).toEqual(scenario.column && scenario.kind === "featured" ? [`section/${sectionId}/link/label`] : [])
 
     for (const change of scenario.column && scenario.kind === "featured" ? ["change seed", "omit seed"] : ["inject or tamper"]) {
       const tampered = structuredClone(next)
-      const block = panelBlocks(tampered.find((item) => item.id === "destination-item")!.panel)
-        .find(({ block }) => block.id === blockId)!.block
-      if (block.kind === "featured") {
-        if (!scenario.column) block.link = { label: { ...block.heading }, target: block.target! }
-        else if (change === "omit seed") delete block.link!.label.en
-        else block.link!.label.en = "Tampered seed"
-      } else if (block.kind === "linkGroup") block.links[0]!.label.en = "Tampered group"
+      const section = panelSections(tampered.find((item) => item.id === "destination-item")!.panel)
+        .find(({ section }) => section.id === sectionId)!.section
+      if (section.kind === "featured") {
+        if (!scenario.column) section.link = { label: { ...section.heading }, target: section.target! }
+        else if (change === "omit seed") delete section.link!.label.en
+        else section.link!.label.en = "Tampered seed"
+      } else if (section.kind === "linkGroup") section.links[0]!.label.en = "Tampered group"
       await expect(f.save(tampered, "fr", before.updatedAt)).rejects.toThrow(
-        /preserve translations|Legacy featured blocks cannot have a Link/
+        /preserve translations|Legacy featured sections cannot have a Link/
       )
       expect(await f.effects()).toEqual(oldEffects)
     }
@@ -1385,8 +1385,8 @@ describe("R4b menu-scoped translation identity", () => {
     expect(loaded.nav).toEqual(next)
     expect(identityBags(loaded.nav)).toEqual(identityBags(expected))
     const newRefs = (await f.effects()).refs
-    const oldPath = `nav/id:menu/panel/${scenario.sourceFooter ? "footer/blocks" : "blocks"}/id:${blockId}/${scenario.kind === "featured" ? "target" : "links/id:panel-link/target"}`
-    const newPath = `nav/id:destination-item/panel/${scenario.destinationFooter ? "footer/blocks" : scenario.column ? "columns/id:right/blocks" : "blocks"}/id:${blockId}/${scenario.kind === "featured" ? scenario.column ? "link/target" : "target" : "links/id:panel-link/target"}`
+    const oldPath = `nav/id:menu/panel/${scenario.sourceFooter ? "footer/sections" : "sections"}/id:${sectionId}/${scenario.kind === "featured" ? "target" : "links/id:panel-link/target"}`
+    const newPath = `nav/id:destination-item/panel/${scenario.destinationFooter ? "footer/sections" : scenario.column ? "columns/id:right/sections" : "sections"}/id:${sectionId}/${scenario.kind === "featured" ? scenario.column ? "link/target" : "target" : "links/id:panel-link/target"}`
     expect(oldEffects.refs.map((ref) => ref.path)).toContain(oldPath)
     expect(newRefs.map((ref) => ref.path)).not.toContain(oldPath)
     expect(newRefs.map((ref) => ref.path)).toContain(newPath)
@@ -1453,7 +1453,7 @@ describe("R4b menu-scoped translation identity", () => {
     }
   )
 
-  test.each(["item", "block", "link"])(
+  test.each(["item", "section", "link"])(
     "whole %s owner deletion succeeds",
     async (owner) => {
       const f = await identityFixture()
@@ -1461,10 +1461,10 @@ describe("R4b menu-scoped translation identity", () => {
       const oldRefs = (await f.effects()).refs
       const draft = projectLocale(loaded.nav, "fr", "fr")
       if (owner === "item") draft.shift()
-      else if (owner === "block")
-        identityPanel(draft).columns[0]!.blocks.splice(1, 1)
+      else if (owner === "section")
+        identityPanel(draft).columns[0]!.sections.splice(1, 1)
       else {
-        const group = identityPanel(draft).columns[0]!.blocks[0]!
+        const group = identityPanel(draft).columns[0]!.sections[0]!
         if (group.kind !== "linkGroup") throw new Error("Fixture group")
         group.links = []
       }
@@ -1482,7 +1482,7 @@ describe("R4b menu-scoped translation identity", () => {
       let loaded = (await f.load())!
       if (deleted) {
         const draft = projectLocale(loaded.nav, "fr", "fr")
-        identityPanel(draft).columns[0]!.blocks.splice(1, 1)
+        identityPanel(draft).columns[0]!.sections.splice(1, 1)
         await f.save(
           replaceDefaultLocale(loaded.nav, "fr", draft),
           "fr",
@@ -1492,13 +1492,13 @@ describe("R4b menu-scoped translation identity", () => {
       }
       const draft = projectLocale(loaded.nav, "fr", "fr")
       const id = deleted ? "column-feature" : "fresh-feature"
-      identityPanel(draft).columns[0]!.blocks.push({
+      identityPanel(draft).columns[0]!.sections.push({
         id,
         kind: "featured",
         heading: "Nouveau",
       })
       const next = replaceDefaultLocale(loaded.nav, "fr", draft)
-      const feature = columnPanel(next).columns[0]!.blocks.at(-1)!
+      const feature = columnPanel(next).columns[0]!.sections.at(-1)!
       if (feature.kind !== "featured") throw new Error("Fixture new feature")
       expect(feature.heading).toEqual({ fr: "Nouveau" })
       feature.heading.en = "Injected"
@@ -1510,7 +1510,7 @@ describe("R4b menu-scoped translation identity", () => {
     }
   )
 
-  test.each(["item", "block", "link", "column"])(
+  test.each(["item", "section", "link", "column"])(
     "duplicate %s IDs are refused atomically",
     async (kind) => {
       const f = await identityFixture()
@@ -1518,14 +1518,14 @@ describe("R4b menu-scoped translation identity", () => {
       const next = movedIdentityPayload(loaded.nav)
       const panel = columnPanel(next)
       if (kind === "item") next[1]!.id = next[0]!.id
-      if (kind === "block")
-        panel.columns[1]!.blocks.push(
-          structuredClone(panel.columns[0]!.blocks[0]!)
+      if (kind === "section")
+        panel.columns[1]!.sections.push(
+          structuredClone(panel.columns[0]!.sections[0]!)
         )
       if (kind === "column") panel.columns[1]!.id = panel.columns[0]!.id
       if (kind === "link") {
-        const group = panel.columns[0]!.blocks[0]!
-        const other = panel.footer!.blocks[1]!
+        const group = panel.columns[0]!.sections[0]!
+        const other = panel.footer!.sections[1]!
         if (group.kind !== "linkGroup" || other.kind !== "linkGroup")
           throw new Error("Fixture group")
         other.links.push(structuredClone(group.links[0]!))
@@ -1545,10 +1545,10 @@ describe("R4b menu-scoped translation identity", () => {
       item.id = encodeId(item.id)
       if (item.panel && isColumnPanel(item.panel))
         for (const col of item.panel.columns) col.id = encodeId(col.id)
-      for (const { block } of panelBlocks(item.panel)) {
-        block.id = encodeId(block.id)
-        if (block.kind === "linkGroup")
-          for (const link of block.links) link.id = encodeId(link.id)
+      for (const { section } of panelSections(item.panel)) {
+        section.id = encodeId(section.id)
+        if (section.kind === "linkGroup")
+          for (const link of section.links) link.id = encodeId(link.id)
       }
     }
     const f = await identityFixture(nav)
@@ -1558,17 +1558,17 @@ describe("R4b menu-scoped translation identity", () => {
     expect(identityBags((await f.load())!.nav)).toEqual(
       identityBags(loaded.nav)
     )
-    expect(menuTextKey("block", "column-feature/% space", "heading")).toBe(
-      "block/column-feature%2F%25%20space/heading"
+    expect(menuTextKey("section", "column-feature/% space", "heading")).toBe(
+      "section/column-feature%2F%25%20space/heading"
     )
     expect(menuTextLeaves(next).map((leaf) => leaf.path)).toContain(
-      "block/column-feature%2F%25%20space/heading"
+      "section/column-feature%2F%25%20space/heading"
     )
     expect(menuTextLeaves(next).map((leaf) => leaf.path)).toContain(
       "link/column-link%2F%25%20space/label"
     )
     expect((await f.effects()).refs.map((ref) => ref.path)).toContain(
-      "nav/id:other-item%2F%25%20space/panel/columns/id:left%2F%25%20space/blocks/id:column-feature%2F%25%20space/link/target"
+      "nav/id:other-item%2F%25%20space/panel/columns/id:left%2F%25%20space/sections/id:column-feature%2F%25%20space/link/target"
     )
   })
 
@@ -1620,17 +1620,17 @@ describe("R4b menu-scoped translation identity", () => {
     const loaded = (await f.load())!
     const draft = projectLocale(loaded.nav, "fr", "fr")
     const panel = identityPanel(draft)
-    panel.columns[0]!.blocks[1] = {
+    panel.columns[0]!.sections[1] = {
       id: "column-feature",
       kind: "dynamicList",
       heading: "Récent",
       source: { pageType: "landing-page", limit: 3 },
     }
     expect(() => replaceDefaultLocale(loaded.nav, "fr", draft)).toThrow(
-      "Use a new block to change its kind"
+      "Use a new section to change its kind"
     )
     const raw = structuredClone(loaded.nav)
-    columnPanel(raw).columns[0]!.blocks[1] = {
+    columnPanel(raw).columns[0]!.sections[1] = {
       id: "column-feature",
       kind: "dynamicList",
       heading: { fr: "Récent" },
@@ -1638,10 +1638,10 @@ describe("R4b menu-scoped translation identity", () => {
     }
     const before = await f.effects()
     await expect(f.save(raw, "fr", loaded.updatedAt)).rejects.toThrow(
-      "Use a new block to change its kind"
+      "Use a new section to change its kind"
     )
     expect(await f.effects()).toEqual(before)
-    panel.columns[0]!.blocks[1]!.id = "new-kind-new-id"
+    panel.columns[0]!.sections[1]!.id = "new-kind-new-id"
     const next = replaceDefaultLocale(loaded.nav, "fr", draft)
     await f.save(next, "fr", loaded.updatedAt)
     expect((await f.load())!.nav).toEqual(next)
@@ -1664,12 +1664,12 @@ describe("R4b menu-scoped translation identity", () => {
         .filter((key) => !(key in beforeBags))
         .sort()
     ).toEqual([
-      "block/footer-feature/link/label",
-      "block/panel-feature/link/label",
+      "section/footer-feature/link/label",
+      "section/panel-feature/link/label",
     ])
     for (const region of ["panel", "footer"])
-      expect(baselineBags[`block/${region}-feature/link/label`]).toEqual(
-        beforeBags[`block/${region}-feature/heading`]
+      expect(baselineBags[`section/${region}-feature/link/label`]).toEqual(
+        beforeBags[`section/${region}-feature/heading`]
       )
     const baselineSnapshot = structuredClone(baseline)
     const next = replaceDefaultLocale(
@@ -1683,7 +1683,7 @@ describe("R4b menu-scoped translation identity", () => {
     for (const region of ["panel", "footer"]) {
       const tampered = structuredClone(next)
       menuTextLeaves(tampered).find(
-        (leaf) => leaf.path === `block/${region}-feature/link/label`
+        (leaf) => leaf.path === `section/${region}-feature/link/label`
       )!.bag!.en = "Different English"
       const before = await f.effects()
       await expect(f.save(tampered, "fr", 1)).rejects.toThrow(
@@ -1701,9 +1701,9 @@ describe("R4b menu-scoped translation identity", () => {
   test("semantics fixture retains removable subowners, alt ownership, counts, F09 and public omission", async () => {
     const nav = identityRows()
     const panel = columnPanel(nav)
-    const feature = panel.columns[0]!.blocks[1]!
-    const list = panel.columns[1]!.blocks[0]!
-    const group = panel.columns[0]!.blocks[0]!
+    const feature = panel.columns[0]!.sections[1]!
+    const list = panel.columns[1]!.sections[0]!
+    const group = panel.columns[0]!.sections[0]!
     if (
       feature.kind !== "featured" ||
       list.kind !== "dynamicList" ||
@@ -1716,8 +1716,8 @@ describe("R4b menu-scoped translation identity", () => {
     feature.image!.alt = { fr: "", en: "" }
     expect(countMenuNodesMissingText(nav, "en")).toBe(0)
     const missing = structuredClone(nav)
-    const broken = columnPanel(missing).columns[0]!.blocks[1]!
-    const missingList = columnPanel(missing).columns[1]!.blocks[0]!
+    const broken = columnPanel(missing).columns[0]!.sections[1]!
+    const missingList = columnPanel(missing).columns[1]!.sections[0]!
     if (broken.kind !== "featured" || missingList.kind !== "dynamicList")
       throw new Error("Fixture missing")
     delete broken.heading.en
@@ -1726,9 +1726,9 @@ describe("R4b menu-scoped translation identity", () => {
     delete missingList.seeAll!.label.en
     expect(countMenuNodesMissingText(missing, "en")).toBe(2)
     const missingLinks = structuredClone(missing)
-    for (const { block } of panelBlocks(missingLinks[0]!.panel))
-      if (block.kind === "linkGroup")
-        for (const link of block.links) delete link.label.en
+    for (const { section } of panelSections(missingLinks[0]!.panel))
+      if (section.kind === "linkGroup")
+        for (const link of section.links) delete link.label.en
     expect(countMenuNodesMissingText(missingLinks, "en")).toBe(4)
     group.heading = { fr: "Groupe" }
     expect(() => validateCanonicalMenuForLocale(nav, "en")).toThrow(
@@ -1740,8 +1740,8 @@ describe("R4b menu-scoped translation identity", () => {
     const f = await identityFixture(nav)
     const loaded = (await f.load())!
     const draft = projectLocale(loaded.nav, "fr", "fr")
-    const draftFeature = identityPanel(draft).columns[0]!.blocks[1]!
-    const draftList = identityPanel(draft).columns[1]!.blocks[0]!
+    const draftFeature = identityPanel(draft).columns[0]!.sections[1]!
+    const draftList = identityPanel(draft).columns[1]!.sections[0]!
     if (draftFeature.kind !== "featured" || draftList.kind !== "dynamicList")
       throw new Error("Fixture draft")
     delete draftFeature.link
@@ -1749,13 +1749,13 @@ describe("R4b menu-scoped translation identity", () => {
     const next = replaceDefaultLocale(loaded.nav, "fr", draft)
     await f.save(next, "fr", loaded.updatedAt)
     const saved = (await f.load())!
-    const savedFeature = columnPanel(saved.nav).columns[0]!.blocks[1]!
+    const savedFeature = columnPanel(saved.nav).columns[0]!.sections[1]!
     if (savedFeature.kind !== "featured") throw new Error("Fixture saved")
     expect(savedFeature.image!.alt).toEqual({ fr: "", en: "" })
     expect(savedFeature).not.toHaveProperty("description")
     expect(savedFeature).not.toHaveProperty("link")
     const omittedImage = structuredClone(saved.nav)
-    const withoutImage = columnPanel(omittedImage).columns[0]!.blocks[1]!
+    const withoutImage = columnPanel(omittedImage).columns[0]!.sections[1]!
     if (withoutImage.kind !== "featured") throw new Error("Fixture image")
     delete withoutImage.image
     const before = await f.effects()
@@ -1764,20 +1764,20 @@ describe("R4b menu-scoped translation identity", () => {
     )
     expect(await f.effects()).toEqual(before)
     const blankOptional = structuredClone(saved.nav)
-    const optionalGroup = columnPanel(blankOptional).columns[0]!.blocks[0]!
+    const optionalGroup = columnPanel(blankOptional).columns[0]!.sections[0]!
     if (optionalGroup.kind !== "linkGroup") throw new Error("Fixture optional")
     optionalGroup.links[0]!.description = { en: " " }
     await f.save(blankOptional, "fr", saved.updatedAt)
     expect(identityBags((await f.load())!.nav)).toEqual(identityBags(saved.nav))
     const publicEn = localizeCanonicalNav(missing, "en")
     expect(
-      panelBlocks(publicEn[0]!.panel).some(
-        ({ block }) => block.id === "column-feature"
+      panelSections(publicEn[0]!.panel).some(
+        ({ section }) => section.id === "column-feature"
       )
     ).toBe(false)
     expect(
-      panelBlocks(localizeCanonicalNav(missing, "fr")[0]!.panel).some(
-        ({ block }) => block.id === "column-feature"
+      panelSections(localizeCanonicalNav(missing, "fr")[0]!.panel).some(
+        ({ section }) => section.id === "column-feature"
       )
     ).toBe(true)
     await f.t.run((ctx) =>
@@ -1791,7 +1791,7 @@ describe("R4b menu-scoped translation identity", () => {
     // Persist locale-owned omissions through the real secondary save before the public query.
     const latest = (await f.load())!
     const secondary = projectLocale(latest.nav, "en", "fr")
-    const secondaryFeature = identityPanel(secondary).columns[0]!.blocks[1]!
+    const secondaryFeature = identityPanel(secondary).columns[0]!.sections[1]!
     if (secondaryFeature.kind !== "featured") throw new Error("Fixture public")
     secondaryFeature.heading = ""
     await f.save(
@@ -1806,8 +1806,8 @@ describe("R4b menu-scoped translation identity", () => {
       languageVersion: config.languageVersion,
     })
     expect(
-      panelBlocks(resolved!.nav[0]!.panel).some(
-        ({ block }) => block.id === "column-feature"
+      panelSections(resolved!.nav[0]!.panel).some(
+        ({ section }) => section.id === "column-feature"
       )
     ).toBe(false)
   })
@@ -1909,7 +1909,7 @@ test.each([PUBLIC_LANGUAGE_CASES[0], PUBLIC_LANGUAGE_CASES[3]])(
     await t.run(async (ctx) => {
       const pageId = await ctx.db.insert("pages", {
         pageType: "page", slug: "locale-target", status: "published",
-        content: { en: { title: "English", slices: [] }, fr: { title: "Français", slices: [] } },
+        content: { en: { title: "English", blocks: [] }, fr: { title: "Français", blocks: [] } },
         createdAt: 1, updatedAt: 1,
       })
       const menu = (await ctx.db.query("menus").unique())!

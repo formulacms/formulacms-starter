@@ -1,8 +1,8 @@
 import type { RemovedRichTextLink } from "@/convex/lib/richtext/shape"
 import type { RepeatedItemTarget } from "./page-editor/lib/repeated-item-identity"
 
-export type SliceFieldFocusTarget = {
-  sliceId: string
+export type BlockFieldFocusTarget = {
+  blockId: string
   fieldPath: string
   nonce: number
   /** Plain-text offset of the preview click; places the rich-text caret. */
@@ -12,7 +12,7 @@ export type SliceFieldFocusTarget = {
 }
 
 export type PreviewFieldSelection = {
-  sliceId: string
+  blockId: string
   fieldPath: string
   /** True only after the preview has actually opened an inline session. */
   inlineEditing?: boolean
@@ -51,8 +51,8 @@ export function isPreviewFieldSelection(
   if (!value || typeof value !== "object") return false
   const target = value as Record<string, unknown>
   return (
-    typeof target.sliceId === "string" &&
-    target.sliceId.length > 0 &&
+    typeof target.blockId === "string" &&
+    target.blockId.length > 0 &&
     typeof target.fieldPath === "string" &&
     target.fieldPath.length > 0 &&
     (target.inlineEditing === undefined ||
@@ -65,7 +65,7 @@ export function isPreviewFieldSelection(
       target.clickCount === 3) &&
     Object.keys(target).every((key) =>
       [
-        "sliceId",
+        "blockId",
         "fieldPath",
         "inlineEditing",
         "textOffset",
@@ -81,18 +81,18 @@ export type PreviewRendererSource = {
   sourceHash: string
 }
 
-export type SliceOccurrenceBaseline = {
+export type BlockOccurrenceBaseline = {
   rendererSource?: PreviewRendererSource
   /** Once observed stale, exact byte reverts cannot revive this buffer. */
   sourceInvalidated?: boolean
   locale: string
-  sliceId: string
-  sliceType: string
-  expectedSlice: string
+  blockId: string
+  blockType: string
+  expectedBlock: string
   repeatedTarget?: RepeatedItemTarget
 }
 
-export type PreviewInlineEditCommit = SliceOccurrenceBaseline & {
+export type PreviewInlineEditCommit = BlockOccurrenceBaseline & {
   /** Transient activation identity; never persisted with Page content. */
   inlineSessionId?: string
   /** Page content binding. Whole-occurrence bindings remain for source tools. */
@@ -132,8 +132,8 @@ export type PreviewActiveEditHandle = {
   hasActiveSession(): boolean
 }
 
-export type SliceFirstControlFocusTarget = {
-  sliceId: string
+export type BlockFirstControlFocusTarget = {
+  blockId: string
   nonce: number
 }
 
@@ -142,7 +142,7 @@ export type SliceFirstControlFocusTarget = {
  * row as selected without scrolling to it, so the preview stays under the
  * pointer for the rest of the click sequence. A new nonce per click.
  */
-export type SlicePreviewClickSelection = {
-  sliceId: string
+export type BlockPreviewClickSelection = {
+  blockId: string
   nonce: number
 }

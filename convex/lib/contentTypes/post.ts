@@ -1,5 +1,5 @@
 import { v } from "convex/values"
-import { boolean, list, relation, text } from "../slices/primitives"
+import { boolean, list, relation, text } from "../blocks/primitives"
 import type { ContentTypeDescriptor } from "./types"
 
 /**
@@ -20,8 +20,8 @@ import type { ContentTypeDescriptor } from "./types"
  *   flag as first slot (render-time publish gate). Indexed via
  *   `by_type_promoteToFront`.
  * - `capabilities.requiresBodyContent: true` — publish walker requires ≥1
- *   meaningful enabled slice for post (slices-as-body per ADR-0038
- *   §Slices-as-body). Emits `missing_required_field: "body"` when empty.
+ *   meaningful enabled block for post (blocks-as-body per ADR-0038
+ *   §Blocks-as-body). Emits `missing_required_field: "body"` when empty.
  *
  * ADR-0038 exposure: `.public()` on every field EXCEPT `tags` (locked as
  * "Internal Labels" — plan 029 §Recommended editor seam).
@@ -73,7 +73,7 @@ export const postContentType: PostDescriptor = {
   routing: { pathPrefix: "" },
   seo: { schemaOrgType: "Article", ogType: "article" },
   capabilities: {
-    sliceBody: true,
+    blockBody: true,
     revisions: true,
     scheduling: true,
     presence: true,

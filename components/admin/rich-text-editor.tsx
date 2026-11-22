@@ -843,7 +843,7 @@ export function RichTextEditor({
         // Tables need an explicit grid because
         // Tailwind typography only draws faint row rules (no cell borders /
         // header fill). These arbitrary utilities are editor-chrome CSS — they
-        // style the editing surface, not the stored slice content.
+        // style the editing surface, not the stored block content.
         class:
           "prose prose-sm prose-neutral dark:prose-invert max-w-none min-h-[8rem] px-3 py-2 focus:outline-none " +
           "[&_table]:w-full [&_table]:my-3 [&_table]:border-collapse [&_table]:table-fixed " +
@@ -1334,8 +1334,8 @@ export function RichTextEditor({
     }
   }
 
-  // Sync external `value` changes into a mounted editor. The slice editors reuse
-  // the same instance across edits (stable slice id → no remount), so an AI
+  // Sync external `value` changes into a mounted editor. The block editors reuse
+  // the same instance across edits (stable block id → no remount), so an AI
   // field-level translate that rewrites `value` would otherwise leave the editor
   // showing the pre-translation text.
   //

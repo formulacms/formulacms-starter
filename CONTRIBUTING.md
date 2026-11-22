@@ -5,8 +5,8 @@ Thank you for your interest in improving the starter.
 ## Before you start
 
 - Read [`README.md`](./README.md) for setup and the bounded-pilot release boundary.
-- Read [`docs/starter/slice-reuse-triage.md`](./docs/starter/slice-reuse-triage.md) before deciding whether to reuse a Slice Type.
-- Read [`docs/starter/content-model-authoring.md`](./docs/starter/content-model-authoring.md) before adding a content model or Slice Type.
+- Read [`docs/starter/block-reuse-triage.md`](./docs/starter/block-reuse-triage.md) before deciding whether to reuse a Block Type.
+- Read [`docs/starter/content-model-authoring.md`](./docs/starter/content-model-authoring.md) before adding a content model or Block Type.
 
 ## Development setup
 
@@ -21,8 +21,8 @@ pnpm dev   # starts Convex and Next.js, and finishes the local setup
 
 - One focused change per pull request. Do not bundle refactors.
 - Run `pnpm lint`, `pnpm typecheck`, and `pnpm build` before opening one.
-- New Slice Types follow the code-first authoring workflow and the
-  [Slice Type reuse triage](./docs/starter/slice-reuse-triage.md).
+- New Block Types follow the code-first authoring workflow and the
+  [Block Type reuse triage](./docs/starter/block-reuse-triage.md).
 - All contributions are subject to the CLA (see below).
 
 ## Contributor License Agreement

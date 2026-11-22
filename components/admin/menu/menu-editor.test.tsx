@@ -117,7 +117,7 @@ test("the owner renders editable canonical panel content", () => {
       label: { en: "Products" },
       panel: {
         columns: 1,
-        blocks: [
+        sections: [
           {
             id: "featured-links",
             kind: "linkGroup",
@@ -220,7 +220,7 @@ test("saving a Dutch-default secondary tab omits blank text and preserves decora
       label: { nl: "Producten", fr: "Produits" },
       panel: {
         columns: 1,
-        blocks: [
+        sections: [
           {
             id: "featured",
             kind: "featured",
@@ -265,7 +265,7 @@ test("saving a Dutch-default secondary tab omits blank text and preserves decora
           label: { nl: "Producten" },
           panel: {
             columns: 1,
-            blocks: [
+            sections: [
               {
                 id: "featured",
                 kind: "featured",
@@ -626,7 +626,7 @@ for (const region of ["main", "footer"] as const) {
     `typed_then_cleared_en_alt_is_decorative: ${region} %s`,
     async (mode) => {
       mocks.siteConfig = { enabledLocales: ["fr", "en"], defaultLocale: "fr" }
-      const block = {
+      const section = {
         id: "feature",
         kind: "featured" as const,
         heading: { fr: "Titre", en: "Heading" },
@@ -645,8 +645,8 @@ for (const region of ["main", "footer"] as const) {
           label: { fr: "Images", en: "Images EN" },
           panel: {
             columns: 1,
-            blocks: region === "main" ? [block] : [],
-            ...(region === "footer" ? { footer: { blocks: [block] } } : {}),
+            sections: region === "main" ? [section] : [],
+            ...(region === "footer" ? { footer: { sections: [section] } } : {}),
           },
         },
       ]
@@ -668,24 +668,24 @@ for (const region of ["main", "footer"] as const) {
       fireEvent.click(screen.getByRole("button", { name: "Save menu" }))
       await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1))
       const saved: NavItem[] = mocks.save.mock.calls[0]![0].nav
-      const savedBlock =
+      const savedSection =
         region === "main"
-          ? legacyPanel(saved[0]!.panel!).blocks[0]!
-          : saved[0]!.panel!.footer!.blocks[0]!
-      if (savedBlock.kind !== "featured") throw new Error("Expected featured")
-      expect(savedBlock.image).toBeDefined()
-      if (!savedBlock.image) throw new Error("Expected the saved featured image")
-      expect(savedBlock.image.alt.fr).toBe("Image FR")
-      expect(Object.hasOwn(savedBlock.image.alt, "en")).toBe(
+          ? legacyPanel(saved[0]!.panel!).sections[0]!
+          : saved[0]!.panel!.footer!.sections[0]!
+      if (savedSection.kind !== "featured") throw new Error("Expected featured")
+      expect(savedSection.image).toBeDefined()
+      if (!savedSection.image) throw new Error("Expected the saved featured image")
+      expect(savedSection.image.alt.fr).toBe("Image FR")
+      expect(Object.hasOwn(savedSection.image.alt, "en")).toBe(
         mode === "typed-cleared"
       )
-      if (mode === "typed-cleared") expect(savedBlock.image.alt.en).toBe("")
+      if (mode === "typed-cleared") expect(savedSection.image.alt.en).toBe("")
       const publicNav = localizeCanonicalNav(saved, "en")
-      const blocks =
+      const sections =
         region === "main"
-          ? legacyPanel(publicNav[0]!.panel!).blocks
-          : publicNav[0]!.panel!.footer!.blocks
-      expect(blocks).toHaveLength(mode === "typed-cleared" ? 1 : 0)
+          ? legacyPanel(publicNav[0]!.panel!).sections
+          : publicNav[0]!.panel!.footer!.sections
+      expect(sections).toHaveLength(mode === "typed-cleared" ? 1 : 0)
     }
   )
 }
@@ -834,10 +834,10 @@ for (const region of ["main", "footer"] as const) {
   for (const kind of ["linkGroup", "featured", "dynamicList"] as const) {
     test(`Save aggregates collapsed ${region} ${kind} errors without touching unrelated rows`, async () => {
       const badTarget = { type: "external" as const, url: "/invalid" }
-      const block =
+      const section =
         kind === "linkGroup"
           ? {
-              id: "bad-block",
+              id: "bad-section",
               kind,
               links: [
                 {
@@ -849,13 +849,13 @@ for (const region of ["main", "footer"] as const) {
             }
           : kind === "dynamicList"
             ? {
-                id: "bad-block",
+                id: "bad-section",
                 kind,
                 source: { pageType: "post" as const, limit: 3 },
                 seeAll: { label: { en: "All" }, target: badTarget },
               }
             : {
-                id: "bad-block",
+                id: "bad-section",
                 kind,
                 heading: { en: "Feature" },
                 image: { alt: { en: "" } },
@@ -867,8 +867,8 @@ for (const region of ["main", "footer"] as const) {
           label: { en: "Bad" },
           panel: {
             columns: 1,
-            blocks: region === "main" ? [block] : [],
-            footer: region === "footer" ? { blocks: [block] } : undefined,
+            sections: region === "main" ? [section] : [],
+            footer: region === "footer" ? { sections: [section] } : undefined,
           },
         },
         { id: "ok", label: { en: "Okay" } },
@@ -920,14 +920,14 @@ test("Page intent clears a previous URL and refuses save before a selection", as
   expect(screen.getByRole("button", { name: "Select page (EN)" })).toHaveFocus()
 })
 
-test("leaving Panneau confirms and cancellation retains its blocks", async () => {
+test("leaving Panneau confirms and cancellation retains its sections", async () => {
   mocks.nav = [
     {
       id: "item",
       label: { en: "Item" },
       panel: {
         columns: 1,
-        blocks: [
+        sections: [
           {
             id: "list",
             kind: "dynamicList",
@@ -947,7 +947,7 @@ test("leaving Panneau confirms and cancellation retains its blocks", async () =>
   await waitFor(() =>
     expect(mocks.confirm).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Delete the panel and its blocks to choose “No link”?",
+        title: "Delete the panel and its sections to choose “No link”?",
       })
     )
   )
@@ -967,7 +967,7 @@ test("empty secondary-locale icons distinguish every field type and authored emp
       label: { fr: "Élément" },
       panel: {
         columns: 1,
-        blocks: [
+        sections: [
           {
             id: "feature",
             kind: "featured",
@@ -1018,7 +1018,7 @@ test("empty secondary-locale icons distinguish every field type and authored emp
   ).toBeTruthy()
   expect(screen.getAllByLabelText("Empty: no heading in EN.")).toHaveLength(2)
   expect(
-    screen.getAllByLabelText("Empty: this block does not appear in EN.")
+    screen.getAllByLabelText("Empty: this section does not appear in EN.")
   ).toHaveLength(2)
   fireEvent.change(screen.getByLabelText("Image alt text"), {
     target: { value: "Typed" },
@@ -1027,7 +1027,7 @@ test("empty secondary-locale icons distinguish every field type and authored emp
     target: { value: "" },
   })
   expect(
-    screen.getAllByLabelText("Empty: this block does not appear in EN.")
+    screen.getAllByLabelText("Empty: this section does not appear in EN.")
   ).toHaveLength(1)
   expect(screen.queryByRole("tab", { name: "Internal link" })).toBeNull()
 })
@@ -1039,7 +1039,7 @@ test("link deletion confirms and cancellation keeps the complete group", async (
       label: { en: "Item" },
       panel: {
         columns: 1,
-        blocks: [
+        sections: [
           {
             id: "group",
             kind: "linkGroup",

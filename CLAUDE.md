@@ -6,22 +6,25 @@ The canonical `formulacms` source may generate a starter into a fresh, empty
 output directory through its documented release generator. That one-time
 generation write never modifies a populated starter.
 
-After generation, every directory identified as a starter—an official generated
-release checkout, a temporary generated artifact, or a starter repository—is a
-**read-only blueprint**. Do not install dependencies, create or change
-environment files, run development, build, Convex, seed, browser-verification,
-Git, or deployment commands, or otherwise write into a starter directory.
+After generation, the official starter repository, its release tags, an
+official release checkout and a temporary generated artifact are each a
+**read-only blueprint**. Never change them. Do not install dependencies, create
+or change environment files, run development, build, Convex, seed,
+browser-verification, Git, or deployment commands in them, or otherwise write
+into them.
 
-This read-only rule applies only to an unmodified release checkout used as a
-blueprint. In an application the owner created from the starter, such as their
-own clone, agents may edit files, commit and run Git commands.
+Your own clone of the starter is your site, not a blueprint. The README
+Quickstart creates it. In your clone, your agent may edit files, install
+dependencies, run `pnpm dev`, builds and checks against its development
+backend, commit and run Git commands.
 
 To upgrade this site to a newer formulacms release, fetch the release tag and follow its upgrade file for your version, if the release declares one, for example `git show <new-tag>:upgrades/<your-tag>-to-<new-tag>.md`. A release that declares no upgrade from your version supports fresh installs only: stop and tell the site owner. Read the upgrade file before any `git pull` or merge of a release. The file lists the steps and when to stop and ask the site owner.
 
-To operate or customize a site, the owner must explicitly name a separate,
-non-starter application directory and authorize cloning the pure blueprint into
-it. Only that separately named customer application may be changed. Never
-reclassify or repurpose a starter in place.
+Deployment and hosted services still need the owner's explicit decision.
+Never deploy the site, connect it to a hosting project, a production Convex
+deployment or a domain, or read or write production data until the owner names
+each target for the current task. Never push your site's changes to the
+official starter repository.
 
 This policy distinguishes two contexts:
 
@@ -29,16 +32,16 @@ This policy distinguishes two contexts:
   Fixes intended for all formulacms users belong in the private canonical
   formulacms repository; regenerate the official release after that work is
   reviewed and shipped there.
-- **Customer-owned application:** its owner controls the separately created
-  application and may evolve it. A formulacms regeneration does **not**
-  overwrite that application. If the owner later wants upstream changes, they
+- **Customer-owned application:** its owner controls the application, such as
+  their own clone of the starter, and may evolve it. A formulacms regeneration
+  does **not** overwrite that application. If the owner later wants upstream changes, they
   adopt them through a reviewed merge, not an automatic replacement.
 
 Supported customer-application customization includes:
 
 - site routes and public presentation;
 - design tokens and branding;
-- typed Slice Types and their renderers;
+- typed Block Types and their renderers;
 - legitimate site-specific content types and fields;
 - integrations and site-specific business behavior; and
 - the tests, migrations, and supporting documentation for those changes.
@@ -59,7 +62,7 @@ and acquisition policy remains separate.
 - authentication, authorization, owner recovery, and permission foundations;
 - generated Convex files or generated registries outside their documented
   generator workflow;
-- release-owned generated module files (`*.generated.*`, such as `lib/modules/catalog.generated.ts`): never edit them and never add a module id. When `pnpm build` or `pnpm check:preflight` reports a changed generated file, restore each listed file from the release tag with `git checkout <release-tag> -- <listed file>`. See "Generated module files" in `AGENTS.md`;
+- release-owned generated module files (`*.generated.*`, such as `lib/modules/catalog.generated.ts`): never edit them and never add a module id. When `pnpm build` or `pnpm check:preflight` reports a changed release-owned file, restore each listed file from the release tag with `git checkout <release-tag> -- <listed file>`. Block and content-type registration files belong to the site: regenerate them with `pnpm blocks:sync` or `pnpm content-types:sync`, then run `pnpm check:factories` and `pnpm typecheck`, and never restore them from a tag. See "Generated files" in `AGENTS.md`;
 - security headers, secret handling, audit integrity, and recovery controls;
 - root legal terms, trademark notices, agent-policy files, or protected
   security documentation as an incidental feature-work change; or
@@ -73,8 +76,8 @@ license controls. Do not invent legal terms or modify `LICENSE`; follow the
 documented workflow for any owner-authorized license or legitimate entitlement
 installation/migration work.
 
-A customer owner may deliberately rebrand their separately created application
-and replace its agent policy. Those choices are not incidental ordinary-work
+A customer owner may deliberately rebrand their own application and replace
+its agent policy. Those choices are not incidental ordinary-work
 changes, and an application must not be represented as an official formulacms
 release.
 

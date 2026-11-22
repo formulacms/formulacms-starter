@@ -1,28 +1,28 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
 // convex/lib/agents/pageContext.ts
 // Compact page-context payload threaded into every content-writer call so that
-// a new slice (or a refined field) matches the voice/topic of the rest of the
+// a new block (or a refined field) matches the voice/topic of the rest of the
 // page and the site's configured brand voice.
 //
 // Pure: no Convex runtime imports beyond `convex/values`, no TipTap, no DOM.
 // Safe to call from a client (to assemble the payload) AND from an action (to
 // render the system-prompt suffix).
 import { v, type Infer } from "convex/values"
-import { type Slice, type Primitive } from "../slices"
+import { type Block, type Primitive } from "../blocks"
 import { readFieldText, transitionForField } from "../richtext/transitions"
 import { resolveFieldContract } from "../richtext/contracts"
 import { toFieldShape } from "../richtext/shape"
 
 /** Hard cap per sibling's flattened text so the context block stays cheap on
  *  tokens. 240 chars ≈ a long sentence; enough to convey tone, short enough
- *  that a 6-slice page is < ~1.5 KB. */
+ *  that a 6-block page is < ~1.5 KB. */
 export const SIBLING_TEXT_CAP = 240
 
 export const pageContextValidator = v.object({
   /** Current page title (in the editor's locale). Anchors the topic. */
   pageTitle: v.optional(v.string()),
-  /** Other slices on the same page, in document order. Each is flattened to a
+  /** Other blocks on the same page, in document order. Each is flattened to a
    *  single short string so the model can read voice/topic without seeing
    *  PM-JSON or structural fields. */
   siblings: v.optional(
@@ -36,25 +36,25 @@ export const pageContextValidator = v.object({
 })
 export type PageContext = Infer<typeof pageContextValidator>
 
-/** Flatten a slice's editorial text fields into one short string. Structural
+/** Flatten a block's editorial text fields into one short string. Structural
  *  fields (image, alignment, button hrefs) are intentionally excluded — context
- *  is voice/topic anchoring, not configuration. Each slice type knows which of
- *  its `primary` keys are editorial (matches the slice-editor's `textKeysOf`). */
-export function flattenSliceText(slice: Slice): string {
+ *  is voice/topic anchoring, not configuration. Each block type knows which of
+ *  its `primary` keys are editorial (matches the block-editor's `textKeysOf`). */
+export function flattenBlockText(block: Block): string {
   const parts: string[] = []
-  const def = readSliceDefinition(readSlice(slice).type)
+  const def = readBlockDefinition(readBlock(block).type)
   if (!def) {
     pushGenericText(
-      readSlice(slice).primary,
+      readBlock(block).primary,
       parts,
-      readSlice(slice).type,
+      readBlock(block).type,
       "primary"
     )
-    if ("items" in slice)
+    if ("items" in block)
       pushGenericText(
-        readSlice(slice).items,
+        readBlock(block).items,
         parts,
-        readSlice(slice).type,
+        readBlock(block).type,
         "items"
       )
     const fallback = parts.join(" • ").replace(/\s+/g, " ").trim()
@@ -65,23 +65,23 @@ export function flattenSliceText(slice: Slice): string {
   }
   pushDescriptorText(
     def.primary,
-    readSlice(slice).primary,
+    readBlock(block).primary,
     parts,
-    readSlice(slice).type,
+    readBlock(block).type,
     "primary"
   )
-  if (def.items !== undefined && "items" in slice)
+  if (def.items !== undefined && "items" in block)
     pushDescriptorText(
       def.items,
-      readSlice(slice).items,
+      readBlock(block).items,
       parts,
-      readSlice(slice).type,
+      readBlock(block).type,
       "items"
     )
 
   const joined = parts.join(" • ").replace(/\s+/g, " ").trim()
   if (joined.length <= SIBLING_TEXT_CAP) return joined
-  // Cut on a word boundary so the cap doesn't slice mid-token.
+  // Cut on a word boundary so the cap doesn't block mid-token.
   const cut = joined.slice(0, SIBLING_TEXT_CAP)
   const lastSpace = cut.lastIndexOf(" ")
   return (lastSpace > 80 ? cut.slice(0, lastSpace) : cut).trim() + "…"
@@ -92,12 +92,12 @@ export function pushDescriptorText(
   def: Primitive,
   value: unknown,
   parts: string[],
-  sliceType: string,
+  blockType: string,
   path: string
 ) {
   if (def.kind === "text") {
     if (typeof value === "string") {
-      const address = { sliceType, fieldPath: path }
+      const address = { blockType, fieldPath: path }
       if (transitionForField(address)) {
         const projected = readFieldText(address, value).trim()
         if (projected) parts.push(projected)
@@ -128,28 +128,28 @@ export function pushDescriptorText(
         ? (value as Record<string, unknown>)
         : {}
     for (const [key, child] of Object.entries(fields))
-      pushDescriptorText(child, object[key], parts, sliceType, `${path}.${key}`)
+      pushDescriptorText(child, object[key], parts, blockType, `${path}.${key}`)
     return
   }
   if (def.kind === "list") {
     const item = def.config.item as Primitive
     if (Array.isArray(value))
       value.forEach((row, index) =>
-        pushDescriptorText(item, row, parts, sliceType, `${path}[${index}]`)
+        pushDescriptorText(item, row, parts, blockType, `${path}[${index}]`)
       )
     return
   }
-  pushGenericText(value, parts, sliceType, path)
+  pushGenericText(value, parts, blockType, path)
 }
 
 export function pushGenericText(
   value: unknown,
   parts: string[],
-  sliceType?: string,
+  blockType?: string,
   path = ""
 ) {
   if (typeof value === "string") {
-    const address = sliceType ? { sliceType, fieldPath: path } : undefined
+    const address = blockType ? { blockType, fieldPath: path } : undefined
     if (address && transitionForField(address)) {
       const projected = readFieldText(address, value).trim()
       if (projected) parts.push(projected)
@@ -161,8 +161,8 @@ export function pushGenericText(
       const doc = JSON.parse(trimmed) as {
         content?: Array<{ content?: Array<{ text?: string }> }>
       }
-      for (const block of doc.content ?? []) {
-        for (const inline of block.content ?? []) {
+      for (const node of doc.content ?? []) {
+        for (const inline of node.content ?? []) {
           if (inline.text?.trim()) parts.push(inline.text.trim())
         }
       }
@@ -174,32 +174,32 @@ export function pushGenericText(
   }
   if (Array.isArray(value)) {
     value.forEach((item, index) =>
-      pushGenericText(item, parts, sliceType, `${path}[${index}]`)
+      pushGenericText(item, parts, blockType, `${path}[${index}]`)
     )
     return
   }
   if (value && typeof value === "object") {
     for (const [key, item] of Object.entries(value)) {
-      pushGenericText(item, parts, sliceType, path ? `${path}.${key}` : key)
+      pushGenericText(item, parts, blockType, path ? `${path}.${key}` : key)
     }
   }
 }
 
 /**
- * Build a single short string of every other slice on the page, ready to drop
- * into a `PageContext.siblings`. Pass `excludeSliceId` to omit the slice the
+ * Build a single short string of every other block on the page, ready to drop
+ * into a `PageContext.siblings`. Pass `excludeBlockId` to omit the block the
  * editor is currently writing/refining (so the model isn't tempted to mirror
- * the slice it's about to overwrite back at us).
+ * the block it's about to overwrite back at us).
  */
 export function buildSiblings(
-  slices: readonly Slice[],
-  excludeSliceId?: string
+  blocks: readonly Block[],
+  excludeBlockId?: string
 ): PageContext["siblings"] {
   const out: NonNullable<PageContext["siblings"]> = []
-  for (const s of slices) {
-    if (excludeSliceId && readSlice(s).id === excludeSliceId) continue
-    const text = flattenSliceText(s)
-    if (text) out.push({ type: readSlice(s).type, text })
+  for (const s of blocks) {
+    if (excludeBlockId && readBlock(s).id === excludeBlockId) continue
+    const text = flattenBlockText(s)
+    if (text) out.push({ type: readBlock(s).type, text })
   }
   return out.length > 0 ? out : undefined
 }
@@ -209,7 +209,7 @@ export function buildSiblings(
  * template. Sections are omitted when empty so the prompt stays compact when
  * nothing is configured.
  */
-export function buildContextBlock(
+export function buildContextSection(
   ctx: PageContext | undefined,
   brandVoice: string | undefined
 ): string {

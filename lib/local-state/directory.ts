@@ -10,7 +10,7 @@ import {
 import { join } from "node:path"
 
 // The machine-local folder formulacms keeps beside the checkout (gitignored):
-// slice reference originals, undo checkpoints, design-system transactions,
+// block reference originals, undo checkpoints, design-system transactions,
 // the AI tool choice, the local model cache and the bootstrap hand-off.
 // It is `.formulacms/local/`: `.formulacms/` itself holds the creation records
 // create-formulacms-app writes, which stay tracked. Sites from release 0.2.0

@@ -30,7 +30,7 @@
         "typecheck",
         "lint",
         "tests",
-        "slice-registration",
+        "block-registration",
         "tokens"
       ]
     },
@@ -64,7 +64,7 @@
         "typecheck",
         "lint",
         "tests",
-        "slice-registration",
+        "block-registration",
         "tokens"
       ]
     },
@@ -95,7 +95,38 @@
         "typecheck",
         "lint",
         "tests",
-        "slice-registration",
+        "block-registration",
+        "tokens"
+      ]
+    },
+    {
+      "id": "v0.3.1-to-v0.4.0",
+      "source": {
+        "tag": "v0.3.1",
+        "tagObjectOid": "f6e9678a21ac4fffa05ad265d412c9ff50a9ae25",
+        "starterCommitOid": "1919f0678bd5e022076a31fb0d3680f88e61661b",
+        "engineCommitOid": "015eae3366463fdcdbc638bd941cb6a7729c467c",
+        "generatedTreeDigest": "00697eb0c6a0cbd176f46210645dc3574e8d097d23bda96fce551098c93da323"
+      },
+      "targetTag": "v0.4.0",
+      "class": "unsupported",
+      "composable": false,
+      "rollback": {
+        "codeArtifact": "unsupported",
+        "boundary": "There is no upgrade from v0.3.1 to v0.4.0: release 0.4.0 supports fresh installs only. Do not merge or pull v0.4.0 into a 0.3.x site; start a new site and a new Convex deployment from v0.4.0 instead. Owner decision 2026-11-20: breaking changes accepted until 0.5; fresh installs only."
+      },
+      "migrationIds": [],
+      "configurationChanges": [],
+      "manualActionIds": [],
+      "requirements": {
+        "membershipReconciliation": false
+      },
+      "checks": [
+        "frozen-install",
+        "typecheck",
+        "lint",
+        "tests",
+        "block-registration",
         "tokens"
       ]
     }

@@ -35,15 +35,16 @@ const eslintConfig = defineConfig([
     rules: jsxA11y.flatConfigs.recommended.rules,
   },
   {
-    files: ["components/slices/*.tsx", "components/slices/presentations/*.tsx"],
+    files: ["components/blocks/*.tsx", "components/blocks/presentations/*.tsx"],
     ignores: [
       "**/*.test.tsx",
       "**/render-helpers.tsx",
       "**/rich-text-content.tsx",
       "**/contact-form-client.tsx",
       "**/site-search-client.tsx",
-      "**/slice-zone*.tsx",
-      "**/fallback-slice.tsx",
+      "**/block-list.tsx",
+      "**/block-registry.tsx",
+      "**/fallback-block.tsx",
       "**/heading-slot.tsx",
     ],
     rules: {

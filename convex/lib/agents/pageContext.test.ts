@@ -1,18 +1,18 @@
 import { describe, expect, test } from "vitest"
 import {
-  buildContextBlock,
+  buildContextSection,
   buildSiblings,
-  flattenSliceText,
+  flattenBlockText,
   SIBLING_TEXT_CAP,
 } from "./pageContext"
-import type { Slice } from "../slices"
+import type { Block } from "../blocks"
 import { buildPMDoc } from "../richtext/build"
 
 function rt(text: string): string {
   return JSON.stringify(buildPMDoc(text, "inline"))
 }
-const heroSlice: Slice = {
-  id: "slice-hero",
+const heroBlock: Block = {
+  id: "block-hero",
   type: "hero",
   enabled: true,
   primary: {
@@ -23,10 +23,10 @@ const heroSlice: Slice = {
     { label: "Book a visit", link: { type: "none" }, enabled: true },
     { label: "Learn more", link: { type: "none" }, enabled: true },
   ],
-} as unknown as Slice
+} as unknown as Block
 
-const secondHeroSlice: Slice = {
-  id: "slice-second-hero",
+const secondHeroBlock: Block = {
+  id: "block-second-hero",
   type: "hero",
   enabled: true,
   primary: {
@@ -34,17 +34,17 @@ const secondHeroSlice: Slice = {
     subtitle: rt("Same-day appointments for the whole family."),
   },
   items: [{ label: "Call now", link: { type: "none" }, enabled: true }],
-} as unknown as Slice
+} as unknown as Block
 
-const emptyHero: Slice = {
-  id: "slice-empty",
+const emptyHero: Block = {
+  id: "block-empty",
   type: "hero",
   enabled: true,
   primary: { title: "" },
   items: [],
-} as unknown as Slice
+} as unknown as Block
 
-describe("flattenSliceText", () => {
+describe("flattenBlockText", () => {
   test("projects a registered FAQ title without sending its JSON wrapper", () => {
     const title = JSON.stringify({
       type: "doc",
@@ -62,8 +62,8 @@ describe("flattenSliceText", () => {
       enabled: true,
       primary: { heading: "FAQ", eyebrow: "", body: "" },
       items: [{ question: title, answer: "Answer" }],
-    } as unknown as Slice
-    const result = flattenSliceText(faq)
+    } as unknown as Block
+    const result = flattenBlockText(faq)
     expect(result).toContain("Question text")
     expect(result).not.toContain('"type":"doc"')
   })
@@ -75,8 +75,8 @@ describe("flattenSliceText", () => {
       enabled: true,
       primary: { heading: "", eyebrow: "12345", body: "" },
       items: [],
-    } as unknown as Slice
-    expect(flattenSliceText(faq)).toBe("12345")
+    } as unknown as Block
+    expect(flattenBlockText(faq)).toBe("12345")
   })
 
   test("keeps literal JSON in an unregistered FAQ text field verbatim", () => {
@@ -96,47 +96,47 @@ describe("flattenSliceText", () => {
       enabled: true,
       primary: { heading: "", eyebrow: literal, body: "" },
       items: [],
-    } as unknown as Slice
-    expect(flattenSliceText(faq)).toBe(literal)
+    } as unknown as Block
+    expect(flattenBlockText(faq)).toBe(literal)
   })
 
   test("hero: title + subtitle + button labels, joined", () => {
-    const text = flattenSliceText(heroSlice)
+    const text = flattenBlockText(heroBlock)
     expect(text).toContain("Smile, you're home")
     expect(text).toContain("Modern dental care")
     expect(text).toContain("Book a visit")
   })
 
-  test("empty slice → empty string", () => {
-    expect(flattenSliceText(emptyHero)).toBe("")
+  test("empty block → empty string", () => {
+    expect(flattenBlockText(emptyHero)).toBe("")
   })
 
   test("caps at SIBLING_TEXT_CAP on a word boundary, appends ellipsis", () => {
     const longText = "lorem ipsum ".repeat(80)
-    const fat: Slice = {
-      id: "slice-long",
+    const fat: Block = {
+      id: "block-long",
       type: "hero",
       enabled: true,
       primary: { title: "Long", subtitle: rt(longText) },
       items: [],
-    } as unknown as Slice
-    const flat = flattenSliceText(fat)
+    } as unknown as Block
+    const flat = flattenBlockText(fat)
     expect(flat.length).toBeLessThanOrEqual(SIBLING_TEXT_CAP + 1)
     expect(flat.endsWith("…")).toBe(true)
-    // Did not slice in the middle of a token.
+    // Did not block in the middle of a token.
     expect(flat.replace(/…$/, "").trimEnd().endsWith("ipsum")).toBe(true)
   })
 })
 
 describe("buildSiblings", () => {
-  test("includes every non-empty slice and excludes the named one", () => {
-    const siblings = buildSiblings([heroSlice, secondHeroSlice], "slice-hero")
+  test("includes every non-empty block and excludes the named one", () => {
+    const siblings = buildSiblings([heroBlock, secondHeroBlock], "block-hero")
     expect(siblings).toHaveLength(1)
     expect(siblings?.[0]?.text).toContain("Care that fits your day")
   })
 
-  test("drops empty slices", () => {
-    const siblings = buildSiblings([heroSlice, emptyHero])
+  test("drops empty blocks", () => {
+    const siblings = buildSiblings([heroBlock, emptyHero])
     expect(siblings).toHaveLength(1)
     expect(siblings?.[0]?.type).toBe("hero")
   })
@@ -147,9 +147,9 @@ describe("buildSiblings", () => {
   })
 })
 
-describe("buildContextBlock", () => {
+describe("buildContextSection", () => {
   test("renders every section when all inputs are present", () => {
-    const block = buildContextBlock(
+    const block = buildContextSection(
       {
         pageTitle: "About us",
         siblings: [
@@ -165,16 +165,16 @@ describe("buildContextBlock", () => {
   })
 
   test("omits sections that are empty", () => {
-    expect(buildContextBlock(undefined, undefined)).toBe("")
-    expect(buildContextBlock(undefined, "  ")).toBe("")
-    expect(buildContextBlock({ siblings: [] }, "voice")).toBe(
+    expect(buildContextSection(undefined, undefined)).toBe("")
+    expect(buildContextSection(undefined, "  ")).toBe("")
+    expect(buildContextSection({ siblings: [] }, "voice")).toBe(
       "Brand voice: voice"
     )
-    expect(buildContextBlock({ pageTitle: "  " }, undefined)).toBe("")
+    expect(buildContextSection({ pageTitle: "  " }, undefined)).toBe("")
   })
 
   test("trims brand voice; preserves multi-line internal whitespace", () => {
-    const block = buildContextBlock(undefined, "  warm.  ")
+    const block = buildContextSection(undefined, "  warm.  ")
     expect(block).toBe("Brand voice: warm.")
   })
 })

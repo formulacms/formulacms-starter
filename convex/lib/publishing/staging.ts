@@ -19,12 +19,12 @@ import {
 } from "convex-helpers/server/customFunctions"
 import { contentTypeDefs } from "../contentTypes"
 import {
-  extractSliceOccurrenceIdentities,
-  type SliceOccurrenceExtraction,
-} from "../slices/occurrencePresentation"
-import { hasSliceBody } from "../pages/sliceBodyContent"
+  extractBlockOccurrenceIdentities,
+  type BlockOccurrenceExtraction,
+} from "../blocks/occurrencePresentation"
+import { hasBlockBody } from "../pages/blockBodyContent"
 import { reconstructLocalePublicationCandidate } from "./localeCandidate"
-import { readSlicePresentationCatalog } from "../slices/presentations"
+import { readBlockPresentationCatalog } from "../blocks/presentations"
 
 /**
  * Publishing pipeline: per-page staging (ADR-0041 — Deploy 1 Widen).
@@ -294,8 +294,8 @@ export async function resolvePageDisplayTitle(
 
 // Retained occurrence accounting lives beside the existing server-only draft
 // persistence seam. The pure identity policy stays safe for browser imports.
-export const SLICE_OCCURRENCE_EPOCH = 1
-const OCCURRENCE_STATE_KEY = "slice-occurrences-v1" as const
+export const BLOCK_OCCURRENCE_EPOCH = 1
+const OCCURRENCE_STATE_KEY = "block-occurrences-v1" as const
 const OCCURRENCE_SOURCE_LIMIT = 512
 const SOURCE_KINDS = {
   pages: "saved",
@@ -305,11 +305,11 @@ const SOURCE_KINDS = {
   pageLocalePublicationCandidates: "candidate",
   pagePublishedSnapshots: "snapshot",
 } as const
-export type SliceOccurrenceSourceTable = keyof typeof SOURCE_KINDS
-const SOURCE_TABLES = Object.keys(SOURCE_KINDS) as SliceOccurrenceSourceTable[]
+export type BlockOccurrenceSourceTable = keyof typeof SOURCE_KINDS
+const SOURCE_TABLES = Object.keys(SOURCE_KINDS) as BlockOccurrenceSourceTable[]
 const TRACKED_TABLES = [
   ...SOURCE_TABLES,
-  "pagePublicationSliceReferences",
+  "pagePublicationBlockReferences",
   "pagePublicationPageStates",
   "pageLocalePublicationStates",
 ] as const
@@ -320,7 +320,7 @@ const REFERENCE_SOURCE_TABLES = {
   current_public: "pagePublishedSnapshots",
 } as const
 
-type SourceChange = { table: SliceOccurrenceSourceTable; id: string }
+type SourceChange = { table: BlockOccurrenceSourceTable; id: string }
 type OccurrenceTransaction = {
   dirty: Map<string, SourceChange>
   writer: MutationCtx["db"]
@@ -328,24 +328,24 @@ type OccurrenceTransaction = {
 type OccurrenceContext = MutationCtx & {
   occurrenceUsage?: OccurrenceTransaction
 }
-type ExtractedSource = SliceOccurrenceExtraction & {
+type ExtractedSource = BlockOccurrenceExtraction & {
   fingerprint: string
   exists: boolean
 }
 
-export async function readSliceOccurrenceState(ctx: QueryCtx | MutationCtx) {
+export async function readBlockOccurrenceState(ctx: QueryCtx | MutationCtx) {
   return ctx.db
-    .query("sliceOccurrenceCountState")
+    .query("blockOccurrenceCountState")
     .withIndex("by_key", (q) => q.eq("key", OCCURRENCE_STATE_KEY))
     .unique()
 }
 
 async function ensureOccurrenceState(ctx: MutationCtx) {
-  const existing = await readSliceOccurrenceState(ctx)
+  const existing = await readBlockOccurrenceState(ctx)
   if (existing) return existing
-  const id = await ctx.db.insert("sliceOccurrenceCountState", {
+  const id = await ctx.db.insert("blockOccurrenceCountState", {
     key: OCCURRENCE_STATE_KEY,
-    epoch: SLICE_OCCURRENCE_EPOCH,
+    epoch: BLOCK_OCCURRENCE_EPOCH,
     status: "uninitialized",
     mode: "backfill",
     unknownInvalidSources: 0,
@@ -354,16 +354,16 @@ async function ensureOccurrenceState(ctx: MutationCtx) {
     startedAt: 0,
     integrityVersion: 0,
   })
-  return (await ctx.db.get("sliceOccurrenceCountState", id))!
+  return (await ctx.db.get("blockOccurrenceCountState", id))!
 }
 
-export async function readSliceOccurrenceCounter(
+export async function readBlockOccurrenceCounter(
   ctx: QueryCtx | MutationCtx,
   type: string,
   presentationId: string
 ) {
   return ctx.db
-    .query("sliceOccurrenceCounts")
+    .query("blockOccurrenceCounts")
     .withIndex("by_type_and_presentationId", (q) =>
       q.eq("type", type).eq("presentationId", presentationId)
     )
@@ -375,24 +375,24 @@ async function ensureOccurrenceCounter(
   type: string,
   presentationId: string
 ) {
-  const current = await readSliceOccurrenceCounter(ctx, type, presentationId)
+  const current = await readBlockOccurrenceCounter(ctx, type, presentationId)
   if (current) {
-    if (current.epoch !== SLICE_OCCURRENCE_EPOCH)
-      throw new ConvexError("SLICE_OCCURRENCE_EPOCH_INVALID")
+    if (current.epoch !== BLOCK_OCCURRENCE_EPOCH)
+      throw new ConvexError("BLOCK_OCCURRENCE_EPOCH_INVALID")
     return current
   }
-  const id = await ctx.db.insert("sliceOccurrenceCounts", {
+  const id = await ctx.db.insert("blockOccurrenceCounts", {
     type,
     presentationId,
     count: 0,
     invalidSources: 0,
     version: 0,
-    epoch: SLICE_OCCURRENCE_EPOCH,
+    epoch: BLOCK_OCCURRENCE_EPOCH,
   })
-  return (await ctx.db.get("sliceOccurrenceCounts", id))!
+  return (await ctx.db.get("blockOccurrenceCounts", id))!
 }
 
-function sourceKey(table: SliceOccurrenceSourceTable, id: string) {
+function sourceKey(table: BlockOccurrenceSourceTable, id: string) {
   return `${table}:${id}`
 }
 
@@ -408,12 +408,12 @@ function emptyExtraction(exists: boolean): ExtractedSource {
 
 async function extractOccurrenceSource(
   ctx: MutationCtx,
-  table: SliceOccurrenceSourceTable,
+  table: BlockOccurrenceSourceTable,
   id: string,
   candidates: Map<string, ExtractedSource>
 ): Promise<ExtractedSource> {
   const normalized = ctx.db.normalizeId(table, id)
-  if (!normalized) throw new ConvexError("SLICE_OCCURRENCE_SOURCE_INVALID")
+  if (!normalized) throw new ConvexError("BLOCK_OCCURRENCE_SOURCE_INVALID")
   const row = await ctx.db.get(table, normalized)
   if (!row) return emptyExtraction(false)
   if (table === "pagePublishedSnapshots") {
@@ -460,7 +460,7 @@ async function extractOccurrenceSource(
       payload.page.id === String(candidate.pageId) &&
       payload.page.pageType === candidate.pageType &&
       payload.locale === candidate.locale
-        ? extractSliceOccurrenceIdentities(String(candidate.pageId), {
+        ? extractBlockOccurrenceIdentities(String(candidate.pageId), {
             [candidate.locale]: payload.localized.content,
           })
         : { occurrences: [], invalidTypes: [], unknownInvalid: true }
@@ -476,7 +476,7 @@ async function extractOccurrenceSource(
   }
   const value = row as
     Doc<"pages"> | Doc<"pageStaging"> | Doc<"pageLocaleDrafts">
-  const content = !hasSliceBody(value as Doc<"pages">)
+  const content = !hasBlockBody(value as Doc<"pages">)
     ? undefined
     : table === "pageLocaleDrafts"
       ? {
@@ -485,7 +485,7 @@ async function extractOccurrenceSource(
           ).content,
         }
       : value.content
-  const result = extractSliceOccurrenceIdentities(
+  const result = extractBlockOccurrenceIdentities(
     String(table === "pages" ? row._id : (row as Doc<"pageStaging">).pageId),
     content
   )
@@ -511,13 +511,13 @@ async function validateOccurrenceReferences(
   )?.[0] as keyof typeof REFERENCE_SOURCE_TABLES | undefined
   if (!sourceKind) return extracted
   const refs = await ctx.db
-    .query("pagePublicationSliceReferences")
+    .query("pagePublicationBlockReferences")
     .withIndex("by_sourceKind_and_sourceId", (q) =>
       q
         .eq("sourceKind", sourceKind)
         .eq(
           "sourceId",
-          change.id as Doc<"pagePublicationSliceReferences">["sourceId"]
+          change.id as Doc<"pagePublicationBlockReferences">["sourceId"]
         )
     )
     .take(OCCURRENCE_SOURCE_LIMIT + 1)
@@ -530,12 +530,12 @@ async function validateOccurrenceReferences(
   let invalid = refs.length > OCCURRENCE_SOURCE_LIMIT
   for (const ref of refs) {
     if (
-      actual.has(ref.sliceType) ||
+      actual.has(ref.blockType) ||
       !Number.isSafeInteger(ref.count) ||
       ref.count < 0
     )
       invalid = true
-    actual.set(ref.sliceType, (actual.get(ref.sliceType) ?? 0) + ref.count)
+    actual.set(ref.blockType, (actual.get(ref.blockType) ?? 0) + ref.count)
   }
   if (!extracted.exists && refs.length > 0) invalid = true
   if (expected.size !== actual.size) invalid = true
@@ -557,7 +557,7 @@ async function validateOccurrenceReferences(
   }
 }
 
-function zeroReferences(): Doc<"sliceOccurrenceUsage">["references"] {
+function zeroReferences(): Doc<"blockOccurrenceUsage">["references"] {
   return {
     saved: 0,
     staging: 0,
@@ -578,12 +578,12 @@ async function changeOccurrenceTotal(
   const counter = await ensureOccurrenceCounter(ctx, type, presentationId)
   const count = counter.count + delta
   if (!Number.isSafeInteger(count) || count < 0)
-    throw new ConvexError("SLICE_OCCURRENCE_COUNTER_INVALID")
-  await ctx.db.patch("sliceOccurrenceCounts", counter._id, { count, version: counter.version + 1 })
+    throw new ConvexError("BLOCK_OCCURRENCE_COUNTER_INVALID")
+  await ctx.db.patch("blockOccurrenceCounts", counter._id, { count, version: counter.version + 1 })
 }
 
 /** The only owner of source membership, fixed refcounts and scalar totals. */
-export async function reconcileSliceOccurrenceSource(
+export async function reconcileBlockOccurrenceSource(
   ctx: MutationCtx,
   change: SourceChange,
   mode: "backfill" | "verify" = "backfill",
@@ -597,30 +597,30 @@ export async function reconcileSliceOccurrenceSource(
   )
   const key = sourceKey(change.table, change.id)
   let source = await ctx.db
-    .query("sliceOccurrenceSources")
+    .query("blockOccurrenceSources")
     .withIndex("by_key", (q) => q.eq("key", key))
     .unique()
   const members = source
     ? await ctx.db
-        .query("sliceOccurrenceSourceMembers")
+        .query("blockOccurrenceSourceMembers")
         .withIndex("by_sourceId_and_occurrenceId", (q) =>
           q.eq("sourceId", source!._id)
         )
         .take(OCCURRENCE_SOURCE_LIMIT + 1)
     : []
   if (members.length > OCCURRENCE_SOURCE_LIMIT)
-    throw new ConvexError("SLICE_OCCURRENCE_MEMBERSHIP_INVALID")
+    throw new ConvexError("BLOCK_OCCURRENCE_MEMBERSHIP_INVALID")
   const old = new Map<
     string,
     {
-      member: Doc<"sliceOccurrenceSourceMembers">
-      occurrence: Doc<"sliceOccurrenceUsage">
+      member: Doc<"blockOccurrenceSourceMembers">
+      occurrence: Doc<"blockOccurrenceUsage">
     }
   >()
   for (const member of members) {
-    const occurrence = await ctx.db.get("sliceOccurrenceUsage", member.occurrenceId)
+    const occurrence = await ctx.db.get("blockOccurrenceUsage", member.occurrenceId)
     if (!occurrence)
-      throw new ConvexError("SLICE_OCCURRENCE_MEMBERSHIP_INVALID")
+      throw new ConvexError("BLOCK_OCCURRENCE_MEMBERSHIP_INVALID")
     old.set(occurrence.key, { member, occurrence })
   }
   const desired = new Map(
@@ -629,7 +629,7 @@ export async function reconcileSliceOccurrenceSource(
   if (mode === "verify") {
     const equal =
       source?.fingerprint === extraction.fingerprint &&
-      source.epoch === SLICE_OCCURRENCE_EPOCH &&
+      source.epoch === BLOCK_OCCURRENCE_EPOCH &&
       source.unknownInvalid === extraction.unknownInvalid &&
       JSON.stringify(source.invalidTypes) ===
         JSON.stringify(extraction.invalidTypes) &&
@@ -640,7 +640,7 @@ export async function reconcileSliceOccurrenceSource(
       extraction.unknownInvalid ||
       extraction.invalidTypes.length > 0
     )
-      await ctx.db.patch("sliceOccurrenceCountState", state._id, { verificationFailed: true })
+      await ctx.db.patch("blockOccurrenceCountState", state._id, { verificationFailed: true })
     return
   }
   if (
@@ -651,16 +651,16 @@ export async function reconcileSliceOccurrenceSource(
   )
     return
   if (!source) {
-    const sourceId = await ctx.db.insert("sliceOccurrenceSources", {
+    const sourceId = await ctx.db.insert("blockOccurrenceSources", {
       key,
       table: change.table,
       sourceId: change.id,
       fingerprint: "",
-      epoch: SLICE_OCCURRENCE_EPOCH,
+      epoch: BLOCK_OCCURRENCE_EPOCH,
       invalidTypes: [],
       unknownInvalid: false,
     })
-    source = (await ctx.db.get("sliceOccurrenceSources", sourceId))!
+    source = (await ctx.db.get("blockOccurrenceSources", sourceId))!
   }
   const kind = SOURCE_KINDS[change.table]
   for (const [identity, { member, occurrence }] of old) {
@@ -670,40 +670,40 @@ export async function reconcileSliceOccurrenceSource(
       [kind]: occurrence.references[kind] - 1,
     }
     if (references[kind] < 0)
-      throw new ConvexError("SLICE_OCCURRENCE_REFCOUNT_INVALID")
-    await ctx.db.delete("sliceOccurrenceSourceMembers", member._id)
+      throw new ConvexError("BLOCK_OCCURRENCE_REFCOUNT_INVALID")
+    await ctx.db.delete("blockOccurrenceSourceMembers", member._id)
     if (Object.values(references).every((count) => count === 0)) {
-      await ctx.db.delete("sliceOccurrenceUsage", occurrence._id)
+      await ctx.db.delete("blockOccurrenceUsage", occurrence._id)
       await changeOccurrenceTotal(
         ctx,
         occurrence.type,
         occurrence.presentationId,
         -1
       )
-    } else await ctx.db.patch("sliceOccurrenceUsage", occurrence._id, { references })
+    } else await ctx.db.patch("blockOccurrenceUsage", occurrence._id, { references })
   }
   for (const [identity, value] of desired) {
     if (old.has(identity)) continue
     let occurrence = await ctx.db
-      .query("sliceOccurrenceUsage")
+      .query("blockOccurrenceUsage")
       .withIndex("by_key", (q) => q.eq("key", identity))
       .unique()
     if (!occurrence) {
-      const id = await ctx.db.insert("sliceOccurrenceUsage", {
+      const id = await ctx.db.insert("blockOccurrenceUsage", {
         ...value,
         references: { ...zeroReferences(), [kind]: 1 },
       })
-      occurrence = (await ctx.db.get("sliceOccurrenceUsage", id))!
+      occurrence = (await ctx.db.get("blockOccurrenceUsage", id))!
       await changeOccurrenceTotal(ctx, value.type, value.presentationId, 1)
     } else {
-      await ctx.db.patch("sliceOccurrenceUsage", occurrence._id, {
+      await ctx.db.patch("blockOccurrenceUsage", occurrence._id, {
         references: {
           ...occurrence.references,
           [kind]: occurrence.references[kind] + 1,
         },
       })
     }
-    await ctx.db.insert("sliceOccurrenceSourceMembers", {
+    await ctx.db.insert("blockOccurrenceSourceMembers", {
       sourceId: source._id,
       occurrenceId: occurrence._id,
     })
@@ -719,8 +719,8 @@ export async function reconcileSliceOccurrenceSource(
     const counter = await ensureOccurrenceCounter(ctx, type, "default")
     const invalidSources = counter.invalidSources + delta
     if (invalidSources < 0)
-      throw new ConvexError("SLICE_OCCURRENCE_INTEGRITY_INVALID")
-    await ctx.db.patch("sliceOccurrenceCounts", counter._id, {
+      throw new ConvexError("BLOCK_OCCURRENCE_INTEGRITY_INVALID")
+    await ctx.db.patch("blockOccurrenceCounts", counter._id, {
       invalidSources,
       version: counter.version + 1,
     })
@@ -731,8 +731,8 @@ export async function reconcileSliceOccurrenceSource(
     const current = await ensureOccurrenceState(ctx)
     const unknownInvalidSources = current.unknownInvalidSources + unknownDelta
     if (unknownInvalidSources < 0)
-      throw new ConvexError("SLICE_OCCURRENCE_INTEGRITY_INVALID")
-    await ctx.db.patch("sliceOccurrenceCountState", current._id, {
+      throw new ConvexError("BLOCK_OCCURRENCE_INTEGRITY_INVALID")
+    await ctx.db.patch("blockOccurrenceCountState", current._id, {
       unknownInvalidSources,
       integrityVersion: current.integrityVersion + 1,
     })
@@ -742,11 +742,11 @@ export async function reconcileSliceOccurrenceSource(
     !extraction.unknownInvalid &&
     extraction.invalidTypes.length === 0
   )
-    await ctx.db.delete("sliceOccurrenceSources", source._id)
+    await ctx.db.delete("blockOccurrenceSources", source._id)
   else
-    await ctx.db.patch("sliceOccurrenceSources", source._id, {
+    await ctx.db.patch("blockOccurrenceSources", source._id, {
       fingerprint: extraction.fingerprint,
-      epoch: SLICE_OCCURRENCE_EPOCH,
+      epoch: BLOCK_OCCURRENCE_EPOCH,
       invalidTypes: extraction.invalidTypes,
       unknownInvalid: extraction.unknownInvalid,
     })
@@ -771,9 +771,9 @@ function enqueueOccurrenceChange(
   row?: Record<string, unknown> | null
 ) {
   if ((SOURCE_TABLES as readonly string[]).includes(table)) {
-    const change = { table: table as SliceOccurrenceSourceTable, id }
+    const change = { table: table as BlockOccurrenceSourceTable, id }
     transaction.dirty.set(sourceKey(change.table, id), change)
-  } else if (table === "pagePublicationSliceReferences" && row) {
+  } else if (table === "pagePublicationBlockReferences" && row) {
     const sourceTable =
       REFERENCE_SOURCE_TABLES[
         row.sourceKind as keyof typeof REFERENCE_SOURCE_TABLES
@@ -797,7 +797,7 @@ async function flushOccurrenceChanges(
       Number(b.table === "pagePublishedSnapshots")
   )
   for (const change of changes)
-    await reconcileSliceOccurrenceSource(ctx, change, "backfill", candidates)
+    await reconcileBlockOccurrenceSource(ctx, change, "backfill", candidates)
   transaction.dirty.clear()
 }
 
@@ -820,8 +820,8 @@ function createOccurrenceTransaction(
             ? { table: args[0] as string, id: undefined }
             : normalizedWriteTable(db, args)
         const old =
-          target?.id && target.table === "pagePublicationSliceReferences"
-            ? await db.get("pagePublicationSliceReferences", target.id as Id<"pagePublicationSliceReferences">)
+          target?.id && target.table === "pagePublicationBlockReferences"
+            ? await db.get("pagePublicationBlockReferences", target.id as Id<"pagePublicationBlockReferences">)
             : null
         const result: unknown = await Reflect.apply(
           original as (...values: unknown[]) => unknown,
@@ -883,11 +883,11 @@ export const occurrenceUsageInternalMutation = customMutation(
 )
 
 /** Called only after bootstrap's empty-install authority checks and blank Home. */
-export async function initializeEmptySliceOccurrenceCounts(
+export async function initializeEmptyBlockOccurrenceCounts(
   ctx: MutationCtx
 ): Promise<void> {
   const state = await ensureOccurrenceState(ctx)
-  if (state.status === "ready" && state.epoch === SLICE_OCCURRENCE_EPOCH) return
+  if (state.status === "ready" && state.epoch === BLOCK_OCCURRENCE_EPOCH) return
   // An onboarding stamp is not evidence that an old installation is empty.
   const [pages, staging, candidates, snapshots, drafts, refs] =
     await Promise.all([
@@ -896,9 +896,9 @@ export async function initializeEmptySliceOccurrenceCounts(
       ctx.db.query("pageLocalePublicationCandidates").take(1),
       ctx.db.query("pagePublishedSnapshots").take(1),
       ctx.db.query("pageLocaleDrafts").take(2),
-      ctx.db.query("pagePublicationSliceReferences").take(1),
+      ctx.db.query("pagePublicationBlockReferences").take(1),
     ])
-  const isEmpty = (extraction: SliceOccurrenceExtraction) =>
+  const isEmpty = (extraction: BlockOccurrenceExtraction) =>
     extraction.occurrences.length === 0 &&
     extraction.invalidTypes.length === 0 &&
     !extraction.unknownInvalid
@@ -912,30 +912,30 @@ export async function initializeEmptySliceOccurrenceCounts(
     pages.some(
       (page) =>
         !isEmpty(
-          extractSliceOccurrenceIdentities(String(page._id), page.content)
+          extractBlockOccurrenceIdentities(String(page._id), page.content)
         )
     ) ||
     drafts.some(
       (draft) =>
         !isEmpty(
-          extractSliceOccurrenceIdentities(String(draft.pageId), {
+          extractBlockOccurrenceIdentities(String(draft.pageId), {
             [draft.locale]: draft.content,
           })
         )
     )
   )
     return
-  const catalog = await readSlicePresentationCatalog()
+  const catalog = await readBlockPresentationCatalog()
   for (const entry of catalog.entries)
     await ensureOccurrenceCounter(ctx, entry.type, entry.id)
-  await ctx.db.patch("sliceOccurrenceCountState", state._id, {
+  await ctx.db.patch("blockOccurrenceCountState", state._id, {
     status: "ready",
-    epoch: SLICE_OCCURRENCE_EPOCH,
+    epoch: BLOCK_OCCURRENCE_EPOCH,
   })
 }
 
 /** Owner entry prepares a run; native migrations own resumable batch delivery. */
-export async function beginSliceOccurrenceMaintenance(
+export async function beginBlockOccurrenceMaintenance(
   ctx: MutationCtx,
   mode: "backfill" | "verify",
   restart: boolean
@@ -943,13 +943,13 @@ export async function beginSliceOccurrenceMaintenance(
   const state = await ensureOccurrenceState(ctx)
   if (state.status === "building" && !restart) {
     if (state.mode !== mode)
-      throw new ConvexError("SLICE_OCCURRENCE_MAINTENANCE_ACTIVE")
+      throw new ConvexError("BLOCK_OCCURRENCE_MAINTENANCE_ACTIVE")
     return { restart: false }
   }
-  const catalog = await readSlicePresentationCatalog()
+  const catalog = await readBlockPresentationCatalog()
   for (const entry of catalog.entries)
     await ensureOccurrenceCounter(ctx, entry.type, entry.id)
-  await ctx.db.patch("sliceOccurrenceCountState", state._id, {
+  await ctx.db.patch("blockOccurrenceCountState", state._id, {
     status: "building",
     mode,
     run: state.run + 1,
@@ -960,32 +960,32 @@ export async function beginSliceOccurrenceMaintenance(
   return { restart: true }
 }
 
-export async function maintainSliceOccurrenceSource(
+export async function maintainBlockOccurrenceSource(
   ctx: MutationCtx,
-  table: SliceOccurrenceSourceTable,
+  table: BlockOccurrenceSourceTable,
   id: string
 ): Promise<void> {
-  const state = await readSliceOccurrenceState(ctx)
+  const state = await readBlockOccurrenceState(ctx)
   if (state?.status !== "building") return
-  await reconcileSliceOccurrenceSource(ctx, { table, id }, state.mode)
+  await reconcileBlockOccurrenceSource(ctx, { table, id }, state.mode)
 }
 
-export async function maintainSliceOccurrenceReference(
+export async function maintainBlockOccurrenceReference(
   ctx: MutationCtx,
-  reference: Doc<"pagePublicationSliceReferences">
+  reference: Doc<"pagePublicationBlockReferences">
 ): Promise<void> {
   const table = REFERENCE_SOURCE_TABLES[reference.sourceKind]
-  await maintainSliceOccurrenceSource(ctx, table, reference.sourceId)
+  await maintainBlockOccurrenceSource(ctx, table, reference.sourceId)
 }
 
-export async function prepareSliceOccurrenceVerification(
+export async function prepareBlockOccurrenceVerification(
   ctx: MutationCtx,
-  counter: Doc<"sliceOccurrenceCounts">
+  counter: Doc<"blockOccurrenceCounts">
 ): Promise<void> {
-  const state = await readSliceOccurrenceState(ctx)
+  const state = await readBlockOccurrenceState(ctx)
   if (state?.status !== "building" || counter.verificationRun === state.run)
     return
-  await ctx.db.patch("sliceOccurrenceCounts", counter._id, {
+  await ctx.db.patch("blockOccurrenceCounts", counter._id, {
     verificationRun: state.run,
     verificationCount: 0,
     verificationVersion: counter.version,
@@ -994,26 +994,26 @@ export async function prepareSliceOccurrenceVerification(
   })
 }
 
-export async function tallySliceOccurrenceVerification(
+export async function tallyBlockOccurrenceVerification(
   ctx: MutationCtx,
-  occurrence: Doc<"sliceOccurrenceUsage">
+  occurrence: Doc<"blockOccurrenceUsage">
 ): Promise<void> {
-  const state = await readSliceOccurrenceState(ctx)
+  const state = await readBlockOccurrenceState(ctx)
   if (state?.status !== "building" || occurrence.lastTalliedRun === state.run)
     return
-  const counter = await readSliceOccurrenceCounter(
+  const counter = await readBlockOccurrenceCounter(
     ctx,
     occurrence.type,
     occurrence.presentationId
   )
   const members = await ctx.db
-    .query("sliceOccurrenceSourceMembers")
+    .query("blockOccurrenceSourceMembers")
     .withIndex("by_occurrenceId", (q) => q.eq("occurrenceId", occurrence._id))
     .take(OCCURRENCE_SOURCE_LIMIT + 1)
   const expected = zeroReferences()
   let valid = members.length > 0 && members.length <= OCCURRENCE_SOURCE_LIMIT
   for (const member of members) {
-    const source = await ctx.db.get("sliceOccurrenceSources", member.sourceId)
+    const source = await ctx.db.get("blockOccurrenceSources", member.sourceId)
     if (!source) valid = false
     else expected[SOURCE_KINDS[source.table]]++
   }
@@ -1029,20 +1029,20 @@ export async function tallySliceOccurrenceVerification(
     counter.verificationRun !== state.run ||
     counter.verificationVersion !== counter.version
   ) {
-    await ctx.db.patch("sliceOccurrenceCountState", state._id, { verificationFailed: true })
+    await ctx.db.patch("blockOccurrenceCountState", state._id, { verificationFailed: true })
     return
   }
-  await ctx.db.patch("sliceOccurrenceCounts", counter._id, {
+  await ctx.db.patch("blockOccurrenceCounts", counter._id, {
     verificationCount: (counter.verificationCount ?? 0) + 1,
   })
-  await ctx.db.patch("sliceOccurrenceUsage", occurrence._id, { lastTalliedRun: state.run })
+  await ctx.db.patch("blockOccurrenceUsage", occurrence._id, { lastTalliedRun: state.run })
 }
 
-export async function finishSliceOccurrenceCounterVerification(
+export async function finishBlockOccurrenceCounterVerification(
   ctx: MutationCtx,
-  counter: Doc<"sliceOccurrenceCounts">
+  counter: Doc<"blockOccurrenceCounts">
 ): Promise<void> {
-  const state = await readSliceOccurrenceState(ctx)
+  const state = await readBlockOccurrenceState(ctx)
   if (
     state?.status !== "building" ||
     counter.verificationFinishedRun === state.run
@@ -1060,10 +1060,10 @@ export async function finishSliceOccurrenceCounterVerification(
       (count !== counter.count ||
         counter.invalidSources !== counter.verificationInvalidSources))
   ) {
-    await ctx.db.patch("sliceOccurrenceCountState", state._id, { verificationFailed: true })
+    await ctx.db.patch("blockOccurrenceCountState", state._id, { verificationFailed: true })
     return
   }
-  await ctx.db.patch("sliceOccurrenceCounts", counter._id, {
+  await ctx.db.patch("blockOccurrenceCounts", counter._id, {
     count,
     version: counter.version + Number(count !== counter.count),
     verificationFinishedRun: state.run,
@@ -1071,13 +1071,13 @@ export async function finishSliceOccurrenceCounterVerification(
   })
 }
 
-export async function finishSliceOccurrenceMaintenance(
+export async function finishBlockOccurrenceMaintenance(
   ctx: MutationCtx,
   completedSourcePasses: boolean
 ): Promise<void> {
-  const state = await readSliceOccurrenceState(ctx)
+  const state = await readBlockOccurrenceState(ctx)
   if (state?.status !== "building") return
-  const counters = await ctx.db.query("sliceOccurrenceCounts").take(129)
+  const counters = await ctx.db.query("blockOccurrenceCounts").take(129)
   const verified =
     completedSourcePasses &&
     counters.length < 129 &&
@@ -1088,7 +1088,7 @@ export async function finishSliceOccurrenceMaintenance(
       state.verificationUnknownInvalidSources ===
         state.unknownInvalidSources) &&
     counters.every((counter) => counter.verificationFinishedRun === state.run)
-  await ctx.db.patch("sliceOccurrenceCountState", state._id, {
+  await ctx.db.patch("blockOccurrenceCountState", state._id, {
     status: verified && !state.verificationFailed ? "ready" : "unavailable",
     verificationFailed: state.verificationFailed || !verified,
     ...(verified
@@ -1097,42 +1097,42 @@ export async function finishSliceOccurrenceMaintenance(
   })
 }
 
-export async function prepareSliceOccurrenceIntegrityVerification(
+export async function prepareBlockOccurrenceIntegrityVerification(
   ctx: MutationCtx
 ): Promise<void> {
-  const state = await readSliceOccurrenceState(ctx)
+  const state = await readBlockOccurrenceState(ctx)
   if (state?.status !== "building" || state.verificationRun === state.run)
     return
-  await ctx.db.patch("sliceOccurrenceCountState", state._id, {
+  await ctx.db.patch("blockOccurrenceCountState", state._id, {
     verificationRun: state.run,
     verificationIntegrityVersion: state.integrityVersion,
     verificationUnknownInvalidSources: 0,
   })
 }
 
-export async function tallySliceOccurrenceIntegrityVerification(
+export async function tallyBlockOccurrenceIntegrityVerification(
   ctx: MutationCtx,
-  source: Doc<"sliceOccurrenceSources">
+  source: Doc<"blockOccurrenceSources">
 ): Promise<void> {
-  const state = await readSliceOccurrenceState(ctx)
+  const state = await readBlockOccurrenceState(ctx)
   if (state?.status !== "building" || source.lastIntegrityRun === state.run)
     return
   for (const type of source.invalidTypes) {
-    const counter = await readSliceOccurrenceCounter(ctx, type, "default")
+    const counter = await readBlockOccurrenceCounter(ctx, type, "default")
     if (!counter || counter.verificationRun !== state.run) {
-      await ctx.db.patch("sliceOccurrenceCountState", state._id, { verificationFailed: true })
+      await ctx.db.patch("blockOccurrenceCountState", state._id, { verificationFailed: true })
       return
     }
-    await ctx.db.patch("sliceOccurrenceCounts", counter._id, {
+    await ctx.db.patch("blockOccurrenceCounts", counter._id, {
       verificationInvalidSources: (counter.verificationInvalidSources ?? 0) + 1,
     })
   }
   if (source.unknownInvalid)
-    await ctx.db.patch("sliceOccurrenceCountState", state._id, {
+    await ctx.db.patch("blockOccurrenceCountState", state._id, {
       verificationUnknownInvalidSources:
         (state.verificationUnknownInvalidSources ?? 0) + 1,
     })
-  await ctx.db.patch("sliceOccurrenceSources", source._id, { lastIntegrityRun: state.run })
+  await ctx.db.patch("blockOccurrenceSources", source._id, { lastIntegrityRun: state.run })
 }
 
 const occurrenceMigrations = new Migrations<DataModel, typeof schema>(
@@ -1143,90 +1143,90 @@ const occurrenceMigrations = new Migrations<DataModel, typeof schema>(
 // Occurrence maintenance reuses the mounted, resumable migrations component.
 // The public in-app start is owner gated; workers remain internal, including
 // the existing deployment-admin CLI/dashboard trust boundary.
-export const backfillSliceOccurrenceSaved = occurrenceMigrations.define({
+export const backfillBlockOccurrenceSaved = occurrenceMigrations.define({
   table: "pages",
   batchSize: 1,
   migrateOne: (ctx, row) =>
-    maintainSliceOccurrenceSource(ctx, "pages", row._id),
+    maintainBlockOccurrenceSource(ctx, "pages", row._id),
 })
-export const backfillSliceOccurrenceStaged = occurrenceMigrations.define({
+export const backfillBlockOccurrenceStaged = occurrenceMigrations.define({
   table: "pageStaging",
   batchSize: 1,
   migrateOne: (ctx, row) =>
-    maintainSliceOccurrenceSource(ctx, "pageStaging", row._id),
+    maintainBlockOccurrenceSource(ctx, "pageStaging", row._id),
 })
-export const backfillSliceOccurrenceShared = occurrenceMigrations.define({
+export const backfillBlockOccurrenceShared = occurrenceMigrations.define({
   table: "pageSharedDrafts",
   batchSize: 1,
   migrateOne: (ctx, row) =>
-    maintainSliceOccurrenceSource(ctx, "pageSharedDrafts", row._id),
+    maintainBlockOccurrenceSource(ctx, "pageSharedDrafts", row._id),
 })
-export const backfillSliceOccurrenceDrafts = occurrenceMigrations.define({
+export const backfillBlockOccurrenceDrafts = occurrenceMigrations.define({
   table: "pageLocaleDrafts",
   batchSize: 1,
   migrateOne: (ctx, row) =>
-    maintainSliceOccurrenceSource(ctx, "pageLocaleDrafts", row._id),
+    maintainBlockOccurrenceSource(ctx, "pageLocaleDrafts", row._id),
 })
-export const backfillSliceOccurrenceCandidates = occurrenceMigrations.define({
+export const backfillBlockOccurrenceCandidates = occurrenceMigrations.define({
   table: "pageLocalePublicationCandidates",
   batchSize: 1,
   migrateOne: (ctx, row) =>
-    maintainSliceOccurrenceSource(
+    maintainBlockOccurrenceSource(
       ctx,
       "pageLocalePublicationCandidates",
       row._id
     ),
 })
-export const backfillSliceOccurrenceSnapshots = occurrenceMigrations.define({
+export const backfillBlockOccurrenceSnapshots = occurrenceMigrations.define({
   table: "pagePublishedSnapshots",
   batchSize: 1,
   migrateOne: (ctx, row) =>
-    maintainSliceOccurrenceSource(ctx, "pagePublishedSnapshots", row._id),
+    maintainBlockOccurrenceSource(ctx, "pagePublishedSnapshots", row._id),
 })
-export const backfillSliceOccurrenceReferences = occurrenceMigrations.define({
-  table: "pagePublicationSliceReferences",
+export const backfillBlockOccurrenceReferences = occurrenceMigrations.define({
+  table: "pagePublicationBlockReferences",
   batchSize: 1,
-  migrateOne: (ctx, row) => maintainSliceOccurrenceReference(ctx, row),
+  migrateOne: (ctx, row) => maintainBlockOccurrenceReference(ctx, row),
 })
-export const backfillSliceOccurrenceSourceClosure = occurrenceMigrations.define(
+export const backfillBlockOccurrenceSourceClosure = occurrenceMigrations.define(
   {
-    table: "sliceOccurrenceSources",
+    table: "blockOccurrenceSources",
     batchSize: 1,
     migrateOne: (ctx, row) =>
-      maintainSliceOccurrenceSource(ctx, row.table, row.sourceId),
+      maintainBlockOccurrenceSource(ctx, row.table, row.sourceId),
   }
 )
-export const prepareSliceOccurrenceIntegrity = occurrenceMigrations.define({
-  table: "sliceOccurrenceCountState",
+export const prepareBlockOccurrenceIntegrity = occurrenceMigrations.define({
+  table: "blockOccurrenceCountState",
   batchSize: 1,
-  migrateOne: (ctx) => prepareSliceOccurrenceIntegrityVerification(ctx),
+  migrateOne: (ctx) => prepareBlockOccurrenceIntegrityVerification(ctx),
 })
-export const prepareSliceOccurrenceCounters = occurrenceMigrations.define({
-  table: "sliceOccurrenceCounts",
+export const prepareBlockOccurrenceCounters = occurrenceMigrations.define({
+  table: "blockOccurrenceCounts",
   batchSize: 1,
-  migrateOne: (ctx, row) => prepareSliceOccurrenceVerification(ctx, row),
+  migrateOne: (ctx, row) => prepareBlockOccurrenceVerification(ctx, row),
 })
-export const tallySliceOccurrenceIntegrity = occurrenceMigrations.define({
-  table: "sliceOccurrenceSources",
+export const tallyBlockOccurrenceIntegrity = occurrenceMigrations.define({
+  table: "blockOccurrenceSources",
   batchSize: 16,
-  migrateOne: (ctx, row) => tallySliceOccurrenceIntegrityVerification(ctx, row),
+  migrateOne: (ctx, row) => tallyBlockOccurrenceIntegrityVerification(ctx, row),
 })
-export const tallySliceOccurrenceKeys = occurrenceMigrations.define({
-  table: "sliceOccurrenceUsage",
+export const tallyBlockOccurrenceKeys = occurrenceMigrations.define({
+  table: "blockOccurrenceUsage",
   batchSize: 16,
-  migrateOne: (ctx, row) => tallySliceOccurrenceVerification(ctx, row),
+  migrateOne: (ctx, row) => tallyBlockOccurrenceVerification(ctx, row),
 })
-export const verifySliceOccurrenceCounters = occurrenceMigrations.define({
-  table: "sliceOccurrenceCounts",
+export const verifyBlockOccurrenceCounters = occurrenceMigrations.define({
+  table: "blockOccurrenceCounts",
   batchSize: 1,
-  migrateOne: (ctx, row) => finishSliceOccurrenceCounterVerification(ctx, row),
+  migrateOne: (ctx, row) => finishBlockOccurrenceCounterVerification(ctx, row),
 })
-export const finalizeSliceOccurrenceUsage = occurrenceMigrations.define({
-  table: "sliceOccurrenceCountState",
+export const finalizeBlockOccurrenceUsage = occurrenceMigrations.define({
+  table: "blockOccurrenceCountState",
   batchSize: 1,
   migrateOne: async (ctx, state) => {
     if (state.status !== "building") return
-    const sources = sliceOccurrenceMaintenanceSeries().slice(0, -1)
+    const sources = blockOccurrenceMaintenanceSeries().slice(0, -1)
     const statuses = await occurrenceMigrations.getStatus(ctx, {
       migrations: sources,
       limit: sources.length,
@@ -1239,26 +1239,26 @@ export const finalizeSliceOccurrenceUsage = occurrenceMigrations.define({
           status.isDone &&
           status.latestStart >= state.startedAt
       )
-    await finishSliceOccurrenceMaintenance(ctx, completed)
+    await finishBlockOccurrenceMaintenance(ctx, completed)
   },
 })
 
-function sliceOccurrenceMaintenanceSeries(): MigrationFunctionReference[] {
+function blockOccurrenceMaintenanceSeries(): MigrationFunctionReference[] {
   return [
-    internal.lib.publishing.staging.backfillSliceOccurrenceSaved,
-    internal.lib.publishing.staging.backfillSliceOccurrenceStaged,
-    internal.lib.publishing.staging.backfillSliceOccurrenceShared,
-    internal.lib.publishing.staging.backfillSliceOccurrenceDrafts,
-    internal.lib.publishing.staging.backfillSliceOccurrenceCandidates,
-    internal.lib.publishing.staging.backfillSliceOccurrenceSnapshots,
-    internal.lib.publishing.staging.backfillSliceOccurrenceReferences,
-    internal.lib.publishing.staging.backfillSliceOccurrenceSourceClosure,
-    internal.lib.publishing.staging.prepareSliceOccurrenceIntegrity,
-    internal.lib.publishing.staging.prepareSliceOccurrenceCounters,
-    internal.lib.publishing.staging.tallySliceOccurrenceIntegrity,
-    internal.lib.publishing.staging.tallySliceOccurrenceKeys,
-    internal.lib.publishing.staging.verifySliceOccurrenceCounters,
-    internal.lib.publishing.staging.finalizeSliceOccurrenceUsage,
+    internal.lib.publishing.staging.backfillBlockOccurrenceSaved,
+    internal.lib.publishing.staging.backfillBlockOccurrenceStaged,
+    internal.lib.publishing.staging.backfillBlockOccurrenceShared,
+    internal.lib.publishing.staging.backfillBlockOccurrenceDrafts,
+    internal.lib.publishing.staging.backfillBlockOccurrenceCandidates,
+    internal.lib.publishing.staging.backfillBlockOccurrenceSnapshots,
+    internal.lib.publishing.staging.backfillBlockOccurrenceReferences,
+    internal.lib.publishing.staging.backfillBlockOccurrenceSourceClosure,
+    internal.lib.publishing.staging.prepareBlockOccurrenceIntegrity,
+    internal.lib.publishing.staging.prepareBlockOccurrenceCounters,
+    internal.lib.publishing.staging.tallyBlockOccurrenceIntegrity,
+    internal.lib.publishing.staging.tallyBlockOccurrenceKeys,
+    internal.lib.publishing.staging.verifyBlockOccurrenceCounters,
+    internal.lib.publishing.staging.finalizeBlockOccurrenceUsage,
   ]
 }
 
@@ -1267,19 +1267,19 @@ const occurrenceMaintenanceMutation = customMutation(
   customCtx(async (ctx) => ({ owner: await requireOperationAccess(ctx) }))
 )
 
-export const startSliceOccurrenceUsageBackfill = occurrenceMaintenanceMutation({
+export const startBlockOccurrenceUsageBackfill = occurrenceMaintenanceMutation({
   args: {
     mode: v.union(v.literal("backfill"), v.literal("verify")),
     restart: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, { mode, restart }) => {
-    const run = await beginSliceOccurrenceMaintenance(
+    const run = await beginBlockOccurrenceMaintenance(
       ctx,
       mode,
       restart ?? false
     )
-    const series = sliceOccurrenceMaintenanceSeries()
+    const series = blockOccurrenceMaintenanceSeries()
     if (run.restart) {
       // Documented direct migration invocation: reset and next apply to the
       // entire native series, with one source document per source batch.

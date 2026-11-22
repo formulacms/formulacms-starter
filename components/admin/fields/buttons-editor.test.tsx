@@ -1,7 +1,7 @@
 import { fireEvent, screen } from "@testing-library/react"
 import { render } from "@/test-utils/admin-i18n"
 import { expect, test, vi } from "vitest"
-import type { ButtonField } from "@/convex/lib/slices"
+import type { ButtonField } from "@/convex/lib/blocks"
 import { ButtonsEditor } from "./buttons-editor"
 
 vi.mock("convex/react", () => ({

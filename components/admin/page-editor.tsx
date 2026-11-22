@@ -3,7 +3,7 @@
 import { usePageAddressMessages } from "@/lib/admin/page-address-messages"
 
 import type { HistoryRestoreResult } from "./contributions/history"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlock } from "@/convex/lib/blocks/identity"
 
 import {
   adoptHeroTitles,
@@ -11,7 +11,7 @@ import {
   mergeTitleReports,
 } from "@/lib/rich-text/adopt-hero-titles"
 import {
-  writeSliceFields,
+  writeBlockFields,
   type TitleWriteReport,
 } from "@/convex/lib/richtext/write"
 import {
@@ -72,9 +72,9 @@ import type {
   PreviewInlineActivationResult,
   PreviewInlineRefusalReason,
   PreviewInlineEditCommit,
-  SliceFieldFocusTarget,
-  SliceFirstControlFocusTarget,
-  SlicePreviewClickSelection,
+  BlockFieldFocusTarget,
+  BlockFirstControlFocusTarget,
+  BlockPreviewClickSelection,
 } from "./visual-editing-types"
 import { useConfirm } from "@/components/providers/confirm-provider"
 import { DuplicatePageDialog } from "@/components/admin/duplicate-page-dialog"
@@ -122,8 +122,8 @@ import type { PerLanguageSeo } from "@/convex/lib/contentTypes/perLanguageFields
 import { AmberNotice } from "@/components/admin/amber-notice"
 import { useTranslationOffMessage } from "@/components/admin/content-types/content-type-names"
 import { useHiddenByTranslationSwitch } from "@/components/admin/content-types/use-hidden-by-translation-switch"
-import { type Slice } from "@/convex/lib/slices"
-import { hasSliceBody } from "@/convex/lib/pages/sliceBodyContent"
+import { type Block } from "@/convex/lib/blocks"
+import { hasBlockBody } from "@/convex/lib/pages/blockBodyContent"
 import { getLocaleDisplayName, type Locale } from "@/lib/i18n/config"
 import {
   type ActivePanel,
@@ -141,7 +141,7 @@ import { TransferPopoverContent } from "./page-editor/components/transfer-popove
 import { SeoPanel } from "./page-editor/components/seo-panel"
 import { PageHeaderMeta } from "./page-editor/components/page-header-meta"
 import { SettingsPanel } from "./page-editor/components/settings-panel"
-import { SlicesPanel } from "./page-editor/components/slices-panel"
+import { BlocksPanel } from "./page-editor/components/blocks-panel"
 import { ADMIN_HISTORY_BROWSER_BINDING } from "./contributions/history"
 import { SnapshotHistoryPanelSlot } from "./page-editor/components/snapshot-history-panel"
 import {
@@ -184,7 +184,7 @@ import type { PageReadinessSuggestion } from "./page-editor/lib/readiness"
 import {
   applyPageField,
   rebasePageField,
-  hasStructuralSliceChange,
+  hasStructuralBlockChange,
 } from "./page-editor/lib/page-inline-draft"
 import {
   extractLocalizedFieldValues,
@@ -193,7 +193,7 @@ import {
 import {
   isPrimitiveValueEmpty,
   type Primitive,
-} from "@/convex/lib/slices/primitives"
+} from "@/convex/lib/blocks/primitives"
 import {
   adminContentTypeCapabilities,
   adminContentTypeLocalizedFields,
@@ -221,23 +221,23 @@ import {
  *
  * The stored arm union widened when plan 029 C10 registered the pure-form
  * `testimonial` arm — its `content[locale]` is `{title, quote}` with no
- * `metaTitle` / `metaDescription` / `slices`. This editor is the
- * slice-body editor (plan 029 C10 task 13 will ship the testimonial
+ * `metaTitle` / `metaDescription` / `blocks`. This editor is the
+ * block-body editor (plan 029 C10 task 13 will ship the testimonial
  * pure-form editor separately); reading through this shape lets absent
  * keys read as `undefined` without static-type refusal, and testimonial
- * pages that end up here render an empty slice canvas until the
+ * pages that end up here render an empty block canvas until the
  * pure-form editor lands.
  */
-type SliceBodyLocaleReadBag =
+type BlockBodyLocaleReadBag =
   | {
       title?: string
       metaTitle?: string
       metaDescription?: string
-      slices?: Slice[]
+      blocks?: Block[]
     }
   | undefined
-const asSliceBodyLocaleBag = (value: unknown): SliceBodyLocaleReadBag =>
-  value as SliceBodyLocaleReadBag
+const asBlockBodyLocaleBag = (value: unknown): BlockBodyLocaleReadBag =>
+  value as BlockBodyLocaleReadBag
 
 function currentTimestamp() {
   return Date.now()
@@ -360,12 +360,12 @@ async function runRetainedTargetDraftDeletion({
 async function carryOverRecoveredCopyFields({
   convex,
   newId,
-  sliceBodyPageType,
+  blockBodyPageType,
   currentLocale,
   title,
   metaTitle,
   metaDescription,
-  slices,
+  blocks,
   sharedFieldValues,
   localizedFieldValues,
   presentationCatalog,
@@ -374,13 +374,13 @@ async function carryOverRecoveredCopyFields({
 }: {
   convex: ReturnType<typeof useConvex>
   newId: Id<"pages">
-  // `pageType` state narrowed by the caller (testimonial has no slice body).
-  sliceBodyPageType: Exclude<PageEditorProps["page"]["pageType"], "testimonial">
+  // `pageType` state narrowed by the caller (testimonial has no block body).
+  blockBodyPageType: Exclude<PageEditorProps["page"]["pageType"], "testimonial">
   currentLocale: Locale
   title: string
   metaTitle: string
   metaDescription: string
-  slices: Slice[]
+  blocks: Block[]
   sharedFieldValues: Record<string, unknown>
   localizedFieldValues: Record<string, unknown>
   presentationCatalog: { revision: string } | null | undefined
@@ -405,7 +405,7 @@ async function carryOverRecoveredCopyFields({
       if (hasLocalizedFields) {
         updateDraftArgs.content = {
           [currentLocale]: {
-            pageType: sliceBodyPageType,
+            pageType: blockBodyPageType,
             localized: {
               title:
                 title || getContentDefault(currentLocale, "recoveredDraft"),
@@ -413,7 +413,7 @@ async function carryOverRecoveredCopyFields({
               metaDescription: metaDescription || undefined,
               ...localizedFieldValues,
             },
-            slices,
+            blocks,
           },
         }
       }
@@ -467,7 +467,7 @@ async function carryOverRecoveredCopyFields({
     }
   } catch {
     // Descriptor-field carry-over failed — the recovered draft still
-    // exists with title/meta/slices; the user can re-enter descriptor
+    // exists with title/meta/blocks; the user can re-enter descriptor
     // fields there. Silent by design; no destructive fallback path.
   }
 }
@@ -731,7 +731,7 @@ function PageEditorSession({
 
   const retainedLocaleDraft = retainedDrafts?.[currentLocale]
   const localeContent =
-    retainedLocaleDraft ?? asSliceBodyLocaleBag(page.content?.[currentLocale])
+    retainedLocaleDraft ?? asBlockBodyLocaleBag(page.content?.[currentLocale])
   const [initialPageDraftHandoff] = useState(() =>
     readPageDraftHandoff(page._id)
   )
@@ -780,8 +780,8 @@ function PageEditorSession({
   const draftRevisionRef = useRef(0)
   const [draftRevision, setDraftRevision] = useState(0)
   // Counts every write to a field of the draft, with no state: reading it never
-  // renders. `advanceDraftRevision` also feeds a SlicesPanel prop, so it stays
-  // limited to title and slice commits. Save compares this count to tell that a
+  // renders. `advanceDraftRevision` also feeds a BlocksPanel prop, so it stays
+  // limited to title and block commits. Save compares this count to tell that a
   // pending capture was overtaken by typing React has not reflected in
   // `draftRef` yet.
   const draftWritesRef = useRef(0)
@@ -793,7 +793,7 @@ function PageEditorSession({
     draftRevisionRef.current += 1
     setDraftRevision(draftRevisionRef.current)
   }
-  // The remaining draft fields count their writes too (title and slices go
+  // The remaining draft fields count their writes too (title and blocks go
   // through `advanceDraftRevision`).
   function setSlug(value: SetStateAction<typeof slug>) {
     noteDraftWrite()
@@ -962,7 +962,7 @@ function PageEditorSession({
   )
   const [initialTitleAdoption] = useState(() =>
     adoptHeroTitles(
-      initialPageDraftHandoff?.slices ?? localeContent?.slices ?? [],
+      initialPageDraftHandoff?.blocks ?? localeContent?.blocks ?? [],
       currentLocale,
       mergeTitleReports(
         initialTitleReports ?? [],
@@ -971,27 +971,27 @@ function PageEditorSession({
     )
   )
   const titleReports = useRef<TitleWriteReport[]>(initialTitleAdoption.reports)
-  const [slices, setSlicesState] = useState<Slice[]>(initialTitleAdoption.value)
-  const slicesRef = useRef(slices)
-  const slicesEpochRef = useRef(0)
-  const [slicesEpoch, setSlicesEpoch] = useState(0)
+  const [blocks, setBlocksState] = useState<Block[]>(initialTitleAdoption.value)
+  const blocksRef = useRef(blocks)
+  const blocksEpochRef = useRef(0)
+  const [blocksEpoch, setBlocksEpoch] = useState(0)
   function prepareIncomingDraft<
-    T extends { slices: Slice[]; removedTitleLinks?: TitleWriteReport[] },
+    T extends { blocks: Block[]; removedTitleLinks?: TitleWriteReport[] },
   >(draft: T, locale = currentLocale) {
     const prepared = prepareHeroTitleDraft(draft, locale, titleReports.current)
     return {
       ...prepared,
-      structuralChange: hasStructuralSliceChange(
-        slicesRef.current,
-        prepared.slices
+      structuralChange: hasStructuralBlockChange(
+        blocksRef.current,
+        prepared.blocks
       ),
     }
   }
   // Commit only prepared values. Parsing, cloning, validation and structural
   // comparison all finish before any parent state/ref/cache is published.
-  function commitPreparedSlices(
+  function commitPreparedBlocks(
     prepared: {
-      slices: Slice[]
+      blocks: Block[]
       removedTitleLinks?: TitleWriteReport[]
       structuralChange: boolean
     },
@@ -999,19 +999,19 @@ function PageEditorSession({
   ) {
     titleReports.current = prepared.removedTitleLinks ?? []
     if (structural && prepared.structuralChange) {
-      slicesEpochRef.current += 1
-      setSlicesEpoch(slicesEpochRef.current)
+      blocksEpochRef.current += 1
+      setBlocksEpoch(blocksEpochRef.current)
     }
     // Keep the event-owned baseline ahead of queued React render snapshots.
-    slicesRef.current = prepared.slices
+    blocksRef.current = prepared.blocks
     advanceDraftRevision()
-    setSlicesState(prepared.slices)
+    setBlocksState(prepared.blocks)
   }
   const scheduleSidebarPublication = useRef<(() => void) | null>(null)
   const publishSidebarDraft = useEffectEvent(() => {
     // The frame owns session end; only the parent renderer can publish its
     // event-owned draft and flush the sidebar editor's adoption effects.
-    flushSync(() => setSlicesState(slicesRef.current))
+    flushSync(() => setBlocksState(blocksRef.current))
   })
   function scheduleSidebarPublicationIfFocused() {
     // Composition can settle after focus has already crossed to the sidebar.
@@ -1055,7 +1055,7 @@ function PageEditorSession({
     setAddressWasTyped(prepared.addressWasTyped ?? false)
     setMetaTitle(prepared.metaTitle)
     setMetaDescription(prepared.metaDescription)
-    commitPreparedSlices(prepared)
+    commitPreparedBlocks(prepared)
     setLocalizedFieldValues(prepared.localizedFieldValues)
     // A draft that carries the language's search and social values (a tab
     // switch, Copy from) replaces them; a translation draft keeps them.
@@ -1068,15 +1068,15 @@ function PageEditorSession({
       setCopiedLanguageValues(seo.copiedLanguageValues)
     }
   }
-  // Sidebar, slice copy/translation and AI merge all prepare before publication.
-  function setSlices(value: SetStateAction<Slice[]>, locale = currentLocale) {
+  // Sidebar, block copy/translation and AI merge all prepare before publication.
+  function setBlocks(value: SetStateAction<Block[]>, locale = currentLocale) {
     const prepared = prepareIncomingDraft(
       {
-        slices: typeof value === "function" ? value(slicesRef.current) : value,
+        blocks: typeof value === "function" ? value(blocksRef.current) : value,
       },
       locale
     )
-    commitPreparedSlices(prepared)
+    commitPreparedBlocks(prepared)
   }
   const activePreviewEditRef = useRef<PreviewActiveEditHandle | null>(null)
   const previewEditBufferRef = useRef<PreviewInlineEditCommit | null>(null)
@@ -1112,7 +1112,7 @@ function PageEditorSession({
         currentLocale
       )
   )
-  const [activePanel, setActivePanel] = useState<ActivePanel>("slices")
+  const [activePanel, setActivePanel] = useState<ActivePanel>("blocks")
   const [seoFocusRequest, setSeoFocusRequest] = useState(0)
   const handledSeoFocusRequest = useRef(0)
   useEffect(() => {
@@ -1127,23 +1127,24 @@ function PageEditorSession({
       handledSeoFocusRequest.current = seoFocusRequest
     }
   }, [seoFocusRequest, activePanel])
-  const [slicePickerOpen, setSlicePickerOpen] = useState(false)
-  const [selectedSliceId, setSelectedSliceId] = useState<string | null>(null)
-  // Mirror of the preview mode. C keeps the sidebar mounted so full-profile
-  // body content and unrendered fields remain reachable during inline editing.
-  const [previewInlineEditingEnabled, setPreviewInlineEditingEnabled] =
-    useState(false)
+  const [blockPickerOpen, setBlockPickerOpen] = useState(false)
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
   const [focusedFieldTarget, setFocusedFieldTarget] =
-    useState<SliceFieldFocusTarget | null>(null)
+    useState<BlockFieldFocusTarget | null>(null)
   const [focusedFirstControlTarget, setFocusedFirstControlTarget] =
-    useState<SliceFirstControlFocusTarget | null>(null)
+    useState<BlockFirstControlFocusTarget | null>(null)
   const [previewClickSelection, setPreviewClickSelection] =
-    useState<SlicePreviewClickSelection | null>(null)
-  const [previewInlineRefusal, setPreviewInlineRefusal] =
-    useState<PreviewInlineRefusalReason | null>(null)
-  // The "only in the form" notice sits above the split view: showing or
-  // hiding it moves the preview. A preview click updates it only once the
-  // click sequence is over; each further click restarts the wait.
+    useState<BlockPreviewClickSelection | null>(null)
+  // A form-only field ("unsupported") raises no notice: the form control
+  // takes the focus at once, and that is the feedback (owner, 2026-11-21).
+  // The other refusals keep their notice. It sits above the split view:
+  // showing or hiding it moves the preview, so a preview click updates it
+  // only once the click sequence is over; each further click restarts the
+  // wait.
+  const [previewInlineRefusal, setPreviewInlineRefusal] = useState<Exclude<
+    PreviewInlineRefusalReason,
+    "unsupported"
+  > | null>(null)
   const pendingRefusal = useRef<number | undefined>(undefined)
   useEffect(() => {
     const pending = pendingRefusal
@@ -1152,9 +1153,10 @@ function PageEditorSession({
   function settlePreviewInlineRefusal(
     reason: PreviewInlineRefusalReason | null
   ) {
+    const shown = reason === "unsupported" ? null : reason
     window.clearTimeout(pendingRefusal.current)
     pendingRefusal.current = window.setTimeout(
-      () => setPreviewInlineRefusal(reason),
+      () => setPreviewInlineRefusal(shown),
       PREVIEW_CLICK_SETTLE_MS
     )
   }
@@ -1246,7 +1248,7 @@ function PageEditorSession({
       metaTitle.trim().length > 0 || !!page.seo?.metaTitle?.trim()
     const seoDescriptionIsPresent =
       metaDescription.trim().length > 0 || !!page.seo?.metaDescription?.trim()
-    const hasContentSections = slices.length > 0
+    const hasContentSections = blocks.length > 0
     const blockers = prePublishChecklist.blockers.filter((item) => {
       if (item.code === "missing_default_locale_title") return !titleIsPresent
       if (!descriptorFieldContentPresent(item)) return false
@@ -1283,7 +1285,7 @@ function PageEditorSession({
     (visiblePrePublishChecklist?.blockers.length ?? 0) > 0
 
   // In-memory per-locale edit cache so switching locales mid-edit (e.g. while
-  // translating) doesn't discard unsaved title/meta/slice changes.
+  // translating) doesn't discard unsaved title/meta/block changes.
   const drafts = useRef<Record<string, LocaleDraft>>(retainedDrafts ?? {})
   const [draftSummaries, setDraftSummaries] = useState<
     Record<string, LocaleContentSummary>
@@ -1330,7 +1332,7 @@ function PageEditorSession({
   )
   const createPage = useMutation(api.cms.pages.create)
   const presentationCatalog = useQuery(
-    api.cms.slices.getPresentationCatalog,
+    api.cms.blocks.getPresentationCatalog,
     {}
   )
   // ADR-0041 §Migration step 2 (item 2) — editor writes go through the
@@ -1390,7 +1392,7 @@ function PageEditorSession({
     addressWasTyped,
     metaTitle,
     metaDescription,
-    slices,
+    blocks,
     localizedFieldValues,
     refusalBase: retainedLocaleDraft?.refusalBase,
   })
@@ -1605,7 +1607,7 @@ function PageEditorSession({
     const fallbackLocalized = {
       ...localizedFieldValues,
       title,
-      ...(hasSliceBody(page)
+      ...(hasBlockBody(page)
         ? {
             metaTitle: metaTitle || undefined,
             metaDescription: metaDescription || undefined,
@@ -1639,11 +1641,11 @@ function PageEditorSession({
                   ? (args.slug ?? slug).trim()
                   : (args.localizedSlugs?.[currentLocale] ?? slug).trim(),
               draft: (localizedInput ??
-                (hasSliceBody(page)
+                (hasBlockBody(page)
                   ? {
                       pageType: page.pageType,
                       localized: fallbackLocalized,
-                      slices,
+                      blocks,
                     }
                   : {
                       pageType: page.pageType,
@@ -1790,7 +1792,7 @@ function PageEditorSession({
       tags,
       metaTitle,
       metaDescription,
-      slices,
+      blocks,
       inlineConflicts: repeatedPreviewConflict
         ? [repeatedPreviewConflict]
         : NO_INLINE_CONFLICTS,
@@ -1808,7 +1810,7 @@ function PageEditorSession({
       return {
         ...draft,
         ...prepareHeroTitleDraft(
-          { ...draft, slices: slicesRef.current },
+          { ...draft, blocks: blocksRef.current },
           currentLocale,
           titleReports.current
         ),
@@ -1820,8 +1822,8 @@ function PageEditorSession({
     onPreparedDraft(draft) {
       // usePageSave has already prepared/validated this exact draft. Compute
       // comparisons before committing; never adopt it for a second time here.
-      const slicesChanged =
-        JSON.stringify(slicesRef.current) !== JSON.stringify(draft.slices)
+      const blocksChanged =
+        JSON.stringify(blocksRef.current) !== JSON.stringify(draft.blocks)
       const sharedChanged =
         JSON.stringify(sharedFieldValues) !==
         JSON.stringify(draft.sharedFieldValues)
@@ -1837,7 +1839,7 @@ function PageEditorSession({
         structuralChange: false,
       }
       titleReports.current = prepared.removedTitleLinks
-      if (slicesChanged) commitPreparedSlices(prepared, false)
+      if (blocksChanged) commitPreparedBlocks(prepared, false)
       if (sharedChanged) setSharedFieldValues(prepared.sharedFieldValues)
       if (localizedChanged)
         setLocalizedFieldValues(prepared.localizedFieldValues)
@@ -1850,13 +1852,13 @@ function PageEditorSession({
         return null
       }
       if (repeatedPreviewConflictRef.current) {
-        toast.error(t("sliceChanged"))
+        toast.error(t("blockChanged"))
         return null
       }
       return {
         ...draft,
         ...prepareHeroTitleDraft(
-          { ...draft, slices: slicesRef.current },
+          { ...draft, blocks: blocksRef.current },
           currentLocale,
           titleReports.current
         ),
@@ -2002,7 +2004,7 @@ function PageEditorSession({
   function handleLocaleChange(locale: Locale) {
     if (locale === currentLocale) return
     if (repeatedPreviewConflictRef.current) {
-      toast.error(t("sliceChanged"))
+      toast.error(t("blockChanged"))
       return
     }
     const handle = activePreviewEditRef.current
@@ -2011,7 +2013,7 @@ function PageEditorSession({
       toast.error(tPageSave("finishTextInput"))
       return
     }
-    const capturedSlices = slicesRef.current
+    const capturedBlocks = blocksRef.current
     const currentDraft = {
       ...activeLocaleBufferRef.current,
       title,
@@ -2020,13 +2022,13 @@ function PageEditorSession({
       addressWasTyped,
       metaTitle,
       metaDescription,
-      slices: capturedSlices,
+      blocks: capturedBlocks,
       removedTitleLinks: titleReports.current,
       localizedFieldValues,
       ...activeLanguageSeo(),
     }
     const draft = drafts.current[locale]
-    const c = asSliceBodyLocaleBag(page.content?.[locale])
+    const c = asBlockBodyLocaleBag(page.content?.[locale])
     const nextTitle = draft?.title ?? c?.title ?? ""
     const nextSlug = draft?.slug ?? initialSlugFor(locale)
     const attempted = attempt(() => {
@@ -2040,7 +2042,7 @@ function PageEditorSession({
           addressWasTyped: draft?.addressWasTyped ?? false,
           metaTitle: draft?.metaTitle ?? c?.metaTitle ?? "",
           metaDescription: draft?.metaDescription ?? c?.metaDescription ?? "",
-          slices: draft?.slices ?? c?.slices ?? [],
+          blocks: draft?.blocks ?? c?.blocks ?? [],
           removedTitleLinks: draft?.removedTitleLinks,
           localizedFieldValues:
             draft?.localizedFieldValues ??
@@ -2065,7 +2067,7 @@ function PageEditorSession({
     // recovery choice intact; otherwise persist this locale's latest buffer.
     if (
       !recoveryDraft &&
-      (hasUnsaved || JSON.stringify(capturedSlices) !== JSON.stringify(slices))
+      (hasUnsaved || JSON.stringify(capturedBlocks) !== JSON.stringify(blocks))
     ) {
       const recoveryContent = { ...currentDraft }
       delete recoveryContent.refusalBase
@@ -2094,7 +2096,7 @@ function PageEditorSession({
       adoptLocaleBase(publicationRef.current, publication, locale)
     setDraftSummaries((prev) => ({ ...prev, [currentLocale]: currentSummary }))
     commitPreparedLocale(prepared)
-    setSelectedSliceId(null)
+    setSelectedBlockId(null)
     setFocusedFieldTarget(null)
     activeLocaleRef.current = locale
     setDeletingRetainedTargetDraft(false)
@@ -2125,13 +2127,13 @@ function PageEditorSession({
         ? defaultLocale
         : otherLocales[0]
 
-  // The source locale's saved slices/title for per-field pulls. Uses saved
+  // The source locale's saved blocks/title for per-field pulls. Uses saved
   // content (not the `drafts` ref, which can't be read during render); an
   // unsaved edit to a *non-active* source locale is a rare edge we don't chase.
   const fieldSourceBag = fieldSource
-    ? asSliceBodyLocaleBag(page.content?.[fieldSource])
+    ? asBlockBodyLocaleBag(page.content?.[fieldSource])
     : undefined
-  const fieldSourceSlices: Slice[] = fieldSourceBag?.slices ?? []
+  const fieldSourceBlocks: Block[] = fieldSourceBag?.blocks ?? []
   const fieldSourceTitle: string = fieldSource
     ? getTitle(page, fieldSource)
     : ""
@@ -2140,13 +2142,13 @@ function PageEditorSession({
     fieldSourceBag?.metaDescription ?? ""
 
   function getSavedLocaleSummary(locale: Locale): LocaleContentSummary {
-    const saved = asSliceBodyLocaleBag(page.content?.[locale])
+    const saved = asBlockBodyLocaleBag(page.content?.[locale])
     return summarizeLocaleContent(
       {
         title: saved?.title,
         metaTitle: saved?.metaTitle,
         metaDescription: saved?.metaDescription,
-        slices: saved?.slices,
+        blocks: saved?.blocks,
         // Plan 029 C9a — descriptor localized fields (author roleTitle/bio,
         // future faq/testimonial) count towards hasAny/hasTranslatable so
         // the transfer popover doesn't lie about empty locales that in
@@ -2168,7 +2170,7 @@ function PageEditorSession({
           title,
           metaTitle,
           metaDescription,
-          slices,
+          blocks,
           localizedFieldValues,
         },
         adminContentTypeLocalizedFields(page.pageType)
@@ -2196,13 +2198,13 @@ function PageEditorSession({
             addressWasTyped,
             metaTitle,
             metaDescription,
-            slices,
+            blocks,
             localizedFieldValues,
             ...activeLanguageSeo(),
           }
         : undefined
     const draft = liveDraft ?? drafts.current[locale]
-    const saved = asSliceBodyLocaleBag(page.content?.[locale])
+    const saved = asBlockBodyLocaleBag(page.content?.[locale])
 
     return {
       draft,
@@ -2210,7 +2212,7 @@ function PageEditorSession({
       title: draft?.title ?? saved?.title ?? "",
       metaTitle: draft?.metaTitle ?? saved?.metaTitle ?? "",
       metaDescription: draft?.metaDescription ?? saved?.metaDescription ?? "",
-      slices: draft?.slices ?? saved?.slices ?? [],
+      blocks: draft?.blocks ?? saved?.blocks ?? [],
     }
   }
 
@@ -2231,7 +2233,7 @@ function PageEditorSession({
         title: c.title,
         metaTitle: c.metaTitle,
         metaDescription: c.metaDescription,
-        slices: c.slices,
+        blocks: c.blocks,
         localizedFieldValues: draftLocalizedValues,
       },
       adminContentTypeLocalizedFields(page.pageType)
@@ -2246,7 +2248,7 @@ function PageEditorSession({
       c.draft.title !== (c.saved?.title ?? "") ||
       c.draft.metaTitle !== (c.saved?.metaTitle ?? "") ||
       c.draft.metaDescription !== (c.saved?.metaDescription ?? "") ||
-      JSON.stringify(c.draft.slices) !== JSON.stringify(c.saved?.slices ?? [])
+      JSON.stringify(c.draft.blocks) !== JSON.stringify(c.saved?.blocks ?? [])
     )
   }
 
@@ -2266,18 +2268,18 @@ function PageEditorSession({
 
   // Copy another locale's content into the editor for the active locale, so an
   // empty locale can be seeded for translation. Client-only: the user reviews
-  // and Saves to persist (no clobber until then). Slice ids are regenerated so
+  // and Saves to persist (no clobber until then). Block ids are regenerated so
   // each locale owns independent instances.
   function handleCopyFrom(source: Locale) {
     const draft = drafts.current[source]
-    const saved = asSliceBodyLocaleBag(page.content?.[source])
+    const saved = asBlockBodyLocaleBag(page.content?.[source])
     const srcTitle = draft?.title ?? saved?.title ?? ""
-    const srcSlices = draft?.slices ?? saved?.slices ?? []
-    const cloned = srcSlices.map((s) =>
+    const srcBlocks = draft?.blocks ?? saved?.blocks ?? []
+    const cloned = srcBlocks.map((s) =>
       Object.assign(
         {},
         structuredClone(s),
-        writeSliceFields(s, source, { duplicate: true, identitiesOnly: true })
+        writeBlockFields(s, source, { duplicate: true, identitiesOnly: true })
           .value,
         { id: crypto.randomUUID() }
       )
@@ -2287,15 +2289,15 @@ function PageEditorSession({
       draft?.removedTitleLinks ?? []
     )
     const removedTitleLinks = sourceReports.flatMap((report) => {
-      const index = srcSlices.findIndex(
-        (slice) => readSlice(slice).id === report.sliceId
+      const index = srcBlocks.findIndex(
+        (block) => readBlock(block).id === report.blockId
       )
       return report.locale === source && index >= 0
         ? [
             {
               ...report,
               locale: currentLocale,
-              sliceId: readSlice(cloned[index]).id,
+              blockId: readBlock(cloned[index]).id,
             },
           ]
         : []
@@ -2310,7 +2312,7 @@ function PageEditorSession({
         addressWasTyped: false,
         metaTitle: draft?.metaTitle ?? saved?.metaTitle ?? "",
         metaDescription: draft?.metaDescription ?? saved?.metaDescription ?? "",
-        slices: cloned,
+        blocks: cloned,
         removedTitleLinks,
         localizedFieldValues: structuredClone(
           draft?.localizedFieldValues ??
@@ -2448,7 +2450,7 @@ function PageEditorSession({
       addressWasTyped: draft.addressWasTyped ?? false,
       metaTitle: draft.metaTitle,
       metaDescription: draft.metaDescription,
-      slices: recovered.slices,
+      blocks: recovered.blocks,
       removedTitleLinks: recovered.removedTitleLinks,
       localizedFieldValues: draft.localizedFieldValues ?? {},
       refusalBase,
@@ -2473,7 +2475,7 @@ function PageEditorSession({
     setTags(draft.tags)
     setMetaTitle(draft.metaTitle)
     setMetaDescription(draft.metaDescription)
-    commitPreparedSlices(recovered)
+    commitPreparedBlocks(recovered)
     setSeoNoIndex(draft.seoNoIndex)
     setSeoNoFollow(draft.seoNoFollow)
     setSeoOgTitle(draft.seoOgTitle)
@@ -2495,13 +2497,13 @@ function PageEditorSession({
       toast.error(tAuthorMember("conflictCopyUnavailable"))
       return
     }
-    // Pure-form arms (`sliceBody: false`) aren't editable in this canvas
+    // Pure-form arms (`blockBody: false`) aren't editable in this canvas
     // — plan 029 C10 task 13 ships a dedicated pure-form editor for
     // testimonial. Save-conflict recovery from THIS editor is only
-    // meaningful for slice-body arms, and the mutation's draft-input
-    // union has no `slices` field on the pure-form arm anyway. Bail with
+    // meaningful for block-body arms, and the mutation's draft-input
+    // union has no `blocks` field on the pure-form arm anyway. Bail with
     // a toast so the recovery flow surfaces the state to the editor.
-    if (!hasSliceBody(page)) {
+    if (!hasBlockBody(page)) {
       toast.error(t("recovery.copyUnavailable"))
       return
     }
@@ -2529,7 +2531,7 @@ function PageEditorSession({
           title: title || getContentDefault(currentLocale, "recoveredDraft"),
           metaTitle: metaTitle || undefined,
           metaDescription: metaDescription || undefined,
-          slices,
+          blocks,
         },
       },
       ...(pageType === "post" ? { tags } : {}),
@@ -2537,7 +2539,7 @@ function PageEditorSession({
     })
     // Plan 029 C8 + ADR-0041 §Migration step 2 — createPage's
     // `localizedContentInput` only accepts the system-owned title/meta/
-    // slices bag today (C10 widens it). Follow the create with a single
+    // blocks bag today (C10 widens it). Follow the create with a single
     // draft write so the recovered copy carries descriptor-generic
     // localized fields (author roleTitle/bio) and non-owned shared
     // descriptor values (author name/socials, post category) into the
@@ -2548,15 +2550,15 @@ function PageEditorSession({
       convex,
       newId,
       // `pageType` state was seeded from `page.pageType`; we've already
-      // guarded on `hasSliceBody(page)` above, so re-narrowing the state
+      // guarded on `hasBlockBody(page)` above, so re-narrowing the state
       // reflection here is safe and drops testimonial from the union so
       // the `contentDraftInputValidator` arm resolves.
-      sliceBodyPageType: pageType as Exclude<typeof pageType, "testimonial">,
+      blockBodyPageType: pageType as Exclude<typeof pageType, "testimonial">,
       currentLocale,
       title,
       metaTitle,
       metaDescription,
-      slices,
+      blocks,
       sharedFieldValues,
       localizedFieldValues,
       presentationCatalog,
@@ -2653,7 +2655,7 @@ function PageEditorSession({
       addressWasTyped,
       metaTitle,
       metaDescription,
-      slices: slicesRef.current,
+      blocks: blocksRef.current,
       removedTitleLinks: titleReports.current,
       localizedFieldValues,
       seoNoIndex,
@@ -2896,7 +2898,7 @@ function PageEditorSession({
         title,
         metaTitle,
         metaDescription,
-        slices,
+        blocks,
         localizedFieldValues,
       },
       adminContentTypeLocalizedFields(page.pageType)
@@ -2975,7 +2977,7 @@ function PageEditorSession({
   // Presence + lock heartbeat.
   //
   // Cost note: every beat reads the whole page document server-side to
-  // permission-check, and a page carries all slice bodies for all locales.
+  // permission-check, and a page carries all block bodies for all locales.
   // Convex bills database I/O, which is the tightest free-plan limit — so this
   // beats half as often as it used to, does it in ONE mutation instead of two,
   // and stops entirely while the tab is hidden. A backgrounded editor left open
@@ -3063,12 +3065,12 @@ function PageEditorSession({
         break
       case "add-content":
         switchToSuggestionLocale(defaultLocale)
-        setActivePanel("slices")
-        setSlicePickerOpen(true)
+        setActivePanel("blocks")
+        setBlockPickerOpen(true)
         break
       case "open-content":
         switchToSuggestionLocale()
-        setActivePanel("slices")
+        setActivePanel("blocks")
         break
       case "open-seo":
         switchToSuggestionLocale(defaultLocale)
@@ -3085,7 +3087,7 @@ function PageEditorSession({
         if (enabledLocales.includes(suggestion.locale as Locale)) {
           handleLocaleChange(suggestion.locale as Locale)
         }
-        setActivePanel("slices")
+        setActivePanel("blocks")
         break
     }
   }
@@ -3193,15 +3195,15 @@ function PageEditorSession({
         },
       },
       {
-        id: "page-editor:insert-slice",
-        label: t("commands.insertSlice"),
+        id: "page-editor:insert-block",
+        label: t("commands.insertBlock"),
         section: t("commands.section"),
-        description: t("commands.insertSliceDescription"),
+        description: t("commands.insertBlockDescription"),
         icon: PlusCircle,
         keywords: ["add section", "content block"],
         run: () => {
-          setActivePanel("slices")
-          setSlicePickerOpen(true)
+          setActivePanel("blocks")
+          setBlockPickerOpen(true)
         },
       },
       ...(historyInstalled
@@ -3263,7 +3265,7 @@ function PageEditorSession({
       publishDisabledReason,
       workflow.editingLocked,
       setActivePanel,
-      setSlicePickerOpen,
+      setBlockPickerOpen,
       targetDraftLocale,
       t,
     ]
@@ -3300,20 +3302,20 @@ function PageEditorSession({
       : slugLocalizes
         ? savedSlugByLocale[currentLocale] === slug
         : savedSlugByLocale[currentLocale] === undefined
-  const effectiveSelectedSliceId =
-    selectedSliceId &&
-    slices.some((slice) => readSlice(slice).id === selectedSliceId)
-      ? selectedSliceId
+  const effectiveSelectedBlockId =
+    selectedBlockId &&
+    blocks.some((block) => readBlock(block).id === selectedBlockId)
+      ? selectedBlockId
       : null
   const effectiveFocusedFieldTarget =
     focusedFieldTarget &&
-    slices.some((slice) => readSlice(slice).id === focusedFieldTarget.sliceId)
+    blocks.some((block) => readBlock(block).id === focusedFieldTarget.blockId)
       ? focusedFieldTarget
       : null
   const effectiveFocusedFirstControlTarget =
     focusedFirstControlTarget &&
-    slices.some(
-      (slice) => readSlice(slice).id === focusedFirstControlTarget.sliceId
+    blocks.some(
+      (block) => readBlock(block).id === focusedFirstControlTarget.blockId
     )
       ? focusedFirstControlTarget
       : null
@@ -3339,9 +3341,9 @@ function PageEditorSession({
           ? t("recovery.locale", { locale: recoveryDraft.locale.toUpperCase() })
           : null,
         recoveryDraft.title !== title ? t("recovery.titleDiffers") : null,
-        recoveryDraft.slices.length !== slices.length
-          ? t("recovery.sliceCount", {
-              count: recoveryDraft.slices.length,
+        recoveryDraft.blocks.length !== blocks.length
+          ? t("recovery.blockCount", {
+              count: recoveryDraft.blocks.length,
             })
           : null,
       ].filter(Boolean)
@@ -3351,10 +3353,10 @@ function PageEditorSession({
     target: PreviewFieldSelection,
     result?: PreviewInlineActivationResult
   ) {
-    setActivePanel("slices")
-    setSelectedSliceId(target.sliceId)
+    setActivePanel("blocks")
+    setSelectedBlockId(target.blockId)
     setPreviewClickSelection((current) => ({
-      sliceId: target.sliceId,
+      blockId: target.blockId,
       nonce: (current?.nonce ?? 0) + 1,
     }))
     settlePreviewInlineRefusal(
@@ -3372,21 +3374,17 @@ function PageEditorSession({
     }))
   }
 
-  function focusPreviewSliceForm(sliceId: string) {
-    setActivePanel("slices")
-    setSelectedSliceId(sliceId)
+  function focusPreviewBlockForm(blockId: string) {
+    setActivePanel("blocks")
+    setSelectedBlockId(blockId)
     setPreviewClickSelection((current) => ({
-      sliceId,
+      blockId,
       nonce: (current?.nonce ?? 0) + 1,
     }))
-    // With editing in the preview off, every field is edited in the form, so
-    // no field is "form only": no notice.
-    settlePreviewInlineRefusal(
-      previewInlineEditingEnabled ? "unsupported" : null
-    )
+    settlePreviewInlineRefusal(null)
     setFocusedFieldTarget(null)
     setFocusedFirstControlTarget((current) => ({
-      sliceId,
+      blockId,
       nonce: (current?.nonce ?? 0) + 1,
     }))
   }
@@ -3398,18 +3396,18 @@ function PageEditorSession({
     }
     if (repeatedPreviewConflictRef.current) return false
     const current = rebasePageField(
-      slicesRef.current,
+      blocksRef.current,
       activeLocaleRef.current,
       commit,
-      slicesEpochRef.current,
+      blocksEpochRef.current,
       presentationCatalog?.revision ?? ""
     )
     const pendingReports: TitleWriteReport[] = []
     const next = applyPageField(
-      slicesRef.current,
+      blocksRef.current,
       activeLocaleRef.current,
       current,
-      slicesEpochRef.current,
+      blocksEpochRef.current,
       presentationCatalog?.revision ?? "",
       (report) => {
         pendingReports.push(report)
@@ -3420,10 +3418,10 @@ function PageEditorSession({
     // Advance synchronously so Save never waits on a React render or frame capture.
     try {
       const prepared = prepareIncomingDraft({
-        slices: next,
+        blocks: next,
         removedTitleLinks: pendingReports,
       })
-      commitPreparedSlices(prepared, false)
+      commitPreparedBlocks(prepared, false)
       scheduleSidebarPublicationIfFocused()
       return true
     } catch {
@@ -3464,7 +3462,7 @@ function PageEditorSession({
     const firstConflict = repeatedPreviewConflictRef.current === null
     repeatedPreviewConflictRef.current = pending
     setRepeatedPreviewConflict(pending)
-    if (firstConflict) toast.error(t("sliceChanged"))
+    if (firstConflict) toast.error(t("blockChanged"))
   }
 
   function renderEditor(
@@ -3716,7 +3714,7 @@ function PageEditorSession({
                   canGenerate &&
                   metaGenerationAvailable &&
                   currentLocale === defaultLocale &&
-                  hasAnyContent(slices, title)
+                  hasAnyContent(blocks, title)
                 }
                 isGeneratingMeta={isGeneratingMeta}
                 onAction={(suggestion) =>
@@ -4198,7 +4196,7 @@ function PageEditorSession({
                   ?.routable !== false
               const tabs = [
                 {
-                  id: "slices" as const,
+                  id: "blocks" as const,
                   icon: Layers,
                   title: t("tabs.content"),
                 },
@@ -4260,7 +4258,7 @@ function PageEditorSession({
                     : undefined
                 return (
                   <div
-                    hidden={activePanel !== "slices"}
+                    hidden={activePanel !== "blocks"}
                     className="w-full space-y-6"
                   >
                     {contentTypeSummary && (
@@ -4276,12 +4274,12 @@ function PageEditorSession({
                         generate={fieldGenerate}
                       />
                     )}
-                    {capabilities.sliceBody && (
-                      <SlicesPanel
+                    {capabilities.blockBody && (
+                      <BlocksPanel
                         pageId={page._id}
                         pageType={pageType}
                         languageVersion={siteConfig?.languageVersion}
-                        contentEpoch={slicesEpoch}
+                        contentEpoch={blocksEpoch}
                         draftRevision={draftRevision}
                         getDraftRevision={() => draftRevisionRef.current}
                         inlineEditingBlocked={
@@ -4291,35 +4289,32 @@ function PageEditorSession({
                         currentLocale={currentLocale}
                         defaultLocale={defaultLocale}
                         title={title}
-                        slices={slices}
+                        blocks={blocks}
                         sharedFieldValues={sharedFieldValues}
                         localizedFieldValues={localizedFieldValues}
                         authorIds={authorIds}
                         presentationCatalog={presentationCatalog}
                         otherLocales={otherLocales}
-                        sourceSlices={fieldSourceSlices}
+                        sourceBlocks={fieldSourceBlocks}
                         fieldTranslate={fieldTranslate}
                         fieldGenerate={fieldGenerate}
-                        slicePickerOpen={slicePickerOpen}
-                        selectedSliceId={effectiveSelectedSliceId}
+                        blockPickerOpen={blockPickerOpen}
+                        selectedBlockId={effectiveSelectedBlockId}
                         focusedFieldTarget={effectiveFocusedFieldTarget}
                         focusedFirstControlTarget={
                           effectiveFocusedFirstControlTarget
                         }
                         previewClickSelection={previewClickSelection}
                         previewInlineRefusal={previewInlineRefusal}
-                        previewInlineEditingEnabled={
-                          previewInlineEditingEnabled
-                        }
-                        onSlicesChange={setSlices}
-                        onSlicePickerOpenChange={setSlicePickerOpen}
-                        onSelectedSliceIdChange={setSelectedSliceId}
-                        onPreviewSelectSlice={(sliceId) => {
-                          setActivePanel("slices")
-                          setSelectedSliceId(sliceId)
+                        onBlocksChange={setBlocks}
+                        onBlockPickerOpenChange={setBlockPickerOpen}
+                        onSelectedBlockIdChange={setSelectedBlockId}
+                        onPreviewSelectBlock={(blockId) => {
+                          setActivePanel("blocks")
+                          setSelectedBlockId(blockId)
                           setFocusedFieldTarget(null)
                         }}
-                        onPreviewSelectSliceFallback={focusPreviewSliceForm}
+                        onPreviewSelectBlockFallback={focusPreviewBlockForm}
                         onPreviewSelectField={focusPreviewField}
                         onPreviewInlineEditCommit={handlePreviewInlineEdit}
                         onPreviewActiveEditHandleChange={
@@ -4330,9 +4325,6 @@ function PageEditorSession({
                         }
                         onPreviewActiveEditConflict={
                           handlePreviewActiveEditConflict
-                        }
-                        onPreviewInlineEditingEnabledChange={
-                          setPreviewInlineEditingEnabled
                         }
                         onSave={saveFromShortcut}
                         onOpenSavedPreview={openPreview}
@@ -4349,7 +4341,7 @@ function PageEditorSession({
                 <SeoPanel
                   currentLocale={currentLocale}
                   title={title}
-                  slices={slices}
+                  blocks={blocks}
                   metaTitle={metaTitle}
                   metaDescription={metaDescription}
                   seoNoIndex={seoNoIndex}
@@ -4458,7 +4450,7 @@ function PageEditorSession({
         addressWasTyped: source.draft?.addressWasTyped ?? false,
         metaTitle: source.metaTitle,
         metaDescription: source.metaDescription,
-        slices: source.slices,
+        blocks: source.blocks,
         removedTitleLinks: source.draft?.removedTitleLinks,
         localizedFieldValues:
           source.draft?.localizedFieldValues ??
@@ -4570,7 +4562,7 @@ function PageEditorSession({
       page={page}
       locale={currentLocale}
       ensureSaved={ensureSaved}
-      slices={slices}
+      blocks={blocks}
       title={title}
       setMetaTitle={setMetaTitle}
       setMetaDescription={setMetaDescription}

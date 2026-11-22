@@ -103,7 +103,7 @@ async function createPage(owner: Caller, slug: string, locale = "en") {
     status: "draft",
     slug,
     title: slug,
-    content: { [locale]: { title: slug, slices: [] } },
+    content: { [locale]: { title: slug, blocks: [] } },
   })
 }
 
@@ -160,7 +160,7 @@ async function saveDraft(
     draft: {
       pageType: "landing-page",
       localized: { title },
-      slices: [],
+      blocks: [],
     } as never,
     expectedDraftGeneration: state?.draftGeneration ?? 0,
     expectedLifecycleGeneration: page!.lifecycleGeneration,
@@ -2875,8 +2875,8 @@ describe("F09a refusals and authority", () => {
         slug,
         title: slug,
         content: {
-          en: { title: `${slug} en`, slices: [] },
-          fr: { title: `${slug} fr`, slices: [] },
+          en: { title: `${slug} en`, blocks: [] },
+          fr: { title: `${slug} fr`, blocks: [] },
         },
       })
     const homeId = await pageFor("home")
@@ -3011,7 +3011,7 @@ describe("F09a preparation", () => {
     const frDraft = {
       pageType: "landing-page",
       localized: { title: "Brouillon" },
-      slices: [],
+      blocks: [],
     } as never
     expect(
       await codeOf(
@@ -3101,7 +3101,7 @@ describe("F09a preparation", () => {
     const enDraft = {
       pageType: "landing-page",
       localized: { title: "About v3" },
-      slices: [],
+      blocks: [],
     } as never
     const refusals = [
       saveDraft(u, uOwner, page, "en", "about", "About v3"),
@@ -3161,7 +3161,7 @@ describe("F09a preparation", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "about" },
-        slices: [],
+        blocks: [],
         seo: { ogTitle: "About us" },
       } as never,
       expectedDraftGeneration: aboutState?.draftGeneration ?? 0,
@@ -3260,7 +3260,7 @@ describe("F09a preparation", () => {
       sourceSlug: "about",
       targetRouteConflict: false,
     })
-    expect(aboutReport!.contentKeys).toEqual(["seo", "slices", "title"])
+    expect(aboutReport!.contentKeys).toEqual(["blocks", "seo", "title"])
     expect(aboutReport!.seoJson).toContain("About us")
     expect(report.page.map((entry) => entry.pageId).sort()).toEqual(
       [homeId, about].sort()
@@ -3292,7 +3292,7 @@ describe("F09a preparation", () => {
       status: "draft",
       slug: "news",
       title: "News",
-      content: { en: { title: "News", slices: [] } },
+      content: { en: { title: "News", blocks: [] } },
     })
     const author = await owner.mutation(api.cms.pages.create, {
       pageType: "author",
@@ -3300,7 +3300,7 @@ describe("F09a preparation", () => {
       slug: "ada",
       title: "Ada",
       name: "Ada",
-      content: { en: { title: "Ada", slices: [] } },
+      content: { en: { title: "Ada", blocks: [] } },
     })
     await publish(t, owner, author)
     const postShared = (await generations(t, post, "en")).shared!
@@ -3414,7 +3414,7 @@ describe("F09a preparation", () => {
         pageType: "landing-page",
         generation: 1,
         slug: "charlie",
-        content: { title: "Charlie fr", slices: [] },
+        content: { title: "Charlie fr", blocks: [] },
         updatedBy: snapshotAttribution,
         createdAt: now,
         updatedAt: now,
@@ -4541,7 +4541,7 @@ describe("M05 P24 cancellation cleanup (C3e.3c-2)", () => {
         pageType: "landing-page",
         generation: 1,
         slug: "a-propos",
-        content: { title: "Brouillon conserve", slices: [] },
+        content: { title: "Brouillon conserve", blocks: [] },
         updatedBy: attribution,
         createdAt: now,
         updatedAt: now,
@@ -5117,7 +5117,7 @@ describe("F09c F1 readiness and bounded activation", () => {
             draft: {
               pageType: "landing-page",
               localized: { title: "Unpublished source edit" },
-              slices: [],
+              blocks: [],
             },
             expectedGeneration: state.draftGeneration,
           },
@@ -5894,11 +5894,11 @@ describe("M05 A5 site description across an F09 language change", () => {
 test.each(["legacy", "columns"])("R1a F09 correction accepts %s placeholder panels without a page target or image", async shape => {
   const t = app(), owner = t.withIdentity(OWNER)
   await englishSite(t, owner)
-  const blocks = [{ id: "r1-feature", kind: "featured" as const, heading: { en: "Feature" },
+  const sections = [{ id: "r1-feature", kind: "featured" as const, heading: { en: "Feature" },
     ...(shape === "columns" ? { link: { label: { en: "Read" }, target: { type: "placeholder" as const } } } : { target: { type: "placeholder" as const } }) }]
   await owner.mutation(api.cms.menus.createCanonical, { slug: "primary" })
   await owner.mutation(api.cms.menus.saveCanonical, { slug: "primary", locale: "en", nav: [{ id: "r1-menu", label: { en: "Menu" }, target: { type: "placeholder" }, panel:
-    shape === "columns" ? { layout: "columns", columns: [{ id: "col", blocks }], title: { en: "Explore" } } : { columns: 1, blocks }
+    shape === "columns" ? { layout: "columns", columns: [{ id: "col", sections }], title: { en: "Explore" } } : { columns: 1, sections }
   }] })
   const id = await startTransition(t, owner, "correct_label", "fr")
   await drain(t)

@@ -37,7 +37,7 @@ async function seedLegacyCronTargets(t: App, phase?: CutoverPhase) {
       publishedAt: now - STAGING_ABANDONED_TTL_MS - 2_000,
       expiresAt: now - 1_000,
       content: {
-        en: { title: "Legacy cron target", slices: [] },
+        en: { title: "Legacy cron target", blocks: [] },
       },
     })
     const stagingId = await ctx.db.insert("pageStaging", {

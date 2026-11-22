@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, screen } from "@testing-library/react"
 import { render } from "@/test-utils/admin-i18n"
-import { group, list, text } from "@/convex/lib/slices/primitives"
+import { group, list, text } from "@/convex/lib/blocks/primitives"
 import type { AdminContentType } from "@/lib/admin/content-types"
 import { ContentTypeFieldsPanel } from "./content-type-fields-panel"
 
@@ -9,7 +9,7 @@ import { ContentTypeFieldsPanel } from "./content-type-fields-panel"
 // (roleTitle / bio), so real-descriptor coverage rides on author. The
 // `descriptorOverride` prop exists specifically for the pure-form / mock-
 // descriptor path plan 029 C8 calls out — no shipped descriptor has
-// `sliceBody:false`, so component-level assertions have to inject one.
+// `blockBody:false`, so component-level assertions have to inject one.
 
 const authorSummary: AdminContentType = {
   type: "author",
@@ -176,7 +176,7 @@ describe("ContentTypeFieldsPanel", () => {
   })
 
   it("real testimonial descriptor renders 5 shared inputs + 1 localized quote (title is Settings-owned)", () => {
-    // Plan 029 C10 task 13 — first real `sliceBody:false` content type
+    // Plan 029 C10 task 13 — first real `blockBody:false` content type
     // registered. No `descriptorOverride`; the panel reads through the
     // admin facade (`adminContentTypeSharedFields` /
     // `adminContentTypeLocalizedFields`) so this asserts the real
@@ -217,16 +217,16 @@ describe("ContentTypeFieldsPanel", () => {
     expect(
       screen.getByDisplayValue("COBOL is a language for the ages"),
     ).toBeInTheDocument()
-    // No slice affordance leaks in from the panel.
+    // No block affordance leaks in from the panel.
     expect(screen.queryByRole("button", { name: /add block/i })).toBeNull()
     expect(screen.queryByRole("button", { name: /pick block/i })).toBeNull()
   })
 
-  it("mock sliceBody:false descriptor renders a pure form (no slice affordance in DOM)", () => {
-    // No shipped descriptor has `sliceBody:false` today, so the pure-form
+  it("mock blockBody:false descriptor renders a pure form (no block affordance in DOM)", () => {
+    // No shipped descriptor has `blockBody:false` today, so the pure-form
     // path is exercised via a descriptorOverride. This asserts the plan's
-    // C8 guarantee: `ContentTypeFieldsPanel` is slice-agnostic — the slice
-    // zone is composed by the host, so nothing here mentions "slice" and
+    // C8 guarantee: `ContentTypeFieldsPanel` is block-agnostic — the block
+    // zone is composed by the host, so nothing here mentions "block" and
     // no picker / toolbar / add-section affordance renders inside the
     // panel's tree.
     render(
@@ -258,7 +258,7 @@ describe("ContentTypeFieldsPanel", () => {
     // Fields render.
     expect(screen.getByPlaceholderText("Person name")).toBeInTheDocument()
     expect(screen.getByPlaceholderText("Their words")).toBeInTheDocument()
-    // No slice-composition affordance leaks in from FieldsEditor.
+    // No block-composition affordance leaks in from FieldsEditor.
     const dom = document.body.textContent ?? ""
     expect(dom.toLowerCase()).not.toContain("block")
     expect(screen.queryByRole("button", { name: /add section/i })).toBeNull()

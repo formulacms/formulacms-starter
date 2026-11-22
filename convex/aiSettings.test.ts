@@ -14,7 +14,7 @@ import {
   API_TASK_PROFILES,
   ASSISTANT_PROFILES,
   RUNTIME_TASK_PROFILES,
-  SLICE_CREATOR_PROFILES,
+  BLOCK_CREATOR_PROFILES,
   taskProfileTuple,
   validateApiModelTuple,
   validateTupleForProfiles,
@@ -805,7 +805,7 @@ test("a direct model whose price ends is no longer offered; OpenRouter keeps its
   await seed(t)
   const owner = identity(t, "admin-1")
   const status = (await owner.query(api.cms.aiSettings.status, {}))!
-  const creator = await owner.query(api.cms.aiSettings.sliceCreator, {})
+  const creator = await owner.query(api.cms.aiSettings.blockCreator, {})
   for (const choices of [...status.assistants.map((a) => a.choices), creator.choices]) {
     expect(choices.openai.length).toBeGreaterThan(0)
     expect(choices.openai.map((choice) => choice.model)).not.toContain("gpt-5.6-sol")
@@ -1298,7 +1298,7 @@ describe("review 1b round 2: prepared runs use the default Settings shows", () =
     }
   })
 
-  test("Slice creator: every provider's prepared catalog gives the default Settings shows", async () => {
+  test("Block creator: every provider's prepared catalog gives the default Settings shows", async () => {
     setAvailability({ anthropic: true, openrouter: true, openai: true })
     const t = convexTest(schema, modules)
     await seed(t)
@@ -1307,25 +1307,25 @@ describe("review 1b round 2: prepared runs use the default Settings shows", () =
     await t.run(async (ctx) => {
       for (const id of ["vision/a", "vision/b"])
         await insertSyncedOpenRouterRow(ctx, row(id, { inputModalities: ["text", "image"] }))
-      // A saved Slice creator model is a candidate entry: a partial list would
+      // A saved Block creator model is a candidate entry: a partial list would
       // put it ahead of Settings' first choice (vision/a).
       const settings = (await ctx.db.query("siteSettings").first())!
       await ctx.db.patch("siteSettings", settings._id, {
         aiRuntime: {
           ...settings.aiRuntime,
-          assistants: { sliceCreator: { tuple: { mode: "catalog", provider: "openrouter", model: "vision/b", reasoning: { kind: "effort", effort: "high" } } } },
+          assistants: { blockCreator: { tuple: { mode: "catalog", provider: "openrouter", model: "vision/b", reasoning: { kind: "effort", effort: "high" } } } },
         },
       })
     })
     const owner = identity(t, "admin-1")
-    const creator = await owner.query(api.cms.aiSettings.sliceCreator, {})
+    const creator = await owner.query(api.cms.aiSettings.blockCreator, {})
     expect(creator.defaults.openrouter).toEqual({ mode: "catalog", provider: "openrouter", model: "vision/a", reasoning: { kind: "effort", effort: "high" } })
     expect(creator.defaults.anthropic).toEqual(taskProfileTuple("anthropic", "vision-spec"))
     const catalog = catalogFromEntries(creator.catalog)
     for (const provider of API_PROVIDERS) {
       const shown = creator.defaults[provider]
       expect(shown).not.toBeNull()
-      for (const profile of SLICE_CREATOR_PROFILES) {
+      for (const profile of BLOCK_CREATOR_PROFILES) {
         expect(resolveLocalApiTuple(provider, profile, {}, catalog), `${provider}/${profile}`).toEqual(shown)
       }
     }
@@ -1367,8 +1367,8 @@ describe("status while the AI module is off", () => {
   })
 })
 
-describe("Slice creator settings (fourth assistant, local-only)", () => {
-  async function sliceApp() {
+describe("Block creator settings (fourth assistant, local-only)", () => {
+  async function blockApp() {
     setAvailability({ anthropic: false, openrouter: false, openai: false })
     const t = convexTest(schema, modules)
     await seed(t)
@@ -1379,17 +1379,17 @@ describe("Slice creator settings (fourth assistant, local-only)", () => {
   const valid = taskProfileTuple("anthropic", "vision-spec")
 
   test("read: owner-only, module-gated, empty by default, returns the saved entry", async () => {
-    const { t, owner } = await sliceApp()
-    await expect(t.query(api.cms.aiSettings.sliceCreator, {})).rejects.toThrow(/UNAUTHENTICATED/)
+    const { t, owner } = await blockApp()
+    await expect(t.query(api.cms.aiSettings.blockCreator, {})).rejects.toThrow(/UNAUTHENTICATED/)
     for (const subject of ["editor-1", "viewer-1"]) {
-      await expect(identity(t, subject).query(api.cms.aiSettings.sliceCreator, {}))
+      await expect(identity(t, subject).query(api.cms.aiSettings.blockCreator, {}))
         .rejects.toThrow(/CMS_OWNER_REQUIRED/)
     }
-    const empty = await owner.query(api.cms.aiSettings.sliceCreator, {})
+    const empty = await owner.query(api.cms.aiSettings.blockCreator, {})
     expect(empty).not.toHaveProperty("tuple")
     expect(empty).not.toHaveProperty("instructions")
-    await owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple: valid, instructions: "Plain words." })
-    const saved = await owner.query(api.cms.aiSettings.sliceCreator, {})
+    await owner.mutation(api.cms.aiSettings.setBlockCreator, { tuple: valid, instructions: "Plain words." })
+    const saved = await owner.query(api.cms.aiSettings.blockCreator, {})
     expect(saved).toMatchObject({ tuple: valid, instructions: "Plain words." })
     assertNoRuntimeSecretsOrLocalState(saved)
     expect(Object.keys(saved).sort()).toEqual(["catalog", "choices", "defaults", "instructions", "newerModels", "tuple"])
@@ -1398,19 +1398,19 @@ describe("Slice creator settings (fourth assistant, local-only)", () => {
       const state = await ctx.db.query("cmsModuleState").first()
       await ctx.db.patch("cmsModuleState", state!._id, { enabledModules: [] })
     })
-    await expect(owner.query(api.cms.aiSettings.sliceCreator, {})).rejects.toThrow(/CMS_MODULE_DISABLED/)
+    await expect(owner.query(api.cms.aiSettings.blockCreator, {})).rejects.toThrow(/CMS_MODULE_DISABLED/)
   })
 
-  test("every offered choice and effort passes both Slice creator profiles; defaults hold a tuple or null", async () => {
-    const { owner } = await sliceApp()
-    const { choices, defaults } = await owner.query(api.cms.aiSettings.sliceCreator, {})
+  test("every offered choice and effort passes both Block creator profiles; defaults hold a tuple or null", async () => {
+    const { owner } = await blockApp()
+    const { choices, defaults } = await owner.query(api.cms.aiSettings.blockCreator, {})
     let offered = 0
     for (const provider of API_PROVIDERS) {
       for (const choice of choices[provider]) {
         expect(choice.efforts.length).toBeGreaterThan(0)
         for (const effort of choice.efforts) {
           const tuple = { mode: "catalog", provider, model: choice.model, reasoning: { kind: "effort", effort } }
-          for (const profile of SLICE_CREATOR_PROFILES) {
+          for (const profile of BLOCK_CREATOR_PROFILES) {
             expect(() => validateTupleForProfiles(tuple, [profile], BUNDLED_MODEL_CATALOG), `${provider}/${choice.model}/${effort}/${profile}`).not.toThrow()
           }
           offered += 1
@@ -1427,40 +1427,40 @@ describe("Slice creator settings (fourth assistant, local-only)", () => {
   })
 
   test("save: owner-only, module-gated, bounded, validated, replace semantics", async () => {
-    const { t, owner } = await sliceApp()
-    await expect(t.mutation(api.cms.aiSettings.setSliceCreator, { tuple: valid })).rejects.toThrow(/UNAUTHENTICATED/)
-    await expect(identity(t, "editor-1").mutation(api.cms.aiSettings.setSliceCreator, { tuple: valid }))
+    const { t, owner } = await blockApp()
+    await expect(t.mutation(api.cms.aiSettings.setBlockCreator, { tuple: valid })).rejects.toThrow(/UNAUTHENTICATED/)
+    await expect(identity(t, "editor-1").mutation(api.cms.aiSettings.setBlockCreator, { tuple: valid }))
       .rejects.toThrow(/CMS_OWNER_REQUIRED/)
     await expect(storedAssistants(t)).resolves.toEqual({})
 
-    await expect(owner.mutation(api.cms.aiSettings.setSliceCreator, { instructions: "x".repeat(4_001) }))
+    await expect(owner.mutation(api.cms.aiSettings.setBlockCreator, { instructions: "x".repeat(4_001) }))
       .rejects.toThrow("AI_ASSISTANT_INSTRUCTIONS_TOO_LONG")
     const low = { ...valid, reasoning: { kind: "effort", effort: "low" } } as Exclude<ApiModelTuple, { mode: "legacy" }>
-    await expect(owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple: low }))
+    await expect(owner.mutation(api.cms.aiSettings.setBlockCreator, { tuple: low }))
       .rejects.toThrow("INVALID_AI_ASSISTANT_SELECTION")
     const unknown = { mode: "catalog", provider: "anthropic", model: "no-such-model",
       reasoning: { kind: "effort", effort: "high" } } as unknown as Exclude<ApiModelTuple, { mode: "legacy" }>
-    await expect(owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple: unknown }))
+    await expect(owner.mutation(api.cms.aiSettings.setBlockCreator, { tuple: unknown }))
       .rejects.toThrow("INVALID_AI_ASSISTANT_SELECTION")
     await expect(storedAssistants(t)).resolves.toEqual({})
 
-    await owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple: valid, instructions: "x".repeat(4_000) })
-    expect((await storedAssistants(t))?.sliceCreator).toEqual({ tuple: valid, instructions: "x".repeat(4_000) })
-    await owner.mutation(api.cms.aiSettings.setSliceCreator, { instructions: "Only words." })
-    expect((await storedAssistants(t))?.sliceCreator).toEqual({ instructions: "Only words." })
-    expect(await owner.query(api.cms.aiSettings.sliceCreator, {})).not.toHaveProperty("tuple")
+    await owner.mutation(api.cms.aiSettings.setBlockCreator, { tuple: valid, instructions: "x".repeat(4_000) })
+    expect((await storedAssistants(t))?.blockCreator).toEqual({ tuple: valid, instructions: "x".repeat(4_000) })
+    await owner.mutation(api.cms.aiSettings.setBlockCreator, { instructions: "Only words." })
+    expect((await storedAssistants(t))?.blockCreator).toEqual({ instructions: "Only words." })
+    expect(await owner.query(api.cms.aiSettings.blockCreator, {})).not.toHaveProperty("tuple")
 
     await t.run(async (ctx) => {
       const state = await ctx.db.query("cmsModuleState").first()
       await ctx.db.patch("cmsModuleState", state!._id, { enabledModules: [] })
     })
-    await expect(owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple: valid }))
+    await expect(owner.mutation(api.cms.aiSettings.setBlockCreator, { tuple: valid }))
       .rejects.toThrow(/CMS_MODULE_DISABLED/)
   })
 
   test("neighbours keep each other's entries", async () => {
-    const { t, owner } = await sliceApp()
-    await owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple: valid, instructions: "Keep me." })
+    const { t, owner } = await blockApp()
+    await owner.mutation(api.cms.aiSettings.setBlockCreator, { tuple: valid, instructions: "Keep me." })
     await owner.mutation(api.cms.aiSettings.setAssistant, {
       id: "writing", tuple: taskProfileTuple("anthropic", "editorial-copy"),
     })
@@ -1468,14 +1468,14 @@ describe("Slice creator settings (fourth assistant, local-only)", () => {
       selectedProvider: "off", providerDefaults: {},
     })
     const afterNeighbours = await storedAssistants(t)
-    expect(afterNeighbours?.sliceCreator).toEqual({ tuple: valid, instructions: "Keep me." })
+    expect(afterNeighbours?.blockCreator).toEqual({ tuple: valid, instructions: "Keep me." })
     expect(afterNeighbours?.writing?.tuple).toEqual(taskProfileTuple("anthropic", "editorial-copy"))
 
     await owner.mutation(api.cms.aiSettings.setAssistant, { id: "help", instructions: "Be brief." })
     const three = { ...(await storedAssistants(t))! }
-    delete three.sliceCreator
-    await owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple: valid })
-    const { sliceCreator: replaced, ...threeAfter } = (await storedAssistants(t))!
+    delete three.blockCreator
+    await owner.mutation(api.cms.aiSettings.setBlockCreator, { tuple: valid })
+    const { blockCreator: replaced, ...threeAfter } = (await storedAssistants(t))!
     expect(threeAfter).toEqual(three)
     expect(replaced).toEqual({ tuple: valid })
   })
@@ -1523,7 +1523,7 @@ describe("widened direct tuple storage (AI-MODELS-1 step A)", () => {
         selectedProvider: provider,
         providerDefaults: { [provider]: tuple },
         taskDefaults: { "editorial-copy": tuple },
-        assistants: { writing: { tuple }, translation: { tuple }, help: { tuple }, sliceCreator: { tuple } },
+        assistants: { writing: { tuple }, translation: { tuple }, help: { tuple }, blockCreator: { tuple } },
       }), JSON.stringify(tuple)).toBe(true)
       expect(validate(modelOverrides, { [provider]: tuple }), JSON.stringify(tuple)).toBe(true)
       expect(validate(jobTuple, tuple), JSON.stringify(tuple)).toBe(true)

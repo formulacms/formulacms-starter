@@ -152,7 +152,7 @@ describe("local generation preflight", () => {
         "Use the configured brand voice.",
       ],
       [
-        "slice-generate",
+        "block-generate",
         "editorial-copy",
         "content-generation",
         "Content saved: {brief}",
@@ -214,7 +214,7 @@ describe("local generation preflight", () => {
     "page-translate",
     "field-generate",
     "field-refine",
-    "slice-generate",
+    "block-generate",
     "page-generate-fill",
     "page-generate-meta",
     "page-generate-outline",
@@ -317,14 +317,14 @@ describe("local generation preflight", () => {
   test("refuses the Block creator kinds, which have their own Instructions", async () => {
     const t = await setup()
     const asOwner = t.withIdentity(OWNER)
-    for (const kind of ["slice-spec", "slice-renderer"] as const) {
+    for (const kind of ["block-spec", "block-renderer"] as const) {
       await expect(
         asOwner.action(api.agents.localGeneration.preflight, { kind })
       ).rejects.toThrow(/Block creator does not use preflight/)
     }
     // A caller who is not the owner is refused before that message.
     await expect(
-      t.action(api.agents.localGeneration.preflight, { kind: "slice-spec" })
+      t.action(api.agents.localGeneration.preflight, { kind: "block-spec" })
     ).rejects.toThrow()
   })
 
@@ -365,7 +365,7 @@ describe("local generation preflight", () => {
 
     await expect(
       asEditor.action(api.agents.localGeneration.preflight, {
-        kind: "slice-generate",
+        kind: "block-generate",
       })
     ).resolves.toMatchObject({
       profile: "editorial-copy",
@@ -481,7 +481,7 @@ describe("local generation audit ingress", () => {
     const event = {
       kind: "page-generate-fill" as const,
       briefHash,
-      sliceCount: 1,
+      blockCount: 1,
       selectedEngine: "codex-cli" as const,
       selectedReasoning: "medium" as const,
       identityEvidence: "selected-only" as const,
@@ -501,7 +501,7 @@ describe("local generation audit ingress", () => {
     expect(rows[0]).toMatchObject({
       kind: "page-generate-fill",
       briefHash,
-      sliceCount: 1,
+      blockCount: 1,
     })
 
     for (const invalid of [
@@ -526,7 +526,7 @@ describe("local generation audit ingress", () => {
     const event = {
       kind: "page-generate-outline" as const,
       briefHash,
-      sliceCount: 2,
+      blockCount: 2,
       selectedEngine: "claude-cli" as const,
       selectedReasoning: "medium" as const,
       actualEngine: "claude-cli" as const,
@@ -548,7 +548,7 @@ describe("local generation audit ingress", () => {
     expect(rows[0]).toMatchObject({
       kind: "page-generate-outline",
       briefHash,
-      sliceCount: 2,
+      blockCount: 2,
     })
 
     const { briefHash: removedBriefHash, ...withoutHash } = event
@@ -609,7 +609,7 @@ describe("local generation audit ingress", () => {
       attempts: 1,
       tokenUsage: { promptTokens: 12, completionTokens: 18, totalTokens: 30 },
       success: true,
-      sliceCount: 0,
+      blockCount: 0,
       modelId: "claude-cli",
     })
     expect(rows[0]!.selectedProvider).toBeUndefined()
@@ -749,20 +749,20 @@ describe("local generation audit ingress", () => {
     }
     await asOwner.mutation(
       api.agents.localGeneration.recordAudit,
-      await signLocalAiAudit({ ...claudeRun, kind: "slice-spec" as const })
+      await signLocalAiAudit({ ...claudeRun, kind: "block-spec" as const })
     )
     await asOwner.mutation(
       api.agents.localGeneration.recordAudit,
       await signLocalAiAudit({
         ...claudeRun,
-        kind: "slice-renderer" as const,
+        kind: "block-renderer" as const,
         funding: "api-key" as const,
       })
     )
     await asOwner.mutation(
       api.agents.localGeneration.recordAudit,
       await signLocalAiAudit({
-        kind: "slice-spec" as const,
+        kind: "block-spec" as const,
         selectedEngine: "codex-cli" as const,
         identityEvidence: "selected-only" as const,
         attempts: 1 as const,
@@ -774,7 +774,7 @@ describe("local generation audit ingress", () => {
     await asOwner.mutation(
       api.agents.localGeneration.recordAudit,
       await signLocalAiAudit({
-        kind: "slice-renderer" as const,
+        kind: "block-renderer" as const,
         selectedEngine: "openrouter-api" as const,
         actualEngine: "openrouter-api" as const,
         identityEvidence: "runtime-observed" as const,
@@ -787,10 +787,10 @@ describe("local generation audit ingress", () => {
     expect(
       rows.map((row) => [row.kind, row.phase, row.selectedEngine, row.funding])
     ).toEqual([
-      ["slice-author-propose", "slice-spec", "claude-cli", "plan"],
-      ["slice-author-propose", "renderer-jsx", "claude-cli", "api-key"],
-      ["slice-author-propose", "slice-spec", "codex-cli", "unknown"],
-      ["slice-author-propose", "renderer-jsx", "openrouter-api", undefined],
+      ["block-author-propose", "block-spec", "claude-cli", "plan"],
+      ["block-author-propose", "renderer-jsx", "claude-cli", "api-key"],
+      ["block-author-propose", "block-spec", "codex-cli", "unknown"],
+      ["block-author-propose", "renderer-jsx", "openrouter-api", undefined],
     ])
     // The audit table has no Block creator profile; the phase names the step.
     expect(rows.every((row) => row.profile === undefined)).toBe(true)
@@ -800,7 +800,7 @@ describe("local generation audit ingress", () => {
       asOwner.mutation(
         api.agents.localGeneration.recordAudit,
         await signLocalAiAudit({
-          kind: "slice-spec" as const,
+          kind: "block-spec" as const,
           selectedEngine: "openrouter-api" as const,
           actualEngine: "openrouter-api" as const,
           identityEvidence: "runtime-observed" as const,
@@ -816,7 +816,7 @@ describe("local generation audit ingress", () => {
   test("refuses a Block creator audit without the owner", async () => {
     const t = await setup()
     const signed = await signLocalAiAudit({
-      kind: "slice-renderer" as const,
+      kind: "block-renderer" as const,
       selectedEngine: "claude-cli" as const,
       actualEngine: "claude-cli" as const,
       identityEvidence: "transcript-observed" as const,
@@ -844,7 +844,7 @@ describe("local generation audit ingress", () => {
 
   describe("audit after the access token expired (signed owner authorization)", () => {
     const run = {
-      kind: "slice-spec" as const,
+      kind: "block-spec" as const,
       selectedEngine: "claude-cli" as const,
       selectedModel: "haiku",
       actualEngine: "claude-cli" as const,
@@ -945,8 +945,8 @@ describe("local generation audit ingress", () => {
     test("stores one tool-run audit per attempt on both paths, and leaves API engines unchanged", async () => {
       const kinds = [
         { kind: "help-answer" as const },
-        { kind: "slice-spec" as const },
-        { kind: "slice-renderer" as const },
+        { kind: "block-spec" as const },
+        { kind: "block-renderer" as const },
         {
           kind: "field-generate" as const,
         },
@@ -1065,7 +1065,7 @@ describe("local generation audit ingress", () => {
       await ctx.db.insert("aiAuditLog", {
         authId: "owner-1",
         kind: "help-answer",
-        sliceCount: 0,
+        blockCount: 0,
         modelId: "claude-cli",
         selectedEngine: "claude-cli",
         tokenUsage: {},
@@ -1115,8 +1115,8 @@ describe("local generation audit ingress", () => {
     }
 
     for (const invalid of [
-      { sliceCount: -1 },
-      { sliceCount: 1.5 },
+      { blockCount: -1 },
+      { blockCount: 1.5 },
       { tokenUsage: { promptTokens: Number.NaN } },
       { tokenUsage: { totalTokens: 1_000_000_001 } },
     ]) {

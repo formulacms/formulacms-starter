@@ -397,7 +397,7 @@ describe("PagesListClient filters", () => {
       messages: en,
       code: "PAGE_SOFT_DELETE_PUBLISHED_POST_REFERENCE",
       expected:
-        "This Author is still used by a published Post. Remove it from the Post and publish that change, then try again.",
+        "A published page still uses this one. Remove it from that page and publish the change, then try again.",
       action: "Move to trash",
     },
     {
@@ -405,7 +405,7 @@ describe("PagesListClient filters", () => {
       messages: fr,
       code: "PAGE_SOFT_DELETE_PUBLISHED_POST_REFERENCE",
       expected:
-        "Cet Auteur est encore utilisé par un Article publié. Retirez-le de l’Article, publiez la modification, puis réessayez.",
+        "Une page publiée utilise encore celle-ci. Retirez-la de cette page, publiez la modification, puis réessayez.",
       action: "Déplacer vers la corbeille",
     },
   ])("maps $code to localized plain copy", async (fixture) => {
@@ -420,7 +420,7 @@ describe("PagesListClient filters", () => {
       updatedAt: 1,
       lifecycleState: "archived",
       lifecycleGeneration: 2,
-      content: { en: { title: "Fixture", slices: [] } },
+      content: { en: { title: "Fixture", blocks: [] } },
     })
     confirm.mockResolvedValue(true)
     mutate.mockRejectedValue(
@@ -479,7 +479,7 @@ describe("approved Pages row structure", () => {
     snapshotResults.push({
       _id: "layout-page", pageType: "page", slug, status: "draft", updatedAt: 1,
       scheduledAt: Date.UTC(2026, 10, 4, 14),
-      content: { [contentLocale]: { title, slices: [] } },
+      content: { [contentLocale]: { title, blocks: [] } },
     })
     useQuery.mockImplementation((reference: unknown) => {
       const name = getFunctionName(reference as never)
@@ -549,7 +549,7 @@ describe("approved Pages row structure", () => {
     const copy = (locale === "fr" ? fr : en).pages.list
     snapshotResults.push({ _id: "complete", pageType: "page", slug: "about", status: "published", updatedAt: 1,
       expiresAt: Date.UTC(2026, 11, 31, 22),
-      content: { en: { title: "English title", slices: [] }, fr: { title: "Titre français", slices: [] } },
+      content: { en: { title: "English title", blocks: [] }, fr: { title: "Titre français", blocks: [] } },
     })
     useQuery.mockImplementation((reference: unknown) => {
       const name = getFunctionName(reference as never)
@@ -575,7 +575,7 @@ describe("approved Pages row structure", () => {
   })
 })
 
-const frenchBodyWithoutTitle = { title: "", slices: [{ id: "body-fr", type: "rich-text-body", enabled: true, primary: { body: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Bonjour" }] }] }) } }] }
+const frenchBodyWithoutTitle = { title: "", blocks: [{ id: "body-fr", type: "rich-text-body", enabled: true, primary: { body: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Bonjour" }] }] }) } }] }
 const provenanceCases = [
   { name: "localized title, default slug", filter: "fr", content: { fr: { title: "Bonjour" } }, title: "Bonjour", titleLocale: "fr", slugLocale: "en" },
   { name: "localized title and slug", filter: "fr", content: { fr: { title: "Bonjour" } }, localizedSlugs: { fr: "bonjour" }, title: "Bonjour", titleLocale: "fr", slug: "bonjour", slugLocale: "fr" },
@@ -619,7 +619,7 @@ describe.each(["en", "fr"] as const)("Pages row language provenance, admin %s", 
 
 it.each(["loading", "off", "on", "error"])("Pages gate %s controls contributions and closes open details", (gate) => {
   snapshotResults.length = 0
-  snapshotResults.push({ _id: "gate-page", pageType: "page", slug: "gate-page", status: "draft", updatedAt: 1, content: { en: { title: "Gate page", slices: [] } } })
+  snapshotResults.push({ _id: "gate-page", pageType: "page", slug: "gate-page", status: "draft", updatedAt: 1, content: { en: { title: "Gate page", blocks: [] } } })
   useQuery.mockImplementation((reference: unknown) => {
     const name = getFunctionName(reference as never)
     if (name === "cms/publication:getAdminAuthority") return "legacy"

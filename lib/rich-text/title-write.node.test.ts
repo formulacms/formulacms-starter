@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
-import { createSampleSlice } from "@/convex/lib/slices/sample"
-import type { Slice } from "@/convex/lib/slices"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
+import type { Block } from "@/convex/lib/blocks"
 import { adoptHeroTitles } from "./adopt-hero-titles"
 import { canonicalTitleLine } from "./title-write"
 import { renderStaticRichTextDocument } from "./static-render"
@@ -103,8 +103,8 @@ describe("canonicalTitleLine", () => {
   })
 })
 
-function hero(title: string, description?: string): Slice {
-  const sample = createSampleSlice("hero-with-image")
+function hero(title: string, description?: string): Block {
+  const sample = createSampleBlock("hero-with-image")
   return {
     ...sample,
     id: "h1",
@@ -117,10 +117,10 @@ function hero(title: string, description?: string): Slice {
       ...row,
       itemId: `h1-row-${index}`,
     })),
-  } as Slice
+  } as Block
 }
-const titleOf = (slice: Slice) =>
-  (slice as unknown as { primary: { title: string } }).primary.title
+const titleOf = (block: Block) =>
+  (block as unknown as { primary: { title: string } }).primary.title
 
 describe("adoptHeroTitles makes a title one line when it prepares a save", () => {
   const withBreaks = heading([text("Un"), br, text("Deux"), br])
@@ -150,8 +150,8 @@ describe("adoptHeroTitles makes a title one line when it prepares a save", () =>
   })
 
   test("row 1: an unchanged title saves byte for byte", () => {
-    const slice = hero(oneLine)
-    const saved = adoptHeroTitles([slice], "en", [], true)
+    const block = hero(oneLine)
+    const saved = adoptHeroTitles([block], "en", [], true)
     expect(titleOf(saved.value[0])).toBe(oneLine)
   })
 
@@ -184,21 +184,21 @@ describe("adoptHeroTitles makes a title one line when it prepares a save", () =>
   ] as const)(
     "list rows: %s items[].%s becomes one line on write and on a draft read",
     (type, field) => {
-      const sample = createSampleSlice(type)
+      const sample = createSampleBlock(type)
       const itemTitle = heading([text("Un"), br, text("Deux"), br], 3)
       const row = (sample as unknown as { items: Record<string, unknown>[] })
         .items[0]
-      const slice = {
+      const block = {
         ...sample,
         id: "list-1",
         items: [{ ...row, itemId: "list-1-row-0", [field]: itemTitle }],
-      } as unknown as Slice
-      const saved = adoptHeroTitles([slice], "en", [], true)
+      } as unknown as Block
+      const saved = adoptHeroTitles([block], "en", [], true)
       const value = (
         saved.value[0] as unknown as { items: Record<string, string>[] }
       ).items[0][field]
       expect(JSON.parse(value).content[0].content).toEqual([text("Un Deux")])
-      const draft = adoptHeroTitles([slice], "en")
+      const draft = adoptHeroTitles([block], "en")
       const kept = (
         draft.value[0] as unknown as { items: Record<string, string>[] }
       ).items[0][field]

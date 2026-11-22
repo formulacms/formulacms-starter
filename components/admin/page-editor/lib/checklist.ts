@@ -47,7 +47,7 @@ const CHECKLIST_MESSAGE_KEYS = {
   missing_seo_title: "missingSeoTitle",
   missing_seo_description: "missingSeoDescription",
   missing_enabled_locale_translation: "missingTranslation",
-  missing_required_slice_field: "missingSliceField",
+  missing_required_block_field: "missingBlockField",
   missing_required_field: "missingRequiredField",
   missing_image_alt_text: "missingImageAlt",
   broken_internal_link: "missingTarget",
@@ -72,13 +72,13 @@ export function translateChecklistItem(
   const contentType = params?.contentType
     ? labels.contentType?.(params.contentType) ?? params.contentType
     : t("contentType")
-  const sliceType = params?.sliceType ?? t("sliceType")
+  const blockType = params?.blockType ?? t("blockType")
   const rawField = params?.fieldName ?? item.field
   const field = rawField ? labels.field?.(rawField) ?? rawField : t("field")
   const context = params?.contentType
     ? contentType
-    : params?.sliceType
-      ? sliceType
+    : params?.blockType
+      ? blockType
       : t("content")
 
   switch (code) {
@@ -87,9 +87,9 @@ export function translateChecklistItem(
         key = "missingBody"
       }
       break
-    case "missing_required_slice_field":
-      if (params?.variant === "image") key = "missingSliceImage"
-      if (params?.variant === "relation") key = "missingSliceRelation"
+    case "missing_required_block_field":
+      if (params?.variant === "image") key = "missingBlockImage"
+      if (params?.variant === "relation") key = "missingBlockRelation"
       break
     case "broken_internal_link":
       if (params?.variant === "missing_link_target") key = "missingLinkTarget"
@@ -108,7 +108,7 @@ export function translateChecklistItem(
     locale,
     scope,
     contentType,
-    sliceType,
+    blockType,
     field,
     context,
     title: params?.targetTitle ?? t("untitled"),

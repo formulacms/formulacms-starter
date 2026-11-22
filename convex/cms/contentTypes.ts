@@ -301,7 +301,7 @@ export const getContentTypeTranslationImpact = query({
       if (linking.full && children.full) break
       if (target.deletedAt !== undefined) continue
       // The current public references into this page, per other language:
-      // a link or credit (relation, byline, slice body) or an ancestry row
+      // a link or credit (relation, byline, block body) or an ancestry row
       // (the source is a descendant).
       for (const locale of otherLocales) {
         const references = await ctx.db

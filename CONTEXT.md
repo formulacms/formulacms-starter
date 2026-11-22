@@ -1,6 +1,6 @@
 # formulacms
 
-The canonical product language for formulacms. Editors compose Pages from locale-specific content and typed Slices.
+The canonical product language for formulacms. Editors compose Pages from locale-specific content and typed Blocks.
 
 > For the product's identity (name, label, positioning), see [`Identity.md`](Identity.md). This file describes the _content-authoring_ domain; its terms are defined in [GLOSSARY.md](GLOSSARY.md).
 
@@ -32,4 +32,4 @@ Term definitions for this section live in [GLOSSARY.md](GLOSSARY.md#content-auth
 > **Editor:** And the picture?
 > **Dev:** An `image` primitive — that's just the asset, alt, and a focal point. Its layout belongs to the hero renderer, not the image value.
 > **Editor:** What about the "show on homepage" switch?
-> **Dev:** A `boolean` primitive. It renders nothing itself — the Slice reads it to decide whether to show. And it's strictly on or off; there's no "unset".
+> **Dev:** A `boolean` primitive. It renders nothing itself — the Block reads it to decide whether to show. And it's strictly on or off; there's no "unset".

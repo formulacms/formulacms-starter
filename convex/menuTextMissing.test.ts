@@ -79,12 +79,12 @@ test("status ignores untranslated optional headings but counts a lost featured n
   await seedCommunityOwner(t, OWNER)
   await t.run((ctx) => ctx.db.insert("menus", {
     slug: "primary", updatedAt: 1,
-    nav: [{ id: "root", label: { en: "Menu" }, panel: { columns: 1, blocks: [
+    nav: [{ id: "root", label: { en: "Menu" }, panel: { columns: 1, sections: [
       { id: "group", kind: "linkGroup", heading: { fr: "Groupe" }, links: [
         { id: "link", label: { en: "Link" }, target: { type: "anchor", anchor: "#link" } },
       ] },
       { id: "list", kind: "dynamicList", heading: { fr: "Liste" }, source: { pageType: "landing-page", limit: 3 } },
-    ], footer: { blocks: [{ id: "feature", kind: "featured", heading: { fr: "À la une" },
+    ], footer: { sections: [{ id: "feature", kind: "featured", heading: { fr: "À la une" },
       image: { url: "https://example.com/image.jpg", alt: { fr: "" } }, target: { type: "anchor", anchor: "#feature" } }] } } }],
   }))
   await expect(t.withIdentity(OWNER).query(api.cms.menus.countMenuTextMissing, { locales: ["en"] })).resolves.toEqual({ en: 1 })

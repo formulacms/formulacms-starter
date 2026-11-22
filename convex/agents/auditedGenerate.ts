@@ -29,8 +29,8 @@ export type AuditKind =
   | "field-translate"
   | "field-generate"
   | "field-refine"
-  | "slice-generate"
-  | "slice-author-propose"
+  | "block-generate"
+  | "block-author-propose"
 
 /** Resolve the model id an audit row records: the effective configured model,
  *  else the committed default the runtime itself falls back to. One shared
@@ -47,8 +47,8 @@ export interface AuditMeta {
   kind: AuditKind
   modelId: string
   /** Defaults to 0. Outline/fill set the real count; translate/refine/generate
-   *  field-level calls don't produce slices, so 0 is the natural value. */
-  sliceCount?: number
+   *  field-level calls don't produce blocks, so 0 is the natural value. */
+  blockCount?: number
   briefHash?: string
 }
 
@@ -154,11 +154,11 @@ export interface AuditRunResult<T> {
   /** Canonical D2 selected-versus-actual execution metadata. Historical and
    *  pre-D2 callers may omit it while their audit rows remain valid. */
   generation?: AuditGeneration
-  /** Overrides `meta.sliceCount` on the success row only — for actions that
-   *  don't know the slice count until after the model has answered (e.g. the
+  /** Overrides `meta.blockCount` on the success row only — for actions that
+   *  don't know the block count until after the model has answered (e.g. the
    *  outline call counts the parsed sections). Failure rows always use
-   *  `meta.sliceCount` because the model never produced anything. */
-  sliceCount?: number
+   *  `meta.blockCount` because the model never produced anything. */
+  blockCount?: number
 }
 
 /** Run `run()`, log one audit row, rethrow on failure. The AI SDK v7 single-step
@@ -185,7 +185,7 @@ export async function withAiAudit<T>(
         authId: meta.authId,
         kind: meta.kind,
         ...(meta.briefHash ? { briefHash: meta.briefHash } : {}),
-        sliceCount: meta.sliceCount ?? 0,
+        blockCount: meta.blockCount ?? 0,
         modelId: meta.modelId,
         tokenUsage,
         success: false,
@@ -197,7 +197,7 @@ export async function withAiAudit<T>(
     throw e
   }
 
-  const { value, usage, generation, sliceCount } = completed
+  const { value, usage, generation, blockCount } = completed
     tokenUsage = {
       promptTokens: usage?.inputTokens,
       completionTokens: usage?.outputTokens,
@@ -209,7 +209,7 @@ export async function withAiAudit<T>(
         authId: meta.authId,
         kind: meta.kind,
         ...(meta.briefHash ? { briefHash: meta.briefHash } : {}),
-        sliceCount: sliceCount ?? meta.sliceCount ?? 0,
+        blockCount: blockCount ?? meta.blockCount ?? 0,
         modelId: meta.modelId,
         ...(generation ? auditGenerationFields(generation) : {}),
         tokenUsage,

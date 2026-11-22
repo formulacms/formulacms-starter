@@ -1,10 +1,10 @@
-import { createSampleSlice } from "@/convex/lib/slices/sample"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
 /**
  * Test-only diagnosis. Input: mounted editor updates (jsdom), NOT native keys.
  * Reuses page-editor-own-echo-boundary's infrastructure with normal delivery.
  * No React patches, hold/reentrant transport, shaping override or product fix.
  */
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import type { Editor } from "@tiptap/core"
@@ -12,17 +12,17 @@ import { getFunctionName } from "convex/server"
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest"
 import { render } from "@/test-utils/admin-i18n"
 import type { Id } from "@/convex/_generated/dataModel"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 
 import type { Page } from "./page-editor/lib/types"
-import type { SlicesPanel } from "./page-editor/components/slices-panel"
+import type { BlocksPanel } from "./page-editor/components/blocks-panel"
 import type { PreviewActiveEditHandle, PreviewInlineEditCommit } from "./visual-editing-types"
 import type { LiveFrameWindow } from "./live-preview-frame-bridge"
 import type { AdminAiTranslationHostProps } from "./contributions/ai-translation"
 
 const boundary = vi.hoisted(() => ({
   catalog: undefined as unknown,
-  sliceProps: [] as Parameters<typeof SlicesPanel>[0][],
+  blockProps: [] as Parameters<typeof BlocksPanel>[0][],
   trace: [] as Array<Record<string, unknown>>,
   samples: [] as Array<Record<string, unknown>>,
   phase: "setup",
@@ -48,7 +48,7 @@ vi.mock("convex/react", () => ({
       : vi.fn(async () => ({ status: "acquired", updatedAt: 101, generation: 1 })),
   useQuery: (reference: unknown) => {
     const name = getFunctionName(reference as never)
-    if (name === "cms/slices:getPresentationCatalog") return boundary.catalog
+    if (name === "cms/blocks:getPresentationCatalog") return boundary.catalog
     if (name === "cms/pages:getForEdit") return { page: { pageType: "landing-page" } }
     if (name === "cms/owner:getOwnerSession") return { ownerId: "owner-1", role: "admin" }
     if (name === "cms/settings:getSiteConfig") return {
@@ -91,7 +91,7 @@ vi.mock("@/components/theme-provider", () => ({ ThemeProvider: ({ children }: { 
 vi.mock("@/components/public/public-site-shell", () => ({
   PublicSiteShell: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
-vi.mock("./slice-builder", () => ({ SliceBuilder: () => null }))
+vi.mock("./block-builder", () => ({ BlockBuilder: () => null }))
 
 // importOriginal wrappers call the original once, return its exact result, and
 // observe only afterwards. Internal lexical calls stay original/unwrapped.
@@ -99,8 +99,8 @@ vi.mock("./page-editor/lib/page-inline-draft", async importOriginal => {
   const actual = await importOriginal<typeof import("./page-editor/lib/page-inline-draft")>()
   const observe = (kind: string, args: Parameters<typeof actual.applyPageField>, result: unknown) => {
     try {
-      const [slices, locale, commit, epoch, catalog = ""] = args
-      const current = actual.capturePageField(slices, locale, commit.sliceId, commit.fieldPath, epoch, catalog)
+      const [blocks, locale, commit, epoch, catalog = ""] = args
+      const current = actual.capturePageField(blocks, locale, commit.blockId, commit.fieldPath, epoch, catalog)
       record(kind, {
         locale, epoch, catalog, commit: commitState(commit), current: commitState(current),
         returnedNull: result === null,
@@ -111,14 +111,14 @@ vi.mock("./page-editor/lib/page-inline-draft", async importOriginal => {
           epochMatches: commit.fieldBinding?.contentEpoch === epoch,
           catalogMatches: commit.fieldBinding?.catalogRevision === catalog,
           captureFound: Boolean(current),
-          sliceTypeMatches: current?.sliceType === commit.sliceType,
+          blockTypeMatches: current?.blockType === commit.blockType,
           kindMatches: current?.kind === commit.kind,
           presentationMatches: current?.fieldBinding?.presentation === commit.fieldBinding?.presentation,
           descriptorMatches: current?.fieldBinding?.descriptor === commit.fieldBinding?.descriptor,
           currentValueMatchesLastApplied: current?.value === commit.fieldBinding?.lastApplied,
           currentFingerprintMatchesBinding: current?.fieldBinding?.itemFingerprint === commit.fieldBinding?.itemFingerprint,
         },
-        result: Array.isArray(result) ? fieldState(result as Slice[], commit.fieldPath) :
+        result: Array.isArray(result) ? fieldState(result as Block[], commit.fieldPath) :
           result && typeof result === "object" ? commitState(result as PreviewInlineEditCommit) : result,
         limit: "Precondition observations only; source guard order determines cause, no alternate acceptance",
       })
@@ -139,8 +139,8 @@ vi.mock("./page-editor/lib/page-inline-draft", async importOriginal => {
     reconcilePageFieldEcho: (...args: Parameters<typeof actual.reconcilePageFieldEcho>) => {
       const result = actual.reconcilePageFieldEcho(...args)
       try {
-        const [slices, locale, commit, echo, epoch, catalog = ""] = args
-        const current = actual.capturePageField(slices, locale, commit.sliceId, commit.fieldPath, epoch, catalog)
+        const [blocks, locale, commit, echo, epoch, catalog = ""] = args
+        const current = actual.capturePageField(blocks, locale, commit.blockId, commit.fieldPath, epoch, catalog)
         record("reconcilePageFieldEcho", {
           locale, epoch, catalog, commit: commitState(commit), echo: commitState(echo), current: commitState(current),
           returnedNull: result === null,
@@ -152,8 +152,8 @@ vi.mock("./page-editor/lib/page-inline-draft", async importOriginal => {
             inlineSessionMatches: echo?.inlineSessionId === commit.inlineSessionId,
             echoLocaleMatches: echo?.locale === locale,
             commitLocaleMatches: commit.locale === locale,
-            sliceIDMatches: echo?.sliceId === commit.sliceId,
-            sliceTypeMatches: echo?.sliceType === commit.sliceType,
+            blockIDMatches: echo?.blockId === commit.blockId,
+            blockTypeMatches: echo?.blockType === commit.blockType,
             fieldPathMatches: echo?.fieldPath === commit.fieldPath,
             kindMatches: echo?.kind === commit.kind,
             commitBindingPresent: Boolean(commit.fieldBinding),
@@ -176,11 +176,11 @@ vi.mock("./page-editor/lib/page-inline-draft", async importOriginal => {
   }
 })
 
-vi.mock("./page-editor/components/slices-panel", async importOriginal => {
-  const actual = await importOriginal<typeof import("./page-editor/components/slices-panel")>()
-  return { SlicesPanel: (props: Parameters<typeof actual.SlicesPanel>[0]) => {
-    boundary.sliceProps.push(props)
-    return <actual.SlicesPanel {...props}
+vi.mock("./page-editor/components/blocks-panel", async importOriginal => {
+  const actual = await importOriginal<typeof import("./page-editor/components/blocks-panel")>()
+  return { BlocksPanel: (props: Parameters<typeof actual.BlocksPanel>[0]) => {
+    boundary.blockProps.push(props)
+    return <actual.BlocksPanel {...props}
       onPreviewInlineEditCommit={commit => {
         const accepted = props.onPreviewInlineEditCommit(commit)
         boundary.commits.push({ commit, accepted })
@@ -224,7 +224,7 @@ vi.mock("./page-live-preview-canvas", async importOriginal => {
 
 import { PageEditor } from "./page-editor"
 import { LivePreviewFrameRuntime } from "./live-preview-frame-runtime"
-import { readSlicePresentationCatalog } from "@/convex/lib/slices/presentations"
+import { readBlockPresentationCatalog } from "@/convex/lib/blocks/presentations"
 
 function record(kind: string, value: Record<string, unknown>) {
   boundary.trace.push(JSON.parse(JSON.stringify({ sequence: ++boundary.sequence, phase: boundary.phase, kind, ...value })))
@@ -245,18 +245,18 @@ function documentState(value: unknown) {
 }
 function commitState(commit: PreviewInlineEditCommit | null | undefined) {
   return commit ? {
-    sliceId: commit.sliceId, sliceType: commit.sliceType, locale: commit.locale,
+    blockId: commit.blockId, blockType: commit.blockType, locale: commit.locale,
     fieldPath: commit.fieldPath, inlineSessionId: commit.inlineSessionId,
     value: documentState(commit.value), lastApplied: documentState(commit.fieldBinding?.lastApplied),
     fieldBinding: commit.fieldBinding, frameBinding: commit.frameBinding, repeatedTarget: commit.repeatedTarget,
   } : null
 }
-function fieldValue(slices: Slice[], fieldPath: string) {
+function fieldValue(blocks: Block[], fieldPath: string) {
   return fieldPath.split(".").reduce<unknown>((value, key) =>
     value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined,
-    slices[0])
+    blocks[0])
 }
-function fieldState(slices: Slice[], fieldPath: string) { return documentState(fieldValue(slices, fieldPath)) }
+function fieldState(blocks: Block[], fieldPath: string) { return documentState(fieldValue(blocks, fieldPath)) }
 const titleDoc = (text: string, level: number) => JSON.stringify({
   type: "doc", content: [{ type: "heading", attrs: { level }, content: [{ type: "text", text }] }],
 })
@@ -269,8 +269,8 @@ beforeAll(() => {
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} })
 })
 beforeEach(async () => {
-  boundary.catalog = await readSlicePresentationCatalog()
-  boundary.sliceProps = []; boundary.trace = []; boundary.samples = []; boundary.sequence = 0
+  boundary.catalog = await readBlockPresentationCatalog()
+  boundary.blockProps = []; boundary.trace = []; boundary.samples = []; boundary.sequence = 0
   boundary.conflicts = 0; boundary.canvasConflicts = 0; boundary.commits = []
   boundary.handle = null; boundary.parentBuffer = null; boundary.canvasBuffer = null; boundary.phase = "setup"
   window.localStorage.clear(); window.sessionStorage.clear()
@@ -282,15 +282,15 @@ afterEach(() => {
 })
 
 async function setupBoundary(fieldPath: "items.0.title" | "primary.heading") {
-  const sample = createSampleSlice("features-icon-grid")
+  const sample = createSampleBlock("features-icon-grid")
   if (sample.type !== "features-icon-grid") throw new Error("Factory did not return Features fixture")
   sample.primary.heading = titleDoc("First section", 2)
   sample.items = [{ ...sample.items[0]!, title: titleDoc("First item", 3) }]
-  const slices = [sample] as Slice[]
+  const blocks = [sample] as Block[]
   const fixture = {
     _id: pageId, _creationTime: 1, slug: "about", localizedSlugs: {}, pageType: "landing-page",
     status: "draft", createdAt: 100, updatedAt: 100, createdBy: "owner-1", tags: [],
-    content: { en: { title: "About", slices } },
+    content: { en: { title: "About", blocks } },
   } as Page
   const parent = render(<PageEditor page={fixture} hasStaging={false} stagingUpdatedAt={undefined} publication={{
     authority: "snapshot_active", lifecycleGeneration: 3, sharedDraftGeneration: 4,
@@ -318,7 +318,6 @@ async function setupBoundary(fieldPath: "items.0.title" | "primary.heading") {
   await act(async () => {
     window.dispatchEvent(new MessageEvent("message", { origin: window.location.origin, source: child, data: ready }))
   })
-  fireEvent.click(parent.getByRole("button", { name: /^Edit text in preview: off$/ }))
   const selector = `[data-preview-field="${fieldPath}"]`
   await waitFor(() => expect(runtime.container.querySelector(selector)).toBeTruthy())
   fireEvent.click(runtime.container.querySelector(selector)!)
@@ -326,7 +325,7 @@ async function setupBoundary(fieldPath: "items.0.title" | "primary.heading") {
   const host = runtime.container.querySelector("[contenteditable=true]") as HTMLElement & { editor: Editor }
   const editor = host.editor
   expect(editor).toBeDefined()
-  record("activated", { fieldPath, parent: fieldState(boundary.sliceProps.at(-1)!.slices, fieldPath), active: commitState(boundary.handle?.capture()) })
+  record("activated", { fieldPath, parent: fieldState(boundary.blockProps.at(-1)!.blocks, fieldPath), active: commitState(boundary.handle?.capture()) })
   return { parent, runtime, editor, fieldPath }
 }
 type Mounted = Awaited<ReturnType<typeof setupBoundary>>
@@ -347,7 +346,7 @@ function observeCharacter(frame: Mounted, expected: string) {
     originalEditorDestroyed: frame.editor.isDestroyed,
     liveEditorPresent: editor !== null,
     liveEditorIsOriginal: editor === frame.editor,
-    parent: fieldState(boundary.sliceProps.at(-1)!.slices, frame.fieldPath),
+    parent: fieldState(boundary.blockProps.at(-1)!.blocks, frame.fieldPath),
     active: commitState(boundary.handle?.capture()), parentBuffer: commitState(boundary.parentBuffer),
     canvasBuffer: commitState(boundary.canvasBuffer), pendingUI: pending ? documentState(pending.value) : null,
     alert: frame.parent.container.querySelector('[role="alert"]')?.textContent ?? null,
@@ -389,32 +388,32 @@ function emit(label: string) {
   }))
 }
 
-test("itemTitle3: per-character mounted editor updates (jsdom) retain parent and buffers without conflict", sliceProfile(["features-icon-grid"]), async () => {
+test("itemTitle3: per-character mounted editor updates (jsdom) retain parent and buffers without conflict", blockProfile(["features-icon-grid"]), async () => {
   try { const frame = await setupBoundary("items.0.title"); await twoCharacters(frame, 3) }
   finally { emit("itemTitle3-positive-contract-expected-RED-on-current-source") }
 })
-test("sliceTitle2: per-character mounted editor updates (jsdom) positive control", sliceProfile(["features-icon-grid"]), async () => {
+test("blockTitle2: per-character mounted editor updates (jsdom) positive control", blockProfile(["features-icon-grid"]), async () => {
   try { const frame = await setupBoundary("primary.heading"); await twoCharacters(frame, 2) }
-  finally { emit("sliceTitle2-positive-control") }
+  finally { emit("blockTitle2-positive-control") }
 })
-test("mounted competing producer: genuine same-field parent write still refuses stale inline binding", sliceProfile(["features-icon-grid"]), async () => {
+test("mounted competing producer: genuine same-field parent write still refuses stale inline binding", blockProfile(["features-icon-grid"]), async () => {
   try {
     const frame = await setupBoundary("primary.heading")
     boundary.phase = "first-mounted-character"
     await act(async () => { frame.editor.commands.selectAll(); frame.editor.commands.insertContent("O") })
     assertCharacter(frame, "O", 2)
     boundary.phase = "competing-parent-producer"
-    const latest = boundary.sliceProps.at(-1)!
-    const competing = structuredClone(latest.slices)
+    const latest = boundary.blockProps.at(-1)!
+    const competing = structuredClone(latest.blocks)
     const target = competing[0]
     if (target.type !== "features-icon-grid") throw new Error("Competing fixture changed Type")
     target.primary.heading = titleDoc("Competing parent", 2)
-    // Actual PageEditor onSlicesChange producer; not a mocked parent projection.
-    await act(async () => { latest.onSlicesChange(competing) })
+    // Actual PageEditor onBlocksChange producer; not a mocked parent projection.
+    await act(async () => { latest.onBlocksChange(competing) })
     observeCharacter(frame, "O")
     expect.soft(boundary.conflicts).toBeGreaterThan(0)
     expect.soft(boundary.canvasConflicts).toBeGreaterThan(0)
-    expect.soft(fieldState(boundary.sliceProps.at(-1)!.slices, frame.fieldPath).text).toBe("Competing parent")
+    expect.soft(fieldState(boundary.blockProps.at(-1)!.blocks, frame.fieldPath).text).toBe("Competing parent")
     boundary.phase = "stale-character-r"
     await act(async () => { frame.editor.commands.insertContent("r") })
     const sample = observeCharacter(frame, "Or")

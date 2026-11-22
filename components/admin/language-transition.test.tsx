@@ -118,7 +118,7 @@ function pageRow(overrides: Record<string, unknown> = {}) {
     sourceSlug: "about",
     sourcePath: "/about",
     targetPath: null,
-    contentKeys: ["slices", "title"],
+    contentKeys: ["blocks", "title"],
     seoJson: '{"metaTitle":"About"}',
     targetRouteConflict: false,
     confirmed: false,
@@ -471,14 +471,14 @@ describe("language change workflow", () => {
               path: "/",
               seoTitle: "Accueil — Site",
               seoDescription: "La page d’accueil publiée",
-              contentKeys: ["slices", "title"],
+              contentKeys: ["blocks", "title"],
             },
             draftBaseSnapshotId: "snapshot1",
             workingDraft: {
               generation: 6,
               slug: "accueil-prive",
               title: "Accueil privé",
-              contentKeys: ["slices", "title"],
+              contentKeys: ["blocks", "title"],
               differsFromSelection: true,
             },
             sharedDraft: { generation: 9, differsFromSelection: false },
@@ -532,7 +532,7 @@ describe("language change workflow", () => {
             generation: 6,
             slug: "accueil-prive",
             title: "Accueil privé",
-            contentKeys: ["slices", "title"],
+            contentKeys: ["blocks", "title"],
             differsFromSelection: null,
           },
           sharedDraft: { generation: 9, differsFromSelection: null },
@@ -639,7 +639,7 @@ describe("language change workflow", () => {
               path: "/",
               seoTitle: null,
               seoDescription: null,
-              contentKeys: ["slices", "title"],
+              contentKeys: ["blocks", "title"],
             },
             draftBaseSnapshotId: "snapshot1",
             workingDraft:
@@ -648,7 +648,7 @@ describe("language change workflow", () => {
                     generation: 6,
                     slug: "accueil-prive",
                     title: "Accueil privé",
-                    contentKeys: ["slices", "title"],
+                    contentKeys: ["blocks", "title"],
                     differsFromSelection: true,
                   }
                 : null,
@@ -820,7 +820,7 @@ describe("language change workflow", () => {
     renderWorkflow()
 
     expect(screen.getByText("/about")).toBeInTheDocument()
-    expect(screen.getByText("Content: slices, title")).toBeInTheDocument()
+    expect(screen.getByText("Content: blocks, title")).toBeInTheDocument()
     expect(
       screen.getByText('Search settings: {"metaTitle":"About"}')
     ).toBeInTheDocument()

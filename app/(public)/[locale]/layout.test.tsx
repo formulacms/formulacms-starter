@@ -55,7 +55,7 @@ vi.mock("@/components/public/footer", () => ({
 import PublicLayout from "./layout"
 import NotFound from "./not-found"
 
-const dynamicBlock = {
+const dynamicSection = {
   id: "recent",
   kind: "dynamicList" as const,
   heading: "Recent",
@@ -84,8 +84,8 @@ beforeEach(() => {
                 label: "Content",
                 panel: {
                   columns: 1,
-                  blocks: [dynamicBlock],
-                  footer: { blocks: [dynamicBlock] },
+                  sections: [dynamicSection],
+                  footer: { sections: [dynamicSection] },
                 },
               },
             ],

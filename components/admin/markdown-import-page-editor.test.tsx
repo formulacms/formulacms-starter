@@ -1,11 +1,11 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { StrictMode } from "react"
 import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { render } from "@/test-utils/admin-i18n"
 import { getFunctionName } from "convex/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 import type { Id } from "@/convex/_generated/dataModel"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 import type { Page } from "./page-editor/lib/types"
 import { readPageDraftHandoff } from "./page-editor/lib/page-draft-handoff"
 
@@ -106,9 +106,9 @@ vi.mock("./page-editor/components/settings-panel", () => ({
   SettingsPanel: () => null,
 }))
 
-vi.mock("./page-editor/components/slices-panel", () => ({
-  SlicesPanel: ({ slices }: { slices: Slice[] }) => (
-    <output data-testid="page-editor-slices">{JSON.stringify(slices)}</output>
+vi.mock("./page-editor/components/blocks-panel", () => ({
+  BlocksPanel: ({ blocks }: { blocks: Block[] }) => (
+    <output data-testid="page-editor-blocks">{JSON.stringify(blocks)}</output>
   ),
 }))
 
@@ -129,7 +129,7 @@ function emptyImportedPage(): Page {
     content: {
       en: {
         title: "Imported page",
-        slices: [],
+        blocks: [],
       },
     },
     tags: [],
@@ -165,7 +165,7 @@ describe("Markdown import draft handoff", () => {
     })
   })
 
-  test("opens the editor with imported Markdown as an unsaved one-shot draft", sliceProfile(["rich-text-body"]), async () => {
+  test("opens the editor with imported Markdown as an unsaved one-shot draft", blockProfile(["rich-text-body"]), async () => {
     const newPage = render(<NewPageForm />)
 
     expect(screen.getByRole("button", { name: "Import .md" })).toBeEnabled()
@@ -188,7 +188,7 @@ describe("Markdown import draft handoff", () => {
         content: {
           en: {
             title: "Imported page",
-            slices: [],
+            blocks: [],
           },
         },
       })
@@ -196,7 +196,7 @@ describe("Markdown import draft handoff", () => {
     expect(mocks.push).toHaveBeenCalledWith(`/admin/pages/${pageId}`)
 
     const stashed = readPageDraftHandoff(pageId)
-    expect(stashed?.slices).toEqual([
+    expect(stashed?.blocks).toEqual([
       expect.objectContaining({
         type: "rich-text-body",
         primary: {
@@ -216,7 +216,7 @@ describe("Markdown import draft handoff", () => {
       </StrictMode>
     )
 
-    expect(screen.getByTestId("page-editor-slices")).toHaveTextContent(
+    expect(screen.getByTestId("page-editor-blocks")).toHaveTextContent(
       "Imported body survives the route change."
     )
     expect(screen.getByText("Unsaved changes")).toBeInTheDocument()
@@ -229,7 +229,7 @@ describe("Markdown import draft handoff", () => {
       expect.objectContaining({
         content: {
           en: expect.objectContaining({
-            slices: [
+            blocks: [
               expect.objectContaining({
                 type: "rich-text-body",
                 primary: {

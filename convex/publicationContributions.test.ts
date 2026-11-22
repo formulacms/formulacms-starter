@@ -93,7 +93,7 @@ const DUMPED_TABLES = [
   "pagePublishedSnapshots",
   "pagePublicationDocumentReferences",
   "pagePublicationMediaReferences",
-  "pagePublicationSliceReferences",
+  "pagePublicationBlockReferences",
   "pageHistoricalLocaleRoutes",
   "pagePublicationRevalidationIntents",
   "pagePublicationMigrationPages",
@@ -119,7 +119,7 @@ async function activeFixture() {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   const pageId = await owner.mutation(api.cms.pages.create, {
     pageType: "landing-page",
@@ -127,8 +127,8 @@ async function activeFixture() {
     slug: "cafe",
     title: "Café",
     content: {
-      en: { title: "Café", slices: [] },
-      fr: { title: "Café français", slices: [] },
+      en: { title: "Café", blocks: [] },
+      fr: { title: "Café français", blocks: [] },
     },
   })
   await t.run(async (ctx) => {
@@ -296,7 +296,7 @@ describe("F08b publication contribution transaction boundary", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "Edited" },
-        slices: [],
+        blocks: [],
       },
       expectedDraftGeneration: 1,
       expectedLifecycleGeneration: 1,
@@ -319,7 +319,7 @@ describe("F08b publication contribution transaction boundary", () => {
         draft: {
           pageType: "landing-page",
           localized: { title: "Edited again" },
-          slices: [],
+          blocks: [],
         },
         expectedGeneration: afterSharedSave.expectedDraftGeneration,
       },
@@ -501,7 +501,7 @@ describe("F08b publication contribution transaction boundary", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "Renamed" },
-        slices: [],
+        blocks: [],
       },
       expectedDraftGeneration: (await generations(t, pageId))
         .expectedDraftGeneration,

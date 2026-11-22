@@ -1,4 +1,4 @@
-import type { ImageField } from "@/convex/lib/slices"
+import type { ImageField } from "@/convex/lib/blocks"
 
 /** Finite numeric media adapter, not a general CSS serializer. */
 export const IMAGE_PRESENTATION_VERSION = "v2"

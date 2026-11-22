@@ -4,26 +4,26 @@ import { validate } from "convex-helpers/validators"
 import * as writeModule from "../richtext/write"
 import { validateStrict } from "../richtext/strict"
 import { resolveFieldContract } from "../richtext/contracts"
-import { installedSliceDefs, installedSliceValidator, sliceDefs } from "../slices"
-import { button } from "../slices/fields"
-import { group, image, link, list, relation, richText, select, text } from "../slices/primitives"
+import { installedBlockDefs, installedBlockValidator, blockDefs } from "../blocks"
+import { button } from "../blocks/fields"
+import { group, image, link, list, relation, richText, select, text } from "../blocks/primitives"
 import {
-  assembleSlice,
+  assembleBlock,
   buildPageFillGenerationInput,
-  buildSliceGenerationInput,
+  buildBlockGenerationInput,
 } from "./contentWriterContract"
 
 // These tests install complete synthetic descriptors; keep their real schema live.
-vi.mock("../slices", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../slices")>()
+vi.mock("../blocks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../blocks")>()
   const { v } = await import("convex/values")
-  const { withSliceOccurrencePresentation } = await import("../slices/occurrencePresentation")
+  const { withBlockOccurrencePresentation } = await import("../blocks/occurrencePresentation")
   return {
     ...actual,
-    get installedSliceValidator() {
-      return v.union(...actual.INSTALLED_SLICE_TYPES.map((type) =>
-        withSliceOccurrencePresentation<unknown, Record<string, import("convex/values").GenericValidator>>(
-          actual.installedSliceDefs[type].validator
+    get installedBlockValidator() {
+      return v.union(...actual.INSTALLED_BLOCK_TYPES.map((type) =>
+        withBlockOccurrencePresentation<unknown, Record<string, import("convex/values").GenericValidator>>(
+          actual.installedBlockDefs[type].validator
         )
       ))
     },
@@ -33,8 +33,8 @@ vi.mock("../slices", async (importOriginal) => {
 const testType = "rich-text-body" as const
 
 function withSyntheticLists<T>(run: (primary: ReturnType<typeof makePrimary>) => T): T {
-  const previousSlice = sliceDefs[testType]
-  const previousInstalled = installedSliceDefs[testType]
+  const previousBlock = blockDefs[testType]
+  const previousInstalled = installedBlockDefs[testType]
   const primary = makePrimary()
   const synthetic = {
     ...previousInstalled,
@@ -45,19 +45,19 @@ function withSyntheticLists<T>(run: (primary: ReturnType<typeof makePrimary>) =>
       fields: "Write the section's scalar content.",
     },
   }
-  Reflect.set(sliceDefs, testType, synthetic)
-  Reflect.set(installedSliceDefs, testType, synthetic)
+  Reflect.set(blockDefs, testType, synthetic)
+  Reflect.set(installedBlockDefs, testType, synthetic)
   try {
     return run(primary)
   } finally {
-    Reflect.set(sliceDefs, testType, previousSlice)
-    Reflect.set(installedSliceDefs, testType, previousInstalled)
+    Reflect.set(blockDefs, testType, previousBlock)
+    Reflect.set(installedBlockDefs, testType, previousInstalled)
   }
 }
 
 function makePrimary() {
   return group({
-    headline: richText({ contract: "title", heading: { role: "sliceTitle" } }),
+    headline: richText({ contract: "title", heading: { role: "blockTitle" } }),
     cards: list(
       group({
         cardName: richText({ contract: "title", heading: { role: "itemTitle" } }),
@@ -81,8 +81,8 @@ function makePrimary() {
 }
 
 function withEditorialValidationLists<T>(run: (primary: ReturnType<typeof makeEditorialValidationPrimary>) => T): T {
-  const previousSlice = sliceDefs[testType]
-  const previousInstalled = installedSliceDefs[testType]
+  const previousBlock = blockDefs[testType]
+  const previousInstalled = installedBlockDefs[testType]
   const primary = makeEditorialValidationPrimary()
   const synthetic = {
     ...previousInstalled,
@@ -93,13 +93,13 @@ function withEditorialValidationLists<T>(run: (primary: ReturnType<typeof makeEd
       fields: "Write the section's scalar content.",
     },
   }
-  Reflect.set(sliceDefs, testType, synthetic)
-  Reflect.set(installedSliceDefs, testType, synthetic)
+  Reflect.set(blockDefs, testType, synthetic)
+  Reflect.set(installedBlockDefs, testType, synthetic)
   try {
     return run(primary)
   } finally {
-    Reflect.set(sliceDefs, testType, previousSlice)
-    Reflect.set(installedSliceDefs, testType, previousInstalled)
+    Reflect.set(blockDefs, testType, previousBlock)
+    Reflect.set(installedBlockDefs, testType, previousInstalled)
   }
 }
 
@@ -154,7 +154,7 @@ function validateEditorialRichTextBeforeWrite(
 }
 
 function primaryListRows(value: unknown, depth: 1 | 2): unknown[] {
-  const primary = requireTestRecord(value, "slice primary value")
+  const primary = requireTestRecord(value, "block primary value")
   const rows = primary[depth === 1 ? "depthOne" : "depthTwo"]
   if (!Array.isArray(rows)) throw new Error(`Expected depth ${depth} rows`)
   if (depth === 1) return rows
@@ -222,33 +222,33 @@ const card = (name: string, questions: Array<{ question: string; answer: string 
 
 describe("primary-list content writer", () => {
   test.each(["content", "editorial"] as const)("restores the live genuine schema after the %s fixture", (kind) => {
-    const previousSlice = sliceDefs[testType]
-    const previousInstalled = installedSliceDefs[testType]
+    const previousBlock = blockDefs[testType]
+    const previousInstalled = installedBlockDefs[testType]
     const originalValue = {
       id: "original-schema-control", type: testType, enabled: true,
       primary: structuredClone(previousInstalled.primary.default),
     }
-    expect(validate(installedSliceValidator, originalValue)).toBe(true)
+    expect(validate(installedBlockValidator, originalValue)).toBe(true)
     let syntheticValue: unknown
     const withFixture = kind === "content" ? withSyntheticLists : withEditorialValidationLists
     withFixture(() => {
-      syntheticValue = assembleSlice(testType, "no list labels")
-      expect(validate(installedSliceValidator, syntheticValue)).toBe(true)
-      expect(validate(installedSliceValidator, { ...originalValue, primary: null })).toBe(false)
-      expect(validate(installedSliceValidator, originalValue)).toBe(false)
+      syntheticValue = assembleBlock(testType, "no list labels")
+      expect(validate(installedBlockValidator, syntheticValue)).toBe(true)
+      expect(validate(installedBlockValidator, { ...originalValue, primary: null })).toBe(false)
+      expect(validate(installedBlockValidator, originalValue)).toBe(false)
       expect(validate(previousInstalled.validator, syntheticValue)).toBe(false)
     })
-    expect(sliceDefs[testType]).toBe(previousSlice)
-    expect(installedSliceDefs[testType]).toBe(previousInstalled)
-    expect(validate(installedSliceValidator, originalValue)).toBe(true)
-    expect(validate(installedSliceValidator, syntheticValue)).toBe(false)
+    expect(blockDefs[testType]).toBe(previousBlock)
+    expect(installedBlockDefs[testType]).toBe(previousInstalled)
+    expect(validate(installedBlockValidator, originalValue)).toBe(true)
+    expect(validate(installedBlockValidator, syntheticValue)).toBe(false)
   })
 
   test("refuses supplied non-string editorial leaves at both list depths before canonical write", () => {
     withEditorialValidationLists((primary) => {
-      const originalWrite = writeModule.writeSliceFields.bind(writeModule)
-      const spy = vi.spyOn(writeModule, "writeSliceFields").mockImplementation((slice, locale, options) =>
-        originalWrite(slice, locale, options)
+      const originalWrite = writeModule.writeBlockFields.bind(writeModule)
+      const spy = vi.spyOn(writeModule, "writeBlockFields").mockImplementation((block, locale, options) =>
+        originalWrite(block, locale, options)
       )
       const invalidValues = [
         ["object", { authored: true }],
@@ -273,10 +273,10 @@ describe("primary-list content writer", () => {
               const raw = `[primary.${listPath}]\n${JSON.stringify(rows)}\n[/primary.${listPath}]`
 
               spy.mockClear()
-              expect(() => assembleSlice(testType, raw), `${kind} ${field} depth ${depth}`).toThrow(
+              expect(() => assembleBlock(testType, raw), `${kind} ${field} depth ${depth}`).toThrow(
                 `PRIMARY_LIST_EXPECTED_STRING: primary.${leafPath}`
               )
-              expect(spy, `${kind} ${field} depth ${depth} must refuse before writeSliceFields`).not.toHaveBeenCalled()
+              expect(spy, `${kind} ${field} depth ${depth} must refuse before writeBlockFields`).not.toHaveBeenCalled()
               expect(rows).toEqual(rowsBefore)
               expect(primary.default).toEqual(beforeDefault)
             }
@@ -290,11 +290,11 @@ describe("primary-list content writer", () => {
 
   test("keeps omitted defaults and writes valid literal text at both list depths", () => {
     withEditorialValidationLists((primary) => {
-      const originalWrite = writeModule.writeSliceFields.bind(writeModule)
+      const originalWrite = writeModule.writeBlockFields.bind(writeModule)
       let activeSuppliedDepth: 1 | 2 | undefined
       let strictChecks = 0
-      const spy = vi.spyOn(writeModule, "writeSliceFields").mockImplementation((slice, locale, options) => {
-        if (slice.type !== testType) throw new Error(`Unexpected slice type: ${slice.type}`)
+      const spy = vi.spyOn(writeModule, "writeBlockFields").mockImplementation((block, locale, options) => {
+        if (block.type !== testType) throw new Error(`Unexpected block type: ${block.type}`)
         if (activeSuppliedDepth !== undefined) {
           const primaryFields = requireTestRecord(primary.config.fields, "primary fields")
           const rootList = requireTestRecord(
@@ -311,7 +311,7 @@ describe("primary-list content writer", () => {
             const nestedList = requireTestRecord(itemFields.nested, "nested list descriptor")
             activeItem = requireTestRecord(requireTestRecord(nestedList.config, "nested list config").item, "nested list item")
           }
-          const rows = primaryListRows(slice.primary, activeSuppliedDepth)
+          const rows = primaryListRows(block.primary, activeSuppliedDepth)
           expect(rows).toHaveLength(1)
           for (const row of rows)
             validateEditorialRichTextBeforeWrite(activeItem, row, (config, json) => {
@@ -319,7 +319,7 @@ describe("primary-list content writer", () => {
               strictChecks += 1
             })
         }
-        return originalWrite(slice, locale, options)
+        return originalWrite(block, locale, options)
       })
       const fields = ["plainText", "titleText", "inlineText", "basicText", "fullText"] as const
       const payloads = ["", '{"literal":"json"}', "<b>literal HTML</b>"] as const
@@ -332,11 +332,11 @@ describe("primary-list content writer", () => {
         return [field, structuredClone(definition.default)]
       }))
 
-      const assembleRows = (depth: 1 | 2, rows: unknown[]): ReturnType<typeof assembleSlice> => {
+      const assembleRows = (depth: 1 | 2, rows: unknown[]): ReturnType<typeof assembleBlock> => {
         const path = depth === 1 ? "depthOne" : "depthTwo"
         const raw = `[primary.${path}]\n${JSON.stringify(rows)}\n[/primary.${path}]`
-        const output = assembleSlice(testType, raw)
-        if (output.type !== testType) throw new Error(`Unexpected slice type: ${output.type}`)
+        const output = assembleBlock(testType, raw)
+        if (output.type !== testType) throw new Error(`Unexpected block type: ${output.type}`)
         return output
       }
 
@@ -398,18 +398,18 @@ describe("primary-list content writer", () => {
 
   test("generation prompts and assembly use declared lists and canonical rich text", () => {
     withSyntheticLists((primary) => {
-      const generated = buildSliceGenerationInput({
-        systemTemplate: "System {language} {sliceType}",
+      const generated = buildBlockGenerationInput({
+        systemTemplate: "System {language} {blockType}",
         userTemplate: "Brief: {brief}",
         language: "English",
-        sliceType: testType,
+        blockType: testType,
         brief: "A useful section",
       })
       const pageFill = buildPageFillGenerationInput({
-        systemTemplate: "System {language} {sliceType}",
+        systemTemplate: "System {language} {blockType}",
         userTemplate: "Brief: {brief}",
         language: "English",
-        sliceType: testType,
+        blockType: testType,
         pageBrief: "A page about useful sections",
         purpose: "Explain the product",
       })
@@ -423,17 +423,17 @@ describe("primary-list content writer", () => {
         expect(prompt).not.toContain("identity")
       }
 
-      const originalWrite = writeModule.writeSliceFields.bind(writeModule)
-      const spy = vi.spyOn(writeModule, "writeSliceFields").mockImplementation((slice, locale, options) => {
-        const sliceValue = slice as unknown as { primary: unknown }
-        richTextLeaves(primary, sliceValue.primary, (config, json) => {
+      const originalWrite = writeModule.writeBlockFields.bind(writeModule)
+      const spy = vi.spyOn(writeModule, "writeBlockFields").mockImplementation((block, locale, options) => {
+        const blockValue = block as unknown as { primary: unknown }
+        richTextLeaves(primary, blockValue.primary, (config, json) => {
           expect(validateStrict(resolveFieldContract(config), json)).toEqual({ ok: true })
         })
-        return originalWrite(slice, locale, options)
+        return originalWrite(block, locale, options)
       })
       try {
         const defaultBeforeAssembly = structuredClone(primary.default)
-        const output = assembleSlice(
+        const output = assembleBlock(
           testType,
           [
             "[headline]",
@@ -509,7 +509,7 @@ describe("primary-list content writer", () => {
   test("missing blocks retain defaults; malformed JSON, wrong rows, and min violations refuse without mutation", () => {
     withSyntheticLists((primary) => {
       const before = structuredClone(primary.default)
-      const missing = assembleSlice(testType, "no list labels") as unknown as { primary: Record<string, unknown> }
+      const missing = assembleBlock(testType, "no list labels") as unknown as { primary: Record<string, unknown> }
       expect(missing.primary.cards).toEqual([])
       expect(missing.primary.benefits).toEqual([])
       expect(primary.default).toEqual(before)
@@ -522,7 +522,7 @@ describe("primary-list content writer", () => {
         ["[primary.cards]\n[{\"cardName\":\"x\",\"questions\":[]} ]\n[/primary.cards]", "PRIMARY_LIST_TOO_FEW_ROWS: primary.cards.questions"],
       ] as const
       for (const [raw, message] of cases) {
-        expect(() => assembleSlice(testType, raw)).toThrow(message)
+        expect(() => assembleBlock(testType, raw)).toThrow(message)
         expect(primary.default).toEqual(before)
       }
     })
@@ -531,7 +531,7 @@ describe("primary-list content writer", () => {
   test("accepts a supported 10000-character editorial title through assembly", () => {
     withSyntheticLists((primary) => {
       const title = "a".repeat(10000)
-      const assembled = assembleSlice(
+      const assembled = assembleBlock(
         testType,
         `[headline]\n${title}\n[/headline]`
       ) as unknown as { primary: Record<string, unknown> }
@@ -545,7 +545,7 @@ describe("primary-list content writer", () => {
   })
 
   test("the existing items response still fills installed legacy button lists", () => {
-    const result = assembleSlice("hero-agency", "[items]\n- Existing action\n[/items]") as unknown as { items: Array<{ label: string }> }
+    const result = assembleBlock("hero-agency", "[items]\n- Existing action\n[/items]") as unknown as { items: Array<{ label: string }> }
     expect(result.items.map((item) => item.label)).toEqual(["Existing action"])
   })
 })

@@ -90,7 +90,7 @@ describe("edit-time tokens move forward in the same millisecond", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Initial",
-      content: { en: { title: "Initial", slices: [] } },
+      content: { en: { title: "Initial", blocks: [] } },
     })
     const stored = async () =>
       (await t.run((ctx) => ctx.db.get("pages", pageId)))!.updatedAt
@@ -123,7 +123,7 @@ describe("edit-time tokens move forward in the same millisecond", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Initial",
-      content: { en: { title: "Initial", slices: [] } },
+      content: { en: { title: "Initial", blocks: [] } },
     })
     await owner.mutation(api.cms.pages.acquirePageEditorLock, { pageId, force: true })
     const stored = async () =>
@@ -131,7 +131,7 @@ describe("edit-time tokens move forward in the same millisecond", () => {
         ctx.db.query("pageStaging").withIndex("by_pageId", (q) => q.eq("pageId", pageId)).first()
       ))!.updatedAt
     const body = (title: string) => ({
-      en: { pageType: "landing-page" as const, localized: { title }, slices: [] },
+      en: { pageType: "landing-page" as const, localized: { title }, blocks: [] },
     })
     const first = await owner.mutation(api.cms.pages.updateDraft, {
       pageId,

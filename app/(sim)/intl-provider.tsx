@@ -8,7 +8,7 @@ export type SimMessages = Pick<
   typeof englishMessages,
   "accessibility" | "caughtErrors"
 > & {
-  slices: Pick<(typeof englishMessages)["slices"], "design">
+  blocks: Pick<(typeof englishMessages)["blocks"], "design">
 }
 
 export function SimIntlProvider({

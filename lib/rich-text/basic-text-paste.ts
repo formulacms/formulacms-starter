@@ -1,5 +1,5 @@
 import { Extension } from "@tiptap/core"
-import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model"
+import { Fragment, Slice as PmSlice, type Node as PMNode } from "@tiptap/pm/model"
 import { Plugin } from "@tiptap/pm/state"
 
 /** Shared by the sidebar, preview island and public basic-field renderer. */
@@ -7,18 +7,18 @@ export const BASIC_PARAGRAPH_GAP = "[&>p]:m-0 [&>p+p]:mt-[0.75em]"
 
 /** Tidy only top-level pasted paragraphs; other nodes retain their content. */
 export function tidyBasicPaste(
-  slice: Slice,
+  pmSlice: PmSlice,
   { fromEditorCopy }: { fromEditorCopy: boolean }
-): Slice {
-  const blocks: PMNode[] = []
+): PmSlice {
+  const nodes: PMNode[] = []
   let firstRetained = -1
   let lastRetained = -1
   function retain(node: PMNode, index: number) {
     if (firstRetained === -1) firstRetained = index
     lastRetained = index
-    blocks.push(node)
+    nodes.push(node)
   }
-  slice.content.forEach((node, _offset, index) => {
+  pmSlice.content.forEach((node, _offset, index) => {
     if (node.type.name !== "paragraph") {
       retain(node, index)
       return
@@ -34,15 +34,15 @@ export function tidyBasicPaste(
     )
     if (meaningful) retain(node.copy(Fragment.fromArray(children)), index)
   })
-  if (!blocks.length) return Slice.empty
-  const opened = Slice.maxOpen(Fragment.fromArray(blocks))
+  if (!nodes.length) return PmSlice.empty
+  const opened = PmSlice.maxOpen(Fragment.fromArray(nodes))
   if (!fromEditorCopy) return opened
-  // Incoming depths belong to the original edges, not newly exposed blocks.
-  return new Slice(
+  // Incoming depths belong to the original edges, not newly exposed nodes.
+  return new PmSlice(
     opened.content,
-    firstRetained === 0 ? Math.min(slice.openStart, opened.openStart) : 0,
-    lastRetained === slice.content.childCount - 1
-      ? Math.min(slice.openEnd, opened.openEnd)
+    firstRetained === 0 ? Math.min(pmSlice.openStart, opened.openStart) : 0,
+    lastRetained === pmSlice.content.childCount - 1
+      ? Math.min(pmSlice.openEnd, opened.openEnd)
       : 0
   )
 }
@@ -79,15 +79,15 @@ export const BasicTextPaste = Extension.create({
         },
         clipboardTextParser(text, $context) {
           // view 1.42.9 clipboard.ts:56 accepts null to use its default parser;
-          // EditorProps declares only Slice. Keep that runtime fallback narrow.
-          if (!marker?.active) return null as unknown as Slice
+          // EditorProps declares only PmSlice. Keep that runtime fallback narrow.
+          if (!marker?.active) return null as unknown as PmSlice
           const schema = $context.doc.type.schema
           const lines = text.replace(/\r\n?/g, "\n").split("\n")
-          const blocks: PMNode[] = []
+          const nodes: PMNode[] = []
           let content: PMNode[] = []
           function flush() {
             if (content.length)
-              blocks.push(schema.nodes.paragraph.create(null, content))
+              nodes.push(schema.nodes.paragraph.create(null, content))
             content = []
           }
           // Empty leading/trailing lines and runs of blank lines create no nodes.
@@ -100,13 +100,13 @@ export const BasicTextPaste = Extension.create({
             content.push(schema.text(line, $context.marks()))
           }
           flush()
-          return Slice.maxOpen(Fragment.fromArray(blocks))
+          return PmSlice.maxOpen(Fragment.fromArray(nodes))
         },
-        transformPasted(slice) {
-          if (!marker?.active) return slice
+        transformPasted(pmSlice) {
+          if (!marker?.active) return pmSlice
           const { fromEditorCopy } = marker
           marker = null
-          return tidyBasicPaste(slice, { fromEditorCopy })
+          return tidyBasicPaste(pmSlice, { fromEditorCopy })
         },
       },
     })]

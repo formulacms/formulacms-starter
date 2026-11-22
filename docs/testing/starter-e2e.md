@@ -24,7 +24,7 @@ Run these static gates normally:
 pnpm typecheck
 pnpm lint
 pnpm test:run
-pnpm slices:sync --check
+pnpm blocks:sync --check
 pnpm check:tokens
 ```
 
@@ -48,7 +48,7 @@ PUBLIC_BASE_URL=http://localhost:3001 pnpm check:e2e
 
 CI runs the extraction gate against a disposable local Convex deployment:
 
-- `pnpm slices:sync --check` covers ADR-0021 manifest sync.
+- `pnpm blocks:sync --check` covers ADR-0021 manifest sync.
 - `pnpm check:public` checks the Next image configuration.
 - `STARTER_E2E_ONBOARDING=single pnpm check:e2e` runs against a
   production-local Next server and a fresh local Convex process. It completes

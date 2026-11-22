@@ -90,8 +90,8 @@ vi.mock("./page-editor/components/seo-panel", () => ({ SeoPanel: () => null }))
 vi.mock("./page-editor/components/settings-panel", () => ({
   SettingsPanel: () => null,
 }))
-vi.mock("./page-editor/components/slices-panel", () => ({
-  SlicesPanel: () => null,
+vi.mock("./page-editor/components/blocks-panel", () => ({
+  BlocksPanel: () => null,
 }))
 
 vi.mock("./contributions/history", () => ({
@@ -113,7 +113,7 @@ function page(status: Page["status"], extra: Partial<Page>): Page {
     status,
     createdAt: 100,
     updatedAt: 100,
-    content: { en: { title: "About", slices: [] } },
+    content: { en: { title: "About", blocks: [] } },
     tags: [],
     createdBy: "owner-1",
     ...extra,
@@ -300,8 +300,8 @@ describe("PageEditor shared header action semantics", () => {
         <PageEditor
           page={page(scenario.status, {
             content: {
-              en: { title: "About", slices: [] },
-              fr: { title: "À propos", slices: [] },
+              en: { title: "About", blocks: [] },
+              fr: { title: "À propos", blocks: [] },
             },
           })}
           hasStaging={scenario.staged}

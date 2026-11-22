@@ -27,7 +27,7 @@ import { translatePageContent } from "./lib/agents/translationWorkflow"
 import workpoolTest from "@convex-dev/workpool/test"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 import type { WorkId } from "@convex-dev/workpool"
-import { installedSliceDefs, type Primitive } from "./lib/slices"
+import { installedBlockDefs, type Primitive } from "./lib/blocks"
 
 const fake = vi.hoisted(() => ({
   beforeAdmission: vi.fn(),
@@ -144,7 +144,7 @@ const writeInput = (count = 2) => ({
     metaDescription: "About the service",
   },
   rows: Array.from({ length: count }, (_, index) => ({
-    sliceType: "hero-with-image",
+    blockType: "hero-with-image",
     purpose: `Section ${index + 1}`,
   })),
 })
@@ -270,10 +270,10 @@ async function source(
         title,
         metaTitle: "Meta",
         metaDescription: "Description",
-        slices: [],
+        blocks: [],
       },
       ...(opts.withFrench
-        ? { fr: { title: "Original français", slices: [] } }
+        ? { fr: { title: "Original français", blocks: [] } }
         : {}),
     },
   })
@@ -391,7 +391,7 @@ describe("AI1 U1b registered job path and spending", () => {
     expect(j.brief).toBeUndefined()
     expect(j.costMicros).toBeGreaterThan(0)
     const page = await owner.query(api.cms.pages.getForEdit, { id: j.pageId })
-    expect((page!.page.content!.en as { slices: unknown[] }).slices).toEqual([])
+    expect((page!.page.content!.en as { blocks: unknown[] }).blocks).toEqual([])
     expect(
       (await units(t, id)).every((row) => row.state === "saved" && row.output)
     ).toBe(true)
@@ -470,11 +470,11 @@ describe("AI1 U1b registered job path and spending", () => {
         jobId: id,
         unitId: c.unit._id,
         claimToken: c.claimToken,
-        output: "not a typed write slice",
+        output: "not a typed write block",
       })
     ).toBe(false)
     await admit(t, id)
-    const sample = (await import("./lib/slices/sample")).createSampleSlice(
+    const sample = (await import("./lib/blocks/sample")).createSampleBlock(
       "hero-with-image"
     )
     expect(
@@ -520,7 +520,7 @@ describe("AI1 U1b registered job path and spending", () => {
     await admit(t, id)
     await settle(t, "manual-attempt")
     await owner.mutation(api.cms.aiJobs.cancelPageJob, { jobId: id })
-    const sample = (await import("./lib/slices/sample")).createSampleSlice(
+    const sample = (await import("./lib/blocks/sample")).createSampleBlock(
       "hero-with-image"
     )
     expect(
@@ -558,7 +558,7 @@ describe("AI1 U1b recovery and counterexamples", () => {
                     title: "Source",
                     metaTitle: "",
                     metaDescription: "",
-                    slices: [],
+                    blocks: [],
                   },
                 },
               })
@@ -603,7 +603,7 @@ describe("AI1 U1b recovery and counterexamples", () => {
       const newCharge = (await settle(t, newKey))!.chargedMicros
       const output =
         kind === "write"
-          ? (await import("./lib/slices/sample")).createSampleSlice(
+          ? (await import("./lib/blocks/sample")).createSampleBlock(
               "hero-with-image"
             )
           : "Texte traduit"
@@ -748,7 +748,7 @@ describe("AI1 U1b recovery and counterexamples", () => {
           title: "Source",
           metaTitle: "Meta",
           metaDescription: "",
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -874,7 +874,7 @@ describe("AI1 U1b recovery and counterexamples", () => {
     await settle(t, "manual-attempt")
     const expiresAt = (await job(t, id))!.expiresAt
     vi.setSystemTime(expiresAt)
-    const sample = (await import("./lib/slices/sample")).createSampleSlice(
+    const sample = (await import("./lib/blocks/sample")).createSampleBlock(
       "hero-with-image"
     )
     expect(
@@ -941,7 +941,7 @@ describe("AI1 U1b recovery and counterexamples", () => {
         unitId: c.unit._id,
       })
     ).toBeNull()
-    const sample = (await import("./lib/slices/sample")).createSampleSlice(
+    const sample = (await import("./lib/blocks/sample")).createSampleBlock(
       "hero-with-image"
     )
     expect(
@@ -1056,7 +1056,7 @@ describe("AI1 U1b recovery and counterexamples", () => {
         structuredData: '{"@type":"Article"}',
         keywords: ["news"],
       },
-      content: { en: { title: "Post", slices: [] } },
+      content: { en: { title: "Post", blocks: [] } },
     })
     const id = await translate(owner, pageId)
     // The pinned source carries the per-language text; not structured data.
@@ -1099,7 +1099,7 @@ describe("AI1 U1b boundaries and six-unit window", () => {
   test("translation keeps six work items in the window and releases one slot per completion", async () => {
     const { t, owner } = await setup({ multilingual: true })
     const pageId = await source(t, owner)
-    const sample = (await import("./lib/slices/sample")).createSampleSlice(
+    const sample = (await import("./lib/blocks/sample")).createSampleBlock(
       "hero-with-image"
     )
     const description = JSON.stringify({
@@ -1120,7 +1120,7 @@ describe("AI1 U1b boundaries and six-unit window", () => {
       await ctx.db.patch("pageLocaleDrafts", draft._id, {
         content: {
           ...draft.content,
-          slices: [{ ...sample, primary: { ...sample.primary, description } }],
+          blocks: [{ ...sample, primary: { ...sample.primary, description } }],
         },
       })
     })
@@ -1609,23 +1609,23 @@ async function pageRows(t: App, pageId: Id<"pages">, locale = "en") {
       .unique(),
   }))
 }
-const draftSlices = async (t: App, pageId: Id<"pages">, locale = "en") =>
+const draftBlocks = async (t: App, pageId: Id<"pages">, locale = "en") =>
   ((
     (await pageRows(t, pageId, locale)).draft?.content as
-      { slices?: { id: string }[] } | undefined
-  )?.slices ?? []) as { id: string }[]
+      { blocks?: { id: string }[] } | undefined
+  )?.blocks ?? []) as { id: string }[]
 /** The owner saves through the real editor mutation, like a second tab would. */
 async function ownerSave(
   t: App,
   owner: Owner,
   pageId: Id<"pages">,
-  edit: { locale?: string; slices?: unknown[]; title?: string } = {}
+  edit: { locale?: string; blocks?: unknown[]; title?: string } = {}
 ) {
   const locale = edit.locale ?? "en"
   const rows = await pageRows(t, pageId, locale)
-  const { slices: current = [], ...fields } = (rows.draft?.content ?? {
+  const { blocks: current = [], ...fields } = (rows.draft?.content ?? {
     title: edit.title ?? "Titre",
-  }) as { slices?: unknown[]; [key: string]: unknown }
+  }) as { blocks?: unknown[]; [key: string]: unknown }
   return owner.mutation(api.cms.publication.saveEditorDraft, {
     pageId,
     expectedLifecycleGeneration: rows.life.lifecycleGeneration,
@@ -1636,7 +1636,7 @@ async function ownerSave(
       draft: {
         pageType: "page",
         localized: { ...fields, ...(edit.title ? { title: edit.title } : {}) },
-        slices: edit.slices ?? current,
+        blocks: edit.blocks ?? current,
       } as never,
       expectedGeneration:
         rows.states.find((state) => state.locale === locale)?.draftGeneration ??
@@ -1795,14 +1795,14 @@ describe("Write page with AI: the review view shows only readable text", () => {
       : def.kind === "list"
         ? true
         : def.kind !== "text" && def.kind !== "richText"
-  const types = Object.entries(installedSliceDefs).filter(
+  const types = Object.entries(installedBlockDefs).filter(
     ([, def]) =>
       hasNonText(def.primary) ||
       ("items" in def && def.items !== undefined && hasNonText(def.items))
   )
-  test("the guard covers every installed slice type that has a list or a non-text field", () => {
+  test("the guard covers every installed block type that has a list or a non-text field", () => {
     expect(types.map(([type]) => type).sort()).toEqual(
-      Object.keys(installedSliceDefs)
+      Object.keys(installedBlockDefs)
         .filter((type) => type !== "rich-text-body")
         .sort()
     )
@@ -1813,9 +1813,9 @@ describe("Write page with AI: the review view shows only readable text", () => {
       sentinels.text = []
       sentinels.other = []
       sentinels.words = []
-      const def = installedSliceDefs[type as keyof typeof installedSliceDefs]
-      const slice = {
-        id: `slice-${type}`,
+      const def = installedBlockDefs[type as keyof typeof installedBlockDefs]
+      const block = {
+        id: `block-${type}`,
         type,
         enabled: true,
         primary: build(def.primary, "primary"),
@@ -1827,8 +1827,8 @@ describe("Write page with AI: the review view shows only readable text", () => {
       const row = (await units(t, id))[0]!
       await t.run((ctx) =>
         ctx.db.patch("aiJobUnits", row._id, {
-          sliceType: type,
-          output: slice,
+          blockType: type,
+          output: block,
         } as never)
       )
       const result = await owner.query(api.cms.aiJobs.pageJobResult, {
@@ -1842,7 +1842,7 @@ describe("Write page with AI: the review view shows only readable text", () => {
         expect(all).not.toMatch(new RegExp(`\\b${word}\\b`))
       expect(all).not.toContain("sentinel")
       expect(all).not.toContain('"type"')
-      expect(all).not.toContain("/slice-placeholders/")
+      expect(all).not.toContain("/block-placeholders/")
     }
   )
   test("hero-agency: the buttons show their labels, not ids, variants, link kinds or image paths", async () => {
@@ -1854,12 +1854,12 @@ describe("Write page with AI: the review view shows only readable text", () => {
       link: { type: "none" },
       variant,
       withIcon: false,
-      icon: { url: "/slice-placeholders/placeholder.png", width: 1, height: 1 },
+      icon: { url: "/block-placeholders/placeholder.png", width: 1, height: 1 },
       enabled: true,
     })
     await t.run((ctx) =>
       ctx.db.patch("aiJobUnits", row._id, {
-        sliceType: "hero-agency",
+        blockType: "hero-agency",
         output: {
           id: "hero-agency-1",
           type: "hero-agency",
@@ -1909,7 +1909,7 @@ describe("Write page with AI: pageJobResult", () => {
     })
     expect(result.sections.map((s) => s.index)).toEqual([0, 1])
     expect(result.sections[0]).toMatchObject({
-      sliceType: "hero-with-image",
+      blockType: "hero-with-image",
       purpose: "Section 1",
     })
     const eyebrow = result.sections[0]!.fields.find((f) => f.text === long)
@@ -1979,7 +1979,7 @@ describe("Write page with AI: acceptPageJob", () => {
     const after = await pageRows(t, j.pageId)
     const content = after.draft!.content as Record<string, unknown>
     const beforeContent = before.content as Record<string, unknown>
-    expect((content.slices as { id: string }[]).map((s) => s.id)).toEqual(
+    expect((content.blocks as { id: string }[]).map((s) => s.id)).toEqual(
       outputs.map((o) => o.id)
     )
     expect(content.title).toBe(beforeContent.title)
@@ -2004,7 +2004,7 @@ describe("Write page with AI: acceptPageJob", () => {
         chosen: [2, 0],
       })
     ).resolves.toMatchObject({ saved: 2 })
-    expect((await draftSlices(t, j.pageId)).map((s) => s.id)).toEqual([
+    expect((await draftBlocks(t, j.pageId)).map((s) => s.id)).toEqual([
       outputs[0]!.id,
       outputs[2]!.id,
     ])
@@ -2013,12 +2013,12 @@ describe("Write page with AI: acceptPageJob", () => {
     const { t, owner, id, j } = await doneWrite(2)
     const outputs = await unitOutputs(t, id)
     const own = { ...outputs[0]!, id: "owner-written-section" }
-    await ownerSave(t, owner, j.pageId, { slices: [own] })
+    await ownerSave(t, owner, j.pageId, { blocks: [own] })
     await owner.mutation(api.cms.aiJobs.acceptPageJob, {
       jobId: id,
       chosen: [0, 1],
     })
-    expect((await draftSlices(t, j.pageId)).map((s) => s.id)).toEqual([
+    expect((await draftBlocks(t, j.pageId)).map((s) => s.id)).toEqual([
       "owner-written-section",
       outputs[0]!.id,
       outputs[1]!.id,
@@ -2042,7 +2042,7 @@ describe("Write page with AI: acceptPageJob", () => {
     await expect(
       owner.mutation(api.cms.aiJobs.acceptPageJob, { jobId: id, chosen: [0] })
     ).rejects.toThrow("AI_JOB_EXPIRED")
-    expect(await draftSlices(t, j.pageId)).toEqual([])
+    expect(await draftBlocks(t, j.pageId)).toEqual([])
   })
   test("a running or failed job is not reviewable", async () => {
     const { t, owner } = await setup()
@@ -2069,7 +2069,7 @@ describe("Write page with AI: acceptPageJob", () => {
         owner.mutation(api.cms.aiJobs.acceptPageJob, { jobId: id, chosen: [0] })
       ).rejects.toThrow("PAGE_PUBLICATION_LIFECYCLE_STALE")
       expect((await job(t, id))!.reviewedAt).toBeUndefined()
-      expect(await draftSlices(t, j.pageId)).toEqual([])
+      expect(await draftBlocks(t, j.pageId)).toEqual([])
     }
   })
   test("empty, duplicate and unknown choices are refused", async () => {
@@ -2079,14 +2079,14 @@ describe("Write page with AI: acceptPageJob", () => {
         owner.mutation(api.cms.aiJobs.acceptPageJob, { jobId: id, chosen })
       ).rejects.toThrow("AI_JOB_INPUT_INVALID")
     expect((await job(t, id))!.reviewedAt).toBeUndefined()
-    expect(await draftSlices(t, j.pageId)).toEqual([])
+    expect(await draftBlocks(t, j.pageId)).toEqual([])
   })
-  test("an archived slice type refuses through the save; nothing is written and the job stays reviewable", async () => {
+  test("an archived block type refuses through the save; nothing is written and the job stays reviewable", async () => {
     const { t, owner, id, j } = await doneWrite(1)
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").first())!
       await ctx.db.patch("siteSettings", settings._id, {
-        archivedSliceTypes: ["hero-with-image"],
+        archivedBlockTypes: ["hero-with-image"],
       })
     })
     const before = await pageRows(t, j.pageId)
@@ -2104,7 +2104,7 @@ describe("Write page with AI: acceptPageJob", () => {
       (state) => state.locale === "fr"
     )
     const loaded = await owner.query(api.cms.pages.getForEdit, { id: j.pageId })
-    expect((loaded!.page.content!.en as { slices: unknown[] }).slices).toEqual(
+    expect((loaded!.page.content!.en as { blocks: unknown[] }).blocks).toEqual(
       []
     )
     await owner.mutation(api.cms.aiJobs.acceptPageJob, {
@@ -2119,7 +2119,7 @@ describe("Write page with AI: acceptPageJob", () => {
       id: j.pageId,
     })
     expect(
-      (reloaded!.page.content!.en as { slices: unknown[] }).slices
+      (reloaded!.page.content!.en as { blocks: unknown[] }).blocks
     ).toHaveLength(2)
     // The editor can save what it loaded: the accepted draft validates.
     await ownerSave(t, owner, j.pageId, { title: "Edited after accept" })
@@ -2185,7 +2185,7 @@ describe("Write page with AI: accept works whether or not the working draft row 
     const { t, owner, id, j } = await doneWrite(2)
     const outputs = await unitOutputs(t, id)
     const own = { ...outputs[0]!, id: "owner-written-section" }
-    await ownerSave(t, owner, j.pageId, { slices: [own], title: "Owner title" })
+    await ownerSave(t, owner, j.pageId, { blocks: [own], title: "Owner title" })
     const pre = (await pageRows(t, j.pageId)).draft!
     await between({ t, owner, pageId: j.pageId })
     const hasRow = (await pageRows(t, j.pageId)).draft !== null
@@ -2200,13 +2200,13 @@ describe("Write page with AI: accept works whether or not the working draft row 
     const after = await pageRows(t, j.pageId)
     const content = after.draft!.content as Record<string, unknown>
     const preContent = pre.content as Record<string, unknown>
-    expect((content.slices as { id: string }[]).map((s) => s.id)).toEqual([
+    expect((content.blocks as { id: string }[]).map((s) => s.id)).toEqual([
       "owner-written-section",
       outputs[0]!.id,
       outputs[1]!.id,
     ])
-    expect((content.slices as unknown[])[0]).toEqual(
-      (preContent.slices as unknown[])[0]
+    expect((content.blocks as unknown[])[0]).toEqual(
+      (preContent.blocks as unknown[])[0]
     )
     expect(content.title).toBe("Owner title")
     expect(content.metaTitle).toBe(preContent.metaTitle)
@@ -2338,7 +2338,7 @@ describe("Write page with AI: the Dismiss preview equals what Dismiss does", () 
           slug: "child",
           title: "Child",
           parentId: c.pageId,
-          content: { en: { title: "Child", slices: [] } },
+          content: { en: { title: "Child", blocks: [] } },
         })
       },
       true,
@@ -2652,7 +2652,7 @@ describe("Write page with AI: async orders", () => {
     vi.setSystemTime(j.expiresAt)
     await t.mutation(internal.cms.aiJobs.expireJob, { jobId: id })
     expect((await job(t, id))!.state).toBe("expired")
-    expect((await draftSlices(t, j.pageId)).length).toBe(1)
+    expect((await draftBlocks(t, j.pageId)).length).toBe(1)
     expect((await job(t, id))!.reviewedAt).toBeDefined()
     expect((await status(t)).reservedMicros).toBe(0)
 
@@ -2665,7 +2665,7 @@ describe("Write page with AI: async orders", () => {
         chosen: [0],
       })
     ).rejects.toThrow("AI_JOB_EXPIRED")
-    expect(await draftSlices(late.t, late.j.pageId)).toEqual([])
+    expect(await draftBlocks(late.t, late.j.pageId)).toEqual([])
     expect((await status(late.t)).reservedMicros).toBe(0)
   })
 })
@@ -2682,7 +2682,7 @@ const startTranslation = (owner: Owner, pageId: Id<"pages">, target = "fr") =>
   })
 /** Puts a hero section with `paragraphs` rich-text paragraphs on the English draft. */
 async function giveSource(t: App, pageId: Id<"pages">, paragraphs = 1) {
-  const sample = (await import("./lib/slices/sample")).createSampleSlice(
+  const sample = (await import("./lib/blocks/sample")).createSampleBlock(
     "hero-with-image"
   )
   const description = JSON.stringify({
@@ -2703,7 +2703,7 @@ async function giveSource(t: App, pageId: Id<"pages">, paragraphs = 1) {
     await ctx.db.patch("pageLocaleDrafts", draft._id, {
       content: {
         ...draft.content,
-        slices: [{ ...sample, primary: { ...sample.primary, description } }],
+        blocks: [{ ...sample, primary: { ...sample.primary, description } }],
       },
     })
   })
@@ -2721,14 +2721,14 @@ async function doneTranslation(paragraphs = 1) {
 const chooseInSuggestion = (t: App, id: Id<"aiJobs">, choice: string) =>
   t.run(async (ctx) => {
     const j = (await ctx.db.get("aiJobs", id))!
-    const mark = (slices: object[]) =>
-      slices.map((slice) => ({ ...slice, presentationIdV1: choice }))
-    const draft = j.suggestion!.draft as { slices: object[] }
+    const mark = (blocks: object[]) =>
+      blocks.map((block) => ({ ...block, presentationIdV1: choice }))
+    const draft = j.suggestion!.draft as { blocks: object[] }
     await ctx.db.patch("aiJobs", id, {
       suggestion: {
         ...j.suggestion!,
-        slices: mark(j.suggestion!.slices),
-        draft: { ...draft, slices: mark(draft.slices) },
+        blocks: mark(j.suggestion!.blocks),
+        draft: { ...draft, blocks: mark(draft.blocks) },
       },
     } as never)
   })
@@ -2826,7 +2826,7 @@ describe("Translate page with AI: Start", () => {
       status: "draft",
       title: "Seulement",
       slug: "seulement",
-      content: { fr: { title: "Seulement", slices: [] } },
+      content: { fr: { title: "Seulement", blocks: [] } },
     })
     await expect(startTranslation(owner, frenchOnly)).rejects.toThrow(
       "AI_JOB_SOURCE_UNAVAILABLE"
@@ -2870,7 +2870,7 @@ describe("Translate page with AI: pageJobResult", () => {
     expect(result.sections).toHaveLength(1)
     expect(result.sections![0]).toMatchObject({
       index: 0,
-      sliceType: "hero-with-image",
+      blockType: "hero-with-image",
     })
     const text = result.sections![0]!.fields.map((f) => f.text).join("\n")
     expect(text).toContain("Traduit")
@@ -2909,7 +2909,7 @@ describe("Translate page with AI: acceptPageJob", () => {
     const { t, owner, pageId, id } = await doneTranslation(2)
     const before = await pageRows(t, pageId, "en")
     expect(before.states.map((s) => s.locale)).toEqual(["en"])
-    const sourceSlices = await draftSlices(t, pageId, "en")
+    const sourceBlocks = await draftBlocks(t, pageId, "en")
     const result = await owner.mutation(api.cms.aiJobs.acceptPageJob, {
       jobId: id,
       chosen: [],
@@ -2927,10 +2927,10 @@ describe("Translate page with AI: acceptPageJob", () => {
       slug: "traduit",
       content: { title: "Traduit", metaTitle: "Traduit" },
     })
-    const frSlices = await draftSlices(t, pageId, "fr")
-    expect(frSlices).toHaveLength(1)
+    const frBlocks = await draftBlocks(t, pageId, "fr")
+    expect(frBlocks).toHaveLength(1)
     // The section has its own id in the new language.
-    expect(frSlices[0]!.id).not.toBe(sourceSlices[0]!.id)
+    expect(frBlocks[0]!.id).not.toBe(sourceBlocks[0]!.id)
     // English is exactly as it was.
     const after = await pageRows(t, pageId, "en")
     expect(after.draft).toEqual(before.draft)
@@ -2972,12 +2972,12 @@ describe("Translate page with AI: acceptPageJob", () => {
               q.eq("pageId", pageId).eq("locale", "en")
             )
             .unique())!
-          const content = draft.content as { slices: object[] }
+          const content = draft.content as { blocks: object[] }
           await ctx.db.patch("pageLocaleDrafts", draft._id, {
             content: {
               ...content,
-              slices: content.slices.map((slice) => ({
-                ...slice,
+              blocks: content.blocks.map((block) => ({
+                ...block,
                 presentationIdV1: choice,
               })),
             },
@@ -2986,18 +2986,18 @@ describe("Translate page with AI: acceptPageJob", () => {
       // The job pinned its suggestion at Start, so give it the choice too.
       if (choice !== undefined) await chooseInSuggestion(t, id, choice)
       const sourceBefore = (await pageRows(t, pageId, "en")).draft
-      const sourceSlice = (await draftSlices(t, pageId, "en"))[0]!
+      const sourceBlock = (await draftBlocks(t, pageId, "en"))[0]!
       const result = await owner.mutation(api.cms.aiJobs.acceptPageJob, {
         jobId: id,
         chosen: [],
       })
       expect(result).toMatchObject({ pageId, saved: 1, draftGeneration: 1 })
-      const [saved] = (await draftSlices(t, pageId, "fr")) as {
+      const [saved] = (await draftBlocks(t, pageId, "fr")) as {
         id: string
         presentationIdV1?: string
       }[]
       expect(saved!.presentationIdV1).toBe(choice)
-      expect(saved!.id).not.toBe(sourceSlice.id)
+      expect(saved!.id).not.toBe(sourceBlock.id)
       expect((await pageRows(t, pageId, "en")).draft).toEqual(sourceBefore)
     }
   )
@@ -3007,7 +3007,7 @@ describe("Translate page with AI: acceptPageJob", () => {
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").first())!
       await ctx.db.patch("siteSettings", settings._id, {
-        archivedSlicePresentationsV1: [
+        archivedBlockPresentationsV1: [
           { type: "hero-with-image", presentationId: "centered" },
         ],
       })
@@ -3091,7 +3091,7 @@ describe("Translate page with AI: Accept builds only from the draft pinned at St
         en: {
           title: "Ada",
           ...(roleTitle === "empty" ? { roleTitle: "" } : {}),
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -3116,7 +3116,7 @@ describe("Translate page with AI: Accept builds only from the draft pinned at St
         draft: {
           pageType: "author",
           localized: { title: "Ada", roleTitle: "Product designer" },
-          slices: [],
+          blocks: [],
         } as never,
         expectedGeneration: rows.states[0]!.draftGeneration,
       },
@@ -3167,7 +3167,7 @@ describe("Translate page with AI: Accept builds only from the draft pinned at St
       expect(content).toEqual({
         title: "Traduit",
         ...(atStart !== undefined ? { roleTitle: atStart } : {}),
-        slices: [],
+        blocks: [],
       })
       expect(content.roleTitle).not.toBe("Product designer")
     }
@@ -3202,11 +3202,11 @@ describe("Translate page with AI: Accept builds only from the draft pinned at St
           { label: "Two", url: "/two", nested: { note: "n2" } },
         ],
       },
-      slices: [],
+      blocks: [],
     } as never
     const result = translatedDraft(pinned, {
       title: "Bonjour",
-      slices: [],
+      blocks: [],
       translatables: [
         { path: "items[0].label", kind: "text", value: "Un" },
         { path: "items[1].nested.note", kind: "text", value: "n2-fr" },
@@ -3223,17 +3223,17 @@ describe("Translate page with AI: Accept builds only from the draft pinned at St
           { label: "Two", url: "/two", nested: { note: "n2-fr" } },
         ],
       },
-      slices: [],
+      blocks: [],
     })
     expect(Object.hasOwn(result.localized, "metaTitle")).toBe(false)
-    // A content type with no slice body stays without a slices key.
+    // A content type with no block body stays without a blocks key.
     expect(
       Object.hasOwn(
         translatedDraft(
           { pageType: "testimonial", localized: { title: "T" } } as never,
-          { title: "T2", slices: [], translatables: [] }
+          { title: "T2", blocks: [], translatables: [] }
         ),
-        "slices"
+        "blocks"
       )
     ).toBe(false)
   })
@@ -3325,7 +3325,7 @@ describe("Translate page with AI: identifiers are not translated, claims stay ch
     fake.text = "Traduit"
     const { t, owner } = await setup({ multilingual: true })
     const pageId = await source(t, owner)
-    const sample = (await import("./lib/slices/sample")).createSampleSlice(
+    const sample = (await import("./lib/blocks/sample")).createSampleBlock(
       "features-icon-grid"
     ) as unknown as { items: { icon?: string }[] }
     await t.run(async (ctx) => {
@@ -3340,7 +3340,7 @@ describe("Translate page with AI: identifiers are not translated, claims stay ch
       await ctx.db.patch("pageLocaleDrafts", draft._id, {
         content: {
           ...draft.content,
-          slices: [
+          blocks: [
             {
               ...sample,
               items: sample.items
@@ -3358,13 +3358,13 @@ describe("Translate page with AI: identifiers are not translated, claims stay ch
     ).toEqual([])
     await finish(t, id)
     const draft = (await job(t, id))!.suggestion!.draft as {
-      slices: { items: { icon?: string; title: string }[] }[]
+      blocks: { items: { icon?: string; title: string }[] }[]
     }
-    expect(draft.slices[0]!.items.map((item) => item.icon)).toEqual([
+    expect(draft.blocks[0]!.items.map((item) => item.icon)).toEqual([
       "Zap",
       "Compass",
     ])
-    expect(draft.slices[0]!.items[0]!.title).toContain("Traduit")
+    expect(draft.blocks[0]!.items[0]!.title).toContain("Traduit")
     const result = await owner.query(api.cms.aiJobs.pageJobResult, {
       jobId: id,
     })
@@ -3374,9 +3374,9 @@ describe("Translate page with AI: identifiers are not translated, claims stay ch
   })
   test("an icon is still editorial text, so the Write page writer fills and validates it", async () => {
     const { isEditorialTextPrimitive, isTranslatableTextPrimitive } =
-      await import("./lib/slices/primitives")
-    const { readSliceDefinition } = await import("./lib/slices")
-    const items = readSliceDefinition("features-icon-grid")!.items!
+      await import("./lib/blocks/primitives")
+    const { readBlockDefinition } = await import("./lib/blocks")
+    const items = readBlockDefinition("features-icon-grid")!.items!
     const item = items.config.item as { config: { fields: Record<string, Primitive> } }
     const icon = item.config.fields.icon!
     expect(isEditorialTextPrimitive(icon)).toBe(true)
@@ -3444,7 +3444,7 @@ async function saveLanguageValues(
   t: App,
   owner: Owner,
   pageId: Id<"pages">,
-  slices: unknown[]
+  blocks: unknown[]
 ) {
   const rows = await pageRows(t, pageId)
   const content = rows.draft!.content as Record<string, unknown>
@@ -3463,7 +3463,7 @@ async function saveLanguageValues(
       draft: {
         pageType: "page",
         localized,
-        slices,
+        blocks,
         seo: {
           ogTitle: "Saved social title",
           noIndex: true,
@@ -3502,7 +3502,7 @@ describe("Write page with AI: Accept keeps the saved per-language fields", () =>
       unknown
     >
     // The sections are appended and the saved metadata is still there.
-    expect((content.slices as { id: string }[]).map((s) => s.id)).toEqual([
+    expect((content.blocks as { id: string }[]).map((s) => s.id)).toEqual([
       "owner-written-section",
       outputs[0]!.id,
       outputs[1]!.id,
@@ -3540,7 +3540,7 @@ describe("Translate page with AI: Accept persists the per-language fields", () =
         keywords: ["news"],
         focusKeyword: "news",
       },
-      content: { en: { title: "Post", slices: [] } },
+      content: { en: { title: "Post", blocks: [] } },
     })
     const id = await translate(owner, pageId)
     await finish(t, id)

@@ -29,7 +29,7 @@ const writeInput = (count = 2) => ({
   locale: "en" as const,
   meta: { title: "A service", slug: "service" },
   rows: Array.from({ length: count }, (_, index) => ({
-    sliceType: "hero-with-image",
+    blockType: "hero-with-image",
     purpose: `Section ${index + 1}`,
   })),
 })
@@ -98,7 +98,7 @@ async function source(owner: Owner) {
         title: "Source",
         metaTitle: "Meta",
         metaDescription: "Description",
-        slices: [],
+        blocks: [],
       },
     },
   })
@@ -287,7 +287,7 @@ describe("the local tool marker", () => {
     const set = (assistant: "writing" | "translation", on: boolean) =>
       owner.mutation(api.cms.aiSettings.setAssistantLocalTool, { assistant, on })
     const field = {
-      sliceType: "hero-with-image",
+      blockType: "hero-with-image",
       fieldLabel: "Title",
       locale: "en",
       brief: "Describe our service",
@@ -396,7 +396,7 @@ describe("the runner", () => {
     const first = await claimed(t, id, secret)
     expect(first).toMatchObject({
       jobKind: "write",
-      sliceType: "hero-with-image",
+      blockType: "hero-with-image",
       localRoute: ROUTE,
     })
     expect(first.prompt).toContain("Explain the service")
@@ -410,7 +410,7 @@ describe("the runner", () => {
     expect(second.instructions).toContain("A clear headline")
   })
 
-  test("saved text is assembled into the slice; all saved finishes the job", async () => {
+  test("saved text is assembled into the block; all saved finishes the job", async () => {
     const { t, owner } = await setup()
     const { id, secret } = await startLocal(owner, { count: 2 })
     for (let i = 0; i < 2; i++)
@@ -455,12 +455,12 @@ describe("the runner", () => {
 
   test("text that cannot be saved fails the unit and the job", async () => {
     const { t, owner } = await setup()
-    // Empty text, over-limit text, and a slice type that does not assemble.
+    // Empty text, over-limit text, and a block type that does not assemble.
     for (const bad of ["", "   \n", "x".repeat(200_001), "unknown"]) {
       const { id, secret } = await startLocal(owner, { count: 2 })
       const c = await claimed(t, id, secret)
       if (bad === "unknown")
-        await t.run((ctx) => ctx.db.patch("aiJobUnits", c.unitId, { sliceType: "no-such-slice" }))
+        await t.run((ctx) => ctx.db.patch("aiJobUnits", c.unitId, { blockType: "no-such-block" }))
       expect(await save(t, id, secret, c, bad === "unknown" ? GOOD_TEXT : bad)).toEqual({
         kind: "unit-failed",
       })
@@ -599,6 +599,29 @@ describe("the runner", () => {
 })
 
 describe("the lease", () => {
+  test.each([false, true])(
+    "an expired job finishes its scheduled check when the lease is live=%s",
+    async (leaseStillLive) => {
+      const { t, owner } = await setup()
+      const { id } = await startLocal(owner)
+      const lease = (await job(t, id))!.runner!
+      await t.run(async (ctx) => {
+        await ctx.db.patch("aiJobs", id, {
+          expiresAt: lease.leaseExpiresAt - 1_000,
+          runner: {
+            ...lease,
+            leaseExpiresAt: lease.leaseExpiresAt + (leaseStillLive ? 5_000 : 0),
+          },
+        })
+      })
+      vi.advanceTimersByTime(lease.leaseExpiresAt - Date.now() + 1)
+      await t.finishInProgressScheduledFunctions()
+      expect((await job(t, id))!).toMatchObject({ state: "expired" })
+      expect((await job(t, id))!.runner).toBeUndefined()
+      expect((await scheduled(t)).find((s) => s._id === lease.checkId)!.state.kind).toBe("success")
+    }
+  )
+
   test("a silent runner: units wait again, the job fails with the local-app-stopped detail", async () => {
     const { t, owner } = await setup()
     const { id, secret } = await startLocal(owner)

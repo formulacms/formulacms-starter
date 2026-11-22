@@ -51,7 +51,7 @@ test.each([
   const generate: FieldGenerate = {
     run: vi.fn(),
     runRefine: run,
-    runSlice: vi.fn(),
+    runBlock: vi.fn(),
   }
   render(
     <ConfirmProvider>
@@ -507,7 +507,7 @@ test.each([
 
 // A8 (owner 2026-11-04, "dark text on dark background"): the editing surface
 // uses the same typography colours as the other rich-text views
-// (components/slices/rich-text-content.tsx, page-live-preview-canvas.tsx), so
+// (components/blocks/rich-text-content.tsx, page-live-preview-canvas.tsx), so
 // dark mode inverts the prose palette instead of drawing grey-700 text.
 test.each(["inline", "basic", "full"] as const)(
   "%s editing surface follows the dark theme",

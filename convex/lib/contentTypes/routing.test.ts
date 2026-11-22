@@ -5,6 +5,7 @@ import {
   buildLocaleRelativePath,
   isRoutableContentType,
   pathPrefixForContentType,
+  reservedFirstSegments,
   resolveContentTypeByPath,
   routableContentTypes,
   seoTypesForContentType,
@@ -33,7 +34,7 @@ function stubDescriptor(overrides: {
     routing: overrides.routing,
     seo: overrides.seo,
     capabilities: {
-      sliceBody: false,
+      blockBody: false,
       revisions: false,
       scheduling: false,
       presence: false,
@@ -226,5 +227,25 @@ describe("withSlugFallback", () => {
     expect(withSlugFallback("Иван", "")).toBe("page-114d4170")
     expect(withSlugFallback("", "")).toBe("")
     expect(withSlugFallback("   ", "")).toBe("")
+  })
+})
+
+describe("reservedFirstSegments", () => {
+  test("today's registry reserves the app routes plus the authors and jobs prefixes", () => {
+    expect([...reservedFirstSegments()].sort()).toEqual(
+      ["admin", "api", "authors", "jobs", "setup", "sign-in"].sort()
+    )
+  })
+
+  test("a registered routable type reserves its prefix with no other edit", () => {
+    const reserved = reservedFirstSegments({
+      page: stubDescriptor({ type: "page", routing: { pathPrefix: "" } }),
+      faq: stubDescriptor({ type: "faq", routing: { pathPrefix: "faq" } }),
+      note: stubDescriptor({ type: "note" }),
+    })
+    expect(reserved).toContain("faq")
+    expect(reserved).toContain("admin")
+    expect(reserved).not.toContain("")
+    expect(reserved).not.toContain("note")
   })
 })

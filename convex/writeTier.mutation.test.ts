@@ -1,6 +1,6 @@
-import { createSampleSlice } from "@/convex/lib/slices/sample"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
 /// <reference types="vite/client" />
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, test } from "vitest"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import { api } from "./_generated/api"
@@ -16,7 +16,7 @@ const OWNER = {
 }
 
 describe("raw rich-text write guard", () => {
-  test("updateDraft rejects a full-only block in a basic body and leaves stored page and staging unchanged", sliceProfile(["hero-agency"]), async () => {
+  test("updateDraft rejects a full-only block in a basic body and leaves stored page and staging unchanged", blockProfile(["hero-agency"]), async () => {
     const t = convexTest({ schema, modules, ownerIdentity: OWNER })
     const actor = t.withIdentity(OWNER)
     const pageId = await actor.mutation(api.cms.pages.create, {
@@ -28,7 +28,7 @@ describe("raw rich-text write guard", () => {
       pageId,
       force: true,
     })
-    const sample = createSampleSlice("hero-agency")
+    const sample = createSampleBlock("hero-agency")
     if (sample.type !== "hero-agency") throw new Error("Expected Hero Agency")
     await actor.mutation(api.cms.pages.updateDraft, {
       pageId,
@@ -36,7 +36,7 @@ describe("raw rich-text write guard", () => {
         en: {
           pageType: "landing-page",
           localized: { title: "Write tier regression" },
-          slices: [sample],
+          blocks: [sample],
         },
       },
     })
@@ -74,7 +74,7 @@ describe("raw rich-text write guard", () => {
           en: {
             pageType: "landing-page",
             localized: { title: "Write tier regression" },
-            slices: [changed],
+            blocks: [changed],
           },
         },
       })

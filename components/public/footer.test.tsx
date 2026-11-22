@@ -12,7 +12,7 @@ vi.mock("next/link", () => ({
   ),
 }))
 
-test("renders canonical panel and footer blocks in footer navigation", () => {
+test("renders canonical panel and footer sections in footer navigation", () => {
   render(
     <Footer
       footerMenu={{
@@ -23,7 +23,7 @@ test("renders canonical panel and footer blocks in footer navigation", () => {
             target: { type: "internal", url: "/company" },
             panel: {
               columns: 3,
-              blocks: [
+              sections: [
                 {
                   id: "about-links",
                   kind: "linkGroup",
@@ -57,7 +57,7 @@ test("renders canonical panel and footer blocks in footer navigation", () => {
                 },
               ],
               footer: {
-                blocks: [
+                sections: [
                   {
                     id: "legal",
                     kind: "linkGroup",
@@ -150,8 +150,8 @@ for (const withLink of [true, false]) {
                 : undefined,
               panel: {
                 columns: 1,
-                blocks: [empty],
-                footer: { blocks: [{ ...empty, id: "bottom" }] },
+                sections: [empty],
+                footer: { sections: [{ ...empty, id: "bottom" }] },
               },
             },
           ],
@@ -194,7 +194,7 @@ test.each(
             layout: "columns",
             columns: Array.from({ length: count }, (_, index) => ({
               id: `column-${index}`,
-              blocks: [{
+              sections: [{
                 id: `feature-${index}`,
                 kind: "featured" as const,
                 heading: `Card heading ${index}`,

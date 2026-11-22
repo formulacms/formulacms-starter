@@ -11,8 +11,8 @@ but the rule remains an error globally so any new occurrence fails CI.
 
 - `components/admin/ai-settings-workbench.tsx:339`
 - `components/admin/author-member-panel.tsx:34`
-- `components/admin/slices/slice-card-actions.tsx:61,77`
-- `components/admin/slices/slice-lifecycle-panel.tsx:123,145,177`
+- `components/admin/blocks/block-card-actions.tsx:61,77`
+- `components/admin/blocks/block-lifecycle-panel.tsx:123,145,177`
 
 Re-evaluate this baseline when React Compiler gains `try`/`finally` lowering or
 when any affected handler is refactored.
@@ -31,7 +31,7 @@ when any affected handler is refactored.
 
 ## nextjs-no-img-element — pixel-accurate editor surfaces
 
-- **Files:** `app/(sim)/slice-sim/[type]/slice-workbench.tsx`, `components/admin/media-image-editor.tsx`, `components/admin/slices/fidelity-compare.tsx`
+- **Files:** `app/(sim)/block-sim/[type]/block-workbench.tsx`, `components/admin/media-image-editor.tsx`, `components/admin/blocks/fidelity-compare.tsx`
 - **Rule:** `react-doctor/nextjs-no-img-element`
 - **Why this is a false positive:** These are authenticated/dev authoring tools, not public content images. The snapshot comparison panes need native image sizing for fit/actual/zoom modes, and `ReactCrop` expects a real image element as its child so crop coordinates match the displayed media. Replacing these with `next/image` would change editor measurement behavior rather than improving visitor performance.
 

@@ -18,22 +18,25 @@ The canonical `formulacms` source may generate a starter into a fresh, empty
 output directory through its documented release generator. That one-time
 generation write never modifies a populated starter.
 
-After generation, every directory identified as a starter—an official generated
-release checkout, a temporary generated artifact, or a starter repository—is a
-**read-only blueprint**. Do not install dependencies, create or change
-environment files, run development, build, Convex, seed, browser-verification,
-Git, or deployment commands, or otherwise write into a starter directory.
+After generation, the official starter repository, its release tags, an
+official release checkout and a temporary generated artifact are each a
+**read-only blueprint**. Never change them. Do not install dependencies, create
+or change environment files, run development, build, Convex, seed,
+browser-verification, Git, or deployment commands in them, or otherwise write
+into them.
 
-This read-only rule applies only to an unmodified release checkout used as a
-blueprint. In an application the owner created from the starter, such as their
-own clone, agents may edit files, commit and run Git commands.
+Your own clone of the starter is your site, not a blueprint. The README
+Quickstart creates it. In your clone, your agent may edit files, install
+dependencies, run `pnpm dev`, builds and checks against its development
+backend, commit and run Git commands.
 
 To upgrade this site to a newer formulacms release, fetch the release tag and follow its upgrade file for your version, if the release declares one, for example `git show <new-tag>:upgrades/<your-tag>-to-<new-tag>.md`. A release that declares no upgrade from your version supports fresh installs only: stop and tell the site owner. Read the upgrade file before any `git pull` or merge of a release. The file lists the steps and when to stop and ask the site owner.
 
-To operate or customize a site, the owner must explicitly name a separate,
-non-starter application directory and authorize cloning the pure blueprint into
-it. Only that separately named customer application may be changed. Never
-reclassify or repurpose a starter in place.
+Deployment and hosted services still need the owner's explicit decision.
+Never deploy the site, connect it to a hosting project, a production Convex
+deployment or a domain, or read or write production data until the owner names
+each target for the current task. Never push your site's changes to the
+official starter repository.
 
 This policy distinguishes two contexts:
 
@@ -41,9 +44,9 @@ This policy distinguishes two contexts:
   Fixes intended for all formulacms users belong in the private canonical
   formulacms repository; regenerate the official release after that work is
   reviewed and shipped there.
-- **Customer-owned application:** its owner controls the separately created
-  application and may evolve it. A formulacms regeneration does **not**
-  overwrite that application. If the owner later wants upstream changes, they
+- **Customer-owned application:** its owner controls the application, such as
+  their own clone of the starter, and may evolve it. A formulacms regeneration
+  does **not** overwrite that application. If the owner later wants upstream changes, they
   adopt them through a reviewed merge, not an automatic replacement.
 
 For ordinary site work in a customer-owned application, supported customization
@@ -51,7 +54,7 @@ includes:
 
 - site routes and public presentation;
 - design tokens and branding;
-- typed Slice Types and their renderers;
+- typed Block Types and their renderers;
 - legitimate site-specific content types and fields;
 - integrations and site-specific business behavior; and
 - the tests, migrations, and supporting documentation for those changes.
@@ -96,7 +99,17 @@ Keep changes practical for someone building their own site from the starter.
 `pnpm dev`, next-devtools-mcp starts automatically and connects to the running
 Next.js instance.
 
-## Generated module files
+## Generated files
+
+There are two kinds of generated file. Each kind has its own owner and its own
+repair. `pnpm check:factories` checks both kinds and writes nothing.
+`pnpm build` runs it first, and `pnpm check:preflight` runs the same checks.
+Never edit a generated file by hand, and never delete or skip the check.
+
+The build checks only that the generated files match the manifests. It does not check a content type's fields and labels.
+`pnpm content-type:verify -- <type>` checks a type's fields and labels. Run it after any hand edit of `convex/lib/contentTypes/content-types.manifest.json`.
+
+### Files that the release owns
 
 The formulacms release owns the module list in
 `lib/modules/catalog.generated.ts`. Module authoring is not yet available.
@@ -105,16 +118,33 @@ The formulacms release owns the module list in
   content types and Convex functions.
 - Never edit a `*.generated.*` file.
 - Never add a module id to the module catalog.
-- When `pnpm build` or `pnpm check:preflight` reports a changed generated
-  file, restore each listed file from the release tag:
-  `git checkout <release-tag> -- <listed file>`. Never delete or skip the
-  check.
+- When the check reports a changed release-owned file, restore each listed
+  file from the release tag: `git checkout <release-tag> -- <listed file>`.
+
+### Files that the site owns
+
+The block and content-type registration files belong to your site. They are
+generated from `lib/blocks/blocks.manifest.json` and
+`convex/lib/contentTypes/content-types.manifest.json`, and they list your
+site's own block types and content types.
+
+- When the check reports a stale block registration file, run
+  `pnpm blocks:sync`.
+- When the check reports a stale content-type registration file, run
+  `pnpm content-types:sync`.
+- After either sync, run `pnpm check:factories`, then `pnpm typecheck`.
+  A manifest can name a renderer that does not exist, and only the type check finds it.
+- `pnpm content-type:new -- --spec <file>` creates a content type; when the
+  check reports an interrupted creation, run `pnpm content-type:new -- --recover`.
+- Review the changes, then commit them.
+- Never restore these files from a release tag. That would remove your site's
+  own block types and content types.
 
 ## Docs
 
 - Use `README.md` as the user-facing setup guide.
 - Use `.agents/skills/formulacms/SKILL.md` for formulacms work and read its
-  `AUTHORING.md` before creating or changing a content type or Slice Type.
+  `AUTHORING.md` before creating or changing a content type or Block Type.
 - Do not add maintainer planning docs, private project history, or commercial
   strategy. Keep only technical ADRs that explain shipped behavior.
 - Keep docs focused on clone, environment setup, local development, deployment,
@@ -136,11 +166,11 @@ skills or MCP. Higher-priority system and developer instructions still apply.
 
 ## formulacms vocabulary guard
 
-`formulacms` is not a Prismic project. The word "slice" in this repository means a
+`formulacms` is not a Prismic project. The word "block" in this repository means a
 code-first formulacms typed content block backed by Convex validators and rendered
 by local React components. Do not use Prismic, Slice Machine, `@prismicio/*`,
-custom type JSON, or Prismic documentation when working on formulacms slices,
-slice-sim, slice authoring, or slice renderers.
+custom type JSON, or Prismic documentation when working on formulacms blocks,
+block-sim, block authoring, or block renderers.
 
 ## Environment
 
@@ -180,10 +210,32 @@ Run the smallest relevant checks for the change. For broad changes, run:
 pnpm typecheck
 pnpm lint
 pnpm test:run
-pnpm slices:sync --check
+pnpm blocks:sync --check
+pnpm check:blocks:coverage
 pnpm check:tokens
 pnpm check:public:images
 ```
+
+`pnpm check:blocks:coverage` checks that every text, rich text and image field
+of a registered block carries its page-editor click marker. `pnpm build` runs it
+after `pnpm check:factories`. When it fails, bind the named field with `<Text>`,
+`<RichText>` or `<KitImage>` from `@/components/block-kit`. Never delete or skip
+the check, and never add a whole-block exclusion for a site block.
+
+`pnpm check:blocks:render` opens every registered block in the block simulator
+in a real browser. It checks that one click puts the caret on the clicked
+letter, a double click selects the word and a triple click selects the
+paragraph, and that the field does not move or scroll. It also fails on
+accessibility (axe) errors, images without alt text, a missing focus style,
+sideways overflow and browser console errors. GitHub CI runs it on
+every pull request. To run it locally, start `pnpm dev`, then run
+`pnpm check:blocks:render` in a second terminal.
+
+That marker also gives in-place editing in the page preview. Bind a one-line
+`text()` field (an eyebrow, a label) with `<Text>`, never as `{primary.field}`,
+and keep icons and arrows outside the `<Text>` host: the owner then clicks the
+text and types, as in a title. Rows of a primary list, such as the block's own
+`<Buttons>` labels, are edited in the form.
 
 Browser checks need a live Convex process:
 

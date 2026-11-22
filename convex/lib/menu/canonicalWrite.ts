@@ -2,9 +2,9 @@ import { ConvexError } from "convex/values"
 import {
   isColumnPanel,
   menuConversionBaseline,
-  panelBlocks,
-  mapPanelBlocks,
-  type Block,
+  panelSections,
+  mapPanelSections,
+  type PanelSection,
   type L10n,
   type NavItem,
 } from "../menu"
@@ -37,7 +37,9 @@ function sharedShape(nav: readonly NavItem[]): unknown {
 }
 
 function sharedPanel(panel: NonNullable<NavItem["panel"]>) {
-  const mapped = mapPanelBlocks(panel, (blocks) => blocks.map(sharedBlock))
+  const mapped = mapPanelSections(panel, (sections) =>
+    sections.map(sharedSection)
+  )
   if (!isColumnPanel(mapped)) return mapped
   const { title: _title, description: _description, ...shape } = mapped
   void _title
@@ -45,13 +47,13 @@ function sharedPanel(panel: NonNullable<NavItem["panel"]>) {
   return shape
 }
 
-function sharedBlock(block: Block) {
-  if (block.kind === "linkGroup") {
+function sharedSection(section: PanelSection) {
+  if (section.kind === "linkGroup") {
     return {
-      id: block.id,
-      kind: block.kind,
-      span: block.span,
-      links: block.links.map((link) => ({
+      id: section.id,
+      kind: section.kind,
+      span: section.span,
+      links: section.links.map((link) => ({
         id: link.id,
         icon: link.icon,
         target: link.target,
@@ -59,27 +61,27 @@ function sharedBlock(block: Block) {
       })),
     }
   }
-  if (block.kind === "dynamicList") {
+  if (section.kind === "dynamicList") {
     return {
-      id: block.id,
-      kind: block.kind,
-      span: block.span,
-      source: block.source,
-      seeAll: block.seeAll ? { target: block.seeAll.target } : undefined,
+      id: section.id,
+      kind: section.kind,
+      span: section.span,
+      source: section.source,
+      seeAll: section.seeAll ? { target: section.seeAll.target } : undefined,
     }
   }
   const image =
-    block.image &&
+    section.image &&
     Object.fromEntries(
-      Object.entries(block.image).filter(([key]) => key !== "alt")
+      Object.entries(section.image).filter(([key]) => key !== "alt")
     )
   return {
-    id: block.id,
-    kind: block.kind,
-    span: block.span,
+    id: section.id,
+    kind: section.kind,
+    span: section.span,
     image,
-    target: block.target,
-    link: block.link ? { target: block.link.target } : undefined,
+    target: section.target,
+    link: section.link ? { target: section.link.target } : undefined,
   }
 }
 
@@ -131,15 +133,15 @@ export function validateCanonicalWrite(
   if (locale === defaultLocale) {
     const kinds = new Map(
       existing.flatMap((item) =>
-        panelBlocks(item.panel).map(
-          ({ block }) => [block.id, block.kind] as const
+        panelSections(item.panel).map(
+          ({ section }) => [section.id, section.kind] as const
         )
       )
     )
     for (const item of next)
-      for (const { block } of panelBlocks(item.panel))
-        if (kinds.has(block.id) && kinds.get(block.id) !== block.kind)
-          reject("Use a new block to change its kind")
+      for (const { section } of panelSections(item.panel))
+        if (kinds.has(section.id) && kinds.get(section.id) !== section.kind)
+          reject("Use a new section to change its kind")
   }
 
   // The editor and server seed only converted featured Link labels from storage.

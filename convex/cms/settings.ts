@@ -4,7 +4,7 @@ import {
 } from "../lib/publishing/snapshots"
 import { nextUpdatedAt } from "../lib/versions"
 import { getActor } from "../lib/access/actor"
-import { initializeEmptySliceOccurrenceCounts } from "../lib/publishing/staging"
+import { initializeEmptyBlockOccurrenceCounts } from "../lib/publishing/staging"
 import {
   occurrenceUsageWrites,
   occurrenceUsageMutation as mutation,
@@ -312,7 +312,7 @@ export const bootstrapInstallation = mutation({
           throw new ConvexError("INSTALLATION_BOOTSTRAP_STATE_INVALID")
         }
         const cutover = await initializeEmptySnapshotAuthorityForOwner(ctx)
-        await initializeEmptySliceOccurrenceCounts(ctx)
+        await initializeEmptyBlockOccurrenceCounts(ctx)
         // A resumed bootstrap ends with the same language authority as a fresh
         // one: version 1 for the one bootstrap locale.
         const languageState = await readSiteLanguageState(ctx)
@@ -362,7 +362,7 @@ export const bootstrapInstallation = mutation({
     const home = await ctx.db.get("pages", homePageId)
     if (!home) throw new ConvexError("INSTALLATION_BOOTSTRAP_STATE_INVALID")
     await initializeSuccessorPage(ctx, home, auth, {
-      [defaultLocale]: { title: siteName, slices: [] },
+      [defaultLocale]: { title: siteName, blocks: [] },
     })
     refusePageAddress(
       await checkPageAddress(ctx, {
@@ -398,7 +398,7 @@ export const bootstrapInstallation = mutation({
     else await ctx.db.insert("siteSettings", fields)
     // F09: the site language is chosen here, before any public content exists.
     await insertInitialSiteLanguageAuthority(ctx, defaultLocale)
-    await initializeEmptySliceOccurrenceCounts(ctx)
+    await initializeEmptyBlockOccurrenceCounts(ctx)
 
     return { ...cutover, onboardingCompletedAt: now }
   },
@@ -499,7 +499,7 @@ export const completeOnboarding = mutation({
         content: {
           [args.defaultLocale]: {
             title: args.siteName,
-            slices: [],
+            blocks: [],
           },
         },
       })

@@ -111,14 +111,14 @@ async function activeFixture() {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   const pageId = await owner.mutation(api.cms.pages.create, {
     pageType: "landing-page",
     status: "draft",
     slug: "boundary-page",
     title: "Boundary page",
-    content: { en: { title: "Boundary snapshot", slices: [] } },
+    content: { en: { title: "Boundary snapshot", blocks: [] } },
   })
   await t.run((ctx) =>
     ctx.db.insert("siteSettings", {
@@ -159,7 +159,7 @@ const OWNED_TABLES = [
   "pagePublishedSnapshots",
   "pagePublicationDocumentReferences",
   "pagePublicationMediaReferences",
-  "pagePublicationSliceReferences",
+  "pagePublicationBlockReferences",
   "pageHistoricalLocaleRoutes",
   "pagePublicationRevalidationIntents",
   "pageRevisions",
@@ -206,7 +206,7 @@ describe("F08 real module boundaries", () => {
       ctx.db.patch("pages", pageId, {
         slug: "mutable-legacy-slug",
         content: {
-          en: { title: "MUTABLE LEGACY PAGE", slices: [] },
+          en: { title: "MUTABLE LEGACY PAGE", blocks: [] },
         },
       } as never)
     )

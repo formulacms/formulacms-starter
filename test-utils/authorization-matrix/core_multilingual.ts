@@ -67,8 +67,8 @@ async function setupS4(t: Site, redirects: "off" | "on"): Promise<Fixture> {
   const homeId = await owner.mutation(api.cms.pages.create, {
     pageType: "landing-page", status: "draft", slug: "home",
     title: "Matrix home", content: {
-      en: { title: "Matrix home", slices: [] },
-      fr: { title: "Accueil matrice", slices: [] },
+      en: { title: "Matrix home", blocks: [] },
+      fr: { title: "Accueil matrice", blocks: [] },
     },
   })
   await t.run(async (ctx) => {

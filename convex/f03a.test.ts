@@ -1,7 +1,7 @@
-import { createSampleSlice } from "@/convex/lib/slices/sample"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
 /// <reference types="vite/client" />
 
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { readFile } from "node:fs/promises"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import { describe, expect, test } from "vitest"
@@ -9,7 +9,7 @@ import { api } from "./_generated/api"
 import { isActiveContentType } from "./lib/contentTypes"
 
 import schema from "./schema"
-import { readSlicePresentationCatalog } from "./lib/slices/presentations"
+import { readBlockPresentationCatalog } from "./lib/blocks/presentations"
 
 const modules = import.meta.glob("./**/*.ts")
 const owner = {
@@ -38,18 +38,18 @@ async function makeOwnerTest() {
 }
 
 describe("F03a owner operation access", () => {
-  test("guards the current presentation catalog and returns the owned source snapshot", sliceProfile([]), async () => {
+  test("guards the current presentation catalog and returns the owned source snapshot", blockProfile([]), async () => {
     const t = await makeOwnerTest()
     await expect(
-      t.query(api.cms.slices.getPresentationCatalog, {})
+      t.query(api.cms.blocks.getPresentationCatalog, {})
     ).rejects.toThrow("UNAUTHENTICATED")
     await expect(
-      t.withIdentity(unrelated).query(api.cms.slices.getPresentationCatalog, {})
+      t.withIdentity(unrelated).query(api.cms.blocks.getPresentationCatalog, {})
     ).rejects.toThrow("CMS_OWNER_REQUIRED")
     const catalog = await t
       .withIdentity(owner)
-      .query(api.cms.slices.getPresentationCatalog, {})
-    expect(catalog).toEqual(await readSlicePresentationCatalog())
+      .query(api.cms.blocks.getPresentationCatalog, {})
+    expect(catalog).toEqual(await readBlockPresentationCatalog())
     expect(
       catalog.entries
         .filter((entry) => entry.type === "hero-with-image")
@@ -63,8 +63,8 @@ describe("F03a owner operation access", () => {
       "convex/cms/settings.ts",
       "convex/cms/contentTypes.ts",
       "convex/cms/relations.ts",
-      "convex/cms/slices.ts",
-      "convex/lib/slices/permissions.ts",
+      "convex/cms/blocks.ts",
+      "convex/lib/blocks/permissions.ts",
     ]) {
       const source = await readFile(file, "utf8")
       expect(source).toContain("requireOperationAccess")
@@ -124,7 +124,7 @@ describe("F03a owner operation access", () => {
       asUnrelated.query(api.cms.contentTypes.getContentTypeUsage, {})
     ).rejects.toThrow("CMS_OWNER_REQUIRED")
     await expect(
-      asUnrelated.query(api.cms.slices.getArchivedSliceTypes, {})
+      asUnrelated.query(api.cms.blocks.getArchivedBlockTypes, {})
     ).rejects.toThrow("CMS_OWNER_REQUIRED")
     await expect(
       asUnrelated.query(api.cms.relations.getReferenceCard, {
@@ -195,7 +195,7 @@ describe("F03a owner operation access", () => {
         createdAt: now,
         updatedAt: now,
         publishedAt: now,
-        content: { en: { title: "Public page", slices: [] } },
+        content: { en: { title: "Public page", blocks: [] } },
       })
       const draftId = await ctx.db.insert("pages", {
         slug: "f03a-draft",
@@ -203,7 +203,7 @@ describe("F03a owner operation access", () => {
         status: "draft",
         createdAt: now,
         updatedAt: now,
-        content: { en: { title: "Private draft", slices: [] } },
+        content: { en: { title: "Private draft", blocks: [] } },
       })
       return { publishedId, draftId }
     })
@@ -261,7 +261,7 @@ describe("F03a owner operation access", () => {
         status: "draft",
         createdAt: now,
         updatedAt: now,
-        content: { en: { title: "Deleted page", slices: [] } },
+        content: { en: { title: "Deleted page", blocks: [] } },
       })
       await ctx.db.delete("pages", id)
       return id
@@ -331,7 +331,7 @@ describe("F03a owner operation access", () => {
     ).resolves.toBeNull()
   })
 
-  test("keeps archived slice types out of owner-authored content", sliceProfile(["hero-agency"]), async () => {
+  test("keeps archived block types out of owner-authored content", blockProfile(["hero-agency"]), async () => {
     const t = await makeOwnerTest()
     const asOwner = t.withIdentity(owner)
     await asOwner.mutation(api.cms.settings.markOnboardingStep, {
@@ -341,7 +341,7 @@ describe("F03a owner operation access", () => {
       const settings = await ctx.db.query("siteSettings").first()
       if (!settings) throw new Error("settings fixture missing")
       await ctx.db.patch("siteSettings", settings._id, {
-        archivedSliceTypes: ["hero-agency"],
+        archivedBlockTypes: ["hero-agency"],
       })
     })
 
@@ -349,11 +349,11 @@ describe("F03a owner operation access", () => {
       asOwner.mutation(api.cms.pages.create, {
         pageType: "page",
         status: "draft",
-        title: "Archived slice rejection",
+        title: "Archived block rejection",
         content: {
           en: {
-            title: "Archived slice rejection",
-            slices: [createSampleSlice("hero-agency")],
+            title: "Archived block rejection",
+            blocks: [createSampleBlock("hero-agency")],
           },
         },
       })

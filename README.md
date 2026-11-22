@@ -108,7 +108,9 @@ A published formulacms release is identified only by its immutable, annotated Se
 
 formulacms is before version 1.0. Until then, any release, for example 0.3.0 to 0.3.1 or 0.3 to 0.4, may bring breaking changes and may have no upgrade path. When a release has no upgrade path, start a fresh site with it. The release notes and `starter.transitions.json` say whether you can upgrade to a release. From 1.0 on, a breaking change or a release without an upgrade path comes only with a new major version.
 
-This starter becomes your own fork. Regeneration creates a fresh starter for a new project; it never updates or overwrites an existing fork. To adopt a compatible release, use the [manual fork-upgrade playbook](./docs/starter/operations.md#fork-upgrade-playbook) and review every change in your own upgrade branch. Read the upgrade file for your version, if the release declares one, before any `git pull` or merge of a release, for example `git show <new-tag>:upgrades/<your-tag>-to-<new-tag>.md`. A release that declares no upgrade from your version supports fresh installs only: start a new site from it. Release 0.3.1 declares no upgrade from 0.3.0, and release 0.3.0 declares no upgrade from 0.2.0. Before you merge, validate the exact declared pair in `starter.transitions.json`:
+Release 0.4.0 updates the background job queue to workpool 0.5. After this update, you cannot undo the queue change by going back to 0.3.x.
+
+This starter becomes your own fork. Regeneration creates a fresh starter for a new project; it never updates or overwrites an existing fork. To adopt a compatible release, use the [manual fork-upgrade playbook](./docs/starter/operations.md#fork-upgrade-playbook) and review every change in your own upgrade branch. Read the upgrade file for your version, if the release declares one, before any `git pull` or merge of a release, for example `git show <new-tag>:upgrades/<your-tag>-to-<new-tag>.md`. A release that declares no upgrade from your version supports fresh installs only: start a new site from it. Release 0.4.0 declares no upgrade from 0.3.1, release 0.3.1 declares no upgrade from 0.3.0, and release 0.3.0 declares no upgrade from 0.2.0. Before you merge, validate the exact declared pair in `starter.transitions.json`:
 
 ```bash
 node --import tsx scripts/check-release-transition.ts \
@@ -150,7 +152,7 @@ If you forget your password, or wrong guesses lock your account, run `pnpm owner
 
 ## Development
 
-The main commands are `pnpm dev`, `pnpm typecheck`, `pnpm lint`, `pnpm test:run`, `pnpm slices:sync --check`, `pnpm check:tokens`, `pnpm check:public:images` and `pnpm check:preflight`. `pnpm dev` runs one Convex watcher and starts Next.js after Convex is ready. `pnpm dev:dashboard` opens the Convex dashboard.
+The main commands are `pnpm dev`, `pnpm typecheck`, `pnpm lint`, `pnpm test:run`, `pnpm blocks:sync --check`, `pnpm check:tokens`, `pnpm check:public:images` and `pnpm check:preflight`. `pnpm dev` runs one Convex watcher and starts Next.js after Convex is ready. `pnpm dev:dashboard` opens the Convex dashboard.
 
 Cookies belong to the host name, not the port, so `localhost:3000` and `localhost:3001` share sign-in cookies. If one local app sends you to `/sign-in` unexpectedly, stop the other app, use separate browser profiles or host names, or clear the local session. This affects local browsers only.
 
@@ -182,19 +184,20 @@ pnpm check:app-creation:feedback
 
 ## Continuous integration
 
-The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`. It installs dependencies, runs the dependency audit, lint, type-check and tests, builds the app and runs the fresh-setup test against a local Convex deployment. It needs no Convex account.
+The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`. It installs dependencies, runs the dependency audit, lint, type-check and tests, builds the app and runs the fresh-setup test against a local Convex deployment. A second job opens every block in the block simulator and checks that its text fields respond to one, two and three clicks (`pnpm check:blocks:render`). The workflow needs no Convex account.
 
 Add a `CONVEX_DEPLOY_KEY` repository secret to also run a dry run of the Convex deployment on pushes to `main`. Without it, that step is skipped with a warning. To create the key: in the Convex dashboard, open your production deployment, then Deployment Settings › General › Generate Production Deploy Key.
 
-## Authoring Slices
+## Authoring Blocks
 
-Slices are code-first content blocks. Each one has a typed Convex descriptor, a React renderer, registry entries, sample data and optional preview images. This starter does not use Prismic, Slice Machine or custom type JSON.
+Blocks are code-first content units. Each one has a typed Convex descriptor, a React renderer, registry entries, sample data and optional preview images. This starter does not use Prismic, Slice Machine or custom type JSON.
 
-1. Add the typed descriptor, with its validator, defaults and `aiHint`, under `convex/lib/slices/`.
-2. Add the React renderer under `components/slices/`.
-3. Add the entry in `lib/slices/slices.manifest.json`.
-4. Run `pnpm slices:sync` to regenerate the registration.
-5. Run `pnpm typecheck`, `pnpm slices:sync --check` and `pnpm lint`. Then review the diff in `convex/lib/slices/`, `components/slices/` and `lib/slices/`.
+1. Add the typed descriptor, with its validator, defaults and `aiHint`, under `convex/lib/blocks/`.
+2. Add the React renderer under `components/blocks/`.
+3. Add the entry in `lib/blocks/blocks.manifest.json`.
+4. Run `pnpm blocks:sync` to regenerate the registration.
+5. Restart `pnpm dev`: stop it with Ctrl+C, then start it again. Until it restarts, the block simulator can answer 404 for the new block and the block library can leave it out.
+6. Run `pnpm typecheck`, `pnpm blocks:sync --check`, `pnpm check:blocks:coverage` and `pnpm lint`. `pnpm build` also runs `pnpm check:blocks:coverage`. Then review the diff in `convex/lib/blocks/`, `components/blocks/` and `lib/blocks/`.
 
 ## Authoring Content Types
 
@@ -203,8 +206,9 @@ The shipped content types are examples, and no domain model is special. Add the 
 1. Write a descriptor under `convex/lib/contentTypes/`.
 2. Add it to `convex/lib/contentTypes/content-types.manifest.json`.
 3. Run `pnpm content-types:sync`. It regenerates the registry and schema files from the manifest.
-4. Run `pnpm exec convex codegen --typecheck disable`, `pnpm content-types:sync -- --check`, `pnpm typecheck` and `pnpm lint`.
-5. Complete the renderer, queries, indexes, migrations and delete behavior your type needs, then commit. See `docs/starter/content-model-authoring.md` for the full workflow.
+4. Restart `pnpm dev`: stop it with Ctrl+C, then start it again. Until it restarts, the admin can show raw label keys, such as `sidebar.contentType.<type>.plural`, instead of the new type's labels.
+5. Run `pnpm exec convex codegen --typecheck disable`, `pnpm content-types:sync -- --check`, `pnpm typecheck` and `pnpm lint`.
+6. Complete the renderer, queries, indexes, migrations and delete behavior your type needs, then commit. See `docs/starter/content-model-authoring.md` for the full workflow.
 
 ## Public addresses, routes and revalidation
 

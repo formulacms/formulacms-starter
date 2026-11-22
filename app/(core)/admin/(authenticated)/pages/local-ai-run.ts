@@ -47,14 +47,14 @@ export type LocalAuditKind =
   | "page-translate"
   | "field-generate"
   | "field-refine"
-  | "slice-generate"
+  | "block-generate"
   | "page-generate-fill"
   | "page-generate-meta"
   | "page-generate-outline"
 
 export type LocalAuditMetadata = {
   readonly briefHash?: string
-  readonly sliceCount?: number
+  readonly blockCount?: number
 }
 
 function auditTokenUsage(usage: GenerationUsage) {
@@ -372,7 +372,7 @@ export async function runPageOutlineLocally(
       return {
         value,
         generation,
-        auditMetadata: { sliceCount: value.outline.length },
+        auditMetadata: { blockCount: value.outline.length },
       }
     },
     { briefHash }

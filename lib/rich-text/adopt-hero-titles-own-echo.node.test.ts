@@ -1,9 +1,9 @@
-import { createSampleSlice } from "@/convex/lib/slices/sample"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, test } from "vitest"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 
-import { validateSlicesRichText } from "@/convex/lib/slices/validate"
+import { validateBlocksRichText } from "@/convex/lib/blocks/validate"
 import {
   applyPageField,
   capturePageField,
@@ -44,7 +44,7 @@ const body = () => ({
 })
 
 function hero(id = "hero") {
-  const sample = createSampleSlice("hero-with-image")
+  const sample = createSampleBlock("hero-with-image")
   return {
     ...sample,
     id,
@@ -57,9 +57,9 @@ function hero(id = "hero") {
 }
 
 /** Only the production apply helper creates the receipt used by these cases. */
-function applied(slices: Slice[], locale = "en") {
+function applied(blocks: Block[], locale = "en") {
   const capture = capturePageField(
-    slices,
+    blocks,
     locale,
     "hero",
     "primary.title",
@@ -79,7 +79,7 @@ function applied(slices: Slice[], locale = "en") {
       languageVersion: 1,
     },
   }
-  const value = applyPageField(slices, locale, commit, epoch, catalog)
+  const value = applyPageField(blocks, locale, commit, epoch, catalog)
   if (!value || !pageFieldEcho(value))
     throw new Error("Expected an accepted apply with its authentic receipt")
   return value
@@ -92,35 +92,35 @@ describe("own-echo adoption counterexamples", () => {
     ["fr", false],
     ["fr", true],
   ] as const)(
-    "%s no-op preparation retains exact bytes, array and receipt (forWrite=%s)", sliceProfile([]),
+    "%s no-op preparation retains exact bytes, array and receipt (forWrite=%s)", blockProfile([]),
     (locale, forWrite) => {
-      const slices = applied([hero()], locale)
-      const bytes = JSON.stringify(slices)
-      const receipt = pageFieldEcho(slices)
+      const blocks = applied([hero()], locale)
+      const bytes = JSON.stringify(blocks)
+      const receipt = pageFieldEcho(blocks)
       const reports = [
         {
           locale,
-          sliceId: "hero",
+          blockId: "hero",
           fieldPath: "primary.title",
           removedLinks: [{ href: "/removed" }],
         },
         {
           locale: locale === "fr" ? "en" : "fr",
-          sliceId: "other-locale",
+          blockId: "other-locale",
           fieldPath: "primary.title",
           removedLinks: [{ href: "/autre" }],
         },
       ]
       const reportBytes = JSON.stringify(reports)
-      const adopted = adoptHeroTitles(slices, locale, reports, forWrite)
+      const adopted = adoptHeroTitles(blocks, locale, reports, forWrite)
       const prepared = prepareHeroTitleDraft(
-        { slices, removedTitleLinks: reports },
+        { blocks, removedTitleLinks: reports },
         locale
       )
-      expect(adopted.value).toBe(slices)
-      expect(prepared.slices).toBe(slices)
+      expect(adopted.value).toBe(blocks)
+      expect(prepared.blocks).toBe(blocks)
       expect(pageFieldEcho(adopted.value)).toBe(receipt)
-      expect(pageFieldEcho(prepared.slices)).toBe(receipt)
+      expect(pageFieldEcho(prepared.blocks)).toBe(receipt)
       expect(JSON.stringify(adopted.value)).toBe(bytes)
       expect(adopted.reports).toEqual(reports)
       expect(prepared.removedTitleLinks).toEqual(reports)
@@ -129,44 +129,44 @@ describe("own-echo adoption counterexamples", () => {
   )
 
   test.each([false, true])(
-    "a real sibling conversion has fresh output and no borrowed receipt (forWrite=%s)", sliceProfile([]),
+    "a real sibling conversion has fresh output and no borrowed receipt (forWrite=%s)", blockProfile([]),
     (forWrite) => {
       const sibling = hero("legacy")
       sibling.primary.title =
         '<p><strong>Bonjour</strong> <a href="/fr">équipe</a></p>'
-      const slices = applied([hero(), sibling])
-      const bytes = JSON.stringify(slices)
-      const adopted = adoptHeroTitles(slices, "en", [], forWrite)
-      expect(adopted.value).not.toBe(slices)
-      expect(adopted.value[0]).toBe(slices[0])
+      const blocks = applied([hero(), sibling])
+      const bytes = JSON.stringify(blocks)
+      const adopted = adoptHeroTitles(blocks, "en", [], forWrite)
+      expect(adopted.value).not.toBe(blocks)
+      expect(adopted.value[0]).toBe(blocks[0])
       expect(pageFieldEcho(adopted.value)).toBeUndefined()
-      expect(pageFieldEcho(slices)).toBeDefined()
+      expect(pageFieldEcho(blocks)).toBeDefined()
       expect(adopted.value[1].primary).not.toEqual(sibling.primary)
       expect(adopted.reports).toEqual([
         {
           locale: "en",
-          sliceId: "legacy",
+          blockId: "legacy",
           fieldPath: "primary.title",
           removedLinks: [{ href: "/fr" }],
         },
       ])
-      expect(() => validateSlicesRichText(adopted.value)).not.toThrow()
-      expect(JSON.stringify(slices)).toBe(bytes)
-      const reloaded = JSON.parse(JSON.stringify(adopted.value)) as Slice[]
+      expect(() => validateBlocksRichText(adopted.value)).not.toThrow()
+      expect(JSON.stringify(blocks)).toBe(bytes)
+      const reloaded = JSON.parse(JSON.stringify(adopted.value)) as Block[]
       expect(adoptHeroTitles(reloaded, "en", adopted.reports, true).value).toBe(
         reloaded
       )
     }
   )
 
-  test("forWrite allocates missing row IDs without copying an authentic receipt", sliceProfile([]), () => {
+  test("forWrite allocates missing row IDs without copying an authentic receipt", blockProfile([]), () => {
     const source = hero()
     source.items.forEach((row) => Reflect.deleteProperty(row, "itemId"))
-    const slices = applied([source])
-    const bytes = JSON.stringify(slices)
-    expect(adoptHeroTitles(slices, "en").value).toBe(slices)
-    const adopted = adoptHeroTitles(slices, "en", [], true)
-    expect(adopted.value).not.toBe(slices)
+    const blocks = applied([source])
+    const bytes = JSON.stringify(blocks)
+    expect(adoptHeroTitles(blocks, "en").value).toBe(blocks)
+    const adopted = adoptHeroTitles(blocks, "en", [], true)
+    expect(adopted.value).not.toBe(blocks)
     expect(pageFieldEcho(adopted.value)).toBeUndefined()
     const saved = adopted.value[0]
     if (saved.type !== "hero-with-image") throw new Error("Expected Hero")
@@ -180,15 +180,15 @@ describe("own-echo adoption counterexamples", () => {
     expect(adoptHeroTitles(adopted.value, "en", [], true).value).toBe(
       adopted.value
     )
-    expect(JSON.stringify(slices)).toBe(bytes)
+    expect(JSON.stringify(blocks)).toBe(bytes)
   })
 
   test.each(["href", "mark", "attribute", "first-empty", "last-empty"])(
-    "a canonical %s edit is preserved and cannot borrow earlier provenance", sliceProfile([]),
+    "a canonical %s edit is preserved and cannot borrow earlier provenance", blockProfile([]),
     (change) => {
-      const slices = applied([hero()])
+      const blocks = applied([hero()])
       const stale = capturePageField(
-        slices,
+        blocks,
         "en",
         "hero",
         "primary.description",
@@ -204,13 +204,13 @@ describe("own-echo adoption counterexamples", () => {
         updated.content.unshift({ type: "paragraph", content: [] })
       if (change === "last-empty")
         updated.content.push({ type: "paragraph", content: [] })
-      const source = slices[0]
+      const source = blocks[0]
       const external = [
         {
           ...source,
           primary: { ...source.primary, description: JSON.stringify(updated) },
         },
-      ] as Slice[]
+      ] as Block[]
       const adopted = adoptHeroTitles(external, "en")
       expect(adopted.value).toBe(external)
       expect(pageFieldEcho(adopted.value)).toBeUndefined()
@@ -237,27 +237,27 @@ describe("own-echo adoption counterexamples", () => {
   )
 
   test.each(['{"type":"doc"}', "<p>literal</p>", "# literal"])(
-    "registered plain text stays literal through receipt-preserving preparation: %s", sliceProfile([]),
+    "registered plain text stays literal through receipt-preserving preparation: %s", blockProfile([]),
     (literal) => {
       const source = hero()
       source.primary.eyebrow = literal
-      const slices = applied([source])
-      const prepared = prepareHeroTitleDraft({ slices }, "en")
-      expect(prepared.slices).toBe(slices)
-      expect(prepared.slices[0].primary).toMatchObject({ eyebrow: literal })
-      expect(pageFieldEcho(prepared.slices)).toBe(pageFieldEcho(slices))
+      const blocks = applied([source])
+      const prepared = prepareHeroTitleDraft({ blocks }, "en")
+      expect(prepared.blocks).toBe(blocks)
+      expect(prepared.blocks[0].primary).toMatchObject({ eyebrow: literal })
+      expect(pageFieldEcho(prepared.blocks)).toBe(pageFieldEcho(blocks))
     }
   )
 
-  test("a later invalid sibling refuses preparation without mutating earlier conversions", sliceProfile([]), () => {
+  test("a later invalid sibling refuses preparation without mutating earlier conversions", blockProfile([]), () => {
     const legacy = hero()
     legacy.primary.title = "<p>Legacy headline</p>"
     const invalid = hero("invalid")
     invalid.primary.description = '{"type":'
-    const slices = [legacy, invalid]
-    const bytes = JSON.stringify(slices)
-    expect(() => adoptHeroTitles(slices, "en", [], true)).toThrow()
-    expect(JSON.stringify(slices)).toBe(bytes)
-    expect(pageFieldEcho(slices)).toBeUndefined()
+    const blocks = [legacy, invalid]
+    const bytes = JSON.stringify(blocks)
+    expect(() => adoptHeroTitles(blocks, "en", [], true)).toThrow()
+    expect(JSON.stringify(blocks)).toBe(bytes)
+    expect(pageFieldEcho(blocks)).toBeUndefined()
   })
 })

@@ -16,12 +16,12 @@ import { isLegacyTitleHtml } from "../lib/richtext/write"
 //     localizer) so marks/links/structure survive byte-for-byte. The model
 //     only sees and rewrites the text content of each segment, never the
 //     surrounding marks.
-//   - Generation: one model call per slice keeps each section's editorial copy
+//   - Generation: one model call per block keeps each block's editorial copy
 //     coherent. Refinement: one call per field (plain) or per text segment
 //     (rich) — refinement is segment-independent by design.
 //   - Page context + brand voice (convex/lib/agents/pageContext.ts) are
 //     appended to the system prompt to anchor voice and topic across calls.
-//   - Typed args/returns via slice/context validators reject anything off-shape
+//   - Typed args/returns via block/context validators reject anything off-shape
 //     at the Convex boundary.
 import { v, ConvexError } from "convex/values"
 import { action, internalQuery } from "../_generated/server"
@@ -56,7 +56,7 @@ import { enforceAiRateLimit } from "../lib/aiRateLimit"
 import { AGENTS, languageName } from "../lib/agents/registry"
 import { buildFieldDoc } from "../lib/richtext/build"
 import type { FieldContract } from "../lib/richtext/contracts"
-import { installedSliceValidator, type InstalledSlice } from "../lib/slices"
+import { installedBlockValidator, type InstalledBlock } from "../lib/blocks"
 import {
   pageContextValidator,
   type PageContext,
@@ -65,14 +65,14 @@ import {
   assembleMeta,
   assembleOutline,
   assembleRefinedText,
-  assembleSlice,
-  assertSliceType,
+  assembleBlock,
+  assertBlockType,
   buildFieldGenerationInput,
   buildPageFillGenerationInput,
   buildPageMetaGenerationInput,
   buildPageOutlineGenerationInput,
   buildRefinementGenerationInput,
-  buildSliceGenerationInput,
+  buildBlockGenerationInput,
   refineRichTextSegments,
   type PageOutline,
 } from "../lib/agents/contentWriterContract"
@@ -225,7 +225,7 @@ async function gate(ctx: ActionCtx): Promise<ContentConfig> {
 async function generateOne(
   cfg: ContentConfig,
   language: string,
-  sliceType: string,
+  blockType: string,
   brief: string,
   fieldLabel: string,
   format: "plain" | "richText",
@@ -240,7 +240,7 @@ async function generateOne(
     systemTemplate: cfg.systemPrompt,
     userTemplate: cfg.userPromptTemplate,
     language,
-    sliceType,
+    blockType,
     brief,
     fieldLabel,
     format,
@@ -455,8 +455,8 @@ export const generateField = action({
     /** UX hint shown to the model (e.g. "title", "subtitle", "button label").
      *  Kept as a string — it doesn't need to be a closed union for the tracer. */
     fieldLabel: v.string(),
-    /** Slice type for context; default "section" when called outside a slice. */
-    sliceType: v.optional(v.string()),
+    /** Block type for context; default "content" when called outside a block. */
+    blockType: v.optional(v.string()),
     context: v.optional(pageContextValidator),
   },
   returns: v.string(),
@@ -481,7 +481,7 @@ export const generateField = action({
         const { text, usage, generation } = await generateOne(
           cfg,
           languageName(args.locale),
-          args.sliceType ?? "section",
+          args.blockType ?? "content",
           args.brief,
           args.fieldLabel,
           "plain",
@@ -494,32 +494,32 @@ export const generateField = action({
 })
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Slice-level generation
+// Block-level generation
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Generate one slice from a brief. Assembles a same-type `Slice` with editorial
+ * Generate one block from a brief. Assembles a same-type `Block` with editorial
  * text from the model and structural fields left as the type's defaults — image
  * stays empty, button hrefs are empty, alignment/mode are the schema defaults.
  * The agent never touches links/images/ids/variants (ADR-013 mechanism 2).
  */
-async function generateSliceInternal(
+async function generateBlockInternal(
   cfg: ContentConfig,
-  sliceType: InstalledSlice["type"],
+  blockType: InstalledBlock["type"],
   locale: string,
   brief: string,
   context: PageContext | undefined
 ): Promise<{
-  slice: InstalledSlice
+  block: InstalledBlock
   usage?: AuditTokenUsage
   generation: AuditGeneration
 }> {
   const language = languageName(locale)
-  const generationInput = buildSliceGenerationInput({
+  const generationInput = buildBlockGenerationInput({
     systemTemplate: cfg.systemPrompt,
     userTemplate: cfg.userPromptTemplate,
     language,
-    sliceType,
+    blockType,
     brief,
     context,
     brandVoice: cfg.brandVoice,
@@ -540,32 +540,32 @@ async function generateSliceInternal(
     cfg.accounting
   )
   return {
-    slice: assembleSlice(sliceType, result.text),
+    block: assembleBlock(blockType, result.text),
     usage: result.usage,
     generation: toAuditGeneration(result, "content-generation"),
   }
 }
 
-/** Public: generate one slice (editor's current locale) from a short brief.
- *  Returns a fully-formed `Slice` — text fields populated, structural fields
- *  at their registry defaults. The orchestration merges this onto the slice
- *  the editor added so the slice's `id` and any user-set structural choices
+/** Public: generate one block (editor's current locale) from a short brief.
+ *  Returns a fully-formed `Block` — text fields populated, structural fields
+ *  at their registry defaults. The orchestration merges this onto the block
+ *  the editor added so the block's `id` and any user-set structural choices
  *  (image, alignment) survive. */
-export const generateSlice = action({
+export const generateBlock = action({
   args: {
-    sliceType: v.string(),
+    blockType: v.string(),
     brief: v.string(),
     locale: v.string(),
     context: v.optional(pageContextValidator),
   },
-  returns: installedSliceValidator,
-  handler: async (ctx, args): Promise<InstalledSlice> => {
+  returns: installedBlockValidator,
+  handler: async (ctx, args): Promise<InstalledBlock> => {
     if (args.brief.length > MAX_BRIEF_CHARS)
       throw new ConvexError("Brief too long.")
     if (!args.brief.trim()) {
       throw new ConvexError("Brief is empty.")
     }
-    const sliceType = assertSliceType(args.sliceType)
+    const blockType = assertBlockType(args.blockType)
     const cfg = await gate(ctx)
     await gateAi(ctx)
     const modelId = resolveModelId(cfg)
@@ -574,19 +574,19 @@ export const generateSlice = action({
       {
         accounting: cfg.accounting,
         authId: cfg.authId,
-        kind: "slice-generate",
+        kind: "block-generate",
         modelId,
-        sliceCount: 1,
+        blockCount: 1,
       },
       async () => {
-        const { slice, usage, generation } = await generateSliceInternal(
+        const { block, usage, generation } = await generateBlockInternal(
           cfg,
-          sliceType,
+          blockType,
           args.locale,
           args.brief,
           args.context
         )
-        return { value: slice, usage, generation }
+        return { value: block, usage, generation }
       }
     )
   },
@@ -612,9 +612,9 @@ export const generateRichText = action({
       )
     ),
     headingRole: v.optional(
-      v.union(v.literal("sliceTitle"), v.literal("itemTitle"))
+      v.union(v.literal("blockTitle"), v.literal("itemTitle"))
     ),
-    sliceType: v.optional(v.string()),
+    blockType: v.optional(v.string()),
     context: v.optional(pageContextValidator),
   },
   returns: v.string(),
@@ -643,7 +643,7 @@ export const generateRichText = action({
         const { text, usage, generation } = await generateOne(
           cfg,
           languageName(args.locale),
-          args.sliceType ?? "section",
+          args.blockType ?? "content",
           args.brief,
           args.fieldLabel,
           "richText",
@@ -672,13 +672,13 @@ function resolveModelId(cfg: ContentConfig): string {
 
 /**
  * Public: generate `metaTitle` + `metaDescription` for the current page from
- * the existing page copy (title + slice text already in `context`) plus the
+ * the existing page copy (title + block text already in `context`) plus the
  * configured brand voice. No editor brief — the page is its own brief.
  *
  * Writes one `aiAuditLog` row with `kind: "page-generate-meta"`, capturing
  * model id and token usage but never the page text or the generated output
- * (ADR-0015 retention/privacy contract). `sliceCount` is 0 because this
- * action does not produce slices.
+ * (ADR-0015 retention/privacy contract). `blockCount` is 0 because this
+ * action does not produce blocks.
  */
 export const generatePageMeta = action({
   args: {
@@ -705,7 +705,7 @@ export const generatePageMeta = action({
         authId: cfg.authId,
         kind: "page-generate-meta",
         modelId,
-        sliceCount: 0,
+        blockCount: 0,
       },
       async () => {
         const generationInput = buildPageMetaGenerationInput({
@@ -826,7 +826,7 @@ export const generatePageOutline = action({
           value: outline,
           usage: result.usage,
           generation: toAuditGeneration(result, "page-outline"),
-          sliceCount: outline.outline.length,
+          blockCount: outline.outline.length,
         }
       }
     )
@@ -834,9 +834,9 @@ export const generatePageOutline = action({
 })
 
 /**
- * Public: Stage B — generate one slice as part of a page-level fill. Reuses
- * `assembleSlice` so the trust boundary (ADR-013 mechanism 2) is identical to
- * slice-level Write; the difference is the *brief* sent to the model — it
+ * Public: Stage B — generate one block as part of a page-level fill. Reuses
+ * `assembleBlock` so the trust boundary (ADR-013 mechanism 2) is identical to
+ * block-level Write; the difference is the *brief* sent to the model — it
  * carries the page-level brief, the outline row's purpose, and (via `context`)
  * the title + previously-filled siblings, so the call sees what the rest of
  * the page is becoming.
@@ -849,16 +849,16 @@ export const generatePageOutline = action({
  * is sha256 of `pageBrief|purpose` so two different outline rows from the
  * same brief hash differently (useful for forensic correlation).
  */
-export const generatePageSlice = action({
+export const generatePageBlock = action({
   args: {
-    sliceType: v.string(),
+    blockType: v.string(),
     pageBrief: v.string(),
     purpose: v.string(),
     locale: v.string(),
     context: v.optional(pageContextValidator),
   },
-  returns: installedSliceValidator,
-  handler: async (ctx, args): Promise<InstalledSlice> => {
+  returns: installedBlockValidator,
+  handler: async (ctx, args): Promise<InstalledBlock> => {
     if (args.pageBrief.length > MAX_BRIEF_CHARS)
       throw new ConvexError("Brief too long.")
     if (args.purpose.length > 500) throw new ConvexError("Purpose too long.")
@@ -866,9 +866,9 @@ export const generatePageSlice = action({
       throw new ConvexError("Brief is empty.")
     }
     if (!args.purpose.trim()) {
-      throw new ConvexError("Slice purpose is empty.")
+      throw new ConvexError("Block purpose is empty.")
     }
-    const sliceType = assertSliceType(args.sliceType)
+    const blockType = assertBlockType(args.blockType)
     const cfg = await gate(ctx)
     await gateAi(ctx)
     const modelId = resolveModelId(cfg)
@@ -881,13 +881,13 @@ export const generatePageSlice = action({
       totalTokens?: number
     } = {}
     try {
-      const result = await generatePageSliceCore(cfg, { ...args, sliceType })
+      const result = await generatePageBlockCore(cfg, { ...args, blockType })
       tokenUsage = {
         promptTokens: result.usage?.inputTokens,
         completionTokens: result.usage?.outputTokens,
         totalTokens: result.usage?.totalTokens,
       }
-      const slice = assembleSlice(sliceType, result.text)
+      const block = assembleBlock(blockType, result.text)
       success = true
       try {
         await ctx.runMutation(internal.cms.aiAuditLog.recordEvent, {
@@ -897,7 +897,7 @@ export const generatePageSlice = action({
           authId: cfg.authId,
           kind: "page-generate-fill",
           briefHash,
-          sliceCount: 1,
+          blockCount: 1,
           modelId,
           ...auditGenerationFields(toAuditGeneration(result, "page-fill")),
           tokenUsage,
@@ -906,7 +906,7 @@ export const generatePageSlice = action({
       } catch {
         // Audit is best effort and must never mask generated content.
       }
-      return slice
+      return block
     } catch (e) {
       if (!success) {
         try {
@@ -917,7 +917,7 @@ export const generatePageSlice = action({
             authId: cfg.authId,
             kind: "page-generate-fill",
             briefHash,
-            sliceCount: 0,
+            blockCount: 0,
             modelId,
             tokenUsage,
             success: false,
@@ -933,23 +933,23 @@ export const generatePageSlice = action({
 })
 
 /** Shared prompt + runner. Callers keep their existing assembly/audit ordering. */
-export async function generatePageSliceCore(
+export async function generatePageBlockCore(
   cfg: ContentConfig,
   args: {
-    sliceType: string
+    blockType: string
     pageBrief: string
     purpose: string
     locale: string
     context?: PageContext
   }
 ) {
-  const sliceType = assertSliceType(args.sliceType)
+  const blockType = assertBlockType(args.blockType)
   const language = languageName(args.locale)
   const generationInput = buildPageFillGenerationInput({
     systemTemplate: cfg.systemPrompt,
     userTemplate: cfg.userPromptTemplate,
     language,
-    sliceType,
+    blockType,
     pageBrief: args.pageBrief,
     purpose: args.purpose,
     context: args.context,

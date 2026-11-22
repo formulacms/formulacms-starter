@@ -1,9 +1,16 @@
+import { readdirSync, readFileSync } from "node:fs"
+import { join } from "node:path"
 import { describe, expect, test } from "vitest"
-import { CONTENT_TYPES } from "@/convex/lib/contentTypes"
+import {
+  CONTENT_TYPES,
+  REGISTERED_CONTENT_TYPES,
+} from "@/convex/lib/contentTypes"
 import en from "@/messages/admin/en.json"
 import fr from "@/messages/admin/fr.json"
 import {
   adminContentTypeDetail,
+  adminContentTypePluralMessageKey,
+  adminContentTypeSingularMessageKey,
   adminContentTypes,
   menuContentTypeOptionLabel,
   type MenuContentTypeOptionKey,
@@ -95,5 +102,42 @@ describe("menu content-type option labels", () => {
     expect(menuContentTypeOptionLabel(entry, translator(enOptions))).toBe(
       "Event"
     )
+  })
+})
+
+describe("admin content-type message keys", () => {
+  const messagesDir = join(process.cwd(), "messages/admin")
+  const labelledTypes = readdirSync(messagesDir)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => {
+      const messages = JSON.parse(
+        readFileSync(join(messagesDir, file), "utf8")
+      ) as { sidebar: { contentType: Record<string, unknown> } }
+      return [file, Object.keys(messages.sidebar.contentType)] as const
+    })
+
+  test.each(labelledTypes)(
+    "every content type labelled in %s gets typed keys",
+    (_file, types) => {
+      expect(types.length).toBeGreaterThan(0)
+      for (const type of types) {
+        expect(adminContentTypeSingularMessageKey(type)).toBe(
+          `${type}.singular`
+        )
+        expect(adminContentTypePluralMessageKey(type)).toBe(`${type}.plural`)
+      }
+    }
+  )
+
+  test("a type with no reviewed copy gets no key", () => {
+    const labelled = new Set(labelledTypes.flatMap(([, types]) => types))
+    const unlabelled = [
+      "unknown",
+      ...REGISTERED_CONTENT_TYPES.filter((type) => !labelled.has(type)),
+    ]
+    for (const type of unlabelled) {
+      expect(adminContentTypeSingularMessageKey(type)).toBeNull()
+      expect(adminContentTypePluralMessageKey(type)).toBeNull()
+    }
   })
 })

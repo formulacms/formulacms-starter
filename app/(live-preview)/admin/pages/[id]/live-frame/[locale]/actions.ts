@@ -3,10 +3,10 @@
 import { fetchQuery } from "convex/nextjs"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 import { fetchAuthQuery } from "@/lib/auth/server"
-import { buildSliceRenderContext } from "@/lib/slices/render-context"
-import { collectImageStorageIds } from "@/lib/slices/media-urls"
+import { buildBlockRenderContext } from "@/lib/blocks/render-context"
+import { collectImageStorageIds } from "@/lib/blocks/media-urls"
 import { supportsLivePreviewFrame } from "@/components/admin/live-preview-page-type"
 import {
   validLiveFrameInput,
@@ -31,12 +31,12 @@ export async function resolveLiveFrameContext(input: LiveFrameInput) {
   )
     return null
   const storageIds = new Set<Id<"_storage">>()
-  collectImageStorageIds(input.slices, storageIds)
+  collectImageStorageIds(input.blocks, storageIds)
   // The existing resolver caps a batch at 100; refuse a partial media context.
   if (storageIds.size > 100) return null
   const [ctx, mediaUrls, publicPaths] = await Promise.all([
-    buildSliceRenderContext({
-      slices: input.slices as Slice[],
+    buildBlockRenderContext({
+      blocks: input.blocks as Block[],
       renderLocale: input.locale,
       presentationLocale: input.locale,
       defaultLocale: config.defaultLocale,

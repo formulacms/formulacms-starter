@@ -12,7 +12,7 @@ import {
   startLocalPageJob,
 } from "@/app/(core)/admin/(authenticated)/pages/local-ai-job-actions"
 import type { Id } from "@/convex/_generated/dataModel"
-import { INSTALLED_SLICE_TYPES } from "@/convex/lib/slices"
+import { INSTALLED_BLOCK_TYPES } from "@/convex/lib/blocks"
 import {
   Dialog,
   DialogContent,
@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { getLocaleLabel } from "@/lib/i18n/config"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
-import { readSliceMetadata } from "@/lib/slices/builder"
+import { readBlockMetadata } from "@/lib/blocks/builder"
 import { moveItem, useDragReorder } from "@/lib/use-drag-reorder"
 import { OptionalContribution } from "../optional-contribution"
 import {
@@ -219,7 +219,7 @@ function WizardBody({
           locale,
           meta,
           rows: rows.map((row) => ({
-            sliceType: row.type,
+            blockType: row.type,
             purpose: row.purpose,
           })),
         },
@@ -279,7 +279,7 @@ function WizardBody({
                     ...current,
                     {
                       id: crypto.randomUUID(),
-                      type: INSTALLED_SLICE_TYPES[0]!,
+                      type: INSTALLED_BLOCK_TYPES[0]!,
                       purpose: "",
                     },
                   ]
@@ -606,9 +606,9 @@ function OutlineStep({
                 }
                 className="mt-0.5 rounded-md border bg-background px-2 py-1 text-xs"
               >
-                {INSTALLED_SLICE_TYPES.map((type) => (
+                {INSTALLED_BLOCK_TYPES.map((type) => (
                   <option key={type} value={type}>
-                    {readSliceMetadata(type)?.label ?? type}
+                    {readBlockMetadata(type)?.label ?? type}
                   </option>
                 ))}
               </select>

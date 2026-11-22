@@ -84,8 +84,8 @@ vi.mock("./page-editor/components/seo-panel", () => ({ SeoPanel: () => null }))
 vi.mock("./page-editor/components/settings-panel", () => ({
   SettingsPanel: () => null,
 }))
-vi.mock("./page-editor/components/slices-panel", () => ({
-  SlicesPanel: () => null,
+vi.mock("./page-editor/components/blocks-panel", () => ({
+  BlocksPanel: () => null,
 }))
 
 vi.mock("./contributions/history", () => ({
@@ -128,8 +128,8 @@ test.each(scenarios)(
       createdAt: 100,
       updatedAt: 100,
       content: {
-        en: { title, slices: [] },
-        fr: { title, slices: [] },
+        en: { title, blocks: [] },
+        fr: { title, blocks: [] },
       },
       tags: [],
       createdBy: "owner-1",

@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest"
 
 describe("media source projection", () => {
   it("keeps source and shipped overlay image adapters identical", () => {
-    const source = readFileSync("components/slices/render-helpers.tsx", "utf8")
+    const source = readFileSync("components/blocks/render-helpers.tsx", "utf8")
     function imageHelper(content: string) {
       return content.slice(
-        content.indexOf("export function SliceImage"),
+        content.indexOf("export function BlockImage"),
         content.indexOf("const ON_BRAND_VARIANT")
       )
     }

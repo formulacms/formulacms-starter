@@ -94,8 +94,8 @@ vi.mock("./page-editor/components/seo-panel", () => ({ SeoPanel: () => null }))
 vi.mock("./page-editor/components/settings-panel", () => ({
   SettingsPanel: () => null,
 }))
-vi.mock("./page-editor/components/slices-panel", () => ({
-  SlicesPanel: () => null,
+vi.mock("./page-editor/components/blocks-panel", () => ({
+  BlocksPanel: () => null,
 }))
 
 import { PageEditor } from "./page-editor"
@@ -115,8 +115,8 @@ function page(status: Page["status"] = "published"): Page {
     createdAt: 100,
     updatedAt: 100,
     content: {
-      en: { title: "About", slices: [] },
-      fr: { title: "À propos", slices: [] },
+      en: { title: "About", blocks: [] },
+      fr: { title: "À propos", blocks: [] },
     },
     tags: [],
     createdBy: "owner-1",

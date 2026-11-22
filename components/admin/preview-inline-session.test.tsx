@@ -1,10 +1,10 @@
-import { createSampleSlice } from "@/convex/lib/slices/sample"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
+import { blockProfile } from "@/test-utils/block-profile"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 
-import { HeroAgency } from "@/components/slices/hero-agency"
-import { captureSliceOccurrence } from "./page-editor/lib/slice-occurrence"
+import { HeroAgency } from "@/components/blocks/hero-agency"
+import { captureBlockOccurrence } from "./page-editor/lib/block-occurrence"
 import {
   acceptPreviewCapture,
   projectPreviewSession,
@@ -20,79 +20,79 @@ const pm = (text: string) =>
     ],
   })
 function fixture() {
-  const slice = { ...createSampleSlice("hero-agency"), id: "hero" }
+  const block = { ...createSampleBlock("hero-agency"), id: "hero" }
   const session: PreviewInlineSession = {
-    ...captureSliceOccurrence([slice], "en", "hero")!,
+    ...captureBlockOccurrence([block], "en", "hero")!,
     fieldPath: "primary.description",
     kind: "richText",
-    draft: slice.primary.description,
-    cancellationValue: slice.primary.description,
+    draft: block.primary.description,
+    cancellationValue: block.primary.description,
     label: "Title",
   }
-  return { slice, session }
+  return { block, session }
 }
 
 describe("validated preview projection", () => {
   it.each(["centered", "retained-missing"])(
-    "preserves retained presentation %s while validating real inline field edits", sliceProfile([]),
+    "preserves retained presentation %s while validating real inline field edits", blockProfile([]),
     (presentationIdV1) => {
       const base = fixture()
-      const slice = { ...base.slice, presentationIdV1 }
+      const block = { ...base.block, presentationIdV1 }
       const session = {
         ...base.session,
-        ...captureSliceOccurrence([slice], "en", "hero")!,
+        ...captureBlockOccurrence([block], "en", "hero")!,
         draft: pm("Edited with presentation"),
       }
-      const commit = validatedPreviewCommit([slice], "en", session)
+      const commit = validatedPreviewCommit([block], "en", session)
       expect(commit?.value).toBe(session.draft)
-      const [projected] = projectPreviewSession([slice], "en", session)
+      const [projected] = projectPreviewSession([block], "en", session)
       expect(projected.presentationIdV1).toBe(presentationIdV1)
-      expect(projected.id).toBe(slice.id)
-      expect(projected.type).toBe(slice.type)
+      expect(projected.id).toBe(block.id)
+      expect(projected.type).toBe(block.type)
       const captured = acceptPreviewCapture(session, commit!)
-      expect(JSON.parse(captured.expectedSlice).presentationIdV1).toBe(
+      expect(JSON.parse(captured.expectedBlock).presentationIdV1).toBe(
         presentationIdV1
       )
-      expect(projectPreviewSession([slice], "en", null)[0]).toBe(slice)
-      expect(slice.primary.description).toBe(base.slice.primary.description)
+      expect(projectPreviewSession([block], "en", null)[0]).toBe(block)
+      expect(block.primary.description).toBe(base.block.primary.description)
     }
   )
 
   it.each(["", "a".repeat(65), "../default"])(
-    "refuses malformed occurrence metadata %j before applying unchanged descriptor validation", sliceProfile([]),
+    "refuses malformed occurrence metadata %j before applying unchanged descriptor validation", blockProfile([]),
     (presentationIdV1) => {
       const base = fixture()
-      const slice = { ...base.slice, presentationIdV1 }
+      const block = { ...base.block, presentationIdV1 }
       const session = {
         ...base.session,
-        ...captureSliceOccurrence([slice], "en", "hero")!,
+        ...captureBlockOccurrence([block], "en", "hero")!,
         draft: pm("Rejected edit"),
       }
-      expect(validatedPreviewCommit([slice], "en", session)).toBeNull()
-      expect(projectPreviewSession([slice], "en", session)[0]).toBe(slice)
+      expect(validatedPreviewCommit([block], "en", session)).toBeNull()
+      expect(projectPreviewSession([block], "en", session)[0]).toBe(block)
     }
   )
 
-  it("still refuses malformed actual values after separating valid presentation metadata", sliceProfile([]), () => {
+  it("still refuses malformed actual values after separating valid presentation metadata", blockProfile([]), () => {
     const base = fixture()
-    const slice = {
-      ...base.slice,
+    const block = {
+      ...base.block,
       presentationIdV1: "centered",
-      primary: { ...base.slice.primary, eyebrow: 42 },
-    } as unknown as typeof base.slice
+      primary: { ...base.block.primary, eyebrow: 42 },
+    } as unknown as typeof base.block
     const session = {
       ...base.session,
-      ...captureSliceOccurrence([slice], "en", "hero")!,
+      ...captureBlockOccurrence([block], "en", "hero")!,
       draft: pm("Rejected malformed content"),
     }
-    expect(validatedPreviewCommit([slice], "en", session)).toBeNull()
+    expect(validatedPreviewCommit([block], "en", session)).toBeNull()
   })
 
-  it("renders consecutive buffers with the real renderer without changing the base", sliceProfile([]), () => {
-    const { slice, session } = fixture()
-    const base = JSON.stringify(slice)
+  it("renders consecutive buffers with the real renderer without changing the base", blockProfile([]), () => {
+    const { block, session } = fixture()
+    const base = JSON.stringify(block)
     for (const text of ["Keystroke one", "Keystroke one two"]) {
-      const [projected] = projectPreviewSession([slice], "en", {
+      const [projected] = projectPreviewSession([block], "en", {
         ...session,
         draft: pm(text),
       })
@@ -100,37 +100,37 @@ describe("validated preview projection", () => {
       expect(
         renderToStaticMarkup(
           <HeroAgency
-            slice={projected}
+            block={projected}
             ctx={{ locale: "en", defaultLocale: "en", pagePaths: {} }}
           />
         )
       ).toContain(text)
-      expect(JSON.stringify(slice)).toBe(base)
+      expect(JSON.stringify(block)).toBe(base)
     }
-    expect(projectPreviewSession([slice], "en", null)).toEqual([slice])
+    expect(projectPreviewSession([block], "en", null)).toEqual([block])
   })
 
-  it("refuses an externally changed occurrence, descriptor mismatch, and profile widening", sliceProfile([]), () => {
-    const { slice, session } = fixture()
+  it("refuses an externally changed occurrence, descriptor mismatch, and profile widening", blockProfile([]), () => {
+    const { block, session } = fixture()
     expect(
       validatedPreviewCommit(
-        [{ ...slice, primary: { ...slice.primary, eyebrow: "external" } }],
+        [{ ...block, primary: { ...block.primary, eyebrow: "external" } }],
         "en",
         session
       )
     ).toBeNull()
-    expect(validatedPreviewCommit([slice], "fr", session)).toBeNull()
+    expect(validatedPreviewCommit([block], "fr", session)).toBeNull()
     expect(
-      validatedPreviewCommit([slice], "en", {
+      validatedPreviewCommit([block], "en", {
         ...session,
         fieldPath: "primary.missing",
       })
     ).toBeNull()
     expect(
-      validatedPreviewCommit([slice], "en", { ...session, kind: "text" })
+      validatedPreviewCommit([block], "en", { ...session, kind: "text" })
     ).toBeNull()
     expect(
-      validatedPreviewCommit([slice], "en", {
+      validatedPreviewCommit([block], "en", {
         ...session,
         draft: JSON.stringify({
           type: "doc",
@@ -140,33 +140,33 @@ describe("validated preview projection", () => {
     ).toBeNull()
   })
 
-  it("accepts a rebased inline value when a sibling field changed in the same occurrence", sliceProfile([]), () => {
-    const { slice, session } = fixture()
+  it("accepts a rebased inline value when a sibling field changed in the same occurrence", blockProfile([]), () => {
+    const { block, session } = fixture()
     const current = {
-      ...slice,
-      primary: { ...slice.primary, eyebrow: "External form edit" },
+      ...block,
+      primary: { ...block.primary, eyebrow: "External form edit" },
     }
     const rebased = validatedPreviewCommit([current], "en", {
       ...session,
-      expectedSlice: JSON.stringify(current),
+      expectedBlock: JSON.stringify(current),
       draft: pm("Inline buffer after rebase"),
     })
 
     expect(rebased?.value).toBe(pm("Inline buffer after rebase"))
     const [projected] = projectPreviewSession([current], "en", {
       ...session,
-      expectedSlice: JSON.stringify(current),
+      expectedBlock: JSON.stringify(current),
       draft: pm("Inline buffer after rebase"),
     })
     if (projected.type !== "hero-agency")
-      throw new Error("Expected projected Hero Agency slice")
+      throw new Error("Expected projected Hero Agency block")
     expect(projected.primary.eyebrow).toBe("External form edit")
     expect(projected.primary.description).toBe(pm("Inline buffer after rebase"))
   })
 
-  it("rebases captured Save while preserving newer typing and cancellation baseline", sliceProfile([]), () => {
-    const { slice, session } = fixture()
-    const captured = validatedPreviewCommit([slice], "en", {
+  it("rebases captured Save while preserving newer typing and cancellation baseline", blockProfile([]), () => {
+    const { block, session } = fixture()
+    const captured = validatedPreviewCommit([block], "en", {
       ...session,
       draft: pm("captured"),
     })!
@@ -174,7 +174,7 @@ describe("validated preview projection", () => {
       { ...session, draft: pm("newer typing") },
       captured
     )
-    const [savedBase] = projectPreviewSession([slice], "en", {
+    const [savedBase] = projectPreviewSession([block], "en", {
       ...session,
       draft: captured.value,
     })
@@ -189,9 +189,9 @@ describe("validated preview projection", () => {
 
 describe("repeated runtime item guards", () => {
   function repeated() {
-    const slice = { ...createSampleSlice("features-icon-grid"), id: "features" }
-    slice.items = [0, 1, 2].map((index) => ({
-      ...slice.items[0],
+    const block = { ...createSampleBlock("features-icon-grid"), id: "features" }
+    block.items = [0, 1, 2].map((index) => ({
+      ...block.items[0],
       title: JSON.stringify({
         type: "doc",
         content: [
@@ -205,25 +205,25 @@ describe("repeated runtime item guards", () => {
       body: pm("Equal"),
     }))
     const session: PreviewInlineSession = {
-      ...captureSliceOccurrence([slice], "en", slice.id, "items.1.body", 7)!,
+      ...captureBlockOccurrence([block], "en", block.id, "items.1.body", 7)!,
       fieldPath: "items.1.body",
       kind: "richText",
       draft: pm("Middle edited"),
       cancellationValue: pm("Equal"),
       label: "Title",
     }
-    return { slice, session }
+    return { block, session }
   }
-  it("patches only the selected equal body and preserves full sibling values", sliceProfile([]), () => {
-    const { slice, session } = repeated()
-    const [projected] = projectPreviewSession([slice], "en", session, 7)
+  it("patches only the selected equal body and preserves full sibling values", blockProfile([]), () => {
+    const { block, session } = repeated()
+    const [projected] = projectPreviewSession([block], "en", session, 7)
     if (projected.type !== "features-icon-grid") throw new Error("fixture type")
     expect(projected.items).toEqual([
-      slice.items[0],
-      { ...slice.items[1], body: session.draft },
-      slice.items[2],
+      block.items[0],
+      { ...block.items[1], body: session.draft },
+      block.items[2],
     ])
-    expect(slice.items[1].body).toBe(pm("Equal"))
+    expect(block.items[1].body).toBe(pm("Equal"))
   })
   it.each([
     "reorder",
@@ -233,17 +233,17 @@ describe("repeated runtime item guards", () => {
     "locale",
     "wrong-path",
     "missing-binding",
-  ])("refuses %s without retargeting", sliceProfile([]), (change) => {
-    const { slice, session } = repeated()
+  ])("refuses %s without retargeting", blockProfile([]), (change) => {
+    const { block, session } = repeated()
     const current =
       change === "reorder"
-        ? { ...slice, items: [...slice.items].reverse() }
+        ? { ...block, items: [...block.items].reverse() }
         : change === "remove"
-          ? { ...slice, items: slice.items.slice(1) }
+          ? { ...block, items: block.items.slice(1) }
           : change === "sibling-field"
             ? {
-                ...slice,
-                items: slice.items.map((item, index) =>
+                ...block,
+                items: block.items.map((item, index) =>
                   index === 1
                     ? {
                         ...item,
@@ -261,7 +261,7 @@ describe("repeated runtime item guards", () => {
                     : item
                 ),
               }
-            : slice
+            : block
     const pending =
       change === "wrong-path"
         ? { ...session, fieldPath: "items.0.body" }
@@ -285,14 +285,14 @@ describe("repeated runtime item guards", () => {
       )
     ).toEqual([current])
   })
-  it("deliberately rebases its own captured value while retaining newer typing", sliceProfile([]), () => {
-    const { slice, session } = repeated()
-    const captured = validatedPreviewCommit([slice], "en", session, 7)!
+  it("deliberately rebases its own captured value while retaining newer typing", blockProfile([]), () => {
+    const { block, session } = repeated()
+    const captured = validatedPreviewCommit([block], "en", session, 7)!
     const rebased = acceptPreviewCapture(
       { ...session, draft: pm("Later typing") },
       captured
     )
-    const [saved] = projectPreviewSession([slice], "en", session, 7)
+    const [saved] = projectPreviewSession([block], "en", session, 7)
     if (saved.type !== "features-icon-grid") throw new Error("fixture type")
     expect(rebased.repeatedTarget?.itemFingerprint).toBe(
       JSON.stringify(saved.items[1])
@@ -306,14 +306,14 @@ describe("repeated runtime item guards", () => {
 
 describe("compiled renderer source pin", () => {
   const pin = {
-    rendererSource: "components/slices/hero-agency.tsx",
+    rendererSource: "components/blocks/hero-agency.tsx",
     presentationId: "default",
     sourceHash: "a".repeat(64),
   }
-  it("retains the exact compiled pin through a valid commit and accepted content rebase", sliceProfile([]), () => {
-    const { slice, session } = fixture()
+  it("retains the exact compiled pin through a valid commit and accepted content rebase", blockProfile([]), () => {
+    const { block, session } = fixture()
     const pinned = { ...session, rendererSource: pin, draft: pm("Saved text") }
-    const commit = validatedPreviewCommit([slice], "en", pinned)!
+    const commit = validatedPreviewCommit([block], "en", pinned)!
     expect(commit.rendererSource).toEqual(pin)
     expect(acceptPreviewCapture(pinned, commit).rendererSource).toEqual(pin)
     expect(
@@ -323,16 +323,16 @@ describe("compiled renderer source pin", () => {
       })
     ).toBe(pinned)
   })
-  it("an observed stale pin refuses both projection and exact-byte revert rebase", sliceProfile([]), () => {
-    const { slice, session } = fixture()
+  it("an observed stale pin refuses both projection and exact-byte revert rebase", blockProfile([]), () => {
+    const { block, session } = fixture()
     const pinned = {
       ...session,
       rendererSource: pin,
       sourceInvalidated: true,
       draft: pm("Keep me"),
     }
-    expect(validatedPreviewCommit([slice], "en", pinned)).toBeNull()
-    expect(projectPreviewSession([slice], "en", pinned)[0]).toBe(slice)
+    expect(validatedPreviewCommit([block], "en", pinned)).toBeNull()
+    expect(projectPreviewSession([block], "en", pinned)[0]).toBe(block)
     expect(
       acceptPreviewCapture(pinned, {
         ...pinned,
@@ -345,26 +345,26 @@ describe("compiled renderer source pin", () => {
 
 describe("RF5 edited value and untouched sibling admission", () => {
   it.each(["", "<p>Legacy sibling</p>", pm("Canonical sibling")])(
-    "validates title edits without changing sibling bytes %j", sliceProfile([]),
+    "validates title edits without changing sibling bytes %j", blockProfile([]),
     async (description) => {
       const { adoptHeroTitles } =
         await import("@/lib/rich-text/adopt-hero-titles")
       const base = fixture()
-      const slice = {
-        ...base.slice,
-        primary: { ...base.slice.primary, description },
+      const block = {
+        ...base.block,
+        primary: { ...base.block.primary, description },
       }
       const session = {
         ...base.session,
-        ...captureSliceOccurrence([slice], "en", slice.id)!,
+        ...captureBlockOccurrence([block], "en", block.id)!,
         fieldPath: "primary.title",
         draft: pm("Edited title"),
       }
-      const before = JSON.stringify(slice)
-      const commit = validatedPreviewCommit([slice], "en", session)
+      const before = JSON.stringify(block)
+      const commit = validatedPreviewCommit([block], "en", session)
       expect(commit?.value).toContain("Edited title")
-      expect(commit?.expectedSlice).toBe(before)
-      const [projected] = projectPreviewSession([slice], "en", session)
+      expect(commit?.expectedBlock).toBe(before)
+      const [projected] = projectPreviewSession([block], "en", session)
       if (projected.type !== "hero-agency")
         throw new Error("Expected Hero Agency")
       expect(projected.primary.description).toBe(description)
@@ -372,32 +372,32 @@ describe("RF5 edited value and untouched sibling admission", () => {
       expect(prepared.value[0].primary).toMatchObject({
         description: expect.stringContaining('"type":"doc"'),
       })
-      expect(JSON.stringify(slice)).toBe(before)
-      expect(projectPreviewSession([slice], "en", null)[0]).toBe(slice)
+      expect(JSON.stringify(block)).toBe(before)
+      expect(projectPreviewSession([block], "en", null)[0]).toBe(block)
     }
   )
-  it("refuses a malformed structured sibling rather than reinterpreting it", sliceProfile([]), () => {
+  it("refuses a malformed structured sibling rather than reinterpreting it", blockProfile([]), () => {
     const base = fixture()
-    const slice = {
-      ...base.slice,
-      primary: { ...base.slice.primary, description: '{"type":"doc"}' },
+    const block = {
+      ...base.block,
+      primary: { ...base.block.primary, description: '{"type":"doc"}' },
     }
     const session = {
       ...base.session,
-      ...captureSliceOccurrence([slice], "en", slice.id)!,
+      ...captureBlockOccurrence([block], "en", block.id)!,
       fieldPath: "primary.title",
       draft: pm("Edited"),
     }
-    expect(validatedPreviewCommit([slice], "en", session)).toBeNull()
+    expect(validatedPreviewCommit([block], "en", session)).toBeNull()
   })
   it.each([
     "<p>New HTML</p>",
     '"non-doc"',
     '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"paragraph"}]}]}',
-  ])("never adopts a newly edited non-title value %j", sliceProfile([]), (draft) => {
-    const { slice, session } = fixture()
+  ])("never adopts a newly edited non-title value %j", blockProfile([]), (draft) => {
+    const { block, session } = fixture()
     expect(
-      validatedPreviewCommit([slice], "en", { ...session, draft })
+      validatedPreviewCommit([block], "en", { ...session, draft })
     ).toBeNull()
   })
 })

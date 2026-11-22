@@ -33,13 +33,13 @@ export function parseCaptureFidelityArgs(
   }
 
   // This command captures every design that has an accepted width, so it no
-  // longer takes a slice name. Saying so beats quietly ignoring the argument.
+  // longer takes a block name. Saying so beats quietly ignoring the argument.
   const stray = args.find(
     (arg, index) => !arg.startsWith("-") && !consumed.has(index)
   )
   if (stray) {
     throw new Error(
-      `This command captures every design that has an accepted width, so it takes no slice name (got "${stray}"). Run it with no arguments.`
+      `This command captures every design that has an accepted width, so it takes no block name (got "${stray}"). Run it with no arguments.`
     )
   }
 

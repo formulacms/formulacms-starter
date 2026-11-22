@@ -5,7 +5,7 @@ import { getFunctionName } from "convex/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 
 import type { Id } from "@/convex/_generated/dataModel"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 import type { Page, PrePublishChecklist } from "./page-editor/lib/types"
 
 const owner = {
@@ -215,9 +215,9 @@ vi.mock("./page-editor/components/settings-panel", () => ({
   SettingsPanel: () => null,
 }))
 
-vi.mock("./page-editor/components/slices-panel", () => ({
-  SlicesPanel: ({ slices }: { slices: Slice[] }) => (
-    <output data-testid="page-editor-slices">{JSON.stringify(slices)}</output>
+vi.mock("./page-editor/components/blocks-panel", () => ({
+  BlocksPanel: ({ blocks }: { blocks: Block[] }) => (
+    <output data-testid="page-editor-blocks">{JSON.stringify(blocks)}</output>
   ),
 }))
 
@@ -243,13 +243,13 @@ function post(): Page {
     content: {
       en: {
         title: "Hello world",
-        slices: [],
+        blocks: [],
         category: "News",
         seo: { ogTitle: "Hello social", ogDescription: "Hello text" },
       },
       fr: {
         title: "Bonjour le monde",
-        slices: [],
+        blocks: [],
         category: "Actualités",
         cardExcerpt: "Un petit bonjour.",
         seo: {
@@ -376,7 +376,12 @@ describe("PageEditor per-language search and social values", () => {
     fireEvent.click(screen.getByRole("button", { name: /FR\s*EN/ }))
     // Push saves, opens English, then copies French into it.
     await waitFor(() => expect(mocks.success).toHaveBeenCalled())
-    expect(screen.getByLabelText("Page title")).toHaveValue("Bonjour le monde")
+    // The copy lands after the success toast; wait for it.
+    await waitFor(() =>
+      expect(screen.getByLabelText("Page title")).toHaveValue(
+        "Bonjour le monde"
+      )
+    )
     fireEvent.click(screen.getByTitle("SEO"))
     expect(seoValues()).toMatchObject({
       ogTitle: "Bonjour social",

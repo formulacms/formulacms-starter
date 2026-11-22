@@ -96,9 +96,9 @@ export function renderPageTypeRegions(
 function localizedValidator(
   entry: ContentTypeManifestEntry
 ): string {
-  return entry.sliceBody
+  return entry.blockBody
     ? `armLocalizedContentValidator(${entry.exportName})`
-    : `armLocalizedContentValidatorNoSlices(${entry.exportName})`
+    : `armLocalizedContentValidatorNoBlocks(${entry.exportName})`
 }
 
 function armName(entry: ContentTypeManifestEntry): string {
@@ -235,7 +235,7 @@ function renderDraftInput(entry: ContentTypeManifestEntry): string {
     `const ${draftInputName(entry)} = v.object({`,
     `  pageType: v.literal(${JSON.stringify(entry.type)}),`,
     `  localized: ${entry.exportName}.localizedValidator,`,
-    ...(entry.sliceBody ? ["  slices: v.array(sliceValidator),"] : []),
+    ...(entry.blockBody ? ["  blocks: v.array(blockValidator),"] : []),
     "  ...perLanguageInput,",
     "})",
   ].join("\n")
@@ -286,16 +286,16 @@ export function renderSelectionRegion(
 }
 
 function rendererDetails(entry: ContentTypeManifestEntry): {
-  kind: "sliceBody" | "pureForm"
+  kind: "blockBody" | "pureForm"
   module: string
   component: string
 } | null {
   if (!entry.selected || entry.renderer === "none") return null
-  if (entry.renderer === "default-slice-body") {
+  if (entry.renderer === "default-block-body") {
     return {
-      kind: "sliceBody",
-      module: "@/components/slices/_shared/default-slice-body",
-      component: "DefaultSliceBodyRenderer",
+      kind: "blockBody",
+      module: "@/components/blocks/_shared/default-block-body",
+      component: "DefaultBlockBodyRenderer",
     }
   }
   if (!entry.rendererModule || !entry.rendererExport) {
@@ -307,7 +307,7 @@ function rendererDetails(entry: ContentTypeManifestEntry): {
     kind:
       entry.renderer === "custom-pure-form"
         ? "pureForm"
-        : "sliceBody",
+        : "blockBody",
     module: entry.rendererModule,
     component: entry.rendererExport,
   }
@@ -496,11 +496,11 @@ function isManifestEntry(
     typeof entry.exportName === "string" &&
     typeof entry.labels === "object" &&
     typeof entry.selected === "boolean" &&
-    typeof entry.sliceBody === "boolean" &&
+    typeof entry.blockBody === "boolean" &&
     (entry.pathPrefix === undefined ||
       typeof entry.pathPrefix === "string") &&
-    (entry.renderer === "default-slice-body" ||
-      entry.renderer === "custom-slice-body" ||
+    (entry.renderer === "default-block-body" ||
+      entry.renderer === "custom-block-body" ||
       entry.renderer === "custom-pure-form" ||
       entry.renderer === "none") &&
     Array.isArray(entry.sharedFieldKeys) &&

@@ -35,7 +35,7 @@ const PUBLIC_GLOBS = ["components/public/**/*.{ts,tsx}", "app/(public)/**/*.{ts,
 const ADMIN_GLOBS = ["components/admin/**/*.{ts,tsx}", "app/(core)/**/*.{ts,tsx}"];
 
 // Negative lookbehind `(?<![-\w])` keeps the regex from matching tokens that
-// sit inside a longer identifier or kebab-case string (e.g. the slice slug
+// sit inside a longer identifier or kebab-case string (e.g. the block slug
 // `rich-text-body` would otherwise hit `text-body`). The token must be at a
 // class-list boundary — start of line, whitespace, or a quote.
 const ADMIN_ONLY_TOKEN_PATTERNS = [

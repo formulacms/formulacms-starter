@@ -88,7 +88,7 @@ export function RedirectsManager({ onModuleDisabled }: RedirectsManagerProps) {
 
   // From-picker options for the selected locale. `getAllLocalizedPageUrls`
   // already filters to published pages and excludes locales a page isn't
-  // translated into, so this is just a per-locale slice. React Compiler caches
+  // translated into, so this is just a per-locale block. React Compiler caches
   // these — no useMemo needed.
   type FromOption = {
     key: string

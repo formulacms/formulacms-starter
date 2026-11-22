@@ -108,7 +108,7 @@ export type BindingAnchorKind =
   /** A named part of every public page — the header, the footer, the middle. */
   | "surface"
   | "content-type"
-  | "slice-type"
+  | "block-type"
 
 export interface InventoryBindingAnchor {
   id: string
@@ -302,15 +302,15 @@ function inventoryBindingAnchors(
     }
     const kind = path.endsWith("components/content-types/index.ts")
       ? "content-type"
-      : path.endsWith("components/slices/slice-zone-registry.tsx")
-        ? "slice-type"
+      : path.endsWith("components/blocks/block-registry.tsx")
+        ? "block-type"
         : null
     if (!kind) continue
 
     const source = parseScript(file)
     const imports = importedSources(source, path, fileMap)
     const registryName =
-      kind === "content-type" ? "contentTypeRenderers" : "SLICE_COMPONENTS"
+      kind === "content-type" ? "contentTypeRenderers" : "BLOCK_COMPONENTS"
     const registry = findObjectVariable(source, registryName)
     if (!registry) continue
 
@@ -321,7 +321,7 @@ function inventoryBindingAnchors(
       const component =
         kind === "content-type"
           ? componentFromContentTypeEntry(property.initializer)
-          : componentFromSliceEntry(property.initializer)
+          : componentFromBlockEntry(property.initializer)
       if (!component) continue
       const rendererPath = imports.get(component)
       const rendererFile = rendererPath ? fileMap.get(rendererPath) : undefined
@@ -373,7 +373,7 @@ const SURFACE_TAGS = new Set(["header", "main", "footer", "nav", "aside"])
  * a third-party widget) is not a surface: there is no element here to attach
  * anything to, and listing every provider as "unusable" would bury the parts
  * an owner actually recognises. The refusal path is not lost by that choice —
- * content types and Slice Types report their unusable roots in full.
+ * content types and Block Types report their unusable roots in full.
  *
  * A name that appears twice is reported as unusable rather than guessed at.
  */
@@ -577,7 +577,7 @@ function componentFromContentTypeEntry(
   return null
 }
 
-function componentFromSliceEntry(expression: ts.Expression): string | null {
+function componentFromBlockEntry(expression: ts.Expression): string | null {
   const value = unwrapExpression(expression)
   if (!ts.isArrowFunction(value) && !ts.isFunctionExpression(value)) return null
   let component: string | null = null
@@ -778,7 +778,7 @@ function unwrapPreviewKitRoot(
     const disabled = unwrapExpression(root.whenFalse)
     if (
       ts.isPropertyAccessExpression(condition) &&
-      condition.name.text === "previewKitSlice" &&
+      condition.name.text === "previewKitBlock" &&
       ts.isCallExpression(enabled) &&
       enabled.expression.getText() === condition.getText() &&
       enabled.arguments.length === 1 &&
@@ -794,7 +794,7 @@ function unwrapPreviewKitRoot(
     !ts.isCallExpression(root) ||
     root.arguments.length !== 1 ||
     !ts.isPropertyAccessExpression(root.expression) ||
-    root.expression.name.text !== "previewKitSlice" ||
+    root.expression.name.text !== "previewKitBlock" ||
     !ts.isIdentifier(root.arguments[0])
   ) {
     return root

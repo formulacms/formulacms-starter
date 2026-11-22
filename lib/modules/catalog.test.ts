@@ -50,7 +50,7 @@ describe("static module catalog validation", () => {
       "admin.ai-help",
       "admin.list-search",
       "admin.sidebar-status",
-      "content.slice",
+      "content.block",
       "public.action",
       "public.routing",
     ])

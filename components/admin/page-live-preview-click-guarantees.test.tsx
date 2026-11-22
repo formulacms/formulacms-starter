@@ -4,29 +4,42 @@
  * blocks, so these checks hold for the shared machinery (preview canvas,
  * in-place editor, rich-text-caret.ts), never for one example block.
  *
- * Contract matrix. Rows: the field's editing mode. Columns: "Edit text in
- * preview" on / off × block selected / not selected × 1 / 2 / 3 clicks.
+ * Editing in the preview is always on (owner, 2026-11-21): there is no
+ * on/off button. The editor blocks it only while a recovered draft waits,
+ * after a repeated conflict, under a lock, or when the preview needs a
+ * reload.
  *
- * | Row                       | Edit in preview on            | Edit in preview off  |
+ * Contract matrix. Rows: the field's editing mode. Columns: editing in the
+ * preview allowed / blocked × block selected / not selected × 1 / 2 / 3
+ * clicks.
+ *
+ * | Row                       | Allowed                       | Blocked              |
  * | ------------------------- | ----------------------------- | -------------------- |
  * | in-place `title` contract | in-place editor               | form control         |
  * | in-place `basic` contract | in-place editor               | form control         |
- * | form-only full rich text  | form control + notice         | form control         |
- * | plain text (input)        | form control + notice         | form control         |
- * | multiline text (textarea) | form control + notice         | form control         |
+ * | in-place plain text       | in-place editor               | form control         |
+ * | form-only full rich text  | form control ("unsupported")  | form control         |
+ * | multiline text (textarea) | form control ("unsupported")  | form control         |
+ * | a row of a primary list   | form control ("unsupported")  | form control         |
+ *
+ * Plain text is a one-line `text()` field (eyebrow, label, button text):
+ * since PR A3 (owner, 2026-11-21, "do option 1") it opens in place like a
+ * title, through the kit's `Text` marker only. A multiline field stays in the
+ * form (its public render folds line breaks), and so does every row of a
+ * primary list (a button label of the block's own buttons).
  *
  * In every cell: 1 click = caret at the clicked letter, 2 = the clicked word
  * selected, 3 = the paragraph under the pointer selected (a title or a plain
  * input is one paragraph: the whole field; a textarea: the clicked line),
  * the same whether or not the in-place editor had opened. The block's selection state does
  * not change the result: an unselected block (the case below) behaves as a
- * selected one. "Notice" is "This field can only be edited in the form."; no
- * notice is raised with edit in preview off.
+ * selected one. "unsupported" is the canvas's refusal result; the page
+ * editor shows no notice for it: the focused form control is the feedback.
  *
  * jsdom covers the click mapping (field, offset, click count), the field host
  * while the in-place editor loads (never empty, same element) and the editor
  * selection. Real layout (boxes, scroll) is checked in the browser by
- * e2e/non-disposable/preview-click-timing.spec.ts in the page editor.
+ * scripts/verify-block-click-editing.ts in the block simulator.
  *
  * Test proportionally: every presentation gets one click per editing mode;
  * the delayed editor mount runs once per in-place mode and click count, on a
@@ -48,20 +61,20 @@ import {
 } from "vitest"
 import type { Editor } from "@tiptap/core"
 import {
-  sliceDefs,
-  REGISTERED_SLICE_TYPES,
-  type Slice,
+  blockDefs,
+  REGISTERED_BLOCK_TYPES,
+  type Block,
   type Primitive,
-} from "@/convex/lib/slices"
-import * as primitiveFactories from "@/convex/lib/slices/primitives"
-import { button } from "@/convex/lib/slices/fields"
-import { walkValue } from "@/convex/lib/slices/walk"
+} from "@/convex/lib/blocks"
+import * as primitiveFactories from "@/convex/lib/blocks/primitives"
+import { button } from "@/convex/lib/blocks/fields"
+import { walkValue } from "@/convex/lib/blocks/walk"
 import { resolveFieldContract } from "@/convex/lib/richtext/contracts"
-import { createCoverageFixtures } from "@/lib/slices/authoring/coverage-fixtures"
-import { COVERAGE_EXCLUSIONS } from "@/lib/slices/authoring/field-coverage"
-import { scaffoldSlice, type SliceSpec } from "@/lib/slices/authoring/scaffold"
-import { readRegisteredVerificationCatalog } from "@/lib/slices/authoring/verification-catalog"
-import type { SliceRenderContext } from "@/lib/slices/links"
+import { createCoverageFixtures } from "@/lib/blocks/authoring/coverage-fixtures"
+import { COVERAGE_EXCLUSIONS } from "@/lib/blocks/authoring/field-coverage"
+import { scaffoldBlock, type BlockSpec } from "@/lib/blocks/authoring/scaffold"
+import { readRegisteredVerificationCatalog } from "@/lib/blocks/authoring/verification-catalog"
+import type { BlockRenderContext } from "@/lib/blocks/links"
 import { render } from "@/test-utils/admin-i18n"
 import { PageLivePreviewCanvas } from "./page-live-preview-canvas"
 import type { PreviewFieldSelection } from "./visual-editing-types"
@@ -77,22 +90,24 @@ vi.mock("./preview-inline-editor", async (importOriginal) => {
 type Mode =
   | "in-place title"
   | "in-place basic"
+  | "in-place plain"
   | "form-only rich text"
-  | "plain text"
   | "multiline text"
+  | "primary list row"
 type TextField = { path: string; mode: Mode }
 type Catalog = Awaited<ReturnType<typeof readRegisteredVerificationCatalog>>
 type Canvas = typeof PageLivePreviewCanvas
-type Renderer = (slices: Slice[], ctx: SliceRenderContext) => React.ReactNode
+type Renderer = (blocks: Block[], ctx: BlockRenderContext) => React.ReactNode
 
 const canonical = (path: string) => path.replace(/\[(\d+)\]/g, ".$1")
 
-function modeOf(def: Primitive): Mode | null {
+function modeOf(def: Primitive, path: string): Mode | null {
+  if (def.kind !== "text" && def.kind !== "richText") return null
+  if (/^primary\..*\.\d+(\.|$)/.test(path)) return "primary list row"
   if (def.kind === "text")
     return (def.config as { multiline?: boolean }).multiline
       ? "multiline text"
-      : "plain text"
-  if (def.kind !== "richText") return null
+      : "in-place plain"
   const { contract } = resolveFieldContract(def.config)
   return contract === "title" || contract === "inline"
     ? "in-place title"
@@ -104,17 +119,17 @@ function modeOf(def: Primitive): Mode | null {
 /** The block's text fields the descriptor and fixture say are on screen. */
 function expectedTextFields(
   descriptor: { primary: Primitive; items?: Primitive },
-  slice: { primary: unknown; items?: unknown },
+  block: { primary: unknown; items?: unknown },
   expectedPaths: string[]
 ): TextField[] {
   const fields: TextField[] = []
   const visit = ({ path, def }: { path: string; def: Primitive }) => {
-    const mode = modeOf(def)
+    const mode = modeOf(def, canonical(path))
     if (mode && expectedPaths.includes(canonical(path)))
       fields.push({ path: canonical(path), mode })
   }
-  walkValue(descriptor.primary, slice.primary, visit, "primary")
-  if (descriptor.items) walkValue(descriptor.items, slice.items, visit, "items")
+  walkValue(descriptor.primary, block.primary, visit, "primary")
+  if (descriptor.items) walkValue(descriptor.items, block.items, visit, "items")
   return fields
 }
 
@@ -145,13 +160,18 @@ function hostOf(root: ParentNode, path: string) {
 function mountCanvas(
   Component: Canvas,
   renderWith: typeof render,
-  slices: Slice[],
-  options: { enabled: boolean; catalog: Catalog; renderPage?: Renderer }
+  blocks: Block[],
+  options: {
+    enabled: boolean
+    catalog: Catalog
+    renderPage?: Renderer
+    onInlineEditCommit?: React.ComponentProps<Canvas>["onInlineEditCommit"]
+  }
 ) {
   const onSelectField = vi.fn()
   const props: React.ComponentProps<Canvas> = {
     title: "Preview",
-    slices,
+    blocks,
     locale: "en",
     defaultLocale: "en",
     contentEpoch: 0,
@@ -162,11 +182,11 @@ function mountCanvas(
       relationCards: {},
       presentationCatalog: options.catalog,
     },
-    selectedSliceId: null,
-    onSelectSlice: vi.fn(),
-    onSelectSliceFallback: vi.fn(),
+    selectedBlockId: null,
+    onSelectBlock: vi.fn(),
+    onSelectBlockFallback: vi.fn(),
     onSelectField,
-    onInlineEditCommit: () => true,
+    onInlineEditCommit: options.onInlineEditCommit ?? (() => true),
     controlledInlineEnabled: options.enabled,
     ...(options.renderPage ? { renderPage: options.renderPage } : {}),
   }
@@ -220,18 +240,18 @@ afterEach(() => {
 // CTA migration is separate) and still matches clicks by guessing text; it
 // has no field hosts, so it is skipped. Its type name is read from the
 // exclusion list: a starter that leaves it out may not name it in a test.
-const WHOLE_SLICE_EXCLUSIONS = COVERAGE_EXCLUSIONS.filter(
+const WHOLE_BLOCK_EXCLUSIONS = COVERAGE_EXCLUSIONS.filter(
   (entry) => entry.path === "*"
 )
-const SKIPPED_SLICE_TYPES = new Set<string>(
-  WHOLE_SLICE_EXCLUSIONS.map((entry) => entry.type)
+const SKIPPED_BLOCK_TYPES = new Set<string>(
+  WHOLE_BLOCK_EXCLUSIONS.map((entry) => entry.type)
 )
 
 it("lets no block but the legacy CTA band skip field coverage as a whole", () => {
   // A second whole-block exclusion would let a factory block skip these
   // click guarantees silently.
-  expect(WHOLE_SLICE_EXCLUSIONS).toHaveLength(1)
-  expect(WHOLE_SLICE_EXCLUSIONS[0]).toMatchObject({ status: "legacy" })
+  expect(WHOLE_BLOCK_EXCLUSIONS).toHaveLength(1)
+  expect(WHOLE_BLOCK_EXCLUSIONS[0]).toMatchObject({ status: "legacy" })
 })
 
 async function registeredCases() {
@@ -240,27 +260,27 @@ async function registeredCases() {
     (entry) =>
       entry.installed &&
       entry.state === "active" &&
-      !SKIPPED_SLICE_TYPES.has(entry.type)
+      !SKIPPED_BLOCK_TYPES.has(entry.type)
   )
   expect(new Set(presentations.map((entry) => entry.type))).toEqual(
-    new Set(REGISTERED_SLICE_TYPES.filter((t) => !SKIPPED_SLICE_TYPES.has(t)))
+    new Set(REGISTERED_BLOCK_TYPES.filter((t) => !SKIPPED_BLOCK_TYPES.has(t)))
   )
   return {
     catalog,
     cases: presentations.map((presentation) => {
-      const type = presentation.type as Slice["type"]
-      const descriptor = sliceDefs[type]
+      const type = presentation.type as Block["type"]
+      const descriptor = blockDefs[type]
       const fixture = createCoverageFixtures(type, descriptor).find(
         (entry) => entry.id === "filled"
       )!
-      const slice = {
-        ...structuredClone(fixture.slice),
+      const block = {
+        ...structuredClone(fixture.block),
         presentationIdV1: presentation.id,
-      } as unknown as Slice
+      } as unknown as Block
       return {
         name: `${type}/${presentation.id}`,
-        slice,
-        fields: expectedTextFields(descriptor, fixture.slice, fixture.expectedPaths),
+        block,
+        fields: expectedTextFields(descriptor, fixture.block, fixture.expectedPaths),
       }
     }),
   }
@@ -269,13 +289,13 @@ async function registeredCases() {
 describe("every registered block presentation", () => {
   it("maps a click, double click and triple click on each kind of text field", async () => {
     const { catalog, cases } = await registeredCases()
-    for (const { name, slice, fields } of cases) {
+    for (const { name, block, fields } of cases) {
       expect(fields.length, `${name} has no text field on screen`).toBeGreaterThan(0)
       for (const enabled of [false, true]) {
         const { view, onSelectField } = mountCanvas(
           PageLivePreviewCanvas,
           render,
-          [slice],
+          [block],
           { enabled, catalog }
         )
         for (const { path } of fields)
@@ -291,22 +311,22 @@ describe("every registered block presentation", () => {
           for (const detail of inPlace ? [1] : [1, 2, 3]) {
             clickLetter(hostOf(view.container, path)!, detail)
             const [target, result] = lastSelection(onSelectField)!
-            const where = `${name} ${mode} ${path} (edit in preview ${enabled}, ${detail} clicks)`
+            const where = `${name} ${mode} ${path} (editing in the preview ${enabled ? "allowed" : "blocked"}, ${detail} clicks)`
             if (inPlace) {
               expect(target, where).toEqual({
-                sliceId: slice.id,
+                blockId: block.id,
                 fieldPath: path,
                 inlineEditing: true,
               })
               expect(result, where).toEqual({ status: "activated" })
             } else {
               expect(target, where).toEqual({
-                sliceId: slice.id,
+                blockId: block.id,
                 fieldPath: path,
                 textOffset: LETTER_OFFSET,
                 ...(detail > 1 ? { clickCount: detail } : {}),
               })
-              // The form-only notice shows only with edit in preview on.
+              // Allowed: the canvas reports a form-only field as refused.
               expect(result, where).toEqual(
                 enabled ? { status: "refused", reason: "unsupported" } : undefined
               )
@@ -326,19 +346,19 @@ describe("every registered block presentation", () => {
     expect(listCase, "no registered block has a list of text fields").toBeDefined()
     const later = listCase.fields.find(({ path }) => /\.1(\.|$)/.test(path))!
     const earlier = later.path.replace(/\.1(\.|$)/, ".0$1")
-    const read = (slice: Slice, path: string) =>
+    const read = (block: Block, path: string) =>
       path.split(".").reduce<unknown>(
         (value, key) => (value as Record<string, unknown>)[key],
-        slice
+        block
       )
-    const write = (slice: Slice, path: string, value: unknown) => {
+    const write = (block: Block, path: string, value: unknown) => {
       const keys = path.split(".")
       const parent = keys
         .slice(0, -1)
-        .reduce<unknown>((at, key) => (at as Record<string, unknown>)[key], slice)
+        .reduce<unknown>((at, key) => (at as Record<string, unknown>)[key], block)
       ;(parent as Record<string, unknown>)[keys.at(-1)!] = value
     }
-    const first = structuredClone(listCase.slice)
+    const first = structuredClone(listCase.block)
     write(first, later.path, read(first, earlier))
     const second = { ...structuredClone(first), id: `${first.id}-second` }
     const { view, onSelectField } = mountCanvas(
@@ -348,7 +368,7 @@ describe("every registered block presentation", () => {
       { enabled: false, catalog }
     )
     const occurrences = view.container.querySelectorAll(
-      "[data-preview-slice-occurrence]"
+      "[data-preview-block-occurrence]"
     )
     expect(occurrences).toHaveLength(2)
     expect(hostOf(occurrences[1], later.path)!.textContent).toBe(
@@ -356,12 +376,12 @@ describe("every registered block presentation", () => {
     )
     clickLetter(hostOf(occurrences[1], later.path)!, 1)
     expect(lastSelection(onSelectField)![0]).toMatchObject({
-      sliceId: second.id,
+      blockId: second.id,
       fieldPath: later.path,
     })
     clickLetter(hostOf(occurrences[1], earlier)!, 1)
     expect(lastSelection(onSelectField)![0]).toMatchObject({
-      sliceId: second.id,
+      blockId: second.id,
       fieldPath: earlier,
     })
   })
@@ -370,8 +390,8 @@ describe("every registered block presentation", () => {
 const SCAFFOLD_TYPE = "factory-click-probe"
 
 /** A block made by the factory's scaffolder, registered only in this test. */
-function scaffoldedSlice(modules: FreshModules) {
-  const spec: SliceSpec = {
+function scaffoldedBlock(modules: FreshModules) {
+  const spec: BlockSpec = {
     type: SCAFFOLD_TYPE,
     label: "Factory click probe",
     description: "Scaffolded block for the click guarantees",
@@ -380,14 +400,15 @@ function scaffoldedSlice(modules: FreshModules) {
     primary: {
       kind: "group",
       fields: {
-        title: { kind: "richText", config: { contract: "title", heading: { role: "sliceTitle" } } },
+        title: { kind: "richText", config: { contract: "title", heading: { role: "blockTitle" } } },
         body: { kind: "richText", config: { contract: "basic" } },
         label: { kind: "text" },
         note: { kind: "text", config: { multiline: true } },
+        short: { kind: "text", config: { maxLength: 12 } },
       },
     },
   }
-  const { descriptorSource, rendererSource } = scaffoldSlice(spec)
+  const { descriptorSource, rendererSource } = scaffoldBlock(spec)
   const compile = (source: string) => {
     const output = ts.transpileModule(source, {
       compilerOptions: {
@@ -414,13 +435,13 @@ function scaffoldedSlice(modules: FreshModules) {
     primary: Primitive
   }
   expect(def).toHaveProperty("type", SCAFFOLD_TYPE)
-  // As in generated-slice-preview.test.tsx: erase the imports and inject the
+  // As in generated-block-preview.test.tsx: erase the imports and inject the
   // scaffold's descriptor and the real block kit.
   const kit = modules.kit
   const rendererExports: Record<string, unknown> = {}
   new Function(
     "React",
-    "bindSliceFields",
+    "bindBlockFields",
     "RichText",
     "Text",
     "Buttons",
@@ -433,10 +454,10 @@ function scaffoldedSlice(modules: FreshModules) {
         .filter((line) => !line.startsWith("import "))
         .join("\n")
     )
-  )(React, kit.bindSliceFields, kit.RichText, kit.Text, kit.Buttons, kit.KitImage, def, rendererExports)
+  )(React, kit.bindBlockFields, kit.RichText, kit.Text, kit.Buttons, kit.KitImage, def, rendererExports)
   const Renderer = rendererExports.FactoryClickProbe as React.ComponentType<{
-    slice: Slice
-    ctx: SliceRenderContext
+    block: Block
+    ctx: BlockRenderContext
   }>
   expect(typeof Renderer).toBe("function")
   const pm = (type: string, text: string) =>
@@ -450,7 +471,7 @@ function scaffoldedSlice(modules: FreshModules) {
         },
       ],
     })
-  const slice = {
+  const block = {
     id: "factory-click-probe-1",
     type: SCAFFOLD_TYPE,
     enabled: true,
@@ -459,27 +480,28 @@ function scaffoldedSlice(modules: FreshModules) {
       body: pm("paragraph", "U3 primary body"),
       label: "U3 primary label",
       note: "U3 primary note",
+      short: "U3 short",
     },
-  } as unknown as Slice
+  } as unknown as Block
   const registry = {}
-  Reflect.set(registry, SCAFFOLD_TYPE, (entry: Slice, context: SliceRenderContext) => (
-    <Renderer slice={entry} ctx={context} />
+  Reflect.set(registry, SCAFFOLD_TYPE, (entry: Block, context: BlockRenderContext) => (
+    <Renderer block={entry} ctx={context} />
   ))
   // The scaffolded type is in no presentation catalog: its own renderer
   // draws it, as in the block simulator.
-  const renderPage: Renderer = (slices, ctx) => (
-    <modules.SliceZone
-      slices={slices}
+  const renderPage: Renderer = (blocks, ctx) => (
+    <modules.BlockList
+      blocks={blocks}
       ctx={{ ...ctx, presentationCatalog: undefined }}
       outline={modules.resolvePageOutline({
-        slices,
+        blocks,
         locale: ctx.locale,
         mode: modules.pageHeadingModeFor("page"),
       })}
       registry={registry}
     />
   )
-  return { def, slice, renderPage, fields: expectedTextFields(def, slice, ["primary.title", "primary.body", "primary.label", "primary.note"]) }
+  return { def, block, renderPage, fields: expectedTextFields(def, block, ["primary.title", "primary.body", "primary.label", "primary.note", "primary.short"]) }
 }
 
 /** A fresh module graph, so the in-place editor's code loads again. */
@@ -493,19 +515,19 @@ async function freshModules() {
     await editorLoad.wait
     return importOriginal()
   })
-  const [canvas, slices, i18n, list, outline, kit] = await Promise.all([
+  const [canvas, blocks, i18n, list, outline, kit] = await Promise.all([
     import("./page-live-preview-canvas"),
-    import("@/convex/lib/slices"),
+    import("@/convex/lib/blocks"),
     import("@/test-utils/admin-i18n"),
-    import("@/components/slices/slice-zone"),
-    import("@/lib/slices/page-outline"),
-    import("@/components/slice-kit"),
+    import("@/components/blocks/block-list"),
+    import("@/lib/blocks/page-outline"),
+    import("@/components/block-kit"),
   ])
   return {
     Canvas: canvas.PageLivePreviewCanvas,
-    sliceDefs: slices.sliceDefs,
+    blockDefs: blocks.blockDefs,
     render: i18n.render,
-    SliceZone: list.SliceZone,
+    BlockList: list.BlockList,
     resolvePageOutline: outline.resolvePageOutline,
     pageHeadingModeFor: outline.pageHeadingModeFor,
     kit,
@@ -529,7 +551,7 @@ describe("opening a field in place while the editor's code loads", () => {
     { detail: 3, selected: "paragraph" },
   ] as const
   const sources = ["registered", "scaffolded"] as const
-  const modes = ["in-place title", "in-place basic"] as const
+  const modes = ["in-place title", "in-place basic", "in-place plain"] as const
 
   it.each(sources.flatMap((source) => modes.flatMap((mode) => counts.map((count) => ({ source, mode, ...count })))))(
     "$source block, $mode, $detail click(s): the host keeps its text, then the editor selects it",
@@ -537,7 +559,7 @@ describe("opening a field in place while the editor's code loads", () => {
       const modules = await freshModules()
       const release = holdEditorLoad()
       const catalog = await readRegisteredVerificationCatalog()
-      let slice: Slice
+      let block: Block
       let path: string
       let renderPage: Renderer | undefined
       let restore = () => {}
@@ -545,22 +567,22 @@ describe("opening a field in place while the editor's code loads", () => {
         const { cases } = await registeredCases()
         const found = cases.find(({ fields }) => fields.some((field) => field.mode === mode))!
         expect(found, `no registered block has a ${mode} field`).toBeDefined()
-        slice = found.slice
+        block = found.block
         path = found.fields.find((field) => field.mode === mode)!.path
       } else {
-        const probe = scaffoldedSlice(modules)
-        const original = Object.getOwnPropertyDescriptor(modules.sliceDefs, SCAFFOLD_TYPE)
-        Reflect.set(modules.sliceDefs, SCAFFOLD_TYPE, probe.def)
+        const probe = scaffoldedBlock(modules)
+        const original = Object.getOwnPropertyDescriptor(modules.blockDefs, SCAFFOLD_TYPE)
+        Reflect.set(modules.blockDefs, SCAFFOLD_TYPE, probe.def)
         restore = () => {
-          if (original) Object.defineProperty(modules.sliceDefs, SCAFFOLD_TYPE, original)
-          else Reflect.deleteProperty(modules.sliceDefs, SCAFFOLD_TYPE)
+          if (original) Object.defineProperty(modules.blockDefs, SCAFFOLD_TYPE, original)
+          else Reflect.deleteProperty(modules.blockDefs, SCAFFOLD_TYPE)
         }
-        slice = probe.slice
+        block = probe.block
         renderPage = probe.renderPage
         path = probe.fields.find((field) => field.mode === mode)!.path
       }
       try {
-        const { view, onSelectField } = mountCanvas(modules.Canvas, modules.render, [slice], {
+        const { view, onSelectField } = mountCanvas(modules.Canvas, modules.render, [block], {
           enabled: true,
           catalog,
           renderPage,
@@ -583,7 +605,7 @@ describe("opening a field in place while the editor's code loads", () => {
           ([, result]) => (result as { status?: string })?.status === "activated"
         )
         expect(activations[0]).toEqual([
-          { sliceId: slice.id, fieldPath: path, inlineEditing: true },
+          { blockId: block.id, fieldPath: path, inlineEditing: true },
           { status: "activated" },
         ])
         release()
@@ -614,6 +636,136 @@ describe("opening a field in place while the editor's code loads", () => {
   )
 })
 
+describe("a plain text field of a factory block, edited in place", () => {
+  // The scaffolder's renderer binds its text fields with the kit's `Text`;
+  // nothing else gives them in-place editing.
+  async function openProbeField(path: string) {
+    const modules = await freshModules()
+    const catalog = await readRegisteredVerificationCatalog()
+    const probe = scaffoldedBlock(modules)
+    const original = Object.getOwnPropertyDescriptor(modules.blockDefs, SCAFFOLD_TYPE)
+    Reflect.set(modules.blockDefs, SCAFFOLD_TYPE, probe.def)
+    const restore = () => {
+      if (original) Object.defineProperty(modules.blockDefs, SCAFFOLD_TYPE, original)
+      else Reflect.deleteProperty(modules.blockDefs, SCAFFOLD_TYPE)
+    }
+    const onInlineEditCommit = vi.fn(() => true)
+    const { view, onSelectField } = mountCanvas(modules.Canvas, modules.render, [probe.block], {
+      enabled: true,
+      catalog,
+      renderPage: probe.renderPage,
+      onInlineEditCommit,
+    })
+    const host = hostOf(view.container, path)!
+    expect(host, `${path} has no host`).not.toBeNull()
+    expect(host.dataset.previewInlineContract).toBe("plain")
+    clickLetter(host, 1)
+    expect(lastSelection(onSelectField)).toEqual([
+      { blockId: probe.block.id, fieldPath: path, inlineEditing: true },
+      { status: "activated" },
+    ])
+    const editorHost = await waitFor(() => {
+      const found = host.querySelector<HTMLElement>("[data-preview-inline-editor]")
+      expect(found).not.toBeNull()
+      return found!
+    })
+    const editor = (editorHost as HTMLElement & { editor: Editor }).editor
+    const written = () =>
+      (onInlineEditCommit.mock.lastCall as unknown as [{ kind: string; value: string; fieldPath: string }] | undefined)?.[0]
+    return { view, host, editor, written, restore }
+  }
+
+  it("writes the typed text to the field as a plain string, and undo restores it", async () => {
+    const { view, host, editor, written, restore } = await openProbeField("primary.label")
+    try {
+      act(() => {
+        editor.commands.insertContentAt(editor.state.doc.content.size - 1, " now")
+      })
+      expect(written()).toMatchObject({
+        fieldPath: "primary.label",
+        kind: "text",
+        value: "U3 primary label now",
+      })
+      expect(editor.schema.marks).toEqual({})
+      act(() => {
+        editor.commands.undo()
+      })
+      expect(written()?.value).toBe("U3 primary label")
+      expect(hostOf(view.container, "primary.label")).toBe(host)
+      view.unmount()
+    } finally {
+      restore()
+    }
+  })
+
+  it("keeps one line: Enter adds nothing and a formatted paste becomes plain text", async () => {
+    const { view, editor, written, restore } = await openProbeField("primary.label")
+    try {
+      act(() => {
+        editor.commands.selectAll()
+        editor.view.pasteHTML(
+          '<p><strong>Bold</strong> and <a href="https://example.com">a link</a></p><p>second line</p>',
+          new Event("paste") as ClipboardEvent
+        )
+      })
+      expect(written()?.value).toBe("Bold and a link second line")
+      act(() => {
+        editor.commands.keyboardShortcut("Enter")
+        editor.commands.keyboardShortcut("Shift-Enter")
+      })
+      expect(written()?.value).toBe("Bold and a link second line")
+      view.unmount()
+    } finally {
+      restore()
+    }
+  })
+
+  it("stops at the field's max length, for typing and for a paste", async () => {
+    const { view, editor, written, restore } = await openProbeField("primary.short")
+    try {
+      act(() => {
+        // "U3 short" is 8 of 12 letters.
+        editor.commands.insertContentAt(editor.state.doc.content.size - 1, "1234")
+      })
+      expect(written()?.value).toBe("U3 short1234")
+      act(() => {
+        editor.commands.insertContentAt(editor.state.doc.content.size - 1, "5")
+      })
+      expect(written()?.value).toBe("U3 short1234")
+      act(() => {
+        editor.commands.selectAll()
+        editor.view.pasteText("A much longer pasted line", new Event("paste") as ClipboardEvent)
+      })
+      expect(written()?.value).toBe("A much longe")
+      view.unmount()
+    } finally {
+      restore()
+    }
+  })
+
+  it("keeps the field's host while it is cleared, then writes the new text", async () => {
+    const { view, host, editor, written, restore } = await openProbeField("primary.label")
+    try {
+      act(() => {
+        editor.commands.selectAll()
+        editor.commands.deleteSelection()
+      })
+      expect(written()?.value).toBe("")
+      // The renderer hides an empty field; the open editor keeps its host.
+      expect(hostOf(view.container, "primary.label")).toBe(host)
+      expect(host.querySelector("[data-preview-inline-editor]")).not.toBeNull()
+      act(() => {
+        editor.commands.insertContent("New label")
+      })
+      expect(written()?.value).toBe("New label")
+      expect(host.textContent).toBe("New label")
+      view.unmount()
+    } finally {
+      restore()
+    }
+  })
+})
+
 describe("the editor's code fails to load", () => {
   it("falls back to the form with the click's spot and count, and retries on the next click", async () => {
     const modules = await freshModules()
@@ -630,14 +782,14 @@ describe("the editor's code fails to load", () => {
     const { view, onSelectField } = mountCanvas(
       modules.Canvas,
       modules.render,
-      [found.slice],
+      [found.block],
       { enabled: true, catalog }
     )
     const host = hostOf(view.container, path)!
     clickLetter(host, 1)
     clickLetter(host, 2)
     expect(lastSelection(onSelectField)).toEqual([
-      { sliceId: found.slice.id, fieldPath: path, inlineEditing: true },
+      { blockId: found.block.id, fieldPath: path, inlineEditing: true },
       { status: "activated" },
     ])
     await act(async () => {
@@ -648,7 +800,7 @@ describe("the editor's code fails to load", () => {
     await waitFor(() =>
       expect(lastSelection(onSelectField)).toEqual([
         {
-          sliceId: found.slice.id,
+          blockId: found.block.id,
           fieldPath: path,
           textOffset: LETTER_OFFSET,
           clickCount: 2,

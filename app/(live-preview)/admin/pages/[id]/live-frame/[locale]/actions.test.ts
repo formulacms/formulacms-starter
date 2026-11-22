@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest"
 import { getFunctionName } from "convex/server"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import type { LiveFrameInput } from "@/components/admin/live-preview-frame-bridge"
 import { resolveLiveFrameContext } from "./actions"
 
@@ -11,8 +11,8 @@ const reads = vi.hoisted(() => ({
 }))
 vi.mock("@/lib/auth/server", () => ({ fetchAuthQuery: reads.auth }))
 vi.mock("convex/nextjs", () => ({ fetchQuery: reads.anonymous }))
-vi.mock("@/lib/slices/render-context", () => ({
-  buildSliceRenderContext: reads.context,
+vi.mock("@/lib/blocks/render-context", () => ({
+  buildBlockRenderContext: reads.context,
 }))
 
 const config = {
@@ -29,8 +29,8 @@ const input: LiveFrameInput = {
   defaultLocale: "en",
   languageVersion: 2,
   title: "Title",
-  slices: [],
-  selectedSliceId: null,
+  blocks: [],
+  selectedBlockId: null,
   inlineEditingEnabled: true,
   mode: "light",
 }
@@ -49,7 +49,7 @@ beforeEach(() => {
 
 it.each(["page", "landing-page", "post", "author"] as const)(
   "resolves a render context for a stored %s row",
-  sliceProfile([]),
+  blockProfile([]),
   async (pageType) => {
     stored(pageType)
     const result = await resolveLiveFrameContext({ ...input, pageType })
@@ -62,7 +62,7 @@ it.each(["page", "landing-page", "post", "author"] as const)(
 )
 it(
   "resolves a Page context on a single-language site",
-  sliceProfile([]),
+  blockProfile([]),
   async () => {
     stored("page", {
       defaultLocale: "en",
@@ -80,7 +80,7 @@ it(
 )
 it.each(["testimonial", "job"])(
   "refuses a stored %s row",
-  sliceProfile([]),
+  blockProfile([]),
   async (pageType) => {
     stored(pageType)
     expect(await resolveLiveFrameContext(input)).toBeNull()

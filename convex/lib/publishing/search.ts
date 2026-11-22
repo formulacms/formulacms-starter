@@ -1,15 +1,16 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
 import type { Doc } from "../../_generated/dataModel"
 import type { MutationCtx } from "../../_generated/server"
 import { contentTypeDefs, type ContentType } from "../contentTypes"
+import { publicDisplayTitle as publicReferenceTitle } from "../contentTypes/publicProjection"
 import {
   isDescriptorFieldPublic,
   publicFieldsOf,
 } from "../contentTypes/exposure"
-import { type Slice, type SliceType } from "../slices"
-import type { Primitive } from "../slices/primitives"
-import { walkFieldMap, walkValue } from "../slices/walk"
+import { type Block, type BlockType } from "../blocks"
+import type { Primitive } from "../blocks/primitives"
+import { walkFieldMap, walkValue } from "../blocks/walk"
 import { collectTextSegments, parsePMDoc } from "../richtext/pmText"
 import { readFieldText, convertTransitionTitle } from "../richtext/transitions"
 import { resolveFieldContract } from "../richtext/contracts"
@@ -21,7 +22,7 @@ import { getStagingByPageId, overlayStagingOnPage } from "./staging"
  *
  * Convex search indexes read one top-level string field, but everything an
  * editor or visitor would search for lives inside `pages.content.<locale>`
- * (titles, rich-text slice bodies). So each page fans out into one
+ * (titles, rich-text block bodies). So each page fans out into one
  * `pageSearch` row per translated locale holding a flattened `text` blob,
  * and every content-affecting page write resyncs those rows — same
  * discipline as `refreshMediaReferencesForPage`, called at the same sites.
@@ -70,17 +71,17 @@ function extractDescriptorFieldMapText(
 /** Cap the denormalized blob well under Convex's 1MB document limit. */
 export const MAX_SEARCH_TEXT_LENGTH = 50_000
 
-/** Flatten the human-readable text of a locale's slices, in document order. */
-export function extractSliceText(slices: Slice[]): string {
+/** Flatten the human-readable text of a locale's blocks, in document order. */
+export function extractBlockText(blocks: Block[]): string {
   const parts: string[] = []
-  for (const slice of slices) {
-    if (!readSlice(slice).enabled) continue
-    const def = readSliceDefinition(readSlice(slice).type as SliceType)
+  for (const block of blocks) {
+    if (!readBlock(block).enabled) continue
+    const def = readBlockDefinition(readBlock(block).type as BlockType)
     if (!def) continue
     const visit = (leaf: { def: Primitive; value: unknown; path: string }) => {
       if (leaf.def.kind === "text" && typeof leaf.value === "string") {
         const projected = readFieldText(
-          { sliceType: readSlice(slice).type, fieldPath: leaf.path },
+          { blockType: readBlock(block).type, fieldPath: leaf.path },
           leaf.value
         )
         if (projected.trim()) parts.push(projected)
@@ -94,7 +95,7 @@ export function extractSliceText(slices: Slice[]): string {
         }
         const doc = parsePMDoc(
           convertTransitionTitle(
-            { sliceType: readSlice(slice).type, fieldPath: leaf.path },
+            { blockType: readBlock(block).type, fieldPath: leaf.path },
             leaf.value
           )?.value ??
             toFieldShape(resolveFieldContract(config), leaf.value).value
@@ -105,15 +106,15 @@ export function extractSliceText(slices: Slice[]): string {
         }
       }
     }
-    walkValue(def.primary, readSlice(slice).primary, visit, "primary")
-    if (def.items && "items" in slice) {
-      walkValue(def.items, readSlice(slice).items, visit, "items")
+    walkValue(def.primary, readBlock(block).primary, visit, "primary")
+    if (def.items && "items" in block) {
+      walkValue(def.items, readBlock(block).items, visit, "items")
     }
   }
   return parts.join(" ")
 }
 
-/** Build one locale's search blob: title + meta + slug + slice text +
+/** Build one locale's search blob: title + meta + slug + block text +
  *  descriptor text/richText (shared + localized), capped. */
 export function buildPageSearchText(input: {
   /** Undefined when the descriptor classifies localized title admin-only. */
@@ -122,7 +123,7 @@ export function buildPageSearchText(input: {
   metaDescription?: string
   slug: string
   cardExcerpt?: string
-  slices: Slice[]
+  blocks: Block[]
   /** Plan 029 C9a — descriptor shared bag (row-level, one pass across all
    *  locales). Undefined = no descriptor or type not registered. */
   descriptorShared?: {
@@ -157,7 +158,7 @@ export function buildPageSearchText(input: {
     input.metaDescription,
     input.slug,
     input.cardExcerpt,
-    extractSliceText(input.slices),
+    extractBlockText(input.blocks),
     descriptorParts.join(" "),
   ]
     .filter((part): part is string => Boolean(part && part.trim()))
@@ -281,7 +282,7 @@ export async function syncPageSearch(
         : undefined
       // Bag-adapter — search is slurp-everything (ADR-0038 §Q9.b): any
       // textual value on any arm feeds the blob. The strict per-arm union
-      // drops `metaTitle` / `metaDescription` / `slices` when a pure-form
+      // drops `metaTitle` / `metaDescription` / `blocks` when a pure-form
       // arm (testimonial) enters the mix; those keys really are absent
       // there, so the coalesce reads them as `undefined` and search still
       // gets testimonial's descriptor-derived text via `descriptorShared`
@@ -290,31 +291,24 @@ export async function syncPageSearch(
         title: string
         metaTitle?: string
         metaDescription?: string
-        slices?: Slice[]
+        blocks?: Block[]
       }
       // ADR-0038 §Q9.b — descriptor-classified admin-only fields never cross
       // the public search seam. When the descriptor marks localized `title`
       // as admin-only (testimonial — plan 029 C10 §Q9.b), fall back to a
       // public-safe display label and omit the admin-only title from the
-      // tokenized `text` blob. Slice-body arms (page/post/author/landing-page)
+      // tokenized `text` blob. Block-body arms (page/post/author/landing-page)
       // mark `title.public()`, so the public path is behavior-preserving there.
       //
-      // The fallback is arm-specific rather than routed through the
-      // descriptor's `referenceCard` — that helper is exposure-unaware and
-      // itself falls back to the admin-only `localizedTitle` when
-      // personName is missing (see `testimonial.ts:referenceCard`), which
-      // would silently re-leak the admin-only title once the personName-
-      // required invariant ever softens. Testimonial is the only arm today
-      // with an admin-only localized title; a future admin-only-title arm
-      // needs its own public-safe substitute added here.
+      // The fallback is the descriptor's own `referenceCard`, called with
+      // public fields only (`publicDisplayTitle`), so an admin-only title
+      // cannot leak through a fallback inside one descriptor.
       const titleIsPublic = descriptor?.localizedFields.title
         ? isDescriptorFieldPublic(descriptor.localizedFields.title as Primitive)
         : true
       const publicDisplayTitle = titleIsPublic
         ? contentBag.title
-        : page.pageType === "testimonial"
-          ? (workingCopy as { personName?: string }).personName || ""
-          : ""
+        : publicReferenceTitle(workingCopy as Doc<"pages">, locale)
       const fields = {
         pageId: page._id,
         locale,
@@ -337,7 +331,7 @@ export async function syncPageSearch(
           cardExcerpt:
             (content as { cardExcerpt?: string }).cardExcerpt ??
             (locale === legacyLocale ? workingCopy.cardExcerpt : undefined),
-          slices: contentBag.slices ?? [],
+          blocks: contentBag.blocks ?? [],
           descriptorShared,
           descriptorLocalized,
         }),

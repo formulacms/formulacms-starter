@@ -1,6 +1,6 @@
 "use client"
 
-import { HeadingSlot } from "@/components/slice-kit/heading-slot"
+import { HeadingSlot } from "@/components/block-kit/heading-slot"
 import * as React from "react"
 import * as AccordionPrimitive from "@radix-ui/react-accordion"
 

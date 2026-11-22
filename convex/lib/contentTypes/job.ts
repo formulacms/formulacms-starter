@@ -1,5 +1,5 @@
 import { v } from "convex/values"
-import { text, link, select, number, date } from "../slices/primitives"
+import { text, link, select, number, date } from "../blocks/primitives"
 import type { ContentTypeDescriptor } from "./types"
 
 const sharedFields = {
@@ -54,7 +54,7 @@ export const jobContentType: ContentTypeDescriptor<
   }),
   routing: { pathPrefix: "jobs" },
   seo: { schemaOrgType: "JobPosting", ogType: "website" },
-  capabilities: { sliceBody: true, revisions: true, scheduling: true, presence: true, requiresBodyContent: true },
+  capabilities: { blockBody: true, revisions: true, scheduling: true, presence: true, requiresBodyContent: true },
   referenceCard: (doc, locale) => {
     const content = (doc as {
       content?: Record<string, Record<string, unknown>>
@@ -82,5 +82,5 @@ export const jobContentType: ContentTypeDescriptor<
         : undefined,
     }
   },
-  aiHint: { purpose: "A single job opening/posting on the site's careers section. Each job has its own public URL and is listed on job-board views (queried as a set, filtered by department/location/employment type/status).", fields: "department, location, remoteType, employmentType, salaryCurrency, salaryMin/salaryMax, applyUrl/applyEmail, closingDate, and jobStatus are shared (locale-agnostic) fields. title and summary are localized. The full description (responsibilities, requirements, benefits) is authored as slice body content." },
+  aiHint: { purpose: "A single job opening/posting on the site's careers section. Each job has its own public URL and is listed on job-board views (queried as a set, filtered by department/location/employment type/status).", fields: "department, location, remoteType, employmentType, salaryCurrency, salaryMin/salaryMax, applyUrl/applyEmail, closingDate, and jobStatus are shared (locale-agnostic) fields. title and summary are localized. The full description (responsibilities, requirements, benefits) is authored as block body content." },
 }

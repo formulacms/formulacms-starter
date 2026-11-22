@@ -146,7 +146,7 @@ export function CanonicalNavItemEditor({
                 ? () =>
                     onChange({
                       ...item,
-                      panel: item.panel ?? { columns: 1, blocks: [] },
+                      panel: item.panel ?? { columns: 1, sections: [] },
                     })
                 : undefined
             }

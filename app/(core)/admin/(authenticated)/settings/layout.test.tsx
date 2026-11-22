@@ -17,7 +17,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
 }))
 
-// The starter ships no slice library, so Settings has no Slices item (D-6).
+// The starter ships no block library, so Settings has no Blocks item (D-6).
 vi.mock("@/components/admin/contributions/authoring-tools", () => ({
   ADMIN_AUTHORING_TOOLS_BROWSER_BINDING: null,
 }))

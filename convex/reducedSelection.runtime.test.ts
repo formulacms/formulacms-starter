@@ -58,7 +58,7 @@ describe("generated starter — reduced content-type selection", () => {
           join(starterRoot, "components/content-types/index.ts"),
           "utf8"
         )
-      ).not.toContain('job: { kind: "sliceBody", Component: JobRenderer }')
+      ).not.toContain('job: { kind: "blockBody", Component: JobRenderer }')
 
       const t = convexTest(schema, modules)
       await seedCommunityOwner(t, OWNER)
@@ -78,7 +78,7 @@ describe("generated starter — reduced content-type selection", () => {
           salaryMin: 0,
           salaryMax: 0,
           jobStatus: "open",
-          content: { en: { title: "Legacy inactive job", slices: [] } },
+          content: { en: { title: "Legacy inactive job", blocks: [] } },
         })
       })
 

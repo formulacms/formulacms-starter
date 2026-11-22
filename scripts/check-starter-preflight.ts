@@ -1,11 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname } from "node:path"
 import { spawnSync } from "node:child_process"
 import { chromium } from "playwright"
-import {
-  findGeneratedFileProblems,
-  generatedFilesFailureMessage,
-} from "../lib/modules/generated-files"
 import { checkStoredModuleIds } from "./lib/stored-module-state"
 
 type CheckStatus = "passed" | "warning" | "failed"
@@ -354,21 +350,27 @@ function writeReport(status: "passed" | "failed") {
   }
 }
 
-// The same check as the starter build (scripts/check-generated-files.ts).
-function checkGeneratedFiles() {
-  const findings = findGeneratedFileProblems((file) => {
-    const path = join(process.cwd(), file)
-    return existsSync(path) ? readFileSync(path, "utf8") : null
-  })
-  if (findings.length > 0) {
-    addCheck("Generated files", "failed", generatedFilesFailureMessage(findings))
+// The same checks as the starter build (pnpm check:factories). Loaded at run
+// time so that a missing or broken gate file is reported as a check result
+// instead of stopping the preflight.
+async function checkFactories() {
+  let checks
+  try {
+    const { runFactoryChecks } = await import("../lib/factories/gate")
+    checks = await runFactoryChecks()
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    addCheck(
+      "Factory checks",
+      "failed",
+      `The factory checks could not load: ${reason}\nRestore the listed file from git, then run pnpm check:factories.`
+    )
     return
   }
-  addCheck(
-    "Generated files",
-    "passed",
-    "Generated files match the formulacms release."
-  )
+  for (const { name, failure } of checks) {
+    if (failure) addCheck(name, "failed", failure)
+    else addCheck(name, "passed", `${name}: up to date.`)
+  }
 }
 
 // Loaded at run time so that a missing or broken module list is reported as
@@ -399,7 +401,7 @@ async function main() {
     checkPlaywrightChromium()
   }
 
-  checkGeneratedFiles()
+  await checkFactories()
 
   if (existsSync(".env")) {
     addCheck(

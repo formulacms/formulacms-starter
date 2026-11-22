@@ -141,7 +141,7 @@ async function saveDraft(
     draft: {
       pageType: "landing-page",
       localized: { title },
-      slices: [],
+      blocks: [],
     } as never,
     expectedDraftGeneration: state?.draftGeneration ?? 0,
     expectedLifecycleGeneration: page!.lifecycleGeneration,
@@ -1275,7 +1275,7 @@ test.each([false, true])(
       status: "draft",
       slug: "private-source",
       title: "Private source",
-      content: { en: { title: "Private source", slices: [] } },
+      content: { en: { title: "Private source", blocks: [] } },
     })
     const publicBefore = await publicSelections(t, settings.homePageId!)
     const transitionId = await startTransition(t, owner, "correct_label", "fr")

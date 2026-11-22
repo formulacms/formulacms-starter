@@ -49,20 +49,20 @@
     // what produced a hand-"fix" importing the wrong jest-dom entry and
     // rewriting `toHaveAttribute` into `getAttribute()`.
     //
-    // Catalog-dependent, not a backlog item. This file names slice types
-    // directly (`createSampleSlice("newsletter-signup-simple")`) behind
+    // Catalog-dependent, not a backlog item. This file names block types
+    // directly (`createSampleBlock("newsletter-signup-simple")`) behind
     // `test.skipIf` guards, because a starter release ships a subset of designs
     // and unregisters the rest. A runtime guard cannot narrow a type, so in a
-    // tree with a narrower `SLICE_TYPES` those literals — and every property
-    // read off the resulting slice — fail to compile even though the tests
+    // tree with a narrower `BLOCK_TYPES` those literals — and every property
+    // read off the resulting block — fail to compile even though the tests
     // correctly skip. It runs and passes in both trees; only type coverage is
     // given up. Upgrade path: a starter overlay providing its own copy.
-    "lib/slices/sample.test.ts",
+    "lib/blocks/sample.test.ts",
 
     // The entries below are the named compatibility backlog. Shrink this list,
     // don't grow it.
     "app/(core)/admin/(authenticated)/design-system/page.test.tsx",
-    "app/(sim)/slice-sim/[type]/inspector-rail.test.tsx",
-    "lib/slices/authoring/scaffold.test.ts"
+    "app/(sim)/block-sim/[type]/inspector-rail.test.tsx",
+    "lib/blocks/authoring/scaffold.test.ts"
   ]
 }

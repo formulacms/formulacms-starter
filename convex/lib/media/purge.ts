@@ -91,7 +91,7 @@ export const MEDIA_KEYED_TABLES: Record<string, MediaKeyedRole> = {
   pageLocaleDrafts: {
     role: "tracked",
     via: "pagePublicationMediaReferences",
-    reason: "Working drafts (slice and field images).",
+    reason: "Working drafts (block and field images).",
   },
   aiJobs: {
     role: "kept",

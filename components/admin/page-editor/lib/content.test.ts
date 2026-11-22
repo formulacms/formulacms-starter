@@ -5,10 +5,10 @@ import {
   slugify,
   summarizeLocaleContent,
 } from "./content"
-import type { Page, Slice } from "./types"
+import type { Page, Block } from "./types"
 
-function slice(partial: Partial<Slice>): Slice {
-  return { id: "s", type: "test-block", ...partial } as unknown as Slice
+function block(partial: Partial<Block>): Block {
+  return { id: "s", type: "test-note", ...partial } as unknown as Block
 }
 
 describe("slugify", () => {
@@ -69,31 +69,31 @@ describe("hasAnyContent", () => {
     expect(hasAnyContent([], "Title")).toBe(true)
   })
 
-  it("is true when at least one slice is enabled", () => {
-    expect(hasAnyContent([slice({ enabled: true })], "  ")).toBe(true)
+  it("is true when at least one block is enabled", () => {
+    expect(hasAnyContent([block({ enabled: true })], "  ")).toBe(true)
   })
 
-  it("ignores disabled slices", () => {
-    expect(hasAnyContent([slice({ enabled: false })], "")).toBe(false)
+  it("ignores disabled blocks", () => {
+    expect(hasAnyContent([block({ enabled: false })], "")).toBe(false)
   })
 
-  it("treats slices without an explicit `enabled` flag as enabled", () => {
-    expect(hasAnyContent([slice({})], "")).toBe(true)
+  it("treats blocks without an explicit `enabled` flag as enabled", () => {
+    expect(hasAnyContent([block({})], "")).toBe(true)
   })
 })
 
 describe("summarizeLocaleContent", () => {
-  it("flags any content across title/meta/slices", () => {
+  it("flags any content across title/meta/blocks", () => {
     expect(summarizeLocaleContent({ metaTitle: "x" })).toEqual({
       hasAny: true,
       hasTranslatable: true,
     })
   })
 
-  it("marks title, metadata, and slices as translatable", () => {
+  it("marks title, metadata, and blocks as translatable", () => {
     expect(summarizeLocaleContent({ title: "T" }).hasTranslatable).toBe(true)
     expect(
-      summarizeLocaleContent({ slices: [slice({})] }).hasTranslatable
+      summarizeLocaleContent({ blocks: [block({})] }).hasTranslatable
     ).toBe(true)
     expect(
       summarizeLocaleContent({ metaDescription: "d" }).hasTranslatable

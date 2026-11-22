@@ -14,7 +14,7 @@ import { MediaBrowser, type Media } from "./media-browser"
 import { ImageTransformEditorDialog } from "./media-image-editor"
 import { TagField } from "./tag-field"
 import { useConfirm } from "@/components/providers/confirm-provider"
-import type { ImageField } from "@/convex/lib/slices"
+import type { ImageField } from "@/convex/lib/blocks"
 import { destructiveRefusalMessage } from "@/lib/admin/destructive-refusal"
 import {
   Dialog,

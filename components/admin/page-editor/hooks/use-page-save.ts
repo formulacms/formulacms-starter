@@ -16,11 +16,11 @@ import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import type { PerLanguageSeo } from "@/convex/lib/contentTypes/perLanguageFields"
 import type { FunctionArgs, FunctionReturnType } from "convex/server"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 import {
   isPrimitiveValueEmpty,
   type Primitive,
-} from "@/convex/lib/slices/primitives"
+} from "@/convex/lib/blocks/primitives"
 import {
   adminContentTypeSharedFields,
   adminContentTypeLocalizedFields,
@@ -46,7 +46,7 @@ import {
   type PageEditorRecoveryDraft,
   staleSaveMessage,
 } from "../lib/types"
-import { hasSliceBody } from "@/convex/lib/pages/sliceBodyContent"
+import { hasBlockBody } from "@/convex/lib/pages/blockBodyContent"
 
 const UNMOUNTED_SCOPE = Symbol("unmounted page editor")
 type EditorScope = { key: string; generation: number }
@@ -202,7 +202,7 @@ export type PageSaveDraft = {
   tags: string[]
   metaTitle: string
   metaDescription: string
-  slices: Slice[]
+  blocks: Block[]
   seoNoIndex: boolean
   seoNoFollow: boolean
   seoOgTitle: string
@@ -312,7 +312,7 @@ function snapshotForDraft(draft: PageSaveDraft): string {
     tags: draft.tags,
     metaTitle: draft.metaTitle,
     metaDescription: draft.metaDescription,
-    slices: draft.slices,
+    blocks: draft.blocks,
     seoNoIndex: draft.seoNoIndex,
     seoNoFollow: draft.seoNoFollow,
     seoOgTitle: draft.seoOgTitle,
@@ -360,7 +360,7 @@ function savedBaselineSnapshot(
     | {
         metaTitle?: string
         metaDescription?: string
-        slices?: Slice[]
+        blocks?: Block[]
         seo?: PerLanguageSeo
       }
     | undefined
@@ -382,7 +382,7 @@ function savedBaselineSnapshot(
     tags: page.pageType === "post" ? (page.tags ?? []) : [],
     metaTitle: localeContent?.metaTitle ?? "",
     metaDescription: localeContent?.metaDescription ?? "",
-    slices: localeContent?.slices ?? [],
+    blocks: localeContent?.blocks ?? [],
     seoNoIndex: localeContent?.seo?.noIndex ?? false,
     seoNoFollow: localeContent?.seo?.noFollow ?? false,
     seoOgTitle: localeContent?.seo?.ogTitle ?? "",
@@ -901,7 +901,7 @@ export function usePageSave({
         if (refuseAddress?.()) return false
         let desired = draft.slug.trim()
         // C8: single descriptor-shaped bag replaces the old {title, metaTitle,
-        // metaDescription, slices} flat args. `pageType` is stored-immutable
+        // metaDescription, blocks} flat args. `pageType` is stored-immutable
         // (C1); the client sends the arm matching the current stored type so
         // the mutation's cross-arm guard is satisfied.
         // Descriptor-generic localized values (author roleTitle/bio today; more
@@ -910,13 +910,13 @@ export function usePageSave({
         // carrying a `title` (or metaTitle/metaDescription) can never clobber
         // the visible editor state — defense in depth for the case where
         // `extractLocalizedFieldValues` didn't run through its ownership filter.
-        // Pure-form arms (`sliceBody: false`) have no slice canvas, so the
+        // Pure-form arms (`blockBody: false`) have no block canvas, so the
         // discriminated `contentDraftInputValidator` arm for those types has
-        // no `slices` field at all (e.g. testimonial — plan 029 C10 task 13).
+        // no `blocks` field at all (e.g. testimonial — plan 029 C10 task 13).
         // Their localized bag is descriptor-shaped only — no `metaTitle` /
         // `metaDescription` since pure-form types don't participate in SEO
         // meta (non-routable), and sending those keys would fail the arm's
-        // strict-object validation server-side. Slice-body arms merge the
+        // strict-object validation server-side. Block-body arms merge the
         // system-owned title/meta LAST so a tampered / stale-recovered bag
         // carrying a `title` (or metaTitle/metaDescription) can never clobber
         // the visible editor state.
@@ -944,7 +944,7 @@ export function usePageSave({
             ? { cardExcerpt: draft.copiedLanguageValues.cardExcerpt ?? "" }
             : {}),
         }
-        const contentDraft = hasSliceBody(page)
+        const contentDraft = hasBlockBody(page)
           ? {
               pageType: page.pageType,
               localized: {
@@ -953,7 +953,7 @@ export function usePageSave({
                 metaTitle: draft.metaTitle || undefined,
                 metaDescription: draft.metaDescription || undefined,
               },
-              slices: draft.slices,
+              blocks: draft.blocks,
               ...perLanguageDraft,
             }
           : {
@@ -1097,11 +1097,11 @@ export function usePageSave({
         const priorLocaleBag = {
           ...persistedDraft.localizedFieldValues,
           title: persistedDraft.title,
-          ...(hasSliceBody(page)
+          ...(hasBlockBody(page)
             ? {
                 metaTitle: persistedDraft.metaTitle || undefined,
                 metaDescription: persistedDraft.metaDescription || undefined,
-                slices: persistedDraft.slices,
+                blocks: persistedDraft.blocks,
               }
             : {}),
         } as Record<string, unknown>
@@ -1109,14 +1109,14 @@ export function usePageSave({
           JSON.stringify(contentDraft.localized) !==
             JSON.stringify({
               ...(priorLocaleBag ?? {}),
-              // Drop `slices` from the comparison of `localized` — slices
+              // Drop `blocks` from the comparison of `localized` — blocks
               // are compared separately below and live outside the
               // descriptor-localized bag on `contentDraft`.
-              slices: undefined,
+              blocks: undefined,
             }) ||
           JSON.stringify(
-            (contentDraft as { slices?: unknown }).slices ?? undefined
-          ) !== JSON.stringify(priorLocaleBag?.slices ?? undefined) ||
+            (contentDraft as { blocks?: unknown }).blocks ?? undefined
+          ) !== JSON.stringify(priorLocaleBag?.blocks ?? undefined) ||
           localeSeoChanged
         const anyStagedChange =
           contentActuallyChanged ||
@@ -1389,7 +1389,7 @@ export function usePageSave({
       )
         return Promise.resolve(false)
       const adopted = adoptHeroTitles(
-        value.slices,
+        value.blocks,
         currentLocale,
         value.removedTitleLinks ?? adoptionReports.current,
         true
@@ -1397,7 +1397,7 @@ export function usePageSave({
       adoptionReports.current = adopted.reports
       value = {
         ...value,
-        slices: adopted.value,
+        blocks: adopted.value,
         removedTitleLinks: adopted.reports,
         sharedFieldValues: writeFieldMap(
           adminContentTypeSharedFields(value.pageType),
@@ -1537,7 +1537,7 @@ export function usePageSave({
             : t("revertedToPublished")
         )
         // ADR-0041 Deploy 2 PR B item 3 — the editor's local state (title,
-        // slices, shared/localized bags) is initialised from the server
+        // blocks, shared/localized bags) is initialised from the server
         // props at mount. `router.refresh()` re-runs the server components
         // but leaves the client component's `useState` values in place, so
         // the header/preview keep displaying the pre-discard content until

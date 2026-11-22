@@ -1,15 +1,15 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
 import { assertTranslationInput } from "../lib/agents/translationWorkflow"
 
-import { isLegacyTitleHtml, writeSliceFields } from "../lib/richtext/write"
+import { isLegacyTitleHtml, writeBlockFields } from "../lib/richtext/write"
 // convex/agents/localizer.ts
 // AI-powered localization (ADR-002: translation is the killer demo).
 //
 // Plain-text fields (titles, button labels) go through `translateField`.
 // Rich-text fields are PM-JSON strings (ADR-0009): we walk the tree and
 // translate only the text nodes, so marks and structure survive (pmText.ts).
-// `localizePage` translates a whole page's title + slices in one gated call.
+// `localizePage` translates a whole page's title + blocks in one gated call.
 // All public entry points require the F01 operation seam and honor
 // siteSettings.aiDefaultModel.
 import { v, ConvexError } from "convex/values"
@@ -43,7 +43,7 @@ import {
 } from "../lib/aiValidators"
 import { requireOwnerAndOptionalModule } from "../lib/modules/state"
 import { enforceAiRateLimit } from "../lib/aiRateLimit"
-import { sliceValidator, type Slice } from "../lib/slices"
+import { blockValidator, type Block } from "../lib/blocks"
 import {
   translatePageContent,
   translatePlainText,
@@ -388,7 +388,7 @@ const translatableLeafValidator = v.object({
   value: v.string(),
 })
 
-/** Public: translate a whole page (title + all slices + descriptor
+/** Public: translate a whole page (title + all blocks + descriptor
  *  localized text/richText fields) in one gated call — the AI-translate
  *  path behind the page editor's locale "Translate" menu. */
 export const localizePage = action({
@@ -396,7 +396,7 @@ export const localizePage = action({
     title: v.string(),
     metaTitle: v.optional(v.string()),
     metaDescription: v.optional(v.string()),
-    slices: v.array(sliceValidator),
+    blocks: v.array(blockValidator),
     sourceLocale: v.string(),
     targetLocale: v.string(),
     /** Plan 029 C9a — descriptor localized text/richText leaves the client
@@ -409,7 +409,7 @@ export const localizePage = action({
     title: v.string(),
     metaTitle: v.optional(v.string()),
     metaDescription: v.optional(v.string()),
-    slices: v.array(sliceValidator),
+    blocks: v.array(blockValidator),
     translatables: v.array(translatableLeafValidator),
   }),
   handler: async (
@@ -419,22 +419,22 @@ export const localizePage = action({
     title: string
     metaTitle?: string
     metaDescription?: string
-    slices: Slice[]
+    blocks: Block[]
     translatables: { path: string; kind: "text" | "richText"; value: string }[]
   }> => {
-    for (const slice of args.sourceLocale === args.targetLocale
+    for (const block of args.sourceLocale === args.targetLocale
       ? []
-      : args.slices) {
-      writeSliceFields(slice)
-      const definition = readSliceDefinition(readSlice(slice).type)
-      if (!definition) throw new Error("Slice descriptor is unavailable.")
-      assertTranslationInput(definition.primary, readSlice(slice).primary, {
-        sliceType: readSlice(slice).type,
+      : args.blocks) {
+      writeBlockFields(block)
+      const definition = readBlockDefinition(readBlock(block).type)
+      if (!definition) throw new Error("Block descriptor is unavailable.")
+      assertTranslationInput(definition.primary, readBlock(block).primary, {
+        blockType: readBlock(block).type,
         fieldPath: "primary",
       })
-      if (definition.items !== undefined && "items" in slice)
-        assertTranslationInput(definition.items, readSlice(slice).items, {
-          sliceType: readSlice(slice).type,
+      if (definition.items !== undefined && "items" in block)
+        assertTranslationInput(definition.items, readBlock(block).items, {
+          blockType: readBlock(block).type,
           fieldPath: "items",
         })
     }
@@ -459,7 +459,7 @@ export const localizePage = action({
             ...(args.metaDescription !== undefined
               ? { metaDescription: args.metaDescription }
               : {}),
-            slices: args.slices,
+            blocks: args.blocks,
             translatables,
           },
           createTranslationTraversal(args.sourceLocale, args.targetLocale, cfg)

@@ -1,10 +1,10 @@
-import { readInstalledSliceDefinition } from "@/convex/lib/slices"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { readInstalledBlockDefinition } from "@/convex/lib/blocks"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, it } from "vitest"
-import { installedSliceDefs, sliceDefs } from "@/convex/lib/slices"
+import { installedBlockDefs, blockDefs } from "@/convex/lib/blocks"
 import { v } from "convex/values"
-import { group, list, richText, text } from "@/convex/lib/slices/primitives"
-import { createSampleSlice } from "@/lib/slices/sample"
+import { group, list, richText, text } from "@/convex/lib/blocks/primitives"
+import { createSampleBlock } from "@/lib/blocks/sample"
 import { markStructuralListOperation } from "@/lib/editor-structure"
 import { repeatedItemIdentity } from "./repeated-item-identity"
 import {
@@ -13,12 +13,12 @@ import {
   rebasePageField,
   pageFieldEcho,
   reconcilePageFieldEcho,
-  hasStructuralSliceChange,
+  hasStructuralBlockChange,
   isPrimaryListPath,
 } from "./page-inline-draft"
 
 // Snapshot an optional descriptor without requiring it to be installed.
-const installedSliceDefinition = (type: string) => readInstalledSliceDefinition(type)
+const installedBlockDefinition = (type: string) => readInstalledBlockDefinition(type)
 
 const pm = (text: string) =>
   JSON.stringify({
@@ -59,32 +59,32 @@ const markedPm = (text: string, marks: PmMark[]) =>
 function pmVisibleText(value: string) {
   return JSON.parse(value).content[0].content[0].text
 }
-type RootTestSlice = Extract<
-  ReturnType<typeof createSampleSlice>,
+type RootTestBlock = Extract<
+  ReturnType<typeof createSampleBlock>,
   { type: "features-icon-grid" }
 >
-function requireRootTestSlice(
-  value: ReturnType<typeof createSampleSlice> | undefined
-): RootTestSlice {
+function requireRootTestBlock(
+  value: ReturnType<typeof createSampleBlock> | undefined
+): RootTestBlock {
   if (!value || value.type !== "features-icon-grid") {
-    throw new Error("Expected a features icon grid slice")
+    throw new Error("Expected a features icon grid block")
   }
   return value
 }
 function fixture() {
-  const slice = { ...createSampleSlice("hero-agency"), id: "hero" }
+  const block = { ...createSampleBlock("hero-agency"), id: "hero" }
   const binding = capturePageField(
-    [slice],
+    [block],
     "en",
     "hero",
     "primary.description",
     3,
     "catalog-a"
   )!
-  return { slice, binding }
+  return { block, binding }
 }
-function editNestedAncestor(slice: ReturnType<typeof createSampleSlice>) {
-  const root = requireRootTestSlice(slice)
+function editNestedAncestor(block: ReturnType<typeof createSampleBlock>) {
+  const root = requireRootTestBlock(block)
   const edited = structuredClone(root)
   const items = structuredClone(root.items)
   Reflect.set(items[0], "label", "parent changed")
@@ -92,10 +92,10 @@ function editNestedAncestor(slice: ReturnType<typeof createSampleSlice>) {
   return edited
 }
 function withNestedRootItems(
-  run: (slice: ReturnType<typeof createSampleSlice>) => void
+  run: (block: ReturnType<typeof createSampleBlock>) => void
 ) {
-  const original = sliceDefs["features-icon-grid"]
-  const installedOriginal = installedSliceDefinition("features-icon-grid")
+  const original = blockDefs["features-icon-grid"]
+  const installedOriginal = installedBlockDefinition("features-icon-grid")
   const details = list(
     group({
       title: richText({ profile: "inline" }),
@@ -122,11 +122,11 @@ function withNestedRootItems(
       items: items.validator,
     }),
   }
-  Reflect.set(sliceDefs, "features-icon-grid", def)
-  Reflect.set(installedSliceDefs, "features-icon-grid", def)
+  Reflect.set(blockDefs, "features-icon-grid", def)
+  Reflect.set(installedBlockDefs, "features-icon-grid", def)
   try {
-    const slice = createSampleSlice("features-icon-grid")
-    Reflect.set(slice, "items", [
+    const block = createSampleBlock("features-icon-grid")
+    Reflect.set(block, "items", [
       {
         label: "parent",
         summary: markedPm("parent summary", [
@@ -143,17 +143,17 @@ function withNestedRootItems(
         details: [{ title: pm("other"), body: pm("other body") }],
       },
     ])
-    run(slice)
+    run(block)
   } finally {
-    Reflect.set(sliceDefs, "features-icon-grid", original)
-    Reflect.set(installedSliceDefs, "features-icon-grid", installedOriginal)
+    Reflect.set(blockDefs, "features-icon-grid", original)
+    Reflect.set(installedBlockDefs, "features-icon-grid", installedOriginal)
   }
 }
 function withNestedPrimary(
-  run: (slice: ReturnType<typeof createSampleSlice>) => void
+  run: (block: ReturnType<typeof createSampleBlock>) => void
 ) {
-  const original = sliceDefs["features-icon-grid"]
-  const installedOriginal = installedSliceDefinition("features-icon-grid")
+  const original = blockDefs["features-icon-grid"]
+  const installedOriginal = installedBlockDefinition("features-icon-grid")
   const details = list(
     group({
       copy: richText({ profile: "inline" }),
@@ -181,11 +181,11 @@ function withNestedPrimary(
       items: original.items.validator,
     }),
   }
-  Reflect.set(sliceDefs, "features-icon-grid", def)
-  Reflect.set(installedSliceDefs, "features-icon-grid", def)
+  Reflect.set(blockDefs, "features-icon-grid", def)
+  Reflect.set(installedBlockDefs, "features-icon-grid", def)
   try {
-    const slice = createSampleSlice("features-icon-grid")
-    Reflect.set(slice.primary, "cards", [
+    const block = createSampleBlock("features-icon-grid")
+    Reflect.set(block.primary, "cards", [
       {
         label: "parent",
         summary: markedPm("parent summary", [
@@ -202,15 +202,15 @@ function withNestedPrimary(
         details: [{ copy: pm("other"), title: pm("other title") }],
       },
     ])
-    run(slice)
+    run(block)
   } finally {
-    Reflect.set(sliceDefs, "features-icon-grid", original)
-    Reflect.set(installedSliceDefs, "features-icon-grid", installedOriginal)
+    Reflect.set(blockDefs, "features-icon-grid", original)
+    Reflect.set(installedBlockDefs, "features-icon-grid", installedOriginal)
   }
 }
 describe("B1 parent-owned field draft", () => {
-  it("NEW captures a qualified primary list path while preserving root items paths", sliceProfile([]), () => {
-    const originalDef = sliceDefs["hero-with-image"]
+  it("NEW captures a qualified primary list path while preserving root items paths", blockProfile([]), () => {
+    const originalDef = blockDefs["hero-with-image"]
     const listTitle = richText({ profile: "inline" })
     const syntheticPrimary = group({
       ...originalDef.primary.config.fields,
@@ -225,9 +225,9 @@ describe("B1 parent-owned field draft", () => {
       false
     )
 
-    const slice = createSampleSlice("hero-with-image")
-    Reflect.set(slice.primary, "features", [{ title: pm("List title") }])
-    Reflect.set(sliceDefs, "hero-with-image", {
+    const block = createSampleBlock("hero-with-image")
+    Reflect.set(block.primary, "features", [{ title: pm("List title") }])
+    Reflect.set(blockDefs, "hero-with-image", {
       ...originalDef,
       primary: syntheticPrimary,
       validator: v.object({
@@ -240,7 +240,7 @@ describe("B1 parent-owned field draft", () => {
     })
     try {
       expect(
-        capturePageField([slice], "en", slice.id, "primary.features.0.title", 3)
+        capturePageField([block], "en", block.id, "primary.features.0.title", 3)
           ?.repeatedTarget
       ).toMatchObject({
         listPath: "primary.features",
@@ -248,9 +248,9 @@ describe("B1 parent-owned field draft", () => {
         contentEpoch: 3,
       })
       const valid = capturePageField(
-        [slice],
+        [block],
         "en",
-        slice.id,
+        block.id,
         "primary.title",
         3
       )
@@ -268,17 +268,17 @@ describe("B1 parent-owned field draft", () => {
           itemFingerprint: undefined,
         },
       }
-      expect(applyPageField([slice], "en", forged, 3)).toBeNull()
-      expect(JSON.stringify(slice.primary)).toContain("List title")
+      expect(applyPageField([block], "en", forged, 3)).toBeNull()
+      expect(JSON.stringify(block.primary)).toContain("List title")
     } finally {
-      Reflect.set(sliceDefs, "hero-with-image", originalDef)
+      Reflect.set(blockDefs, "hero-with-image", originalDef)
     }
   })
 
-  it("NEW advances only its own last-applied value through consecutive exact PM intents", sliceProfile([]), () => {
-    const { slice, binding } = fixture()
+  it("NEW advances only its own last-applied value through consecutive exact PM intents", blockProfile([]), () => {
+    const { block, binding } = fixture()
     const first = { ...binding, value: pm("one") }
-    const changed = applyPageField([slice], "en", first, 3, "catalog-a")!
+    const changed = applyPageField([block], "en", first, 3, "catalog-a")!
     const second = {
       ...first,
       fieldBinding: { ...first.fieldBinding!, lastApplied: first.value },
@@ -292,11 +292,11 @@ describe("B1 parent-owned field draft", () => {
       JSON.parse(final[0].primary.description as string).content[0].content
     ).toHaveLength(3)
   })
-  it("NEW accepts unrelated sidebar fields without replacing their values", sliceProfile([]), () => {
-    const { slice, binding } = fixture()
+  it("NEW accepts unrelated sidebar fields without replacing their values", blockProfile([]), () => {
+    const { block, binding } = fixture()
     const unrelated = {
-      ...slice,
-      primary: { ...slice.primary, eyebrow: "manual" },
+      ...block,
+      primary: { ...block.primary, eyebrow: "manual" },
     }
     const next = applyPageField(
       [unrelated],
@@ -317,36 +317,36 @@ describe("B1 parent-owned field draft", () => {
     "removed",
     "duplicate",
     "disabled",
-  ])("NEW refuses %s without changing the original draft", sliceProfile([]), (kind) => {
-    const { slice, binding } = fixture()
+  ])("NEW refuses %s without changing the original draft", blockProfile([]), (kind) => {
+    const { block, binding } = fixture()
     const current =
       kind === "same-field"
-        ? { ...slice, primary: { ...slice.primary, title: pm("external") } }
+        ? { ...block, primary: { ...block.primary, title: pm("external") } }
         : kind === "presentation"
-          ? { ...slice, presentationIdV1: "centered" }
+          ? { ...block, presentationIdV1: "centered" }
           : kind === "disabled"
-            ? { ...slice, enabled: false }
-            : slice
-    const slices =
+            ? { ...block, enabled: false }
+            : block
+    const blocks =
       kind === "removed"
         ? []
         : kind === "duplicate"
-          ? [slice, slice]
+          ? [block, block]
           : [current]
-    const before = JSON.stringify(slices)
+    const before = JSON.stringify(blocks)
     expect(
       applyPageField(
-        slices,
+        blocks,
         kind === "locale" ? "fr" : "en",
         { ...binding, value: pm("late") },
         kind === "epoch" ? 4 : 3,
         kind === "catalog" ? "catalog-b" : "catalog-a"
       )
     ).toBeNull()
-    expect(JSON.stringify(slices)).toBe(before)
+    expect(JSON.stringify(blocks)).toBe(before)
   })
-  it("NEW refuses a changed descriptor/profile, type and noncanonical field path", sliceProfile([]), () => {
-    const { slice, binding } = fixture()
+  it("NEW refuses a changed descriptor/profile, type and noncanonical field path", blockProfile([]), () => {
+    const { block, binding } = fixture()
     for (const commit of [
       {
         ...binding,
@@ -358,70 +358,79 @@ describe("B1 parent-owned field draft", () => {
           }),
         },
       },
-      { ...binding, sliceType: "rich-text-body" as typeof binding.sliceType },
+      { ...binding, blockType: "rich-text-body" as typeof binding.blockType },
       { ...binding, fieldPath: "primary..title" },
       { ...binding, kind: "text" as typeof binding.kind },
     ])
       expect(
         applyPageField(
-          [slice],
+          [block],
           "en",
           { ...commit, value: pm("late") },
           3,
           "catalog-a"
         )
       ).toBeNull()
-    expect(
-      capturePageField([slice], "en", slice.id, "primary.eyebrow", 3)
-    ).toBeNull()
   })
-  it("NEW increments structural epochs for identical item reorder but not a sibling field edit", sliceProfile([]), () => {
-    const { slice } = fixture()
-    const repeated = createSampleSlice("features-icon-grid")
+  it("captures a one-line plain text field and writes only one line within its max length", blockProfile([]), () => {
+    const { block } = fixture()
+    // PR A3 (owner, 2026-11-21): a plain text field opens in place too.
+    const eyebrow = capturePageField([block], "en", block.id, "primary.eyebrow", 3)
+    expect(eyebrow).toMatchObject({
+      kind: "text",
+      value: (block.primary as Record<string, unknown>).eyebrow,
+    })
+    const next = applyPageField([block], "en", { ...eyebrow!, value: "New eyebrow" }, 3)
+    expect((next?.[0].primary as Record<string, unknown>).eyebrow).toBe("New eyebrow")
+    expect(applyPageField([block], "en", { ...eyebrow!, value: "two\nlines" }, 3)).toBeNull()
+  })
+  it("NEW increments structural epochs for identical item reorder but not a sibling field edit", blockProfile([]), () => {
+    const { block } = fixture()
+    const repeated = createSampleBlock("features-icon-grid")
     if (repeated.type !== "features-icon-grid")
       throw new Error("Expected repeated fixture")
     const a = { ...repeated.items[0], title: pm("equal") },
       b = { ...a }
     const base = { ...repeated, items: [a, b] }
-    expect(hasStructuralSliceChange([base], [{ ...base, items: [b, a] }])).toBe(
+    expect(hasStructuralBlockChange([base], [{ ...base, items: [b, a] }])).toBe(
       true
     )
     expect(
-      hasStructuralSliceChange(
-        [slice],
-        [{ ...slice, primary: { ...slice.primary, eyebrow: "manual" } }]
+      hasStructuralBlockChange(
+        [block],
+        [{ ...block, primary: { ...block.primary, eyebrow: "manual" } }]
       )
     ).toBe(false)
-    // Synthetic traversal fixture; no attempt to apply this invalid Slice.
+    // Synthetic traversal fixture; no attempt to apply this invalid Block.
     const primitive = {
-      ...slice,
+      ...block,
       items: ["equal", "equal"],
-    } as unknown as typeof slice
+    } as unknown as typeof block
     expect(
-      hasStructuralSliceChange(
+      hasStructuralBlockChange(
         [primitive],
         [{ ...primitive, primary: { ...primitive.primary, eyebrow: "manual" } }]
       )
     ).toBe(false)
     expect(
-      hasStructuralSliceChange(
+      hasStructuralBlockChange(
         [primitive],
         [
           {
             ...primitive,
             items: markStructuralListOperation(["equal", "equal"]),
-          } as unknown as typeof slice,
+          } as unknown as typeof block,
         ]
       )
     ).toBe(true)
   })
-  it("NEW requalifies known same-item sibling edits but never retargets remove/reorder/equal duplicate items", sliceProfile([]), () => {
-    const slice = { ...createSampleSlice("features-icon-grid"), id: "features" }
-    slice.items = [0, 1, 2].map(() => ({ ...slice.items[0] }))
+  it("NEW requalifies known same-item sibling edits but never retargets remove/reorder/equal duplicate items", blockProfile([]), () => {
+    const block = { ...createSampleBlock("features-icon-grid"), id: "features" }
+    block.items = [0, 1, 2].map(() => ({ ...block.items[0] }))
     const binding = capturePageField(
-      [slice],
+      [block],
       "en",
-      slice.id,
+      block.id,
       "items.1.title",
       7
     )!
@@ -439,43 +448,43 @@ describe("B1 parent-owned field draft", () => {
       }),
     }
     const sibling = {
-      ...slice,
-      items: slice.items.map((item, index) =>
+      ...block,
+      items: block.items.map((item, index) =>
         index === 1 ? { ...item, body: pm("manual sibling") } : item
       ),
     }
     expect(applyPageField([sibling], "en", edited, 7)).toBeNull()
     const qualified = rebasePageField([sibling], "en", edited, 7)
     const applied = applyPageField([sibling], "en", qualified, 7)!
-    expect((applied[0] as typeof slice).items[1].title).toBe(edited.value)
-    expect((applied[0] as typeof slice).items[1].body).toBe(
+    expect((applied[0] as typeof block).items[1].title).toBe(edited.value)
+    expect((applied[0] as typeof block).items[1].body).toBe(
       sibling.items[1].body
     )
     for (const items of [
-      slice.items.toReversed(),
-      slice.items.slice(1),
-      [...slice.items, slice.items[1]],
+      block.items.toReversed(),
+      block.items.slice(1),
+      [...block.items, block.items[1]],
     ]) {
-      expect(hasStructuralSliceChange([slice], [{ ...slice, items }])).toBe(
+      expect(hasStructuralBlockChange([block], [{ ...block, items }])).toBe(
         true
       )
       expect(
         applyPageField(
-          [{ ...slice, items }],
+          [{ ...block, items }],
           "en",
-          rebasePageField([{ ...slice, items }], "en", edited, 8),
+          rebasePageField([{ ...block, items }], "en", edited, 8),
           8
         )
       ).toBeNull()
     }
   })
-  it("NEW P3 real apply refuses an ancestor edit at the same epoch", sliceProfile([]), () => {
-    withNestedRootItems((slice) => {
+  it("NEW P3 real apply refuses an ancestor edit at the same epoch", blockProfile([]), () => {
+    withNestedRootItems((block) => {
       const path = "items.0.details.0.title"
-      const binding = capturePageField([slice], "en", slice.id, path, 7)
+      const binding = capturePageField([block], "en", block.id, path, 7)
       if (!binding) throw new Error("Expected real nested items capture")
       expect(binding.repeatedTarget?.ancestors).toHaveLength(1)
-      const parentEdited = editNestedAncestor(slice)
+      const parentEdited = editNestedAncestor(block)
       expect(
         applyPageField(
           [parentEdited],
@@ -486,12 +495,12 @@ describe("B1 parent-owned field draft", () => {
       ).toBeNull()
     })
   })
-  it("NEW P3 real rebase preserves the old complete ancestor identity", sliceProfile([]), () => {
-    withNestedRootItems((slice) => {
+  it("NEW P3 real rebase preserves the old complete ancestor identity", blockProfile([]), () => {
+    withNestedRootItems((block) => {
       const path = "items.0.details.0.title"
-      const binding = capturePageField([slice], "en", slice.id, path, 7)
+      const binding = capturePageField([block], "en", block.id, path, 7)
       if (!binding) throw new Error("Expected real nested items capture")
-      const parentEdited = editNestedAncestor(slice)
+      const parentEdited = editNestedAncestor(block)
       expect(
         rebasePageField([parentEdited], "en", binding, 7).repeatedTarget
       ).toEqual(binding.repeatedTarget)
@@ -524,12 +533,12 @@ describe("B1 parent-owned field draft", () => {
     },
   ] as const
   it.each(echoCases)(
-    "NEW P3 authentic own echo requires complete identity for $mode depth $depth", sliceProfile([]),
+    "NEW P3 authentic own echo requires complete identity for $mode depth $depth", blockProfile([]),
     ({ mode, depth, fieldPath, otherPath }) => {
       expect.assertions(6)
-      const exercise = (slice: ReturnType<typeof createSampleSlice>) => {
-        const sourceBefore = JSON.stringify(slice)
-        const binding = capturePageField([slice], "en", slice.id, fieldPath, 7)
+      const exercise = (block: ReturnType<typeof createSampleBlock>) => {
+        const sourceBefore = JSON.stringify(block)
+        const binding = capturePageField([block], "en", block.id, fieldPath, 7)
         if (!binding?.repeatedTarget)
           throw new Error("Expected a real repeated-field capture")
         const commit = {
@@ -544,18 +553,18 @@ describe("B1 parent-owned field draft", () => {
           },
           value: pm("accepted own edit"),
         }
-        const receiptSlices = applyPageField([slice], "en", commit, 7)
-        if (!receiptSlices)
+        const receiptBlocks = applyPageField([block], "en", commit, 7)
+        if (!receiptBlocks)
           throw new Error("Expected an accepted parent apply result")
-        const receipt = pageFieldEcho(receiptSlices)
+        const receipt = pageFieldEcho(receiptBlocks)
         if (!receipt) throw new Error("Expected the authentic WeakMap receipt")
         expect(
-          reconcilePageFieldEcho(receiptSlices, "en", commit, receipt, 7)
+          reconcilePageFieldEcho(receiptBlocks, "en", commit, receipt, 7)
         ).not.toBeNull()
         const otherField = capturePageField(
-          receiptSlices,
+          receiptBlocks,
           "en",
-          slice.id,
+          block.id,
           otherPath,
           7
         )
@@ -565,7 +574,7 @@ describe("B1 parent-owned field draft", () => {
         delete missingTargetReceipt.repeatedTarget
         expect(
           reconcilePageFieldEcho(
-            receiptSlices,
+            receiptBlocks,
             "en",
             commit,
             missingTargetReceipt,
@@ -574,14 +583,14 @@ describe("B1 parent-owned field draft", () => {
         ).toBeNull()
         expect(
           reconcilePageFieldEcho(
-            receiptSlices,
+            receiptBlocks,
             "en",
             commit,
             { ...receipt, repeatedTarget: otherField.repeatedTarget },
             7
           )
         ).toBeNull()
-        const changed = structuredClone(requireRootTestSlice(receiptSlices[0]))
+        const changed = structuredClone(requireRootTestBlock(receiptBlocks[0]))
         if (mode === "root") {
           const rows = structuredClone(changed.items)
           Reflect.set(rows[0], "label", "changed parent label")
@@ -593,49 +602,49 @@ describe("B1 parent-owned field draft", () => {
           Reflect.set(clonedRows[0], "label", "changed parent label")
           Reflect.set(changed.primary, "cards", clonedRows)
         }
-        receiptSlices[0] = changed
+        receiptBlocks[0] = changed
         expect(
-          reconcilePageFieldEcho(receiptSlices, "en", commit, receipt, 7)
+          reconcilePageFieldEcho(receiptBlocks, "en", commit, receipt, 7)
         ).toBeNull()
-        expect(pageFieldEcho(receiptSlices)).toBe(receipt)
-        expect(JSON.stringify(slice)).toBe(sourceBefore)
+        expect(pageFieldEcho(receiptBlocks)).toBe(receipt)
+        expect(JSON.stringify(block)).toBe(sourceBefore)
       }
       if (mode === "root") withNestedRootItems(exercise)
       else withNestedPrimary(exercise)
     }
   )
-  it("NEW P3 primary consumer refuses missing, borrowed, incomplete and stale identities", sliceProfile([]), () => {
+  it("NEW P3 primary consumer refuses missing, borrowed, incomplete and stale identities", blockProfile([]), () => {
     expect.assertions(8)
-    withNestedPrimary((slice) => {
+    withNestedPrimary((block) => {
       const path = "primary.cards.0.details.0.copy"
       const binding = capturePageField(
-        [slice],
+        [block],
         "en",
-        slice.id,
+        block.id,
         path,
         7,
         "catalog-a"
       )
       const otherRow = capturePageField(
-        [slice],
+        [block],
         "en",
-        slice.id,
+        block.id,
         "primary.cards.1.details.0.copy",
         7,
         "catalog-a"
       )
       if (!binding?.repeatedTarget || !otherRow?.repeatedTarget)
         throw new Error("Expected both real primary row captures")
-      const sourceBefore = JSON.stringify(slice)
+      const sourceBefore = JSON.stringify(block)
       const commit = { ...binding, value: pm("primary edit") }
       const missingTarget = { ...commit }
       delete missingTarget.repeatedTarget
       expect(
-        applyPageField([slice], "en", missingTarget, 7, "catalog-a")
+        applyPageField([block], "en", missingTarget, 7, "catalog-a")
       ).toBeNull()
       expect(
         applyPageField(
-          [slice],
+          [block],
           "en",
           { ...commit, repeatedTarget: otherRow.repeatedTarget },
           7,
@@ -646,32 +655,32 @@ describe("B1 parent-owned field draft", () => {
       const missingAncestry = { ...commit, repeatedTarget: { ...target } }
       delete missingAncestry.repeatedTarget.ancestors
       expect(
-        applyPageField([slice], "en", missingAncestry, 7, "catalog-a")
+        applyPageField([block], "en", missingAncestry, 7, "catalog-a")
       ).toBeNull()
-      expect(applyPageField([slice], "en", commit, 8, "catalog-a")).toBeNull()
-      expect(applyPageField([slice], "fr", commit, 7, "catalog-a")).toBeNull()
-      expect(applyPageField([slice], "en", commit, 7, "catalog-b")).toBeNull()
+      expect(applyPageField([block], "en", commit, 8, "catalog-a")).toBeNull()
+      expect(applyPageField([block], "fr", commit, 7, "catalog-a")).toBeNull()
+      expect(applyPageField([block], "en", commit, 7, "catalog-b")).toBeNull()
       expect(binding.repeatedTarget.ancestors).toHaveLength(1)
-      expect(JSON.stringify(slice)).toBe(sourceBefore)
+      expect(JSON.stringify(block)).toBe(sourceBefore)
     })
   })
   it.each(["mark", "link target"] as const)(
-    "NEW P3 nested primary refuses an ancestor %s edit for apply and rebase", sliceProfile([]),
+    "NEW P3 nested primary refuses an ancestor %s edit for apply and rebase", blockProfile([]),
     (change) => {
       expect.assertions(6)
-      withNestedPrimary((slice) => {
+      withNestedPrimary((block) => {
         const path = "primary.cards.0.details.0.copy"
-        const binding = capturePageField([slice], "en", slice.id, path, 7)
+        const binding = capturePageField([block], "en", block.id, path, 7)
         if (!binding?.repeatedTarget?.ancestors?.[0])
           throw new Error("Expected a real nested primary capture")
-        const sourceBefore = JSON.stringify(slice)
-        const originalCards = Reflect.get(slice.primary, "cards")
+        const sourceBefore = JSON.stringify(block)
+        const originalCards = Reflect.get(block.primary, "cards")
         if (!Array.isArray(originalCards))
           throw new Error("Expected original primary cards")
         const beforeSummary = Reflect.get(originalCards[0], "summary")
         if (typeof beforeSummary !== "string")
           throw new Error("Expected the original marked summary")
-        const parentEdited = structuredClone(slice)
+        const parentEdited = structuredClone(block)
         const cards = Reflect.get(parentEdited.primary, "cards")
         if (!Array.isArray(cards)) throw new Error("Expected primary cards")
         Reflect.set(
@@ -692,7 +701,7 @@ describe("B1 parent-owned field draft", () => {
           throw new Error("Expected the updated marked summary")
         expect(afterSummary).not.toBe(beforeSummary)
         expect(pmVisibleText(afterSummary)).toBe(pmVisibleText(beforeSummary))
-        const afterTarget = repeatedItemIdentity(slice, path, 7, {
+        const afterTarget = repeatedItemIdentity(block, path, 7, {
           maskField: true,
         })
         if (!afterTarget?.ancestors?.[0])
@@ -716,26 +725,26 @@ describe("B1 parent-owned field draft", () => {
         expect(
           rebasePageField([parentEdited], "en", binding, 7).repeatedTarget
         ).toEqual(binding.repeatedTarget)
-        expect(JSON.stringify(slice)).toBe(sourceBefore)
+        expect(JSON.stringify(block)).toBe(sourceBefore)
       })
     }
   )
-  it("NEW P3 depth-two primary capture, apply and rebase retain complete ancestry", sliceProfile([]), () => {
+  it("NEW P3 depth-two primary capture, apply and rebase retain complete ancestry", blockProfile([]), () => {
     expect.assertions(5)
-    withNestedPrimary((slice) => {
+    withNestedPrimary((block) => {
       const path = "primary.cards.0.details.0.copy"
-      const binding = capturePageField([slice], "en", slice.id, path, 7)
+      const binding = capturePageField([block], "en", block.id, path, 7)
       expect(binding).not.toBeNull()
       if (!binding) throw new Error("Expected a real depth-two primary capture")
       expect(binding.repeatedTarget?.ancestors).toHaveLength(1)
       const edited = applyPageField(
-        [slice],
+        [block],
         "en",
         { ...binding, value: pm("primary own edit") },
         7
       )
       expect(edited).not.toBeNull()
-      const parentEdited = structuredClone(slice)
+      const parentEdited = structuredClone(block)
       const cards = Reflect.get(parentEdited.primary, "cards")
       if (!Array.isArray(cards)) throw new Error("Expected primary cards")
       Reflect.set(cards[0], "label", "parent changed")
@@ -762,14 +771,14 @@ describe("registered basic field draft consumers", () => {
     ["features-icon-grid", "primary.body"],
     ["features-icon-grid", "items.0.body"],
   ] as const) {
-    it.each([profileRow])("captures and applies %s %s blocks without mutating or weakening stale bindings", sliceProfile([]),
+    it.each([profileRow])("captures and applies %s %s blocks without mutating or weakening stale bindings", blockProfile([]),
       (type, path) => {
-        const slice = createSampleSlice(type)
-        const before = JSON.stringify(slice)
+        const block = createSampleBlock(type)
+        const before = JSON.stringify(block)
         const binding = capturePageField(
-          [slice],
+          [block],
           "en",
-          slice.id,
+          block.id,
           path,
           7,
           "catalog"
@@ -814,7 +823,7 @@ describe("registered basic field draft consumers", () => {
           ],
         })
         const result = applyPageField(
-          [slice],
+          [block],
           "en",
           { ...binding, value: document },
           7,
@@ -824,7 +833,7 @@ describe("registered basic field draft consumers", () => {
         expect(JSON.stringify(result)).toContain("bulletList")
         expect(
           applyPageField(
-            [slice],
+            [block],
             "en",
             { ...binding, value: document },
             8,
@@ -833,7 +842,7 @@ describe("registered basic field draft consumers", () => {
         ).toBeNull()
         expect(
           applyPageField(
-            [slice],
+            [block],
             "en",
             {
               ...binding,
@@ -846,7 +855,7 @@ describe("registered basic field draft consumers", () => {
             "catalog"
           )
         ).toBeNull()
-        expect(JSON.stringify(slice)).toBe(before)
+        expect(JSON.stringify(block)).toBe(before)
       }
     )
   }

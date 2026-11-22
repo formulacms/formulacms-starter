@@ -316,7 +316,7 @@ export function planDraftBackfill(args: {
  * Working Draft stores. A key the save does not send keeps the stored value
  * (`baseline`: the language's current Working Draft, else its verified base).
  * A key it sends sets the value; an empty `seo` or an empty `cardExcerpt`
- * clears it. `content` is the descriptor's localized fields plus slices.
+ * clears it. `content` is the descriptor's localized fields plus blocks.
  */
 export function applyPerLanguageInput(
   content: Record<string, unknown>,
@@ -394,17 +394,17 @@ export function perLanguageDraftFields(
 
 /**
  * Stored content -> typed draft input. `localized` is built from the declared
- * descriptor keys only (never from "everything except slices"), the common
- * per-language fields sit beside it, and the slices come from `slices` or the
- * content when the type has a slice body. Which fields an AI job translates is
+ * descriptor keys only (never from "everything except blocks"), the common
+ * per-language fields sit beside it, and the blocks come from `blocks` or the
+ * content when the type has a block body. Which fields an AI job translates is
  * a separate list; this only serializes.
  */
 export function draftInputFromContent(args: {
   pageType: string
   localizedKeys: readonly string[]
-  sliceBody: boolean
+  blockBody: boolean
   content: Record<string, unknown>
-  slices?: readonly unknown[]
+  blocks?: readonly unknown[]
   seoKeys?: readonly (keyof PerLanguageSeo)[]
   cardExcerpt?: boolean
 }): Record<string, unknown> {
@@ -419,8 +419,8 @@ export function draftInputFromContent(args: {
       seoKeys: args.seoKeys,
       cardExcerpt: args.cardExcerpt,
     }),
-    ...(args.sliceBody
-      ? { slices: args.slices ?? args.content.slices ?? [] }
+    ...(args.blockBody
+      ? { blocks: args.blocks ?? args.content.blocks ?? [] }
       : {}),
   }
 }

@@ -4,7 +4,7 @@ import { toFieldShape, type FieldShapeResult } from "./shape"
 import { validateLegacy } from "./strict"
 
 export interface FieldTransition {
-  sliceType: string
+  blockType: string
   fieldPath: string
   from: "text"
   to: "title"
@@ -12,7 +12,7 @@ export interface FieldTransition {
 
 export const FIELD_TRANSITIONS: readonly FieldTransition[] = [
   {
-    sliceType: "faq-simple",
+    blockType: "faq-simple",
     fieldPath: "items.question",
     from: "text",
     to: "title",
@@ -28,7 +28,7 @@ export function transitionForField(
   if (!address) return undefined
   const path = normalizeFieldPath(address.fieldPath)
   return FIELD_TRANSITIONS.find(
-    (entry) => entry.sliceType === address.sliceType && entry.fieldPath === path
+    (entry) => entry.blockType === address.blockType && entry.fieldPath === path
   )
 }
 
@@ -110,11 +110,11 @@ function titlePlainProjection(value: string): string {
     return value
   }
   if (!isRecord(parsed) || !Array.isArray(parsed.content)) return value
-  const blocks = parsed.content.map((block) => {
-    if (!isRecord(block)) return ""
-    return inlinePlainText(block.content)
+  const nodes = parsed.content.map((node) => {
+    if (!isRecord(node)) return ""
+    return inlinePlainText(node.content)
   })
-  return blocks.join("\n\n")
+  return nodes.join("\n\n")
 }
 
 function inlinePlainText(value: unknown): string {

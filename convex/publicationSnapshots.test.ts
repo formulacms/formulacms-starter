@@ -1,7 +1,7 @@
-import { createSampleSlice } from "@/convex/lib/slices/sample"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
 /// <reference types="vite/client" />
 
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { api } from "./_generated/api"
@@ -64,7 +64,7 @@ async function installSnapshotFixture(
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   const pageId = await owner.mutation(api.cms.pages.create, {
     pageType: "landing-page",
@@ -74,7 +74,7 @@ async function installSnapshotFixture(
     content: {
       en: {
         title: "English v1",
-        slices: [
+        blocks: [
           {
             id: "snapshot-hero",
             type: "hero-agency",
@@ -88,7 +88,7 @@ async function installSnapshotFixture(
           },
         ],
       },
-      fr: { title: "Français v1", slices: [] },
+      fr: { title: "Français v1", blocks: [] },
     },
   })
   await t.run(async (ctx) => {
@@ -121,7 +121,7 @@ async function publicationState(
 }
 
 describe("F08a Published Snapshots", () => {
-  test("publishes only the addressed locale and public reads ignore later mutable Page changes", sliceProfile(["hero-agency"]), async () => {
+  test("publishes only the addressed locale and public reads ignore later mutable Page changes", blockProfile(["hero-agency"]), async () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const pageId = await installSnapshotFixture(t, owner)
@@ -146,7 +146,7 @@ describe("F08a Published Snapshots", () => {
     expect(
       await t.run((ctx) =>
         ctx.db
-          .query("pagePublicationSliceReferences")
+          .query("pagePublicationBlockReferences")
           .withIndex("by_sourceKind_and_sourceId", (q) =>
             q
               .eq("sourceKind", "candidate")
@@ -158,14 +158,14 @@ describe("F08a Published Snapshots", () => {
       expect.objectContaining({
         pageId,
         locale: "en",
-        sliceType: "hero-agency",
+        blockType: "hero-agency",
         count: 1,
       }),
     ])
     expect(
       await t.run((ctx) =>
         ctx.db
-          .query("pagePublicationSliceReferences")
+          .query("pagePublicationBlockReferences")
           .withIndex("by_sourceKind_and_sourceId", (q) =>
             q
               .eq("sourceKind", "current_public")
@@ -177,7 +177,7 @@ describe("F08a Published Snapshots", () => {
       expect.objectContaining({
         pageId,
         locale: "en",
-        sliceType: "hero-agency",
+        blockType: "hero-agency",
         count: 1,
       }),
     ])
@@ -185,7 +185,7 @@ describe("F08a Published Snapshots", () => {
       const page = await ctx.db.get("pages", pageId)
       if (!page) throw new Error("page fixture missing")
       await ctx.db.patch("pages", pageId, {
-        content: { en: { title: "MUTATED LEGACY PAGE", slices: [] } },
+        content: { en: { title: "MUTATED LEGACY PAGE", blocks: [] } },
         slug: "mutated-legacy-slug",
       } as never)
       await ctx.db.insert("pageSearch", {
@@ -286,7 +286,7 @@ describe("F08a Published Snapshots", () => {
     )
   })
 
-  test("republish creates a new immutable generation, then withdrawal clears only that locale pointer", sliceProfile(["hero-agency"]), async () => {
+  test("republish creates a new immutable generation, then withdrawal clears only that locale pointer", blockProfile(["hero-agency"]), async () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const pageId = await installSnapshotFixture(t, owner)
@@ -318,7 +318,7 @@ describe("F08a Published Snapshots", () => {
         pageType: "landing-page",
         generation: 2,
         slug: "snapshot-page-v2",
-        content: { title: "English v2", slices: [] },
+        content: { title: "English v2", blocks: [] },
         updatedBy: {
           kind: "owner",
           ownerId: ownerRow._id,
@@ -382,7 +382,7 @@ describe("F08a Published Snapshots", () => {
     expect(
       await t.run((ctx) =>
         ctx.db
-          .query("pagePublicationSliceReferences")
+          .query("pagePublicationBlockReferences")
           .withIndex("by_pageId_and_locale_and_sourceKind", (q) =>
             q
               .eq("pageId", pageId)
@@ -395,7 +395,7 @@ describe("F08a Published Snapshots", () => {
     expect(
       await t.run((ctx) =>
         ctx.db
-          .query("pagePublicationSliceReferences")
+          .query("pagePublicationBlockReferences")
           .withIndex("by_pageId_and_locale_and_sourceKind", (q) =>
             q
               .eq("pageId", pageId)
@@ -425,7 +425,7 @@ describe("F08a Published Snapshots", () => {
     })
   })
 
-  test("a child captures its selected same-locale ancestry and ignores later legacy parent changes", sliceProfile(["hero-agency"]), async () => {
+  test("a child captures its selected same-locale ancestry and ignores later legacy parent changes", blockProfile(["hero-agency"]), async () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const childId = await installSnapshotFixture(t, owner)
@@ -435,8 +435,8 @@ describe("F08a Published Snapshots", () => {
       slug: "parent",
       title: "Parent",
       content: {
-        en: { title: "Parent", slices: [] },
-        fr: { title: "Parent français", slices: [] },
+        en: { title: "Parent", blocks: [] },
+        fr: { title: "Parent français", blocks: [] },
       },
     })
     const parentPublished = await owner.mutation(
@@ -528,7 +528,7 @@ describe("F08a Published Snapshots", () => {
     ])
   })
 
-  test("public readers fail closed on candidate, release, pointer, or lifecycle linkage drift", sliceProfile(["hero-agency"]), async () => {
+  test("public readers fail closed on candidate, release, pointer, or lifecycle linkage drift", blockProfile(["hero-agency"]), async () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const pageId = await installSnapshotFixture(t, owner)
@@ -622,7 +622,7 @@ describe("F08a Published Snapshots", () => {
     ).toBeNull()
   })
 
-  test("current readers require the retained Page identity and exact Page type", sliceProfile(["hero-agency"]), async () => {
+  test("current readers require the retained Page identity and exact Page type", blockProfile(["hero-agency"]), async () => {
     const missingPageApp = app()
     const missingPageOwner = missingPageApp.withIdentity(OWNER)
     const missingPageId = await installSnapshotFixture(
@@ -674,7 +674,7 @@ describe("F08a Published Snapshots", () => {
     ).toBeNull()
   })
 
-  test("current readers enforce the next generation and accept valid candidate release history", sliceProfile(["hero-agency"]), async () => {
+  test("current readers enforce the next generation and accept valid candidate release history", blockProfile(["hero-agency"]), async () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const pageId = await installSnapshotFixture(t, owner)
@@ -767,7 +767,7 @@ describe("F08a Published Snapshots", () => {
     ).toBe("English v1")
   })
 
-  test("menu, redirect, and public settings consumers stay on the selected locale snapshot", sliceProfile(["hero-agency"]), async () => {
+  test("menu, redirect, and public settings consumers stay on the selected locale snapshot", blockProfile(["hero-agency"]), async () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const pageId = await installSnapshotFixture(t, owner)
@@ -836,7 +836,7 @@ describe("F08a Published Snapshots", () => {
     ).toEqual({ destination: "/snapshot-page", statusCode: 301 })
   })
 
-  test("private preview is owner-bound and reports its authenticated locale fallback", sliceProfile(["hero-agency"]), async () => {
+  test("private preview is owner-bound and reports its authenticated locale fallback", blockProfile(["hero-agency"]), async () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const pageId = await installSnapshotFixture(t, owner)
@@ -892,7 +892,7 @@ describe("F08a Published Snapshots", () => {
     ).toBeNull()
   })
 
-  test("Community immediate publication has no Team policy or review dependency", sliceProfile([]), async () => {
+  test("Community immediate publication has no Team policy or review dependency", blockProfile([]), async () => {
     const publicationSource = readFileSync(
       new URL("./cms/publication.ts", import.meta.url),
       "utf8"
@@ -911,7 +911,7 @@ describe("F08a Published Snapshots", () => {
     }
   })
 
-  test("public layout and starter overlay share required locale authority", sliceProfile([]), () => {
+  test("public layout and starter overlay share required locale authority", blockProfile([]), () => {
     const source = readFileSync(
       new URL("../app/(public)/[locale]/layout.tsx", import.meta.url),
       "utf8"
@@ -919,7 +919,7 @@ describe("F08a Published Snapshots", () => {
     expect(source).toContain('requiredCmsRead(readConfig, ["cms-config"]')
   })
 
-  test("public route and starter overlay keep default-locale fallback inside preview only", sliceProfile([]), () => {
+  test("public route and starter overlay keep default-locale fallback inside preview only", blockProfile([]), () => {
     const routeSources = [
       "../app/(public)/[locale]/[[...path]]/page.tsx",
     ].map((relativePath) =>
@@ -1004,7 +1004,7 @@ describe("historical Published Snapshot restoration", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "Historical", metaTitle: "Old SEO" },
-        slices: [
+        blocks: [
           {
             id: "one",
             type: "hero-agency",
@@ -1059,14 +1059,14 @@ describe("historical Published Snapshot restoration", () => {
         "pageLocalePublicationReleases",
         "pagePublicationDocumentReferences",
         "pagePublicationMediaReferences",
-        "pagePublicationSliceReferences",
+        "pagePublicationBlockReferences",
         "pageRevisions",
         "pageStaging",
       ] as const
       return Promise.all(tables.map((table) => ctx.db.query(table).collect()))
     })
   }
-  test("keeps media immutable through draft Save, stale publish refusal, historical restore and explicit republish", sliceProfile(["hero-agency","hero-with-image"]), async () => {
+  test("keeps media immutable through draft Save, stale publish refusal, historical restore and explicit republish", blockProfile(["hero-agency","hero-with-image"]), async () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const pageId = await installSnapshotFixture(t, owner)
@@ -1098,7 +1098,7 @@ describe("historical Published Snapshot restoration", () => {
           draft: {
             pageType: "landing-page",
             localized: { title: "Delivery" },
-            slices: [
+            blocks: [
               {
                 id: "delivery-hero",
                 type: "hero-with-image",
@@ -1167,7 +1167,7 @@ describe("historical Published Snapshot restoration", () => {
     expect(originalPublic).toMatchObject({
       content: {
         en: {
-          slices: [{ id: "delivery-hero", primary: { image: firstImage } }],
+          blocks: [{ id: "delivery-hero", primary: { image: firstImage } }],
         },
       },
     })
@@ -1187,7 +1187,7 @@ describe("historical Published Snapshot restoration", () => {
     expect(second.snapshotId).not.toBe(first.snapshotId)
     const secondPublic = await readPublic("en")
     expect(secondPublic).toMatchObject({
-      content: { en: { slices: [{ primary: { image: secondImage } }] } },
+      content: { en: { blocks: [{ primary: { image: secondImage } }] } },
     })
     await owner.mutation(
       api.cms.publication.restoreSnapshotAsDraft,
@@ -1195,7 +1195,7 @@ describe("historical Published Snapshot restoration", () => {
     )
     expect(await readDraft("en")).toMatchObject({
       content: {
-        slices: [{ id: "delivery-hero", primary: { image: firstImage } }],
+        blocks: [{ id: "delivery-hero", primary: { image: firstImage } }],
       },
     })
     expect((await readPublic("en"))?.content).toEqual(secondPublic?.content)
@@ -1219,7 +1219,7 @@ describe("historical Published Snapshot restoration", () => {
       state: await publicationState(t, pageId, "fr"),
     }).toEqual(peer)
   })
-  test("restores both complete drafts and occurrence identities while public/history/FR stay unchanged until explicit publish", sliceProfile(["hero-agency"]), async () => {
+  test("restores both complete drafts and occurrence identities while public/history/FR stay unchanged until explicit publish", blockProfile(["hero-agency"]), async () => {
     const { t, owner, pageId, old, args } = await fixture()
     await owner.mutation(api.cms.publication.saveSharedDraft, {
       pageId,
@@ -1299,7 +1299,7 @@ describe("historical Published Snapshot restoration", () => {
     "expectedLifecycleGeneration",
     "expectedPublicGeneration",
     "expectedReleaseGeneration",
-  ] as const)("refuses stale %s without any partial state", sliceProfile(["hero-agency"]), async (key) => {
+  ] as const)("refuses stale %s without any partial state", blockProfile(["hero-agency"]), async (key) => {
     const { t, owner, args } = await fixture()
     const before = await persisted(t)
     await expect(
@@ -1319,7 +1319,7 @@ describe("historical Published Snapshot restoration", () => {
       "SITE_LANGUAGE_AUTHORITY_INVALID",
     ],
   ] as const)(
-    "refuses %s without changing drafts, public state or history", sliceProfile(["hero-agency"]),
+    "refuses %s without changing drafts, public state or history", blockProfile(["hero-agency"]),
     async (_name, defaultLocale, enabledLocales, error) => {
       const { t, owner, args } = await fixture()
       await t.run(async (ctx) => {
@@ -1336,7 +1336,7 @@ describe("historical Published Snapshot restoration", () => {
       expect(await persisted(t)).toEqual(before)
     }
   )
-  test("refuses non-owner, wrong locale and archived-Type new usage without changing history or drafts", sliceProfile(["hero-agency"]), async () => {
+  test("refuses non-owner, wrong locale and archived-Type new usage without changing history or drafts", blockProfile(["hero-agency"]), async () => {
     const { t, owner, args, pageId } = await fixture()
     await expect(
       t
@@ -1362,26 +1362,26 @@ describe("historical Published Snapshot restoration", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "Removed" },
-        slices: [],
+        blocks: [],
       },
     })
     const removalArgs = await restoreArgs(t, pageId, args.snapshotId)
     const before = await persisted(t)
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").first())!
-      await ctx.db.patch("siteSettings", settings._id, { archivedSliceTypes: ["hero-agency"] })
+      await ctx.db.patch("siteSettings", settings._id, { archivedBlockTypes: ["hero-agency"] })
     })
     await expect(
       owner.mutation(api.cms.publication.restoreSnapshotAsDraft, removalArgs)
     ).rejects.toThrow(/Archived Block Type/)
     expect(await persisted(t)).toEqual(before)
   })
-  test("mixed supported/absent-Type history remains inspectable and whole restore refuses before writes", sliceProfile(["hero-agency"]), async () => {
+  test("mixed supported/absent-Type history remains inspectable and whole restore refuses before writes", blockProfile(["hero-agency"]), async () => {
     const { t, owner, args, old } = await fixture()
     await t.run(async (ctx) => {
       const candidate = (await ctx.db.get("pageLocalePublicationCandidates", old.candidateId))!
       const payload = JSON.parse(candidate.payloadJson)
-      payload.localized.content.slices[1].type = "absent-profile-type"
+      payload.localized.content.blocks[1].type = "absent-profile-type"
       const serialized = serializeLocalePublicationCandidate(payload)
       const digest = await digestLocalePublicationCandidate(
         serialized.payloadJson
@@ -1394,16 +1394,16 @@ describe("historical Published Snapshot restoration", () => {
       pageId: args.pageId,
       locale: "en",
     })
-    expect(history[0]!.unavailablePaths).toEqual(["content.en.slices[1]"])
+    expect(history[0]!.unavailablePaths).toEqual(["content.en.blocks[1]"])
     expect(
-      JSON.parse(history[0]!.payloadJson).localized.content.slices
+      JSON.parse(history[0]!.payloadJson).localized.content.blocks
     ).toHaveLength(2)
     await expect(
       owner.mutation(api.cms.publication.restoreSnapshotAsDraft, args)
     ).rejects.toThrow(/installed block code is unavailable/)
     expect(await persisted(t)).toEqual(before)
   })
-  test("preserves image metadata and document bindings, and rolls back the whole restore when media is missing", sliceProfile(["hero-agency","hero-with-image"]), async () => {
+  test("preserves image metadata and document bindings, and rolls back the whole restore when media is missing", blockProfile(["hero-agency","hero-with-image"]), async () => {
     const { t, owner, pageId, args } = await fixture()
     const media = await t.run(async (ctx) => {
       const storageId = await ctx.storage.store(
@@ -1424,7 +1424,7 @@ describe("historical Published Snapshot restoration", () => {
       status: "draft",
       slug: "reference-target",
       title: "Reference",
-      content: { en: { title: "Reference", slices: [] } },
+      content: { en: { title: "Reference", blocks: [] } },
     })
     await owner.mutation(api.cms.publication.publishLocale, {
       pageId: targetId,
@@ -1435,7 +1435,7 @@ describe("historical Published Snapshot restoration", () => {
       expectedLifecycleGeneration: 1,
       expectedReleaseGeneration: 0,
     })
-    const slices = [
+    const blocks = [
       {
         id: "image-one",
         type: "hero-with-image" as const,
@@ -1465,7 +1465,7 @@ describe("historical Published Snapshot restoration", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "Media" },
-        slices,
+        blocks,
       },
     })
     const next = await restoreArgs(t, pageId, args.snapshotId)
@@ -1487,11 +1487,11 @@ describe("historical Published Snapshot restoration", () => {
     )
     expect(drafts).toMatchObject({
       content: {
-        slices: [
+        blocks: [
           {
-            ...slices[0],
+            ...blocks[0],
             primary: {
-              ...slices[0].primary,
+              ...blocks[0].primary,
               title: JSON.stringify({
                 type: "doc",
                 content: [
@@ -1531,7 +1531,7 @@ describe("historical Published Snapshot restoration", () => {
     ).rejects.toThrow(/MEDIA_REFERENCE_MISSING/)
     expect(await persisted(t)).toEqual(before)
   })
-  test("restores complete shared descriptor references and refuses missing targets transactionally", sliceProfile(["hero-agency"]), async () => {
+  test("restores complete shared descriptor references and refuses missing targets transactionally", blockProfile(["hero-agency"]), async () => {
     const { t, owner } = await fixture()
     const authorId = await owner.mutation(api.cms.pages.create, {
       pageType: "author",
@@ -1539,7 +1539,7 @@ describe("historical Published Snapshot restoration", () => {
       slug: "restored-author",
       title: "Author",
       name: "Author",
-      content: { en: { title: "Author", slices: [] } },
+      content: { en: { title: "Author", blocks: [] } },
     })
     await owner.mutation(api.cms.publication.publishLocale, {
       pageId: authorId,
@@ -1557,7 +1557,7 @@ describe("historical Published Snapshot restoration", () => {
       title: "Post",
       authorIds: [authorId],
       tags: ["historical"],
-      content: { en: { title: "Post", slices: [] } },
+      content: { en: { title: "Post", blocks: [] } },
     })
     const published = await owner.mutation(api.cms.publication.publishLocale, {
       pageId,
@@ -1615,8 +1615,8 @@ describe("archived-Type Working Draft admission", () => {
   const refusal =
     'Archived Block Type "hero-with-image" cannot be added to a Page.'
   const hero = (id = "admitted-hero", eyebrow = "Admitted") => {
-    const slice = createSampleSlice("hero-with-image")
-    return { ...slice, id, primary: { ...slice.primary, eyebrow } }
+    const block = createSampleBlock("hero-with-image")
+    return { ...block, id, primary: { ...block.primary, eyebrow } }
   }
 
   async function clocks(t: T, pageId: Id<"pages">, locale = "en") {
@@ -1650,7 +1650,7 @@ describe("archived-Type Working Draft admission", () => {
     t: T,
     owner: Owner,
     pageId: Id<"pages">,
-    slices: ReturnType<typeof hero>[],
+    blocks: ReturnType<typeof hero>[],
     locale = "en"
   ) {
     const c = await clocks(t, pageId, locale)
@@ -1663,7 +1663,7 @@ describe("archived-Type Working Draft admission", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "Archived Page" },
-        slices,
+        blocks,
       },
     })
   }
@@ -1682,7 +1682,7 @@ describe("archived-Type Working Draft admission", () => {
     await t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").unique())!
       await ctx.db.patch("siteSettings", settings._id, {
-        archivedSliceTypes: ["hero-with-image"],
+        archivedBlockTypes: ["hero-with-image"],
       })
     })
   }
@@ -1698,7 +1698,7 @@ describe("archived-Type Working Draft admission", () => {
       pageType: "landing-page",
       status: "draft",
       slug: "archived-page",
-      content: { en: { title: "Archived Page", slices: [hero()] } },
+      content: { en: { title: "Archived Page", blocks: [hero()] } },
     })
     return { t, owner, pageId }
   }
@@ -1712,7 +1712,7 @@ describe("archived-Type Working Draft admission", () => {
         "pagePublishedSnapshots",
         "pageLocalePublicationCandidates",
         "pageLocalePublicationReleases",
-        "pagePublicationSliceReferences",
+        "pagePublicationBlockReferences",
         "pagePublicationDocumentReferences",
         "pagePublicationMediaReferences",
         "pageRevisions",
@@ -1720,15 +1720,15 @@ describe("archived-Type Working Draft admission", () => {
       return Promise.all(tables.map((table) => ctx.db.query(table).collect()))
     })
   }
-  async function snapshotSlices(
+  async function snapshotBlocks(
     t: T,
     candidateId: Id<"pageLocalePublicationCandidates">
   ) {
     const candidate = (await t.run((ctx) => ctx.db.get("pageLocalePublicationCandidates", candidateId)))!
-    return JSON.parse(candidate.payloadJson).localized.content.slices
+    return JSON.parse(candidate.payloadJson).localized.content.blocks
   }
 
-  test("F09 publishes an edited and saved retained occurrence after archival", sliceProfile(["hero-with-image"]), async () => {
+  test("F09 publishes an edited and saved retained occurrence after archival", blockProfile(["hero-with-image"]), async () => {
     const { t, owner, pageId } = await fixture()
     await publish(t, owner, pageId)
     await archive(t)
@@ -1736,7 +1736,7 @@ describe("archived-Type Working Draft admission", () => {
       hero("admitted-hero", "Edited after archive"),
     ])
     const result = await publish(t, owner, pageId)
-    expect(await snapshotSlices(t, result.candidateId)).toEqual([
+    expect(await snapshotBlocks(t, result.candidateId)).toEqual([
       expect.objectContaining({
         id: "admitted-hero",
         primary: expect.objectContaining({ eyebrow: "Edited after archive" }),
@@ -1752,21 +1752,21 @@ describe("archived-Type Working Draft admission", () => {
     })
     expect(publicPage?.content.en).toEqual(
       expect.objectContaining({
-        slices: await snapshotSlices(t, result.candidateId),
+        blocks: await snapshotBlocks(t, result.candidateId),
       })
     )
   })
-  test("first Publish retains an occurrence added and saved while active", sliceProfile(["hero-with-image"]), async () => {
+  test("first Publish retains an occurrence added and saved while active", blockProfile(["hero-with-image"]), async () => {
     const { t, owner, pageId } = await fixture()
     await save(t, owner, pageId, [])
     await save(t, owner, pageId, [hero("saved-before-archive")])
     await archive(t)
     const result = await publish(t, owner, pageId)
-    expect(await snapshotSlices(t, result.candidateId)).toEqual([
+    expect(await snapshotBlocks(t, result.candidateId)).toEqual([
       expect.objectContaining({ id: "saved-before-archive" }),
     ])
   })
-  test("Save refuses a fresh archived occurrence with the exact message and no writes", sliceProfile(["hero-with-image"]), async () => {
+  test("Save refuses a fresh archived occurrence with the exact message and no writes", blockProfile(["hero-with-image"]), async () => {
     const { t, owner, pageId } = await fixture()
     await archive(t)
     const before = await persisted(t)
@@ -1775,7 +1775,7 @@ describe("archived-Type Working Draft admission", () => {
     ).rejects.toThrow(refusal)
     expect(await persisted(t)).toEqual(before)
   })
-  test("shared-only Publish uses the admitted fallback after its draft row was removed", sliceProfile(["hero-with-image"]), async () => {
+  test("shared-only Publish uses the admitted fallback after its draft row was removed", blockProfile(["hero-with-image"]), async () => {
     const { t, owner, pageId } = await fixture()
     await publish(t, owner, pageId)
     await archive(t)
@@ -1795,12 +1795,12 @@ describe("archived-Type Working Draft admission", () => {
     )
     expect(drafts).toEqual([])
     const result = await publish(t, owner, pageId)
-    expect(await snapshotSlices(t, result.candidateId)).toEqual([
+    expect(await snapshotBlocks(t, result.candidateId)).toEqual([
       expect.objectContaining({ id: "admitted-hero" }),
     ])
   })
   test.each([false, true])(
-    "restore retains an archived occurrence with draft row=%s", sliceProfile(["hero-with-image"]),
+    "restore retains an archived occurrence with draft row=%s", blockProfile(["hero-with-image"]),
     async (withDraft) => {
       const { t, owner, pageId } = await fixture()
       const first = await publish(t, owner, pageId)
@@ -1821,12 +1821,12 @@ describe("archived-Type Working Draft admission", () => {
       )
       expect(draft?.content).toEqual(
         expect.objectContaining({
-          slices: await snapshotSlices(t, first.candidateId),
+          blocks: await snapshotBlocks(t, first.candidateId),
         })
       )
     }
   )
-  test("restore refuses resurrection of an occurrence removed from the working copy", sliceProfile(["hero-with-image"]), async () => {
+  test("restore refuses resurrection of an occurrence removed from the working copy", blockProfile(["hero-with-image"]), async () => {
     const { t, owner, pageId } = await fixture()
     const first = await publish(t, owner, pageId)
     await archive(t)
@@ -1840,7 +1840,7 @@ describe("archived-Type Working Draft admission", () => {
     ).rejects.toThrow(refusal)
     expect(await persisted(t)).toEqual(before)
   })
-  test("M05 admission is per locale even when the same occurrence ID exists in EN", sliceProfile(["hero-with-image"]), async () => {
+  test("M05 admission is per locale even when the same occurrence ID exists in EN", blockProfile(["hero-with-image"]), async () => {
     const { t, owner, pageId } = await fixture()
     // Use the existing module/adoption commands, then add FR without content.
     await owner.mutation(api.cms.modules.commit, {
@@ -1872,7 +1872,7 @@ describe("archived-Type Working Draft admission", () => {
     await archive(t)
     await save(t, owner, pageId, [hero("admitted-hero", "EN retained")])
     const en = await publish(t, owner, pageId)
-    expect(await snapshotSlices(t, en.candidateId)).toHaveLength(1)
+    expect(await snapshotBlocks(t, en.candidateId)).toHaveLength(1)
     const before = await persisted(t)
     await expect(save(t, owner, pageId, [hero()], "fr")).rejects.toThrow(
       refusal
@@ -1885,7 +1885,7 @@ describe("archived-Type Working Draft admission", () => {
     beforeEach(() => vi.useFakeTimers())
     afterEach(() => vi.useRealTimers())
     test.each(["draft", "frozen"] as const)(
-      "%s arm preserves its own admission boundary", sliceProfile(["hero-with-image"]),
+      "%s arm preserves its own admission boundary", blockProfile(["hero-with-image"]),
       async (arm) => {
         const { t, owner, pageId } = await fixture()
         const settings = (await t.run((ctx) =>
@@ -1937,7 +1937,7 @@ describe("archived-Type Working Draft admission", () => {
           expect(await persisted(t)).toEqual(before)
         } else {
           const prepared = await result
-          expect(await snapshotSlices(t, prepared.candidateId)).toEqual([
+          expect(await snapshotBlocks(t, prepared.candidateId)).toEqual([
             expect.objectContaining({ id: "admitted-hero" }),
           ])
           const first = (await publicationState(t, pageId, "fr"))!
@@ -1992,7 +1992,7 @@ describe("E1 two tabs of one owner on one Page", () => {
         draft: {
           pageType: "landing-page",
           localized: { title },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -2037,7 +2037,7 @@ describe("E1 two tabs of one owner on one Page", () => {
     return (row?.content as { title?: string } | undefined)?.title
   }
 
-  test("a locale save from a stale base is refused, changes nothing and keeps the other tab's text; a re-read is accepted", sliceProfile([]), async () => {
+  test("a locale save from a stale base is refused, changes nothing and keeps the other tab's text; a re-read is accepted", blockProfile([]), async () => {
     const t = app()
     const pageId = await installSnapshotFixture(t, t.withIdentity(OWNER))
     const tabA = await openTab(t, pageId)
@@ -2055,7 +2055,7 @@ describe("E1 two tabs of one owner on one Page", () => {
     expect(await enDraftTitle(t, pageId)).toBe("Written by A after a re-read")
   })
 
-  test("a shared save from a stale base is refused and changes nothing", sliceProfile([]), async () => {
+  test("a shared save from a stale base is refused and changes nothing", blockProfile([]), async () => {
     const t = app()
     const pageId = await installSnapshotFixture(t, t.withIdentity(OWNER))
     const tabA = await openTab(t, pageId)
@@ -2072,7 +2072,7 @@ describe("E1 two tabs of one owner on one Page", () => {
     expect(await enDraftTitle(t, pageId)).toBe("A title")
   })
 
-  test("a publish after the other tab saved is refused and publishes nothing", sliceProfile([]), async () => {
+  test("a publish after the other tab saved is refused and publishes nothing", blockProfile([]), async () => {
     const t = app()
     const pageId = await installSnapshotFixture(t, t.withIdentity(OWNER))
     const tabA = await openTab(t, pageId)
@@ -2102,7 +2102,7 @@ describe("E1 two tabs of one owner on one Page", () => {
 describe("ED1REC real snapshot save refusal", () => {
   test(
     "R7 generation literals and missing-row sentinel are accepted by validators and refused atomically",
-    sliceProfile(["hero-agency"]),
+    blockProfile(["hero-agency"]),
     async () => {
       const t = app()
       const owner = t.withIdentity(OWNER)
@@ -2143,7 +2143,7 @@ describe("ED1REC real snapshot save refusal", () => {
         draft: {
           pageType: "landing-page" as const,
           localized: { title: "Recovered" },
-          slices: [],
+          blocks: [],
         },
       }
       await expect(

@@ -1,6 +1,6 @@
 import type { GenericValidator, ObjectType, VObject } from "convex/values"
 import type { Id } from "../../_generated/dataModel"
-import type { Primitive } from "../slices/primitives"
+import type { Primitive } from "../blocks/primitives"
 
 /**
  * Content-type descriptor registry — the C1 seam of plan 028.
@@ -12,7 +12,7 @@ import type { Primitive } from "../slices/primitives"
  * Every content type lives on the `pages` table (storage name retained by
  * decision #6 of plan 028) and is discriminated by the `pageType` column.
  *
- * The descriptor shape mirrors the slice registry (`convex/lib/slices/`) —
+ * The descriptor shape mirrors the block registry (`convex/lib/blocks/`) —
  * declarative primitives on one side (so the schema-driven editor, sample
  * generator, and write-path validators can walk them uniformly), fully-formed
  * `v.object({ ... })` validators on the other (so the schema pulls a precise
@@ -54,10 +54,10 @@ export type ReferenceCard = {
 }
 
 /**
- * A single descriptor field — a primitive descriptor from the slice registry's
+ * A single descriptor field — a primitive descriptor from the block registry's
  * `Primitive<V>` shape (ADR-008), reused verbatim so field editing / sample
  * generation / rich-text profile enforcement flow through one code path across
- * slices, page metadata, and content-type documents.
+ * blocks, page metadata, and content-type documents.
  */
 export type DescriptorField = Primitive<GenericValidator>
 
@@ -76,7 +76,7 @@ export type DescriptorFieldMap = Record<string, DescriptorField>
 /**
  * Capability flags gate which *optional* pipeline surfaces a type opts into.
  *
- * Two of these — `sliceBody` and `scheduling` — shape the storage schema:
+ * Two of these — `blockBody` and `scheduling` — shape the storage schema:
  * their fields only exist on a descriptor's union arm when the flag is on.
  * The other two — `revisions` and `presence` — gate **pipeline behavior**
  * (whether a revision row is written, whether presence/locks are tracked),
@@ -96,14 +96,14 @@ export type DescriptorFieldMap = Record<string, DescriptorField>
  */
 export type ContentTypeCapabilities = {
   /**
-   * `content[locale].slices[]` — long-form slice-composed body. The three
+   * `content[locale].blocks[]` — long-form block-composed body. The three
    * current page-type flavors all set this; a pure reference target
    * (faq-item, testimonial) sets it to `false` and the union arm loses the
-   * `slices` field entirely.
+   * `blocks` field entirely.
    *
    * SCHEMA-SHAPING.
    */
-  sliceBody: boolean
+  blockBody: boolean
 
   /**
    * Whether `pageRevisions` rows are written on save/publish. Non-revisioned
@@ -136,11 +136,11 @@ export type ContentTypeCapabilities = {
 
   /**
    * Publish contract (plan 029 C10, ADR-0038 §7): when `true`, the C9a
-   * publish-checklist walker requires at least one meaningful enabled slice
+   * publish-checklist walker requires at least one meaningful enabled block
    * on the arm and emits `missing_required_field: "body"` when empty. Off
-   * ⇒ an empty slice canvas is a legitimate publish state.
+   * ⇒ an empty block canvas is a legitimate publish state.
    *
-   * `sliceBody: false` types (testimonial) don't have a slice canvas — this
+   * `blockBody: false` types (testimonial) don't have a block canvas — this
    * flag is n/a for them (kept `false`).
    *
    * Pipeline behavior; does not shape the row schema.
@@ -202,9 +202,9 @@ export type ContentTypeDescriptor<
    *
    * Localized rich-text fields inherit their profile from the primitive
    * (ADR-0009); the write-path validator already walks primitive descriptors
-   * (see `convex/lib/slices/validate.ts`) — the C1 follow-up will point it at
+   * (see `convex/lib/blocks/validate.ts`) — the C1 follow-up will point it at
    * content-type descriptors too, so profile enforcement covers author bios
-   * and faq answers on the same code path that covers slice rich-text today.
+   * and faq answers on the same code path that covers block rich-text today.
    */
   localizedFields: Localized
 
@@ -213,7 +213,7 @@ export type ContentTypeDescriptor<
    * `sharedFields` / `localizedFields`. Descriptors must expose them so the
    * page-schema generator can build the per-type discriminated arm without
    * re-deriving them from `Primitive.validator` at runtime. Mirrors the
-   * slice-descriptor pattern (`heroAgencyDef.validator`).
+   * block-descriptor pattern (`heroAgencyDef.validator`).
    *
    * Type parameters keep `Infer<>` precise per descriptor — no `v.any()`.
    */
@@ -276,7 +276,7 @@ export type ContentTypeDescriptor<
    * pageType: string; readonly ...unknown }` here because per-arm types
    * aren't statically known at registry-build time; concrete descriptor
    * implementations narrow with a runtime `pageType` check and cast (mirrors
-   * how slice validators recover their primary/items types today). C2 wires
+   * how block validators recover their primary/items types today). C2 wires
    * a helper `resolveReferenceCard(ctx, docId, locale)` that picks the right
    * descriptor and calls this.
    *
@@ -293,13 +293,13 @@ export type ContentTypeDescriptor<
   ) => ReferenceCard
 
   /**
-   * Optional AI hint co-located on the descriptor, mirroring the slice
+   * Optional AI hint co-located on the descriptor, mirroring the block
    * registry's `AIHint` (ADR-0014).
    *
-   * **Dormant seam — nothing reads this yet.** The slice-side `aiHint` is
+   * **Dormant seam — nothing reads this yet.** The block-side `aiHint` is
    * live: `convex/lib/agents/contentWriterContract.ts` and
    * `convex/lib/help/workflow.ts` both build prompts from it, and
-   * `slices/aiHint.test.ts` requires every slice to carry one. The
+   * `blocks/aiHint.test.ts` requires every block to carry one. The
    * content-type side has no such consumer, so a descriptor that omits this
    * loses nothing and a descriptor that fills it in changes no behaviour.
    *
@@ -307,7 +307,7 @@ export type ContentTypeDescriptor<
    * obvious future consumer and the shape should not have to be re-derived.
    * Left optional deliberately: making it required would oblige every new
    * descriptor to write prose that nothing reads. If you wire a consumer,
-   * delete this paragraph and add the coverage test the slice side has.
+   * delete this paragraph and add the coverage test the block side has.
    */
   aiHint?: {
     purpose: string

@@ -107,7 +107,7 @@ describe("local BYOK API engines", () => {
         prompt: "USER PROMPT",
         images: [{ path: imagePath, mediaType: "image/png" }],
         profile: "vision-spec",
-        phase: "slice-spec",
+        phase: "block-spec",
       }
 
       await expect(
@@ -184,7 +184,7 @@ describe("local BYOK API engines", () => {
       prompt: "USER PROMPT",
       images: [],
       profile: "vision-spec",
-      phase: "slice-spec",
+      phase: "block-spec",
     })
 
     expect(mocks.createOpenRouter).toHaveBeenCalledWith(
@@ -207,7 +207,7 @@ describe("local BYOK API engines", () => {
         prompt: "USER PROMPT",
         images: [],
         profile: "vision-spec",
-        phase: "slice-spec",
+        phase: "block-spec",
       })
 
       const selectedFactory =
@@ -228,7 +228,7 @@ describe("local BYOK API engines", () => {
       prompt: "USER PROMPT",
       images: [],
       profile: "vision-spec",
-      phase: "slice-spec",
+      phase: "block-spec",
     }
 
     await expect(
@@ -266,7 +266,7 @@ describe("local BYOK API engines", () => {
         prompt: "USER PROMPT",
         images: [],
         profile: "vision-spec",
-        phase: "slice-spec",
+        phase: "block-spec",
       })
     ).rejects.toThrow(error)
     expect(mocks.createOpenAI).not.toHaveBeenCalled()
@@ -284,7 +284,7 @@ describe("local BYOK API engines", () => {
         prompt: "USER PROMPT",
         images: [],
         profile: "vision-spec",
-        phase: "slice-spec",
+        phase: "block-spec",
       })
     ).rejects.toMatchObject({
       category: "CONFIG_MISSING",
@@ -339,7 +339,7 @@ describe("local BYOK API engines", () => {
         prompt: "USER PROMPT",
         images: [],
         profile: "vision-spec",
-        phase: "slice-spec",
+        phase: "block-spec",
         signal: controller.signal,
       })
     ).rejects.toMatchObject({

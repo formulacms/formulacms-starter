@@ -63,7 +63,7 @@ const unit = (
 ): PageJob["units"][number] => ({
   index,
   kind: "write",
-  sliceType: "features-icon-grid",
+  blockType: "features-icon-grid",
   purpose: `Purpose ${index + 1}`,
   state,
   reused,
@@ -101,7 +101,7 @@ const RESULT = {
   sections: [
     {
       index: 0,
-      sliceType: "features-icon-grid",
+      blockType: "features-icon-grid",
       purpose: "Open with who we are",
       fields: [
         { label: "Title", text: "A studio that sweats the details." },
@@ -110,13 +110,13 @@ const RESULT = {
     },
     {
       index: 2,
-      sliceType: "faq-simple",
+      blockType: "faq-simple",
       purpose: "Answer common questions",
       fields: [{ label: "Question", text: "How long does a site take?" }],
     },
     {
       index: 5,
-      sliceType: "rich-text-body",
+      blockType: "rich-text-body",
       purpose: "Close with an invitation",
       fields: [{ label: "Body", text: "Let’s talk about your site." }],
     },
@@ -167,7 +167,7 @@ describe("PageJobCard states", () => {
     ["canceled", "Canceled", ["Resume", "Dismiss"]],
     ["failed", "Failed", ["Resume", "Dismiss"]],
     ["capped", "Failed", ["Resume", "Dismiss"]],
-    ["done", "Done", ["Review sections"]],
+    ["done", "Done", ["Review blocks"]],
     ["expired", "Expired · saved results are gone", ["Dismiss"]],
   ] as const)("%s shows %s and its buttons", (state, status, buttons) => {
     renderCard(makeJob({ state }))
@@ -193,7 +193,7 @@ describe("PageJobCard states", () => {
         ],
       })
     )
-    expect(screen.getByTestId("job-count")).toHaveTextContent("2 of 4 sections")
+    expect(screen.getByTestId("job-count")).toHaveTextContent("2 of 4 blocks")
     expect(
       screen.getByRole("progressbar", { name: "Saved units" })
     ).toHaveAttribute("aria-valuenow", "50")
@@ -204,10 +204,10 @@ describe("PageJobCard states", () => {
       .getAllByRole("listitem")
       .map((row) => row.textContent)
     expect(rows).toEqual([
-      "Section 1 · Purpose 1Reused",
-      "Section 2 · Purpose 2Saved",
-      "Section 3 · Purpose 3Failed",
-      "Section 4 · Purpose 4Waiting",
+      "Block 1 · Purpose 1Reused",
+      "Block 2 · Purpose 2Saved",
+      "Block 3 · Purpose 3Failed",
+      "Block 4 · Purpose 4Waiting",
     ])
   })
 
@@ -271,7 +271,7 @@ describe("PageJobCard actions", () => {
 describe("Review list", () => {
   test("opening the review subscribes to the result, ticks every section and clears nothing", () => {
     renderCard(makeJob({ state: "done" }))
-    const review = screen.getByRole("button", { name: "Review sections" })
+    const review = screen.getByRole("button", { name: "Review blocks" })
     expect(review).toHaveAttribute("aria-expanded", "false")
     fireEvent.click(review)
     expect(review).toHaveAttribute("aria-expanded", "true")
@@ -279,7 +279,7 @@ describe("Review list", () => {
       "cms/aiJobs:pageJobResult",
       { jobId: "job-1" },
     ])
-    expect(screen.getByText("Sections to review")).toBeInTheDocument()
+    expect(screen.getByText("Blocks to review")).toBeInTheDocument()
     expect(screen.getByTestId("review-meta")).toHaveTextContent(
       "About us · Draft · English"
     )
@@ -308,7 +308,7 @@ describe("Review list", () => {
       saved: 2,
     })
     renderCard(makeJob({ state: "done" }), { onFinish })
-    fireEvent.click(screen.getByRole("button", { name: "Review sections" }))
+    fireEvent.click(screen.getByRole("button", { name: "Review blocks" }))
     const boxes = screen.getAllByRole("checkbox")
     // Untick the last, then the first, then tick the first again.
     fireEvent.click(boxes[2]!)
@@ -330,7 +330,7 @@ describe("Review list", () => {
 
   test("Accept chosen is disabled with nothing ticked", () => {
     renderCard(makeJob({ state: "done" }))
-    fireEvent.click(screen.getByRole("button", { name: "Review sections" }))
+    fireEvent.click(screen.getByRole("button", { name: "Review blocks" }))
     for (const box of screen.getAllByRole("checkbox")) fireEvent.click(box)
     expect(
       screen.getByRole("button", { name: "Accept chosen (0)" })
@@ -344,12 +344,12 @@ describe("Review list", () => {
       saved: 2,
     })
     renderCard(makeJob({ state: "done" }))
-    fireEvent.click(screen.getByRole("button", { name: "Review sections" }))
+    fireEvent.click(screen.getByRole("button", { name: "Review blocks" }))
     fireEvent.click(screen.getAllByRole("checkbox")[1]!)
     fireEvent.click(screen.getByRole("button", { name: "Accept chosen (2)" }))
     expect(
       await screen.findByText(
-        "Could not save. Your sections are kept. Try again."
+        "Could not save. Your blocks are kept. Try again."
       )
     ).toHaveAttribute("role", "alert")
     expect(
@@ -381,7 +381,7 @@ describe("Dismiss", () => {
       expect(mocks.toast).toHaveBeenCalledWith("Moved to Trash")
     )
     expect(mocks.confirm).toHaveBeenCalledWith({
-      title: "Dismiss these sections?",
+      title: "Dismiss these blocks?",
       description:
         'The page "About us" was created for this job. It moves to Trash. You can restore it from Trash.',
       confirmText: "Dismiss and move to Trash",
@@ -398,13 +398,13 @@ describe("Dismiss", () => {
       pageMovedToTrash: true,
     })
     renderCard(makeJob({ state: "done", dismissMovesPageToTrash: false }))
-    fireEvent.click(screen.getByRole("button", { name: "Review sections" }))
+    fireEvent.click(screen.getByRole("button", { name: "Review blocks" }))
     fireEvent.click(screen.getByRole("button", { name: "Dismiss all" }))
     await waitFor(() =>
       expect(mocks.toast).toHaveBeenCalledWith("Moved to Trash")
     )
     expect(mocks.confirm).toHaveBeenCalledWith({
-      title: "Dismiss these sections?",
+      title: "Dismiss these blocks?",
       description:
         'You edited the page "About us" after the job started, so it stays in your pages.',
       confirmText: "Dismiss",
@@ -448,15 +448,15 @@ describe("languages and copy", () => {
     })
     expect(screen.getByRole("status")).toHaveTextContent("Terminée")
     expect(screen.getByTestId("job-count")).toHaveTextContent(
-      "1 sur 1 sections"
+      "1 sur 1 blocs"
     )
     expect(
       screen.getByRole("progressbar", { name: "Unités enregistrées" })
     ).toBeInTheDocument()
-    expect(screen.getByText("Section 1 · Purpose 1")).toBeInTheDocument()
+    expect(screen.getByText("Bloc 1 · Purpose 1")).toBeInTheDocument()
     expect(screen.getByText("Enregistré")).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Relire les sections" }))
-    expect(screen.getByText("Sections à relire")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Relire les blocs" }))
+    expect(screen.getByText("Blocs à relire")).toBeInTheDocument()
     expect(screen.getByTestId("review-meta")).toHaveTextContent(
       "About us · Brouillon · English"
     )
@@ -468,7 +468,7 @@ describe("languages and copy", () => {
       expect(mocks.toast).toHaveBeenCalledWith("Mise à la corbeille")
     )
     expect(mocks.confirm).toHaveBeenCalledWith({
-      title: "Ignorer ces sections ?",
+      title: "Ignorer ces blocs ?",
       description:
         "La page « About us » a été créée pour cette tâche. Elle va dans la corbeille. Vous pouvez la restaurer depuis la corbeille.",
       confirmText: "Ignorer et mettre à la corbeille",
@@ -495,7 +495,7 @@ describe("languages and copy", () => {
     renderCard(makeJob({ state: "done", reusedCount: 2 }), { locale })
     fireEvent.click(
       screen.getByRole("button", {
-        name: locale === "fr" ? "Relire les sections" : "Review sections",
+        name: locale === "fr" ? "Relire les blocs" : "Review blocks",
       })
     )
     expect(document.body.textContent).not.toMatch(

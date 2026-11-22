@@ -522,7 +522,7 @@ describe("RF2a contract oracle and legacy reader", () => {
     expect(
       resolveFieldContract({
         contract: "title",
-        heading: { role: "sliceTitle", parent: "primary" },
+        heading: { role: "blockTitle", parent: "primary" },
       }).headingDefaultLevel
     ).toBe(2)
     expect(

@@ -1,18 +1,18 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
 import { resolveFieldContract } from "@/convex/lib/richtext/contracts"
 import { validateStrict } from "@/convex/lib/richtext/strict"
 import { adoptHeroTitles } from "@/lib/rich-text/adopt-hero-titles"
 import { toFieldShape, mergeRemovedLinks } from "@/convex/lib/richtext/shape"
 import { validate } from "convex-helpers/validators"
-import { type Primitive, type Slice } from "@/convex/lib/slices"
-import { validateSlicesRichText } from "@/convex/lib/slices/validate"
-import { separateSliceOccurrencePresentation } from "@/convex/lib/slices/occurrencePresentation"
+import { type Primitive, type Block } from "@/convex/lib/blocks"
+import { validateBlocksRichText } from "@/convex/lib/blocks/validate"
+import { separateBlockOccurrencePresentation } from "@/convex/lib/blocks/occurrencePresentation"
 import type { PreviewInlineEditCommit } from "./visual-editing-types"
 import {
   applyPreviewInlineEdit,
-  currentSliceOccurrence,
-} from "./page-editor/lib/slice-occurrence"
+  currentBlockOccurrence,
+} from "./page-editor/lib/block-occurrence"
 import { parseFieldPath } from "./page-editor/lib/field-path"
 import { repeatedItemIdentity } from "./page-editor/lib/repeated-item-identity"
 
@@ -24,11 +24,11 @@ export type PreviewInlineSession = Omit<PreviewInlineEditCommit, "value"> & {
 
 /** Resolve writes through the installed descriptor, never through displayed text. */
 function descriptorAtPath(
-  slice: Slice,
+  block: Block,
   fieldPath: string
 ): Primitive | undefined {
   const [root, ...path] = parseFieldPath(fieldPath)
-  const def = readSliceDefinition(readSlice(slice).type)
+  const def = readBlockDefinition(readBlock(block).type)
   if (!def) return undefined
   let descriptor: Primitive | undefined =
     root === "primary"
@@ -49,16 +49,16 @@ function descriptorAtPath(
 }
 
 export function validatedPreviewCommit(
-  slices: Slice[],
+  blocks: Block[],
   locale: string,
   session: PreviewInlineSession,
   contentEpoch = 0
 ): PreviewInlineEditCommit | null {
   if (session.sourceInvalidated) return null
-  const slice = currentSliceOccurrence(slices, locale, session, contentEpoch)
-  if (!slice || readSlice(slice).enabled === false) return null
+  const block = currentBlockOccurrence(blocks, locale, session, contentEpoch)
+  if (!block || readBlock(block).enabled === false) return null
   const expectedTarget = repeatedItemIdentity(
-    slice,
+    block,
     session.fieldPath,
     contentEpoch
   )
@@ -67,7 +67,7 @@ export function validatedPreviewCommit(
     JSON.stringify(expectedTarget) !== JSON.stringify(session.repeatedTarget)
   )
     return null
-  const descriptor = descriptorAtPath(slice, session.fieldPath)
+  const descriptor = descriptorAtPath(block, session.fieldPath)
   if (!descriptor || descriptor.kind !== session.kind) return null
   const contract =
     descriptor.kind === "richText"
@@ -91,23 +91,23 @@ export function validatedPreviewCommit(
     repeatedTarget: session.repeatedTarget,
     rendererSource: session.rendererSource,
     locale: session.locale,
-    sliceId: session.sliceId,
-    sliceType: session.sliceType,
-    expectedSlice: session.expectedSlice,
+    blockId: session.blockId,
+    blockType: session.blockType,
+    expectedBlock: session.expectedBlock,
     fieldPath: session.fieldPath,
     kind: session.kind,
     value: shaped.value,
     ...(removedLinks.length ? { removedLinks } : {}),
   }
-  const projected = applyPreviewInlineEdit(slices, locale, commit, contentEpoch)
+  const projected = applyPreviewInlineEdit(blocks, locale, commit, contentEpoch)
   const patched = projected.find(
-    (entry) => readSlice(entry).id === readSlice(slice).id
+    (entry) => readBlock(entry).id === readBlock(block).id
   )
-  const occurrence = readSlice(patched)
+  const occurrence = readBlock(patched)
   const separated = occurrence
-    ? separateSliceOccurrencePresentation(occurrence)
+    ? separateBlockOccurrencePresentation(occurrence)
     : null
-  const patchedDefinition = readSliceDefinition(occurrence?.type ?? "")
+  const patchedDefinition = readBlockDefinition(occurrence?.type ?? "")
   if (
     !patched ||
     !separated ||
@@ -117,7 +117,7 @@ export function validatedPreviewCommit(
     return null
   try {
     const scratch = adoptHeroTitles([patched], locale).value
-    validateSlicesRichText(scratch)
+    validateBlocksRichText(scratch)
   } catch {
     return null
   }
@@ -125,16 +125,16 @@ export function validatedPreviewCommit(
 }
 
 export function projectPreviewSession(
-  slices: Slice[],
+  blocks: Block[],
   locale: string,
   session: PreviewInlineSession | null,
   contentEpoch = 0
-): Slice[] {
+): Block[] {
   const commit =
-    session && validatedPreviewCommit(slices, locale, session, contentEpoch)
+    session && validatedPreviewCommit(blocks, locale, session, contentEpoch)
   return commit
-    ? applyPreviewInlineEdit(slices, locale, commit, contentEpoch)
-    : slices
+    ? applyPreviewInlineEdit(blocks, locale, commit, contentEpoch)
+    : blocks
 }
 
 /** Save captures this value; later typing stays in the buffer with the new base. */
@@ -147,19 +147,19 @@ export function acceptPreviewCapture(
     commit.sourceInvalidated ||
     JSON.stringify(session.rendererSource) !==
       JSON.stringify(commit.rendererSource) ||
-    session.expectedSlice !== commit.expectedSlice ||
+    session.expectedBlock !== commit.expectedBlock ||
     session.locale !== commit.locale ||
-    session.sliceId !== commit.sliceId ||
-    session.sliceType !== commit.sliceType ||
+    session.blockId !== commit.blockId ||
+    session.blockType !== commit.blockType ||
     session.fieldPath !== commit.fieldPath ||
     session.kind !== commit.kind ||
     JSON.stringify(session.repeatedTarget) !==
       JSON.stringify(commit.repeatedTarget)
   )
     return session
-  let base: Slice
+  let base: Block
   try {
-    base = JSON.parse(commit.expectedSlice) as Slice
+    base = JSON.parse(commit.expectedBlock) as Block
   } catch {
     return session
   }
@@ -187,7 +187,7 @@ export function acceptPreviewCapture(
   if (repeatedTarget === null) return session
   return {
     ...session,
-    expectedSlice: JSON.stringify(patched),
+    expectedBlock: JSON.stringify(patched),
     ...(repeatedTarget ? { repeatedTarget } : {}),
     cancellationValue: commit.value,
   }

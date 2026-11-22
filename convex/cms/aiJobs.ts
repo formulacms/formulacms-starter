@@ -49,24 +49,24 @@ import {
   renderTemplate,
 } from "../lib/agents/registry"
 import {
-  assertSliceType,
+  assertBlockType,
   buildPageFillGenerationInput,
 } from "../lib/agents/contentWriterContract"
 import {
-  flattenSliceText,
+  flattenBlockText,
   pushDescriptorText,
   SIBLING_TEXT_CAP,
 } from "../lib/agents/pageContext"
 import {
-  installedSliceValidator,
+  installedBlockValidator,
   isEditorialTextPrimitive,
   isTranslatableTextPrimitive,
-  readSliceDefinition,
+  readBlockDefinition,
   type Primitive,
-  type Slice,
-} from "../lib/slices"
+  type Block,
+} from "../lib/blocks"
 import { richTextToPlainText } from "../lib/richtext/pmText"
-import { readSlice } from "../lib/slices/identity"
+import { readBlock } from "../lib/blocks/identity"
 import { readFrozenSnapshotProjection } from "../lib/publishing/snapshots"
 import { assertSnapshotPageSoftDeleteAllowed } from "./publication"
 import { contentTypeDefs } from "../lib/contentTypes"
@@ -76,8 +76,8 @@ import {
   setValueAtFieldPath,
 } from "../../components/admin/page-editor/lib/field-path"
 import { slugify } from "../lib/contentTypes/routing"
-import { readEffectiveSlicePresentationCatalog } from "../lib/slices/presentations"
-import { hasExplicitSlicePresentations } from "../lib/slices/presentationMutations"
+import { readEffectiveBlockPresentationCatalog } from "../lib/blocks/presentations"
+import { hasExplicitBlockPresentations } from "../lib/blocks/presentationMutations"
 import { assertOrdinaryLocale } from "../lib/language/state"
 import {
   CONTENT_TYPE_TRANSLATION_OFF,
@@ -135,7 +135,7 @@ export const pageJobInputValidator = v.union(
       metaTitle: v.optional(v.string()),
       metaDescription: v.optional(v.string()),
     }),
-    rows: v.array(v.object({ sliceType: v.string(), purpose: v.string() })),
+    rows: v.array(v.object({ blockType: v.string(), purpose: v.string() })),
   }),
   v.object({
     kind: v.literal("translation"),
@@ -154,7 +154,7 @@ export type JobRoute =
   | { kind: "local"; localRoute: LocalRoute; runnerSecretHash: string }
 type UnitWork = Pick<
   Unit,
-  "index" | "sliceType" | "purpose" | "input" | "state" | "output"
+  "index" | "blockType" | "purpose" | "input" | "state" | "output"
 >
 type Ctx = QueryCtx | MutationCtx
 const terminalReasons = v.union(
@@ -327,7 +327,7 @@ export function jobGenerationInput(
     | "sourceLocale"
     | "targetLocale"
   >,
-  unit: Pick<Unit, "index" | "sliceType" | "purpose" | "input">,
+  unit: Pick<Unit, "index" | "blockType" | "purpose" | "input">,
   units: readonly UnitWork[],
   estimating = false
 ) {
@@ -348,7 +348,7 @@ export function jobGenerationInput(
     userTemplate:
       job.userPromptTemplate ?? AGENTS.content.defaultUserPromptTemplate,
     language: languageName(job.locale),
-    sliceType: assertSliceType(unit.sliceType!),
+    blockType: assertBlockType(unit.blockType!),
     pageBrief: job.brief!,
     purpose: unit.purpose!,
     brandVoice: job.brandVoice,
@@ -357,10 +357,10 @@ export function jobGenerationInput(
       siblings: units
         .filter((row) => row.index < unit.index)
         .map((row) => ({
-          type: row.sliceType!,
+          type: row.blockType!,
           text:
             row.state === "saved" && typeof row.output === "object"
-              ? flattenSliceText(row.output)
+              ? flattenBlockText(row.output)
               : estimating
                 ? "é".repeat(SIBLING_TEXT_CAP + 1)
                 : "",
@@ -468,7 +468,7 @@ type TypedDraft = NonNullable<NonNullable<Job["sourcePage"]>["draft"]>
 /**
  * The source language's draft as the typed save input: only the descriptor's
  * localized fields (absent keys stay absent, empty values stay), plus the
- * slices when the content type has a slice body.
+ * blocks when the content type has a block body.
  */
 function pinnedSourceDraft(
   pageType: Doc<"pages">["pageType"],
@@ -486,13 +486,13 @@ function pinnedSourceDraft(
 /**
  * The one adapter from stored content to the typed draft save input (the
  * descriptor's declared localized keys, the common per-language fields and the
- * slices of a slice-body type). Every AI accept arm uses it.
+ * blocks of a block-body type). Every AI accept arm uses it.
  */
 function draftInputOf(
   pageType: Doc<"pages">["pageType"],
   content: Record<string, unknown>,
   options: {
-    slices?: readonly unknown[]
+    blocks?: readonly unknown[]
     seoKeys?: readonly (keyof PerLanguageSeo)[]
     cardExcerpt?: boolean
   } = {}
@@ -501,7 +501,7 @@ function draftInputOf(
   return draftInputFromContent({
     pageType,
     localizedKeys: Object.keys(def.localizedFields),
-    sliceBody: def.capabilities.sliceBody,
+    blockBody: def.capabilities.blockBody,
     content,
     ...options,
   })
@@ -539,7 +539,7 @@ export function translatedDraft(
     ...(translated.cardExcerpt !== undefined
       ? { cardExcerpt: translated.cardExcerpt }
       : {}),
-    ...("slices" in pinned ? { slices: translated.slices } : {}),
+    ...("blocks" in pinned ? { blocks: translated.blocks } : {}),
   } as unknown as TypedDraft
 }
 /**
@@ -594,7 +594,7 @@ async function prepare(
     )
       throw new ConvexError("AI_JOB_INPUT_INVALID")
     for (const row of input.rows) {
-      assertSliceType(row.sliceType)
+      assertBlockType(row.blockType)
       if (!row.purpose.trim() || row.purpose.length > 500)
         throw new ConvexError("AI_JOB_INPUT_INVALID")
     }
@@ -700,7 +700,7 @@ async function prepare(
     input.targetLocale
   )
   const sourcePage: PageTranslationContent & {
-    slices: Slice[]
+    blocks: Block[]
     translatables: NonNullable<PageTranslationContent["translatables"]>
   } = {
     title: content.title,
@@ -719,7 +719,7 @@ async function prepare(
     ...(typeof content.cardExcerpt === "string"
       ? { cardExcerpt: content.cardExcerpt }
       : {}),
-    slices: (content.slices ?? []) as Slice[],
+    blocks: (content.blocks ?? []) as Block[],
     translatables: collectTranslatableLeaves(
       contentTypeDefs[page.pageType].localizedFields,
       content
@@ -856,7 +856,7 @@ export async function startJobCore(
           content: {
             [input.locale]: {
               title: input.meta.title,
-              slices: [],
+              blocks: [],
               ...(input.meta.metaTitle !== undefined
                 ? { metaTitle: input.meta.metaTitle }
                 : {}),
@@ -1252,7 +1252,7 @@ export const saveUnit = internalMutation({
     jobId: v.id("aiJobs"),
     unitId: v.id("aiJobUnits"),
     claimToken: v.string(),
-    output: v.union(installedSliceValidator, v.string()),
+    output: v.union(installedBlockValidator, v.string()),
   },
   returns: v.boolean(),
   handler: async (ctx, args): Promise<boolean> => {
@@ -1374,7 +1374,7 @@ function readableFieldText(
   def: Primitive,
   value: unknown,
   parts: string[],
-  sliceType: string,
+  blockType: string,
   path: string,
   translation = false
 ): void {
@@ -1384,7 +1384,7 @@ function readableFieldText(
     if (translation && def.kind === "text" && !isTranslatableTextPrimitive(def))
       return
     if (def.kind === "text") {
-      pushDescriptorText(def, value, parts, sliceType, path)
+      pushDescriptorText(def, value, parts, blockType, path)
       return
     }
     const plain = richTextToPlainText(value)
@@ -1402,7 +1402,7 @@ function readableFieldText(
         child,
         object[key],
         parts,
-        sliceType,
+        blockType,
         `${path}.${key}`,
         translation
       )
@@ -1414,19 +1414,19 @@ function readableFieldText(
         def.config.item as Primitive,
         row,
         parts,
-        sliceType,
+        blockType,
         `${path}[${index}]`,
         translation
       )
     )
 }
-/** Readable text of one slice, uncut, as an ordered field list for the review view. */
-function sliceTextFields(
-  slice: Slice,
+/** Readable text of one block, uncut, as an ordered field list for the review view. */
+function blockTextFields(
+  block: Block,
   translation = false
 ): { label: string; text: string }[] {
-  const read = readSlice(slice)
-  const def = readSliceDefinition(read.type)
+  const read = readBlock(block)
+  const def = readBlockDefinition(read.type)
   const fields: { label: string; text: string }[] = []
   // A type without a definition shows nothing rather than a dump of its values.
   if (!def) return fields
@@ -1520,7 +1520,7 @@ export const pageJobResult = query({
     sections: v.array(
       v.object({
         index: v.number(),
-        sliceType: v.string(),
+        blockType: v.string(),
         purpose: v.string(),
         fields: v.array(readableFieldValidator),
       })
@@ -1559,11 +1559,11 @@ export const pageJobResult = query({
           sourceState.length !== 1 ||
           sourceState[0]!.draftGeneration !== job.draftGeneration,
         pageFields: translationPageFields(suggestion),
-        sections: suggestion.slices.map((slice, index) => ({
+        sections: suggestion.blocks.map((block, index) => ({
           index,
-          sliceType: readSlice(slice).type,
+          blockType: readBlock(block).type,
           purpose: "",
-          fields: sliceTextFields(slice, true),
+          fields: blockTextFields(block, true),
         })),
       }
     }
@@ -1574,12 +1574,12 @@ export const pageJobResult = query({
       )
       .sort((a, b) => a.index - b.index)
       .map((unit) => {
-        const output = unit.output as Slice
+        const output = unit.output as Block
         return {
           index: unit.index,
-          sliceType: unit.sliceType ?? readSlice(output).type,
+          blockType: unit.blockType ?? readBlock(output).type,
           purpose: unit.purpose ?? "",
-          fields: sliceTextFields(output),
+          fields: blockTextFields(output),
         }
       })
     return {
@@ -1649,7 +1649,7 @@ async function deleteJobCopies(ctx: MutationCtx, job: Job): Promise<void> {
 /**
  * Accept a whole-page translation: build the target language's draft from the
  * suggestion and save it through the editor's own draft save (its stale and
- * slice checks apply). The save runs before the copies are deleted, and any
+ * block checks apply). The save runs before the copies are deleted, and any
  * refusal rolls the whole mutation back, so a refused job keeps its suggestion.
  * The target must be exactly as it was at Start. Never publishes.
  */
@@ -1684,10 +1684,10 @@ async function acceptTranslation(
   if (!pinned) throw new ConvexError("AI_JOB_NOT_REVIEWABLE")
   const localized = structuredClone(pinned.localized) as Record<string, unknown>
   // The editor gives a translated section its own id in the new language.
-  const slices =
-    "slices" in pinned
-      ? pinned.slices.map((slice) => ({
-          ...structuredClone(slice),
+  const blocks =
+    "blocks" in pinned
+      ? pinned.blocks.map((block) => ({
+          ...structuredClone(block),
           id: crypto.randomUUID(),
         }))
       : undefined
@@ -1698,12 +1698,12 @@ async function acceptTranslation(
   const saved = await ctx.runMutation(api.cms.publication.saveEditorDraft, {
     pageId: job.pageId,
     expectedLifecycleGeneration: life.lifecycleGeneration,
-    ...(hasExplicitSlicePresentations([
-      { [job.locale]: { ...localized, ...(slices ? { slices } : {}) } },
+    ...(hasExplicitBlockPresentations([
+      { [job.locale]: { ...localized, ...(blocks ? { blocks } : {}) } },
     ])
       ? {
           expectedPresentationCatalogRevision: (
-            await readEffectiveSlicePresentationCatalog(ctx)
+            await readEffectiveBlockPresentationCatalog(ctx)
           ).revision,
         }
       : {}),
@@ -1718,7 +1718,7 @@ async function acceptTranslation(
         localized,
         // The translated social text, card excerpt and robots choices.
         ...perLanguageDraftFields(pinned as unknown as Record<string, unknown>),
-        ...(slices ? { slices } : {}),
+        ...(blocks ? { blocks } : {}),
       } as never,
       expectedGeneration: targetGeneration,
     },
@@ -1727,13 +1727,13 @@ async function acceptTranslation(
   await ctx.db.patch("aiJobs", job._id, { reviewedAt: Date.now() })
   return {
     pageId: job.pageId,
-    saved: slices?.length ?? 0,
+    saved: blocks?.length ?? 0,
     draftGeneration: saved.draftGeneration ?? targetGeneration + 1,
   }
 }
 /**
  * Save the chosen sections below what the owner already has, through the
- * editor's own draft save (its stale checks and slice rules apply). Never publishes.
+ * editor's own draft save (its stale checks and block rules apply). Never publishes.
  */
 export const acceptPageJob = mutation({
   args: { jobId: v.id("aiJobs"), chosen: v.array(v.number()) },
@@ -1770,10 +1770,10 @@ export const acceptPageJob = mutation({
       chosen.some((index) => !known.has(index))
     )
       throw new ConvexError("AI_JOB_INPUT_INVALID")
-    const chosenSlices = saved
+    const chosenBlocks = saved
       .filter((unit) => chosen.includes(unit.index))
       .sort((a, b) => a.index - b.index)
-      .map((unit) => unit.output as Slice)
+      .map((unit) => unit.output as Block)
     const life = await lifecycleFor(ctx, job.pageId)
     const page = await ctx.db.get("pages", job.pageId)
     const stateRows = await ctx.db
@@ -1785,9 +1785,9 @@ export const acceptPageJob = mutation({
     if (!life || !page || stateRows.length !== 1)
       throw new ConvexError("AI_JOB_SOURCE_UNAVAILABLE")
     const source = await currentLocaleSource(ctx, page, stateRows[0]!)
-    const current = ((source.content as { slices?: Slice[] }).slices ??
-      []) as Slice[]
-    // AI-written sections carry no presentation choice (`assembleSlice` sets
+    const current = ((source.content as { blocks?: Block[] }).blocks ??
+      []) as Block[]
+    // AI-written sections carry no presentation choice (`assembleBlock` sets
     // none) and existing ones are not new assignments, so no catalog revision
     // is needed here.
     const result = await ctx.runMutation(api.cms.publication.saveEditorDraft, {
@@ -1800,7 +1800,7 @@ export const acceptPageJob = mutation({
         addressIntent: "typed",
         // The saved social text and card excerpt stay with the page.
         draft: draftInputOf(page.pageType, source.content, {
-          slices: [...current, ...chosenSlices],
+          blocks: [...current, ...chosenBlocks],
         }) as never,
         expectedGeneration: stateRows[0]!.draftGeneration,
       },
@@ -1808,7 +1808,7 @@ export const acceptPageJob = mutation({
     await ctx.db.patch("aiJobs", jobId, { reviewedAt: Date.now() })
     return {
       pageId: job.pageId,
-      saved: chosenSlices.length,
+      saved: chosenBlocks.length,
       ...(result.draftGeneration !== undefined
         ? { draftGeneration: result.draftGeneration }
         : {}),
@@ -1908,7 +1908,7 @@ export const dismissPageJob = mutation({
 const unitProgressValidator = v.object({
   index: v.number(),
   kind: v.union(v.literal("write"), v.literal("translation")),
-  sliceType: v.optional(v.string()),
+  blockType: v.optional(v.string()),
   purpose: v.optional(v.string()),
   segmentIndex: v.optional(v.number()),
   address: v.optional(v.string()),
@@ -2069,7 +2069,7 @@ export const pageJobProgress = query({
         units: units.map((unit) => ({
           index: unit.index,
           kind: unit.kind,
-          ...(unit.sliceType ? { sliceType: unit.sliceType } : {}),
+          ...(unit.blockType ? { blockType: unit.blockType } : {}),
           ...(unit.purpose ? { purpose: unit.purpose } : {}),
           ...(unit.kind === "translation"
             ? { segmentIndex: unit.index, address: unit.address }

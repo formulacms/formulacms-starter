@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { ConvexError } from "convex/values"
 import { api } from "./_generated/api"
@@ -105,7 +105,7 @@ async function publishTranslated(
     draft: {
       pageType: "landing-page",
       localized: { title: `${slug} ${locale}` },
-      slices: [],
+      blocks: [],
     } as never,
     expectedDraftGeneration: state?.draftGeneration ?? 0,
     expectedLifecycleGeneration: page!.lifecycleGeneration,
@@ -113,7 +113,7 @@ async function publishTranslated(
   await publish(site, pageId, locale)
 }
 
-const bodySlice = (id: string, text: string) => ({
+const bodyBlock = (id: string, text: string) => ({
   id,
   type: "rich-text-body" as const,
   enabled: true,
@@ -126,8 +126,8 @@ const bodySlice = (id: string, text: string) => ({
 })
 
 const bothLanguages = (title: string) => ({
-  en: { title, slices: [] },
-  fr: { title: `${title} fr`, slices: [] },
+  en: { title, blocks: [] },
+  fr: { title: `${title} fr`, blocks: [] },
 })
 
 /**
@@ -205,8 +205,8 @@ async function mlSite(): Promise<Site> {
     title: "Proof",
     authorIds: [authorId],
     content: {
-      en: { title: "Proof", slices: [bodySlice("pe", "English proof")] },
-      fr: { title: "Preuve", slices: [bodySlice("pf", "Preuve")] },
+      en: { title: "Proof", blocks: [bodyBlock("pe", "English proof")] },
+      fr: { title: "Preuve", blocks: [bodyBlock("pf", "Preuve")] },
     },
   })
   for (const pageId of [teamId, contactId, authorId, postId]) {
@@ -352,7 +352,7 @@ async function settingsRow(t: T) {
 }
 
 describe("translation switch: the public readers", () => {
-  test("an absent list means every type is translated", sliceProfile(["rich-text-body"]), async () => {
+  test("an absent list means every type is translated", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     expect((await settingsRow(site.t)).untranslatedContentTypes).toBeUndefined()
     await expect(
@@ -365,7 +365,7 @@ describe("translation switch: the public readers", () => {
     expect(await publicPage(site.t, site.aboutId, "fr")).not.toBeNull()
   })
 
-  test("off hides the other languages from path lookup, alternates, page reads, sitemap, menu and cards", sliceProfile(["rich-text-body"]), async () => {
+  test("off hides the other languages from path lookup, alternates, page reads, sitemap, menu and cards", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     await addMenu(site)
     const before = {
@@ -418,7 +418,7 @@ describe("translation switch: the public readers", () => {
     expect(enCards[site.aboutId]).not.toBeNull()
   })
 
-  test("the home page stays in every language", sliceProfile(["rich-text-body"]), async () => {
+  test("the home page stays in every language", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     await switchOff(site, "landing-page")
     await drain(site.t)
@@ -429,7 +429,7 @@ describe("translation switch: the public readers", () => {
     expect(await publicPage(site.t, site.homeId, "fr")).not.toBeNull()
   })
 
-  test("a credited author vanishes from the other languages' byline and cards", sliceProfile(["rich-text-body"]), async () => {
+  test("a credited author vanishes from the other languages' byline and cards", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     const read = async (locale: string) =>
       site.t.query(api.cms.pages.getPublicByline, {
@@ -445,7 +445,7 @@ describe("translation switch: the public readers", () => {
     expect((await cards(site.t, [site.authorId], "fr"))[site.authorId]).toBeNull()
   })
 
-  test("an old address of a hidden version answers not found, never a redirect", sliceProfile(["rich-text-body"]), async () => {
+  test("an old address of a hidden version answers not found, never a redirect", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     // Before: the old French address redirects to the current one.
     expect(await resolveHistorical(site.t, "fr", "/apropos-old")).toMatchObject({
@@ -467,7 +467,7 @@ describe("translation switch: the public readers", () => {
     })
   })
 
-  test("on again restores every version without a republish", sliceProfile(["rich-text-body"]), async () => {
+  test("on again restores every version without a republish", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     const before = await generations(site.t, site.aboutId, "fr")
     await switchOff(site, "landing-page")
@@ -486,7 +486,7 @@ describe("translation switch: the public readers", () => {
 })
 
 describe("translation switch: entries that have no effect", () => {
-  test("an entry for a language that is not enabled hides nothing", sliceProfile(["rich-text-body"]), async () => {
+  test("an entry for a language that is not enabled hides nothing", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     await site.t.run(async (ctx) => {
       const settings = (await ctx.db.query("siteSettings").first())!
@@ -515,14 +515,14 @@ describe("translation switch: entries that have no effect", () => {
       status: "draft",
       slug: "home",
       title: "home",
-      content: { en: { title: "home", slices: [] } },
+      content: { en: { title: "home", blocks: [] } },
     })
     const aboutId = await owner.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
       slug: "about",
       title: "about",
-      content: { en: { title: "about", slices: [] } },
+      content: { en: { title: "about", blocks: [] } },
     })
     await t.run((ctx) =>
       ctx.db.insert("siteSettings", {
@@ -541,7 +541,7 @@ describe("translation switch: entries that have no effect", () => {
     expect(await resolvePath(t, "en", "/about")).toBe(aboutId)
   })
 
-  test("Make default keeps the public text and the hidden set; no redirect lands on a hidden page", sliceProfile(["rich-text-body"]), async () => {
+  test("Make default keeps the public text and the hidden set; no redirect lands on a hidden page", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     await switchOff(site, "landing-page")
     await drain(site.t)
@@ -600,7 +600,7 @@ async function makeDefault(site: Pick<Site, "t" | "owner">, toLocale: string) {
 }
 
 describe("translation switch: default language changes", () => {
-  test("a hidden version's continuity address answers not found, never a redirect into the kept language", sliceProfile(["rich-text-body"]), async () => {
+  test("a hidden version's continuity address answers not found, never a redirect into the kept language", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     // A stored M05 continuity set: French was the default before, `/a-propos`
     // was its unprefixed address of `about`.
@@ -670,7 +670,7 @@ describe("translation switch: default language changes", () => {
     })
   })
 
-  test("after default changes back, nothing redirects into a hidden version", sliceProfile(["rich-text-body"]), async () => {
+  test("after default changes back, nothing redirects into a hidden version", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     await switchOff(site, "landing-page")
     await drain(site.t)
@@ -694,7 +694,7 @@ describe("translation switch: default language changes", () => {
 })
 
 describe("translation switch: the owner command", () => {
-  test("off pins the current default language and is idempotent", sliceProfile(["rich-text-body"]), async () => {
+  test("off pins the current default language and is idempotent", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     await expect(switchOff(site, "landing-page")).resolves.toEqual([
       { pageType: "landing-page", locale: "en" },
@@ -712,7 +712,7 @@ describe("translation switch: the owner command", () => {
     ).resolves.toEqual([{ pageType: "landing-page", locale: "en" }])
   })
 
-  test("on with no entry changes nothing and needs no guard", sliceProfile(["rich-text-body"]), async () => {
+  test("on with no entry changes nothing and needs no guard", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     await site.t.run(async (ctx) => {
       const row = (await ctx.db.query("cmsModuleState").first())!
@@ -722,7 +722,7 @@ describe("translation switch: the owner command", () => {
     expect((await settingsRow(site.t)).untranslatedContentTypes).toBeUndefined()
   })
 
-  test("off is refused while a language change runs", sliceProfile(["rich-text-body"]), async () => {
+  test("off is refused while a language change runs", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     await site.t.run(async (ctx) => {
       const owner = (await ctx.db.query("cmsOwner").unique())!
@@ -907,7 +907,7 @@ describe("translation switch: the owner command", () => {
   describe.each(["off", "on"] as const)("turning translation %s", (direction) => {
     test.each(blockers)(
       "is refused while %s, and the settings stay unchanged",
-      sliceProfile(["rich-text-body"]),
+      blockProfile(["rich-text-body"]),
       async (_name, code, block) => {
         const site = await mlSite()
         // "on" needs a live entry to change; the entry is added before the blocker.
@@ -928,7 +928,7 @@ describe("translation switch: the owner command", () => {
     )
   })
 
-  test("the command needs the owner", sliceProfile(["rich-text-body"]), async () => {
+  test("the command needs the owner", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     await expect(
       site.t.mutation(api.cms.contentTypes.setContentTypeTranslation, {
@@ -940,7 +940,7 @@ describe("translation switch: the owner command", () => {
 })
 
 describe("translation switch: guards", () => {
-  test("publishing into a hidden language is refused; the kept language, withdraw and drafts are not", sliceProfile(["rich-text-body"]), async () => {
+  test("publishing into a hidden language is refused; the kept language, withdraw and drafts are not", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     const soloId = await site.owner.mutation(api.cms.pages.create, {
       pageType: "landing-page",
@@ -974,7 +974,7 @@ describe("translation switch: guards", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "plus tard" },
-        slices: [],
+        blocks: [],
       } as never,
       expectedDraftGeneration: state!.draftGeneration,
       expectedLifecycleGeneration: page!.lifecycleGeneration,
@@ -1009,12 +1009,12 @@ describe("translation switch: links to a one-language type", () => {
       title: slug,
       authorIds: [authorId],
       content: {
-        en: { title: slug, slices: [bodySlice(`${slug}-e`, "English")] },
-        fr: { title: `${slug} fr`, slices: [bodySlice(`${slug}-f`, "Français")] },
+        en: { title: slug, blocks: [bodyBlock(`${slug}-e`, "English")] },
+        fr: { title: `${slug} fr`, blocks: [bodyBlock(`${slug}-f`, "Français")] },
       },
     })
 
-  test("a French post naming an author of a one-language type publishes and shows no byline", sliceProfile(["rich-text-body"]), async () => {
+  test("a French post naming an author of a one-language type publishes and shows no byline", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     await switchOff(site, "author")
     await drain(site.t)
@@ -1052,7 +1052,7 @@ describe("translation switch: links to a one-language type", () => {
     ).not.toBeNull()
   })
 
-  test("a French post naming an author of a translated type with no French version still fails", sliceProfile(["rich-text-body"]), async () => {
+  test("a French post naming an author of a translated type with no French version still fails", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     const soloAuthor = await site.owner.mutation(api.cms.pages.create, {
       pageType: "author",
@@ -1060,7 +1060,7 @@ describe("translation switch: links to a one-language type", () => {
       slug: "bob",
       title: "Bob",
       name: "Bob",
-      content: { en: { title: "Bob", slices: [] } },
+      content: { en: { title: "Bob", blocks: [] } },
     })
     await publish(site, soloAuthor, "en")
     const postId = await newPost(site, "needs-fr-author", soloAuthor)
@@ -1094,14 +1094,14 @@ describe("translation switch: links to a page hidden through an ancestor", () =>
       content: {
         en: {
           title: slug,
-          slices: [
-            bodySlice(`${slug}-eb`, "English"),
+          blocks: [
+            bodyBlock(`${slug}-eb`, "English"),
           ],
         },
         fr: {
           title: `${slug} fr`,
-          slices: [
-            bodySlice(`${slug}-fb`, "Français"),
+          blocks: [
+            bodyBlock(`${slug}-fb`, "Français"),
           ],
         },
       },
@@ -1120,7 +1120,7 @@ describe("translation switch: links to a page hidden through an ancestor", () =>
       name: slug,
       parentId,
       content: Object.fromEntries(
-        locales.map((locale) => [locale, { title: `${slug} ${locale}`, slices: [] }])
+        locales.map((locale) => [locale, { title: `${slug} ${locale}`, blocks: [] }])
       ),
     })
     for (const locale of locales) await publish(site, id, locale)
@@ -1133,7 +1133,7 @@ describe("translation switch: links to a page hidden through an ancestor", () =>
         locale: "fr",
       })
     ).blockers.map((item) => item.code)
-  const profile = sliceProfile(["rich-text-body"])
+  const profile = blockProfile(["rich-text-body"])
 
   test("publish and the checklist accept a credit to an author below a hidden parent", profile, async () => {
     const site = await mlSite()
@@ -1215,7 +1215,7 @@ describe("translation switch: links to a page hidden through an ancestor", () =>
       draft: {
         pageType: "author",
         localized: { title: "reparented fr" },
-        slices: [],
+        blocks: [],
       } as never,
       expectedDraftGeneration: authorNow.state!.draftGeneration,
       expectedLifecycleGeneration: authorNow.page!.lifecycleGeneration,
@@ -1269,7 +1269,7 @@ describe("translation switch: links to a page hidden through an ancestor", () =>
       draft: {
         pageType: "page",
         localized: { title: "team fr" },
-        slices: [],
+        blocks: [],
       } as never,
       expectedDraftGeneration: now.state!.draftGeneration,
       expectedLifecycleGeneration: now.page!.lifecycleGeneration,
@@ -1355,7 +1355,7 @@ describe("translation switch: links to a page hidden through an ancestor", () =>
 })
 
 describe("translation switch: impact", () => {
-  test("counts what an off switch hides, with N+ when bounded", sliceProfile(["rich-text-body"]), async () => {
+  test("counts what an off switch hides, with N+ when bounded", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     const impact = (pageType: "landing-page" | "author") =>
       site.owner.query(api.cms.contentTypes.getContentTypeTranslationImpact, {
@@ -1381,7 +1381,7 @@ describe("translation switch: impact", () => {
     await expect(impact("author")).resolves.toMatchObject({ keptLocale: "en" })
   })
 
-  test("a count above the usage cap is reported as capped", sliceProfile(["rich-text-body"]), async () => {
+  test("a count above the usage cap is reported as capped", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
     // 30 more French versions of one type, cloned from `about`.
     await site.t.run(async (ctx) => {

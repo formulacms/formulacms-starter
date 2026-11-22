@@ -2,7 +2,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 
-import { RichTextContent } from "@/components/slices/rich-text-content"
+import { RichTextContent } from "@/components/blocks/rich-text-content"
 import { LegacyRichTextWalkerOracle } from "./static-render.oracle"
 
 const LEAF_TEXT = "rf1-depth-leaf"

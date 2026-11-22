@@ -18,14 +18,14 @@ import {
   contractSpec,
   type FieldContract,
 } from "@/convex/lib/richtext/contracts"
-import { composeRel } from "@/lib/slices/links"
+import { composeRel } from "@/lib/blocks/links"
 import { extensionsForContract } from "./extensions"
 import { renderLinkedChildren } from "./link-grouping"
 import { normalizeRenderDocument } from "./tolerant-reader"
 import {
   bodyHeadingLevels,
   createBodyHeadingResolver,
-} from "@/lib/slices/page-outline"
+} from "@/lib/blocks/page-outline"
 
 type RichTextAttrs = Record<string, unknown>
 type RendererOptions = NonNullable<
@@ -95,12 +95,12 @@ function warnOncePerField(): () => void {
 function inlineChildren(
   children: ReactNode | ReactNode[] | undefined
 ): ReactNode[] {
-  const blocks = Array.isArray(children)
+  const nodes = Array.isArray(children)
     ? children
     : children === undefined
       ? []
       : [children]
-  return blocks.flatMap((child, index) =>
+  return nodes.flatMap((child, index) =>
     index === 0
       ? [child]
       : [

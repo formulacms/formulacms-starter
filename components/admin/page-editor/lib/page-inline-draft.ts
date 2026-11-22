@@ -1,12 +1,13 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
 import type { TitleWriteReport } from "@/convex/lib/richtext/write"
 import { toFieldShape, mergeRemovedLinks } from "@/convex/lib/richtext/shape"
 import { resolveFieldContract } from "@/convex/lib/richtext/contracts"
 import { validate } from "convex-helpers/validators"
-import { type Primitive, type Slice } from "@/convex/lib/slices"
-import { separateSliceOccurrencePresentation } from "@/convex/lib/slices/occurrencePresentation"
-import { validateSlicesRichText } from "@/convex/lib/slices/validate"
+import { type Primitive, type Block } from "@/convex/lib/blocks"
+import { isEditorialTextPrimitive } from "@/convex/lib/blocks/primitives"
+import { separateBlockOccurrencePresentation } from "@/convex/lib/blocks/occurrencePresentation"
+import { validateBlocksRichText } from "@/convex/lib/blocks/validate"
 import type { PreviewInlineEditCommit } from "../../visual-editing-types"
 import { parseFieldPath, setValueAtFieldPath } from "./field-path"
 import {
@@ -19,20 +20,20 @@ import { isStructuralListOperation } from "@/lib/editor-structure"
 // identifies that output's origin without stamping or persisting content. The
 // parent controller forwards it explicitly; iframe module instances never share
 // this WeakMap, and an ordinary external edit has no receipt.
-const inlineEchoes = new WeakMap<Slice[], PreviewInlineEditCommit>()
-export function pageFieldEcho(slices: Slice[]) {
-  return inlineEchoes.get(slices)
+const inlineEchoes = new WeakMap<Block[], PreviewInlineEditCommit>()
+export function pageFieldEcho(blocks: Block[]) {
+  return inlineEchoes.get(blocks)
 }
 
 /** Project the latest local value over a proved own echo, retaining all guards. */
 export function reconcilePageFieldEcho(
-  slices: Slice[],
+  blocks: Block[],
   locale: string,
   commit: PreviewInlineEditCommit,
   echo: PreviewInlineEditCommit | undefined,
   contentEpoch: number,
   catalogRevision = ""
-): Slice[] | null {
+): Block[] | null {
   const old = commit.fieldBinding,
     echoed = echo?.fieldBinding
   if (
@@ -41,8 +42,8 @@ export function reconcilePageFieldEcho(
     echo.inlineSessionId !== commit.inlineSessionId ||
     echo.locale !== locale ||
     commit.locale !== locale ||
-    echo.sliceId !== commit.sliceId ||
-    echo.sliceType !== commit.sliceType ||
+    echo.blockId !== commit.blockId ||
+    echo.blockType !== commit.blockType ||
     echo.fieldPath !== commit.fieldPath ||
     echo.kind !== commit.kind ||
     !old ||
@@ -56,30 +57,30 @@ export function reconcilePageFieldEcho(
   )
     return null
   const current = capturePageField(
-    slices,
+    blocks,
     locale,
-    commit.sliceId,
+    commit.blockId,
     commit.fieldPath,
     contentEpoch,
     catalogRevision
   )
   if (!current || current.value !== echo.value) return null
-  const currentSlice = slices.find(
-    (slice) => readSlice(slice).id === commit.sliceId
+  const currentBlock = blocks.find(
+    (block) => readBlock(block).id === commit.blockId
   )
   if (
     current.repeatedTarget
-      ? !currentSlice ||
+      ? !currentBlock ||
         old.itemFingerprint !== commit.repeatedTarget?.itemFingerprint ||
         echoed.itemFingerprint !== echo.repeatedTarget?.itemFingerprint ||
         !repeatedTargetMatches(
-          currentSlice,
+          currentBlock,
           commit.repeatedTarget,
           contentEpoch,
           { fieldPath: commit.fieldPath, maskField: true }
         ) ||
         !repeatedTargetMatches(
-          currentSlice,
+          currentBlock,
           echo.repeatedTarget,
           contentEpoch,
           { fieldPath: commit.fieldPath, maskField: true }
@@ -91,15 +92,15 @@ export function reconcilePageFieldEcho(
   )
     return null
   // rebase updates only the compatible repeated-item fingerprint; apply still
-  // checks the current slice, field descriptor, presentation and exact value.
+  // checks the current block, field descriptor, presentation and exact value.
   const rebased = rebasePageField(
-    slices,
+    blocks,
     locale,
     { ...commit, fieldBinding: { ...old, lastApplied: echo.value } },
     contentEpoch,
     catalogRevision
   )
-  return applyPageField(slices, locale, rebased, contentEpoch, catalogRevision)
+  return applyPageField(blocks, locale, rebased, contentEpoch, catalogRevision)
 }
 
 export function valueAtPageField(value: unknown, path: string[]): unknown {
@@ -116,6 +117,31 @@ export function valueAtPageField(value: unknown, path: string[]): unknown {
   }
   return value
 }
+/**
+ * A one-line plain text field that the page preview edits in place, like a
+ * title: editor-authored copy (`text()`), not multiline. A multiline field
+ * stays in the form: the public render folds its line breaks into spaces.
+ */
+export function isInPlacePlainText(descriptor: Primitive | undefined) {
+  return (
+    descriptor?.kind === "text" &&
+    isEditorialTextPrimitive(descriptor) &&
+    (descriptor.config as { multiline?: boolean }).multiline !== true
+  )
+}
+
+/**
+ * A plain line a preview edit may write: one line, within its max length. A
+ * stored value already over the limit may still shrink, as in the editor.
+ */
+function acceptsPlainLine(descriptor: Primitive, value: string, stored: string) {
+  const { maxLength } = descriptor.config as { maxLength?: number }
+  return (
+    !/[\r\n]/.test(value) &&
+    (!maxLength || value.length <= Math.max(maxLength, stored.length))
+  )
+}
+
 /** Whether a canonical primary path traverses a descriptor list item. */
 export function isPrimaryListPath(primary: Primitive, fieldPath: string) {
   const path = parseFieldPath(fieldPath)
@@ -130,8 +156,8 @@ export function isPrimaryListPath(primary: Primitive, fieldPath: string) {
   }
   return false
 }
-function descriptorAt(slice: Slice, path: string[]): Primitive | undefined {
-  const def = readSliceDefinition(readSlice(slice).type)
+function descriptorAt(block: Block, path: string[]): Primitive | undefined {
+  const def = readBlockDefinition(readBlock(block).type)
   if (!def) return undefined
   let descriptor: Primitive | undefined =
     path[0] === "primary"
@@ -150,9 +176,9 @@ function descriptorAt(slice: Slice, path: string[]): Primitive | undefined {
 }
 /** Descriptor identity and an exact field baseline; never displayed text. */
 export function capturePageField(
-  slices: Slice[],
+  blocks: Block[],
   locale: string,
-  sliceId: string,
+  blockId: string,
   fieldPath: string,
   contentEpoch: number,
   catalogRevision = "",
@@ -162,60 +188,63 @@ export function capturePageField(
     if (process.env.NODE_ENV === "development") diagnosticRefusal?.(reason)
     return null
   }
-  const matches = slices.filter((slice) => readSlice(slice).id === sliceId)
-  if (matches.length !== 1 || readSlice(matches[0]).enabled === false)
+  const matches = blocks.filter((block) => readBlock(block).id === blockId)
+  if (matches.length !== 1 || readBlock(matches[0]).enabled === false)
     return refuse(
       matches.length !== 1
-        ? "slice identity does not resolve to exactly one slice"
-        : "the slice is disabled"
+        ? "block identity does not resolve to exactly one block"
+        : "the block is disabled"
     )
-  const slice = matches[0],
+  const block = matches[0],
     path = parseFieldPath(fieldPath)
   if (
     path.join(".") !== fieldPath ||
     (path[0] !== "primary" && path[0] !== "items")
   )
     return refuse("field path is not a canonical primary or items path")
-  const def = readSliceDefinition(readSlice(slice).type)
-  if (!def) return refuse("slice descriptor is unavailable")
-  const descriptor = descriptorAt(slice, path),
-    value = valueAtPageField(slice, path)
+  const def = readBlockDefinition(readBlock(block).type)
+  if (!def) return refuse("block descriptor is unavailable")
+  const descriptor = descriptorAt(block, path),
+    value = valueAtPageField(block, path)
   const contract =
     descriptor?.kind === "richText"
       ? resolveFieldContract(descriptor.config)
       : undefined
+  const plain = isInPlacePlainText(descriptor)
   if (
     !descriptor ||
-    descriptor.kind !== "richText" ||
-    !["inline", "title", "basic"].includes(contract?.contract ?? "") ||
+    (!plain && descriptor.kind !== "richText") ||
+    (!plain &&
+      !["inline", "title", "basic"].includes(contract?.contract ?? "")) ||
     typeof value !== "string"
   )
     return refuse(
       !descriptor
         ? "field descriptor is missing"
-        : descriptor.kind !== "richText"
-          ? "field descriptor is not rich text"
-          : !["inline", "title", "basic"].includes(contract?.contract ?? "")
+        : !plain && descriptor.kind !== "richText"
+          ? "field descriptor is neither rich text nor one-line plain text"
+          : !plain &&
+              !["inline", "title", "basic"].includes(contract?.contract ?? "")
             ? "field descriptor does not support preview editing"
             : "field value is not a string"
     )
-  const repeated = repeatedItemIdentity(slice, fieldPath, contentEpoch, {
+  const repeated = repeatedItemIdentity(block, fieldPath, contentEpoch, {
     maskField: true,
   })
   if (repeated === null)
     return refuse("the repeated item has no binding fingerprint")
   return {
     locale,
-    sliceId,
-    sliceType: readSlice(slice).type,
-    expectedSlice: "",
+    blockId,
+    blockType: readBlock(block).type,
+    expectedBlock: "",
     fieldPath,
-    kind: "richText",
+    kind: plain ? "text" : "richText",
     value,
     ...(repeated ? { repeatedTarget: repeated } : {}),
     fieldBinding: {
       contentEpoch,
-      presentation: readSlice(slice).presentationIdV1 ?? "",
+      presentation: readBlock(block).presentationIdV1 ?? "",
       catalogRevision,
       descriptor: JSON.stringify(descriptor),
       lastApplied: value,
@@ -225,13 +254,13 @@ export function capturePageField(
 }
 
 export function applyPageField(
-  slices: Slice[],
+  blocks: Block[],
   locale: string,
   commit: PreviewInlineEditCommit,
   contentEpoch: number,
   catalogRevision = "",
   report: (report: TitleWriteReport) => void = () => {}
-): Slice[] | null {
+): Block[] | null {
   const binding = commit.fieldBinding
   if (
     !binding ||
@@ -241,20 +270,20 @@ export function applyPageField(
   )
     return null
   const current = capturePageField(
-    slices,
+    blocks,
     locale,
-    commit.sliceId,
+    commit.blockId,
     commit.fieldPath,
     contentEpoch,
     catalogRevision
   )
-  const currentSlice = slices.find(
-    (slice) => readSlice(slice).id === commit.sliceId
+  const currentBlock = blocks.find(
+    (block) => readBlock(block).id === commit.blockId
   )
   if (
     !current ||
-    !currentSlice ||
-    current.sliceType !== commit.sliceType ||
+    !currentBlock ||
+    current.blockType !== commit.blockType ||
     commit.kind !== current.kind ||
     !current.fieldBinding ||
     current.fieldBinding.presentation !== binding.presentation ||
@@ -263,7 +292,7 @@ export function applyPageField(
     current.fieldBinding.itemFingerprint !== binding.itemFingerprint ||
     (current.repeatedTarget
       ? !repeatedTargetMatches(
-          currentSlice,
+          currentBlock,
           commit.repeatedTarget,
           contentEpoch,
           { fieldPath: commit.fieldPath, maskField: true }
@@ -271,22 +300,26 @@ export function applyPageField(
       : commit.repeatedTarget !== undefined)
   )
     return null
-  const target = currentSlice
+  const target = currentBlock
   const descriptor = descriptorAt(target, parseFieldPath(commit.fieldPath))!
-  const contract = resolveFieldContract(descriptor.config)
-  const shaped = toFieldShape(contract, commit.value)
-  const next = slices.map((slice) =>
-    readSlice(slice).id === commit.sliceId
+  if (descriptor.kind === "text" && !acceptsPlainLine(descriptor, commit.value, current.value))
+    return null
+  const shaped =
+    descriptor.kind === "text"
+      ? { value: commit.value, removedLinks: [] }
+      : toFieldShape(resolveFieldContract(descriptor.config), commit.value)
+  const next = blocks.map((block) =>
+    readBlock(block).id === commit.blockId
       ? (setValueAtFieldPath(
-          slice,
+          block,
           parseFieldPath(commit.fieldPath),
           shaped.value
-        ) as Slice)
-      : slice
+        ) as Block)
+      : block
   )
-  const patched = next.find((slice) => readSlice(slice).id === commit.sliceId)!
-  const separated = separateSliceOccurrencePresentation(readSlice(patched))
-  const patchedDefinition = readSliceDefinition(readSlice(patched).type)
+  const patched = next.find((block) => readBlock(block).id === commit.blockId)!
+  const separated = separateBlockOccurrencePresentation(readBlock(patched))
+  const patchedDefinition = readBlockDefinition(readBlock(patched).type)
   if (
     !separated ||
     !patchedDefinition ||
@@ -294,7 +327,7 @@ export function applyPageField(
   )
     return null
   try {
-    validateSlicesRichText([patched])
+    validateBlocksRichText([patched])
   } catch {
     return null
   }
@@ -305,7 +338,7 @@ export function applyPageField(
   if (removedLinks.length)
     report({
       locale,
-      sliceId: commit.sliceId,
+      blockId: commit.blockId,
       fieldPath: commit.fieldPath,
       removedLinks,
     })
@@ -320,35 +353,35 @@ export function applyPageField(
 
 /** Rebase only parent-qualified value changes under the unchanged structural epoch. */
 export function rebasePageField(
-  slices: Slice[],
+  blocks: Block[],
   locale: string,
   commit: PreviewInlineEditCommit,
   contentEpoch: number,
   catalogRevision = ""
 ) {
   const current = capturePageField(
-    slices,
+    blocks,
     locale,
-    commit.sliceId,
+    commit.blockId,
     commit.fieldPath,
     contentEpoch,
     catalogRevision
   )
   const old = commit.fieldBinding,
     fresh = current?.fieldBinding
-  const currentSlice = slices.find(
-    (slice) => readSlice(slice).id === commit.sliceId
+  const currentBlock = blocks.find(
+    (block) => readBlock(block).id === commit.blockId
   )
   if (
     !old ||
     !fresh ||
-    !currentSlice ||
+    !currentBlock ||
     old.contentEpoch !== contentEpoch ||
     old.catalogRevision !== catalogRevision ||
     old.presentation !== fresh.presentation ||
     old.descriptor !== fresh.descriptor ||
     old.lastApplied !== fresh.lastApplied ||
-    current.sliceType !== commit.sliceType
+    current.blockType !== commit.blockType
   )
     return commit
   if (
@@ -356,7 +389,7 @@ export function rebasePageField(
       ? !old.itemFingerprint ||
         old.itemFingerprint !== commit.repeatedTarget?.itemFingerprint ||
         !repeatedTargetMatches(
-          currentSlice,
+          currentBlock,
           commit.repeatedTarget,
           contentEpoch,
           {
@@ -376,19 +409,19 @@ export function rebasePageField(
 }
 
 /** List operations retain object references; equal-valued swaps still invalidate. */
-export function hasStructuralSliceChange(
-  previous: Slice[],
-  next: Slice[]
+export function hasStructuralBlockChange(
+  previous: Block[],
+  next: Block[]
 ): boolean {
   if (
     previous.length !== next.length ||
     previous.some(
-      (slice, index) =>
-        readSlice(slice).id !== readSlice(next[index])?.id ||
-        readSlice(slice).type !== readSlice(next[index])?.type ||
-        readSlice(slice).presentationIdV1 !==
-          readSlice(next[index])?.presentationIdV1 ||
-        readSlice(slice).enabled !== readSlice(next[index])?.enabled
+      (block, index) =>
+        readBlock(block).id !== readBlock(next[index])?.id ||
+        readBlock(block).type !== readBlock(next[index])?.type ||
+        readBlock(block).presentationIdV1 !==
+          readBlock(next[index])?.presentationIdV1 ||
+        readBlock(block).enabled !== readBlock(next[index])?.enabled
     )
   )
     return true
@@ -418,5 +451,5 @@ export function hasStructuralSliceChange(
       )
     return false
   }
-  return previous.some((slice, index) => changed(slice, next[index]))
+  return previous.some((block, index) => changed(block, next[index]))
 }

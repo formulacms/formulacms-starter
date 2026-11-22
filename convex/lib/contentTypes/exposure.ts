@@ -1,4 +1,4 @@
-import type { Primitive } from "../slices/primitives"
+import type { Primitive } from "../blocks/primitives"
 
 /**
  * Descriptor field exposure contract (ADR-0038).

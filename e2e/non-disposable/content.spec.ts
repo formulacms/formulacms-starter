@@ -38,14 +38,14 @@ async function publishThroughWarnings(
 
 /**
  * V03. Preconditions: built English owner app with all four curated Content
- * Types active, an eligible member for Author, and a shipped slice type named
- * FR6_E2E_SLICE_LABEL. The scenario creates test-owned draft documents;
+ * Types active, an eligible member for Author, and a shipped block type named
+ * FR6_E2E_BLOCK_LABEL. The scenario creates test-owned draft documents;
  * the operator owns their later removal.
  * Server: Playwright starts built Next by default and the caller owns Convex;
  * with `FR6_E2E_SERVER=external` the caller (in FR6, the D10 launcher) owns
  * both and Playwright only verifies the origin (see `playwright.config.ts`).
  */
-test("V03 creates curated content and enforces slice and publication readiness", async ({ browser }) => {
+test("V03 creates curated content and enforces block and publication readiness", async ({ browser }) => {
   const owner = await ownerPage(browser)
   const created: Record<string, string> = {}
   try {
@@ -68,21 +68,21 @@ test("V03 creates curated content and enforces slice and publication readiness",
       })
     }
 
-    await test.step("add, reorder, and remove typed slices without publishing", async () => {
+    await test.step("add, reorder, and remove typed blocks without publishing", async () => {
       await owner.goto(created.page!)
       for (let index = 0; index < 2; index += 1) {
-        await owner.getByRole("button", { name: (await pageTranslator(owner))("editor.sliceBuilder.add") }).click()
-        await owner.getByRole("button", { name: required("FR6_E2E_SLICE_LABEL") }).click()
+        await owner.getByRole("button", { name: (await pageTranslator(owner))("editor.blockBuilder.add") }).click()
+        await owner.getByRole("button", { name: required("FR6_E2E_BLOCK_LABEL") }).click()
       }
-      // slice-builder.tsx interpolates the slice's registered label, which
-      // FR6_E2E_SLICE_LABEL names.
-      const moveUp = (await pageTranslator(owner))("editor.sliceBuilder.moveUp", {
-        label: required("FR6_E2E_SLICE_LABEL"),
+      // block-builder.tsx interpolates the block's registered label, which
+      // FR6_E2E_BLOCK_LABEL names.
+      const moveUp = (await pageTranslator(owner))("editor.blockBuilder.moveUp", {
+        label: required("FR6_E2E_BLOCK_LABEL"),
       })
       await expect(owner.getByRole("button", { name: moveUp, exact: true }).last()).toBeEnabled()
       await owner.getByRole("button", { name: moveUp, exact: true }).last().click()
-      await owner.getByRole("button", { name: (await pageTranslator(owner))("editor.sliceBuilder.remove") }).last().click()
-      await owner.getByRole("button", { name: (await pageTranslator(owner))("editor.sliceBuilder.removeConfirm.action") }).click()
+      await owner.getByRole("button", { name: (await pageTranslator(owner))("editor.blockBuilder.remove") }).last().click()
+      await owner.getByRole("button", { name: (await pageTranslator(owner))("editor.blockBuilder.removeConfirm.action") }).click()
       await owner.getByRole("button", { name: (await pageTranslator(owner))("editor.page.save"), exact: true }).click()
       await expect(owner.getByText((await pageTranslator(owner))("editor.pageSave.saved"), { exact: true })).toBeVisible()
     })

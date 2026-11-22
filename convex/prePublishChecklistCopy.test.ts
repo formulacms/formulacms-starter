@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, test } from "vitest"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import { api } from "./_generated/api"
@@ -32,14 +32,14 @@ describe("live checklist translation inputs and revision compatibility", () => {
     const checklist = await actor.query(api.cms.pages.getPrePublishChecklist, { pageId })
     const body = checklist.blockers.find((item) => item.field === "body")!
     expect(body).toMatchObject({ code: "missing_required_field", params: { variant: "body" }, locales: ["en"] })
-    expect(body.message).toBe("Add at least one enabled content section for EN — this content type requires body content before publishing.")
+    expect(body.message).toBe("Add at least one enabled content block for EN — this content type requires body content before publishing.")
     const snapshot = snapshotPrePublishChecklist(checklist)
     expect(snapshot).toEqual({
       blockerCount: 1,
       warningCount: 2,
       blockers: [{
         code: "missing_required_field",
-        message: "Add at least one enabled content section for EN — this content type requires body content before publishing.",
+        message: "Add at least one enabled content block for EN — this content type requires body content before publishing.",
         field: "body",
         locales: ["en"],
       }],
@@ -74,19 +74,19 @@ describe("live checklist translation inputs and revision compatibility", () => {
 
   })
 
-  test("slice field, image, and missing-link variants survive the readiness validator", sliceProfile(["hero-with-image"]), async () => {
+  test("block field, image, and missing-link variants survive the readiness validator", blockProfile(["hero-with-image"]), async () => {
     const { actor } = setup()
-    const pageId = await actor.mutation(api.cms.pages.create, { status: "draft", pageType: "landing-page", title: "Incomplete hero", content: { en: { title: "Incomplete hero", slices: [{ id: "hero", type: "hero-with-image", enabled: true, primary: { eyebrow: "News", eyebrowLink: { type: "internal" }, title: "", description: canonicalBody("Copy"), image: { url: "https://example.com/hero.jpg", alt: "" } }, items: [] }] } } })
+    const pageId = await actor.mutation(api.cms.pages.create, { status: "draft", pageType: "landing-page", title: "Incomplete hero", content: { en: { title: "Incomplete hero", blocks: [{ id: "hero", type: "hero-with-image", enabled: true, primary: { eyebrow: "News", eyebrowLink: { type: "internal" }, title: "", description: canonicalBody("Copy"), image: { url: "https://example.com/hero.jpg", alt: "" } }, items: [] }] } } })
     let checklist = await actor.query(api.cms.pages.getPrePublishChecklist, { pageId })
-    expect(checklist.blockers.find((item) => item.code === "missing_required_slice_field")).toMatchObject({ params: { sliceType: "hero-with-image", fieldName: "title" } })
-    expect(checklist.blockers.find((item) => item.code === "missing_image_alt_text")).toMatchObject({ params: { sliceType: "hero-with-image" } })
-    expect(checklist.blockers.find((item) => item.code === "broken_internal_link")).toMatchObject({ params: { variant: "missing_link_target", sliceType: "hero-with-image" } })
+    expect(checklist.blockers.find((item) => item.code === "missing_required_block_field")).toMatchObject({ params: { blockType: "hero-with-image", fieldName: "title" } })
+    expect(checklist.blockers.find((item) => item.code === "missing_image_alt_text")).toMatchObject({ params: { blockType: "hero-with-image" } })
+    expect(checklist.blockers.find((item) => item.code === "broken_internal_link")).toMatchObject({ params: { variant: "missing_link_target", blockType: "hero-with-image" } })
     await actor.mutation(api.cms.pages.acquirePageEditorLock, { pageId, force: true })
     await actor.mutation(api.cms.pages.updateDraft, {
-      pageId, content: { en: { pageType: "landing-page", localized: { title: "Incomplete hero" }, slices: [{ id: "hero", type: "hero-with-image", enabled: true, primary: { eyebrow: "News", eyebrowLink: { type: "internal" }, title: "", description: canonicalBody("Copy"), image: { url: "", alt: "" } }, items: [] }] } },
+      pageId, content: { en: { pageType: "landing-page", localized: { title: "Incomplete hero" }, blocks: [{ id: "hero", type: "hero-with-image", enabled: true, primary: { eyebrow: "News", eyebrowLink: { type: "internal" }, title: "", description: canonicalBody("Copy"), image: { url: "", alt: "" } }, items: [] }] } },
     })
     checklist = await actor.query(api.cms.pages.getPrePublishChecklist, { pageId })
-    expect(checklist.blockers.find((item) => item.params?.variant === "image")).toMatchObject({ code: "missing_required_slice_field", params: { variant: "image", sliceType: "hero-with-image" } })
+    expect(checklist.blockers.find((item) => item.params?.variant === "image")).toMatchObject({ code: "missing_required_block_field", params: { variant: "image", blockType: "hero-with-image" } })
   })
 
 })

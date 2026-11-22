@@ -53,10 +53,10 @@ vi.mock("next-intl/middleware", async (importOriginal) => {
     }) as typeof original.default,
   }
 })
-// The starter ships no slice simulator: its overlay twin of this seam is null
+// The starter ships no block simulator: its overlay twin of this seam is null
 // (FR2.0 rev3 S-j). Source-only simulator cases live in
-// proxy.slice-simulator.test.ts.
-vi.mock("@/config/slice-simulator", () => ({ SLICE_SIMULATOR_ROUTE: null }))
+// proxy.block-simulator.test.ts.
+vi.mock("@/config/block-simulator", () => ({ BLOCK_SIMULATOR_ROUTE: null }))
 vi.mock("@/convex/_generated/api", () => ({
   api: {
     cms: {
@@ -285,7 +285,7 @@ describe("public locale proxy", () => {
     )
 
     // Without a simulator the setup gate covers its old path like any other.
-    test.each(["/slice-sim", "/slice-sim/x"])(
+    test.each(["/block-sim", "/block-sim/x"])(
       "sends %s to /setup before onboarding completes when no simulator ships",
       async (pathname) => {
         notOnboarded()

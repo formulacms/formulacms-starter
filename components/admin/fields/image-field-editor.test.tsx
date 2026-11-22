@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { act, fireEvent, screen } from "@testing-library/react"
 import { beforeEach, expect, test, vi } from "vitest"
-import type { ImageField } from "@/convex/lib/slices"
+import type { ImageField } from "@/convex/lib/blocks"
 import { render } from "@/test-utils/admin-i18n"
 import {
   ImageFieldEditor,

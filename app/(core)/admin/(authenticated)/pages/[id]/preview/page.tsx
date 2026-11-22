@@ -5,10 +5,10 @@ import { fetchQuery } from "convex/nextjs"
 import { api } from "@/convex/_generated/api"
 import { fetchAuthQuery } from "@/lib/auth/server"
 import type { Id } from "@/convex/_generated/dataModel"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 import { getContentTypeRenderer } from "@/components/content-types"
-import { buildSliceRenderContext } from "@/lib/slices/render-context"
-import { hasSliceBody } from "@/convex/lib/pages/sliceBodyContent"
+import { buildBlockRenderContext } from "@/lib/blocks/render-context"
+import { hasBlockBody } from "@/convex/lib/pages/blockBodyContent"
 import { isRoutableContentType } from "@/convex/lib/contentTypes/routing"
 import type { ContentType } from "@/convex/lib/contentTypes"
 
@@ -21,7 +21,7 @@ import type { ContentType } from "@/convex/lib/contentTypes"
  * public path, so the "public renderer never reads pageStaging" invariant
  * stays intact.
  *
- * Non-routable / non-slice-body types render a message rather than the
+ * Non-routable / non-block-body types render a message rather than the
  * public renderer — those pages have no public web presence and their
  * preview surface is a Deploy-2 concern.
  */
@@ -108,7 +108,7 @@ export default async function AdminPreviewPage({
     )
   }
 
-  if (!hasSliceBody(page)) {
+  if (!hasBlockBody(page)) {
     return (
       <PreviewShell
         title={pickAnyTitle(page, t("untitled"))}
@@ -140,24 +140,24 @@ export default async function AdminPreviewPage({
   const renderLocale = localeContent ? requestedLocale : config.defaultLocale
 
   // Resolve storageId → URL so image fields reflect fresh media. Same
-  // shape as the public renderer's `refreshSliceImageUrls`.
-  const rawSlices = content.slices ?? []
+  // shape as the public renderer's `refreshBlockImageUrls`.
+  const rawBlocks = content.blocks ?? []
   const storageIds = new Set<Id<"_storage">>()
-  collectImageStorageIds(rawSlices, storageIds)
+  collectImageStorageIds(rawBlocks, storageIds)
   const freshUrls =
     storageIds.size > 0
       ? await fetchQuery(api.cms.media.getStorageUrls, {
           storageIds: [...storageIds],
         })
       : ({} as Record<string, string>)
-  const slices = (
+  const blocks = (
     Object.keys(freshUrls).length > 0
-      ? applyFreshImageUrls(rawSlices, freshUrls)
-      : rawSlices
-  ) as Slice[]
+      ? applyFreshImageUrls(rawBlocks, freshUrls)
+      : rawBlocks
+  ) as Block[]
 
-  const ctx = await buildSliceRenderContext({
-    slices,
+  const ctx = await buildBlockRenderContext({
+    blocks,
     renderLocale,
     presentationLocale: requestedLocale,
     defaultLocale: config.defaultLocale,
@@ -166,7 +166,7 @@ export default async function AdminPreviewPage({
   })
 
   const renderer = getContentTypeRenderer(page.pageType as ContentType)
-  if (renderer.kind !== "sliceBody") {
+  if (renderer.kind !== "blockBody") {
     return (
       <PreviewShell
         title={pickAnyTitle(page, t("untitled"))}
@@ -198,7 +198,7 @@ export default async function AdminPreviewPage({
       <RenderContentType
         page={page}
         content={content}
-        slices={slices}
+        blocks={blocks}
         ctx={ctx}
         locale={requestedLocale}
         renderLocale={renderLocale}

@@ -1,5 +1,5 @@
-// Shared dev/prod boundary for machine-local admin capabilities (slice
-// creation, slice edits, the Development AI selection). `next build` / `next
+// Shared dev/prod boundary for machine-local admin capabilities (block
+// creation, block edits, the Development AI selection). `next build` / `next
 // start` always run with NODE_ENV=production, so "not production" is the
 // platform's own signal for a developer-run server. Keeping the predicate in
 // one place guarantees every gated surface flips together if the definition

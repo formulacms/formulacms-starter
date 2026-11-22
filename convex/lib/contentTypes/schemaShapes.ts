@@ -1,18 +1,15 @@
-import { v, type GenericValidator } from "convex/values"
-import { sliceValidator } from "../slices"
+import {
+  v,
+  type GenericValidator,
+  type Infer,
+  type ObjectType,
+  type PropertyValidators,
+  type Validator,
+} from "convex/values"
+import { blockValidator } from "../blocks"
 import { contentTypeDefs, REGISTERED_CONTENT_TYPES } from "./index"
 import type { ContentTypeDescriptor, DescriptorFieldMap } from "./types"
-import { perLanguageSeoValidator } from "./perLanguageFields"
-
-/**
- * Per-language search, social and card fields (ADR-0037 amendment,
- * 2026-11-17). They sit in every arm's Localized Content, whatever the
- * content type, next to the descriptor's own localized fields.
- */
-const perLanguageFields = {
-  seo: v.optional(perLanguageSeoValidator),
-  cardExcerpt: v.optional(v.string()),
-} as const
+import { perLanguageFields } from "../pages/storageFields"
 
 /**
  * Schema derivation seam (plan 028 C7).
@@ -31,15 +28,15 @@ const perLanguageFields = {
  */
 
 /**
- * `content[locale]` shape for a slice-bodied arm. Descriptor's
- * `localizedValidator.fields` + a required `slices` array.
+ * `content[locale]` shape for a block-bodied arm. Descriptor's
+ * `localizedValidator.fields` + a required `blocks` array.
  *
  * The single-branch return keeps the derived type statically knowable so
  * downstream readers can narrow on `page.pageType === "post"` (etc.) and
- * still see `content[locale].slices`. All four current content types opt
- * into `sliceBody`; a future non-slice descriptor (faq-item, testimonial —
- * plan 028 §C5 batch) will use `armLocalizedContentValidatorNoSlices`
- * instead, both to strip `slices` from its arm and to keep this branch's
+ * still see `content[locale].blocks`. All four current content types opt
+ * into `blockBody`; a future non-block descriptor (faq-item, testimonial —
+ * plan 028 §C5 batch) will use `armLocalizedContentValidatorNoBlocks`
+ * instead, both to strip `blocks` from its arm and to keep this branch's
  * type inference tight.
  */
 export function armLocalizedContentValidator<
@@ -49,25 +46,25 @@ export function armLocalizedContentValidator<
   return v.object({
     ...descriptor.localizedValidator.fields,
     ...perLanguageFields,
-    slices: v.array(sliceValidator),
+    blocks: v.array(blockValidator),
   })
 }
 
 /**
  * `content[locale]` shape for a **pure-form** arm — descriptor's
- * `localizedValidator.fields` only, no `slices` field.
+ * `localizedValidator.fields` only, no `blocks` field.
  *
- * Dark-shipped for plan 029 C10 (first `sliceBody:false` descriptor,
+ * Dark-shipped for plan 029 C10 (first `blockBody:false` descriptor,
  * `testimonial`). Not consumed by any current schema arm; the union of
  * `pagesTableValidator` still uses `armLocalizedContentValidator` for
- * every registered descriptor because all four have `sliceBody:true`.
+ * every registered descriptor because all four have `blockBody:true`.
  * C10 activates this branch alongside the exposure-contract ADR.
  *
  * Kept side-by-side with `armLocalizedContentValidator` — one seam, two
  * branches, so the pure-form path is a single flag flip on the
  * descriptor when it lands rather than a schema-generator rewrite.
  */
-export function armLocalizedContentValidatorNoSlices<
+export function armLocalizedContentValidatorNoBlocks<
   Shared extends DescriptorFieldMap,
   Localized extends DescriptorFieldMap,
 >(descriptor: ContentTypeDescriptor<Shared, Localized>) {
@@ -92,7 +89,7 @@ export function armLocalizedContentValidatorNoSlices<
  */
 export function buildRevisionLocalizedContentValidator() {
   const shape: Record<string, GenericValidator> = {
-    slices: v.optional(v.array(v.any())),
+    blocks: v.optional(v.array(v.any())),
     seo: v.optional(v.any()),
     cardExcerpt: v.optional(v.any()),
   }
@@ -125,4 +122,111 @@ export function buildRevisionSharedFieldsValidator() {
     }
   }
   return v.object(shape as Record<string, GenericValidator>)
+}
+
+// ─── Publication draft tables ─────────────────────────────────────────────
+
+/**
+ * `content[locale]` shape of a descriptor, chosen by its `blockBody`
+ * capability: with a block canvas the arm carries `blocks`, a pure-form type
+ * (testimonial) does not.
+ */
+export function armLocalizedContentValidatorFor(
+  descriptor: Pick<
+    ContentTypeDescriptor,
+    "localizedValidator" | "capabilities"
+  >
+) {
+  // The two builders read only `localizedValidator`.
+  const full = descriptor as ContentTypeDescriptor
+  return descriptor.capabilities.blockBody
+    ? armLocalizedContentValidator(full)
+    : armLocalizedContentValidatorNoBlocks(full)
+}
+
+type Defs = typeof contentTypeDefs
+
+/** A registry as the draft builders need it. Tests pass a fake one. */
+export type DraftRegistry = Record<
+  string,
+  Pick<
+    ContentTypeDescriptor,
+    "sharedValidator" | "localizedValidator" | "capabilities"
+  >
+>
+
+/** A row of `pageSharedDrafts` for one content type. */
+export type PageSharedDraftOf<
+  Bookkeeping extends PropertyValidators,
+  T extends keyof Defs,
+> = ObjectType<Bookkeeping> & {
+  pageType: T
+  descriptor: Infer<Defs[T]["sharedValidator"]>
+}
+
+/** A row of `pageLocaleDrafts` for one content type. */
+export type PageLocaleDraftOf<
+  Bookkeeping extends PropertyValidators,
+  PagesRow extends { pageType: string; content?: Record<string, unknown> },
+  T extends keyof Defs,
+> = ObjectType<Bookkeeping> & {
+  pageType: T
+  content: NonNullable<Extract<PagesRow, { pageType: T }>["content"]>[string]
+}
+
+/**
+ * Validator of `pageSharedDrafts`: the bookkeeping fields, `pageType` and the
+ * descriptor's `sharedValidator`, one arm per registered content type. A new
+ * descriptor widens it with no edit here (prior art: the `pages` arms).
+ *
+ * The arms are built at runtime, so Convex cannot infer their type; the one
+ * cast gives the validator the precise per-type row type above.
+ */
+export function buildPageSharedDraftsValidator<
+  Bookkeeping extends PropertyValidators,
+>(
+  bookkeeping: Bookkeeping,
+  defs: DraftRegistry = contentTypeDefs
+): Validator<
+  { [T in keyof Defs]: PageSharedDraftOf<Bookkeeping, T> }[keyof Defs],
+  "required",
+  string
+> {
+  return v.union(
+    ...Object.entries(defs).map(([type, descriptor]) =>
+      v.object({
+        ...bookkeeping,
+        pageType: v.literal(type),
+        descriptor: descriptor.sharedValidator,
+      })
+    )
+  ) as never
+}
+
+/**
+ * Validator of `pageLocaleDrafts`: the bookkeeping fields, `pageType` and the
+ * per-locale `content` of the descriptor (with `blocks` only when the type
+ * has a block body), one arm per registered content type. `PagesRow` is the
+ * stored `pages` row type; it supplies the precise `content` type.
+ */
+export function buildPageLocaleDraftsValidator<
+  Bookkeeping extends PropertyValidators,
+  PagesRow extends { pageType: string; content?: Record<string, unknown> },
+>(
+  bookkeeping: Bookkeeping,
+  defs: DraftRegistry = contentTypeDefs
+): Validator<
+  { [T in keyof Defs]: PageLocaleDraftOf<Bookkeeping, PagesRow, T> }[keyof Defs],
+  "required",
+  string
+> {
+  return v.union(
+    ...Object.entries(defs).map(([type, descriptor]) =>
+      v.object({
+        ...bookkeeping,
+        pageType: v.literal(type),
+        content: armLocalizedContentValidatorFor(descriptor),
+      })
+    )
+  ) as never
 }

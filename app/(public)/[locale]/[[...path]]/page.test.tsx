@@ -1,11 +1,11 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { render, screen } from "@testing-library/react"
 import { getFunctionName } from "convex/server"
 import type { ReactElement } from "react"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
-  buildSliceRenderContext: vi.fn(),
+  buildBlockRenderContext: vi.fn(),
   fetchAuthMutation: vi.fn(),
   fetchAuthQuery: vi.fn(),
   fetchQuery: vi.fn(),
@@ -62,35 +62,35 @@ vi.mock("@/lib/cms/versioned-read", async (importOriginal) => {
   return actual
 })
 
-vi.mock("@/lib/slices/render-context", async (importOriginal) => {
+vi.mock("@/lib/blocks/render-context", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@/lib/slices/render-context")>()
+    await importOriginal<typeof import("@/lib/blocks/render-context")>()
   return {
-    buildSliceRenderContext: (
-      options: Parameters<typeof actual.buildSliceRenderContext>[0]
+    buildBlockRenderContext: (
+      options: Parameters<typeof actual.buildBlockRenderContext>[0]
     ) =>
       mocks.realConsumers
-        ? actual.buildSliceRenderContext(options)
-        : mocks.buildSliceRenderContext(options),
+        ? actual.buildBlockRenderContext(options)
+        : mocks.buildBlockRenderContext(options),
   }
 })
 
 vi.mock("@/components/content-types", async () => {
-  const { DefaultSliceBodyRenderer } =
-    await import("@/components/slices/_shared/default-slice-body")
+  const { DefaultBlockBodyRenderer } =
+    await import("@/components/blocks/_shared/default-block-body")
   return {
     getContentTypeRenderer: () => ({
-      kind: "sliceBody",
+      kind: "blockBody",
       Component: mocks.realConsumers
-        ? DefaultSliceBodyRenderer
+        ? DefaultBlockBodyRenderer
         : mocks.renderer,
     }),
   }
 })
 
 vi.mock("@/components/seo/json-ld", () => ({ PageJsonLd: mocks.pageJsonLd }))
-vi.mock("@/convex/lib/pages/sliceBodyContent", () => ({
-  hasSliceBody: () => true,
+vi.mock("@/convex/lib/pages/blockBodyContent", () => ({
+  hasBlockBody: () => true,
 }))
 vi.mock("@/convex/lib/contentTypes/routing", async (importOriginal) => {
   const actual =
@@ -104,9 +104,21 @@ vi.mock("@/convex/lib/contentTypes/routing", async (importOriginal) => {
 vi.mock("@/convex/lib/contentTypes/exposure", () => ({
   publicFieldsOf: () => ({}),
 }))
-vi.mock("@/convex/lib/contentTypes/post", () => ({
-  postContentType: { sharedFields: {} },
-}))
+vi.mock("@/convex/lib/contentTypes/post", async (importOriginal) => {
+  // The registry checks every descriptor when it loads, so the stub keeps the
+  // real descriptor and only empties the shared fields and, to keep the two in
+  // step (the definition check's validator-parity rule), the stored validator.
+  const actual =
+    await importOriginal<typeof import("@/convex/lib/contentTypes/post")>()
+  const { v } = await import("convex/values")
+  return {
+    postContentType: {
+      ...actual.postContentType,
+      sharedFields: {},
+      sharedValidator: v.object({}),
+    },
+  }
+})
 
 import CmsPage, { generateMetadata } from "./page"
 import AdminPreviewPage from "@/app/(core)/admin/(authenticated)/pages/[id]/preview/page"
@@ -118,8 +130,8 @@ const page = {
   status: "published",
   pageType: "page",
   content: {
-    en: { title: "Private English fallback", slices: [] },
-  } as Record<string, { title: string; slices: never[] }>,
+    en: { title: "Private English fallback", blocks: [] },
+  } as Record<string, { title: string; blocks: never[] }>,
   createdAt: 1,
   updatedAt: 1,
 }
@@ -215,7 +227,7 @@ describe("public localized Page route", () => {
         args as { locale?: string; languageVersion?: number }
       )
     )
-    mocks.buildSliceRenderContext.mockResolvedValue({
+    mocks.buildBlockRenderContext.mockResolvedValue({
       locale: "en",
       defaultLocale: "en",
       pagePaths: {},
@@ -305,7 +317,7 @@ describe("public localized Page route", () => {
     ).rejects.toMatchObject({ digest: "NEXT_HTTP_ERROR_FALLBACK;404" })
 
     expect(mocks.redirect).not.toHaveBeenCalled()
-    expect(mocks.buildSliceRenderContext).not.toHaveBeenCalled()
+    expect(mocks.buildBlockRenderContext).not.toHaveBeenCalled()
     expect(mocks.renderer).not.toHaveBeenCalled()
     expect(
       mocks.fetchQuery.mock.calls.map(([reference]) =>
@@ -329,7 +341,7 @@ describe("public localized Page route", () => {
   })
 
   test("renders requested-locale content when it is available", async () => {
-    page.content.fr = { title: "Contenu français", slices: [] }
+    page.content.fr = { title: "Contenu français", blocks: [] }
 
     render(
       await CmsPage({
@@ -519,7 +531,7 @@ describe("public localized Page route", () => {
   describe("M05 P13a SEO metadata", () => {
     function publish(locales: readonly string[]) {
       for (const locale of locales) {
-        page.content[locale] = { title: `Title ${locale}`, slices: [] }
+        page.content[locale] = { title: `Title ${locale}`, blocks: [] }
       }
     }
 
@@ -646,7 +658,7 @@ describe("public localized Page route", () => {
       mocks.isPreview = true
       mocks.realConsumers = true
       const originalEnglish = page.content.en
-      page.content.en = { title: "Private English fallback", slices: [] }
+      page.content.en = { title: "Private English fallback", blocks: [] }
       try {
         render(
           await CmsPage({
@@ -670,7 +682,7 @@ describe("public localized Page route", () => {
       mocks.isPreview = true
       mocks.realConsumers = true
       config.defaultLocale = "fr"
-      page.content.fr = { title: "Owner French fallback", slices: [] }
+      page.content.fr = { title: "Owner French fallback", blocks: [] }
       const originalEnglish = page.content.en
       delete page.content.en
       try {
@@ -693,14 +705,14 @@ describe("public localized Page route", () => {
     async function renderStagedFallback(
       locale: string,
       renderLocale: string,
-      slices: unknown[]
+      blocks: unknown[]
     ) {
       mocks.realConsumers = true
       config.defaultLocale = renderLocale
       const stagedPage = {
         ...page,
         content: {
-          [renderLocale]: { title: "Owner staged title", slices },
+          [renderLocale]: { title: "Owner staged title", blocks },
         },
       }
       mocks.fetchAuthQuery.mockResolvedValue({
@@ -728,7 +740,7 @@ describe("public localized Page route", () => {
           args,
         ])
       ).toEqual([["cms/settings:getSiteConfig", {}]])
-      expect(mocks.buildSliceRenderContext).not.toHaveBeenCalled()
+      expect(mocks.buildBlockRenderContext).not.toHaveBeenCalled()
       expect(screen.getByText("Admin title")).toBeVisible()
       expect(
         screen.getByRole("heading", { name: "Owner staged title" })
@@ -748,7 +760,7 @@ describe("public localized Page route", () => {
         await renderStagedFallback(locale, renderLocale, [])
         expect(screen.getByText(emptyCopy)).toBeVisible()
       })
-      test(`${locale} over ${renderLocale} uses requested FAQ grammar and preserves owner values`, sliceProfile(["faq-simple"]), async () => {
+      test(`${locale} over ${renderLocale} uses requested FAQ grammar and preserves owner values`, blockProfile(["faq-simple"]), async () => {
         const richText = (text: string) =>
           JSON.stringify({
             type: "doc",
@@ -778,7 +790,7 @@ describe("public localized Page route", () => {
   })
 
   describe("site description fallback (M05 A5)", () => {
-    type Content = { title: string; slices: never[]; metaDescription?: string }
+    type Content = { title: string; blocks: never[]; metaDescription?: string }
 
     function setContent(locale: string, content: Content) {
       page.content[locale] = content
@@ -806,15 +818,15 @@ describe("public localized Page route", () => {
     }
 
     beforeEach(() => {
-      setContent("en", { title: "Private English fallback", slices: [] })
-      setContent("fr", { title: "Contenu français", slices: [] })
+      setContent("en", { title: "Private English fallback", blocks: [] })
+      setContent("fr", { title: "Contenu français", blocks: [] })
     })
 
     test("the Page's own description wins over the site description", async () => {
       siteDescriptions.fr = "Site en français"
       setContent("fr", {
         title: "Contenu français",
-        slices: [],
+        blocks: [],
         metaDescription: "Page en français",
       })
       expect(await metaDescription("fr")).toBe("Page en français")

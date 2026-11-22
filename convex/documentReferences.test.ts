@@ -5,7 +5,9 @@ import schema from "./schema"
 import {
   clearDocumentReferencesForPage,
   refreshDocumentReferencesForPage,
+  referrerContentTypes,
 } from "./lib/documentReferences"
+import { list, relation, text } from "./lib/blocks/primitives"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -33,7 +35,7 @@ describe("documentReferences scanner", () => {
         slug: "post-a",
         pageType: "post",
         status: "draft",
-        content: { en: { title: "Post A", slices: [] } },
+        content: { en: { title: "Post A", blocks: [] } },
         localizedSlugs: { en: "post-a" },
         featured: false,
         promoteToFront: false,
@@ -59,7 +61,7 @@ describe("documentReferences scanner", () => {
         pageType: "author",
         status: "published",
         name: "Jane Doe",
-        content: { en: { title: "Jane Doe", slices: [] } },
+        content: { en: { title: "Jane Doe", blocks: [] } },
         localizedSlugs: { en: "jane" },
         createdAt: now,
         updatedAt: now,
@@ -68,7 +70,7 @@ describe("documentReferences scanner", () => {
         slug: "hello",
         pageType: "post",
         status: "draft",
-        content: { en: { title: "Hello", slices: [] } },
+        content: { en: { title: "Hello", blocks: [] } },
         localizedSlugs: { en: "hello" },
         authorIds: [{ pageId: authorPageId }],
         featured: false,
@@ -100,7 +102,7 @@ describe("documentReferences scanner", () => {
         pageType: "author",
         status: "published",
         name: "Jane Doe",
-        content: { en: { title: "Jane Doe", slices: [] } },
+        content: { en: { title: "Jane Doe", blocks: [] } },
         localizedSlugs: { en: "jane" },
         createdAt: now,
         updatedAt: now,
@@ -110,7 +112,7 @@ describe("documentReferences scanner", () => {
         pageType: "author",
         status: "published",
         name: "John Roe",
-        content: { en: { title: "John Roe", slices: [] } },
+        content: { en: { title: "John Roe", blocks: [] } },
         localizedSlugs: { en: "john" },
         createdAt: now,
         updatedAt: now,
@@ -119,7 +121,7 @@ describe("documentReferences scanner", () => {
         slug: "hello-multi",
         pageType: "post",
         status: "draft",
-        content: { en: { title: "Hello", slices: [] } },
+        content: { en: { title: "Hello", blocks: [] } },
         localizedSlugs: { en: "hello-multi" },
         authorIds: [{ pageId: leadId }, { pageId: coAuthorId }],
         featured: false,
@@ -171,7 +173,7 @@ describe("documentReferences scanner", () => {
         slug: "target",
         pageType: "page",
         status: "published",
-        content: { en: { title: "Target", slices: [] } },
+        content: { en: { title: "Target", blocks: [] } },
         localizedSlugs: { en: "target" },
         createdAt: now,
         updatedAt: now,
@@ -181,16 +183,16 @@ describe("documentReferences scanner", () => {
         sourceId: sourceA,
         targetId: target,
         targetType: "page",
-        path: "content.en.slices[0].primary.pick",
-        source: "slice-body",
+        path: "content.en.blocks[0].primary.pick",
+        source: "block-body",
         updatedAt: now,
       })
       await ctx.db.insert("documentReferences", {
         sourceId: sourceB,
         targetId: target,
         targetType: "page",
-        path: "content.en.slices[0].primary.pick",
-        source: "slice-body",
+        path: "content.en.blocks[0].primary.pick",
+        source: "block-body",
         updatedAt: now,
       })
 
@@ -211,7 +213,7 @@ describe("documentReferences scanner", () => {
         slug: "idempotent",
         pageType: "post",
         status: "draft",
-        content: { en: { title: "Idempotent", slices: [] } },
+        content: { en: { title: "Idempotent", blocks: [] } },
         localizedSlugs: { en: "idempotent" },
         featured: false,
         promoteToFront: false,
@@ -257,7 +259,7 @@ describe("documentReferences scanner", () => {
         slug: "shared-target",
         pageType: "page",
         status: "published",
-        content: { en: { title: "Shared", slices: [] } },
+        content: { en: { title: "Shared", blocks: [] } },
         localizedSlugs: { en: "shared-target" },
         createdAt: now,
         updatedAt: now,
@@ -275,8 +277,8 @@ describe("documentReferences scanner", () => {
         sourceId: sourceB,
         targetId: target,
         targetType: "page",
-        path: "content.en.slices[0].primary.pick",
-        source: "slice-body",
+        path: "content.en.blocks[0].primary.pick",
+        source: "block-body",
         updatedAt: now,
       })
 
@@ -289,5 +291,34 @@ describe("documentReferences scanner", () => {
       const sourceIds = new Set(rowsToTarget.map((r) => r.sourceId))
       expect(sourceIds).toEqual(new Set([sourceA, sourceB]))
     })
+  })
+})
+
+describe("referrerContentTypes (delete guard derivation)", () => {
+  test("today's registry: only a post points at an author, nothing points at a post", () => {
+    expect([...referrerContentTypes("author")]).toEqual(["post"])
+    expect([...referrerContentTypes("post")]).toEqual([])
+    expect([...referrerContentTypes("job")]).toEqual([])
+  })
+
+  test("a relation added to any descriptor protects its target type, shared or localized, nested or not", () => {
+    const none = {}
+    const defs = {
+      talk: {
+        sharedFields: { speakers: list(relation({ pageTypes: ["author"] })) },
+        localizedFields: { title: text() },
+      },
+      venue: {
+        sharedFields: none,
+        localizedFields: { host: relation({ pageTypes: ["author", "job"] }) },
+      },
+      note: { sharedFields: { body: text() }, localizedFields: none },
+    }
+    expect([...referrerContentTypes("author", defs)].sort()).toEqual([
+      "talk",
+      "venue",
+    ])
+    expect([...referrerContentTypes("job", defs)]).toEqual(["venue"])
+    expect([...referrerContentTypes("testimonial", defs)]).toEqual([])
   })
 })

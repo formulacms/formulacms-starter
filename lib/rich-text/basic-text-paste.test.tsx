@@ -3,7 +3,7 @@ import { fireEvent } from "@testing-library/react"
 import {
   DOMParser,
   Fragment,
-  Slice,
+  Slice as PmSlice,
   type Node as PMNode,
 } from "@tiptap/pm/model"
 import { describe, expect, test, vi } from "vitest"
@@ -21,13 +21,13 @@ const hardBreak = { type: "hardBreak" }
 function parseText(text: string) {
   const host = document.createElement("div")
   document.body.appendChild(host)
-  let pasted = Slice.empty
+  let pasted = PmSlice.empty
   const editor = new Editor({
     element: host,
     extensions: [...extensionsForProfile("basic"), BasicTextPaste],
     editorProps: {
       handleScrollToSelection: () => true,
-      handlePaste(_view, _event, slice) { pasted = slice; return false },
+      handlePaste(_view, _event, pmSlice) { pasted = pmSlice; return false },
     },
   })
   try {
@@ -40,9 +40,9 @@ function parseHtml(html: string) {
   container.innerHTML = html
   return DOMParser.fromSchema(schema).parseSlice(container)
 }
-function tokens(slice: Slice) {
+function tokens(pmSlice: PmSlice) {
   const words: string[] = []
-  slice.content.descendants((node) => {
+  pmSlice.content.descendants((node) => {
     if (node.isText) words.push(...(node.text!.match(/\S+/g) ?? []))
   })
   return words
@@ -122,7 +122,7 @@ describe("basic paste policy", () => {
         },
       ],
     })
-    const input = Slice.maxOpen(Fragment.fromArray([heading, list]))
+    const input = PmSlice.maxOpen(Fragment.fromArray([heading, list]))
     const output = tidyBasicPaste(input, { fromEditorCopy: false })
     expect(output.content.child(0)).toBe(heading)
     expect(output.content.child(1)).toBe(list)
@@ -297,7 +297,7 @@ test.each(dropCases)("R1 drop %s stays untidied", (name, data, expected) => {
   const coords = vi.spyOn(editor.view, "posAtCoords").mockReturnValue({ pos: 8, inside: -1 })
   try {
     if (name === "internal drag keeps edge break") editor.view.dragging = {
-      slice: Slice.maxOpen(Fragment.from(editor.schema.nodeFromJSON({ type: "paragraph", content: [{ type: "hardBreak" }, { type: "text", text: "One" }] }))),
+      slice: PmSlice.maxOpen(Fragment.from(editor.schema.nodeFromJSON({ type: "paragraph", content: [{ type: "hardBreak" }, { type: "text", text: "One" }] }))),
       move: false,
     }
     fireEvent.drop(editor.view.dom, { dataTransfer: transfer(data), ctrlKey: true, altKey: true })

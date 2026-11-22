@@ -71,7 +71,7 @@ async function makeConfiguredPageTest(options: { siteUrl?: string } = {}) {
       content: {
         en: {
           title: "About",
-          slices: [],
+          blocks: [],
         },
       },
     })

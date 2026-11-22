@@ -68,9 +68,9 @@ function compileReport(file: string) {
 const mustCompile = [
   ["components/admin/page-editor.tsx", "PageEditorSession"],
   ["components/admin/page-editor/hooks/use-page-save.ts", "usePageSave"],
-  ["components/admin/slice-builder.tsx", "SliceBuilder"],
+  ["components/admin/block-builder.tsx", "BlockBuilder"],
   ["components/admin/live-preview-frame.tsx", "BoundLivePreviewFrame"],
-  ["components/admin/page-live-preview-canvas.tsx", "AdminSlicePreviewZone"],
+  ["components/admin/page-live-preview-canvas.tsx", "AdminBlockPreviewZone"],
 ] as const
 
 describe("the editor's hot components stay compiled by the React Compiler", () => {
@@ -86,6 +86,6 @@ describe("the editor's hot components stay compiled by the React Compiler", () =
 
 test("ED3 preview row Map uses the existing lazy-ref initialization pattern", () => {
   const source = readFileSync(path.join(process.cwd(), "components/admin/page-live-preview-canvas.tsx"), "utf8")
-  expect(source).toMatch(/const sliceRefs = useRef<Map<string, HTMLDivElement> \| null>\(null\)/)
-  expect(source).toMatch(/if \(sliceRefs.current === null\) \{\s*sliceRefs.current = new Map\(\)/)
+  expect(source).toMatch(/const blockRefs = useRef<Map<string, HTMLDivElement> \| null>\(null\)/)
+  expect(source).toMatch(/if \(blockRefs.current === null\) \{\s*blockRefs.current = new Map\(\)/)
 })

@@ -8,7 +8,7 @@ function renderPanel(metaGenerationAvailable: boolean, locale: "en" | "fr" = "en
     <SeoPanel
       currentLocale="en"
       title="Family dentistry"
-      slices={[]}
+      blocks={[]}
       metaTitle=""
       metaDescription=""
       seoNoIndex={false}

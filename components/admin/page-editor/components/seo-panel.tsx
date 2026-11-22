@@ -5,14 +5,14 @@ import {
   type FieldGenerate,
   type FieldTranslate,
 } from "../../fields/field-editor"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 import type { Locale } from "@/lib/i18n/config"
 import { hasAnyContent } from "../lib/content"
 
 type SeoPanelProps = {
   currentLocale: Locale
   title: string
-  slices: Slice[]
+  blocks: Block[]
   metaTitle: string
   metaDescription: string
   seoNoIndex: boolean
@@ -40,7 +40,7 @@ type SeoPanelProps = {
 export function SeoPanel({
   currentLocale,
   title,
-  slices,
+  blocks,
   metaTitle,
   metaDescription,
   seoNoIndex,
@@ -74,7 +74,7 @@ export function SeoPanel({
         </h2>
         {canGenerate &&
           metaGenerationAvailable &&
-          hasAnyContent(slices, title) && (
+          hasAnyContent(blocks, title) && (
             <button
               type="button"
               disabled={isGeneratingMeta}

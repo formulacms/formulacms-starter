@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import {
   finishMediaUsageBackfill,
   trashMediaDirectly,
@@ -12,7 +12,7 @@ import { api, internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import schema from "./schema"
-import type { Slice } from "./lib/slices"
+import type { Block } from "./lib/blocks"
 import { MEDIA_KEYED_TABLES, MEDIA_STRING_KEYED } from "./lib/media/purge"
 
 const modules = import.meta.glob("./**/*.ts")
@@ -39,7 +39,7 @@ async function setup() {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   await t.run((ctx) =>
     ctx.db.insert("siteSettings", {
@@ -76,7 +76,7 @@ async function media(f: Site, name: string) {
 }
 type Stored = Awaited<ReturnType<typeof media>>
 
-const heroSlice = (m: Stored): Slice =>
+const heroBlock = (m: Stored): Block =>
   ({
     id: "hero",
     type: "hero-with-image",
@@ -98,10 +98,10 @@ const heroSlice = (m: Stored): Slice =>
       },
     },
     items: [],
-  }) as Slice
+  }) as Block
 
 /** A rich-text body that shows the image the way the editor inserts it. */
-const richSlice = (src: string): Slice =>
+const richBlock = (src: string): Block =>
   ({
     id: "body",
     type: "rich-text-body",
@@ -115,15 +115,15 @@ const richSlice = (src: string): Slice =>
         ],
       }),
     },
-  }) as Slice
+  }) as Block
 
-async function newPage(f: Site, slug: string, slices: Slice[]) {
+async function newPage(f: Site, slug: string, blocks: Block[]) {
   return f.owner.mutation(api.cms.pages.create, {
     pageType: "landing-page",
     status: "draft",
     slug,
     title: slug,
-    content: { en: { title: slug, slices } },
+    content: { en: { title: slug, blocks } },
   })
 }
 
@@ -146,7 +146,7 @@ async function gens(f: Site, pageId: Id<"pages">) {
   }))
 }
 
-async function saveSlices(f: Site, pageId: Id<"pages">, slices: Slice[]) {
+async function saveBlocks(f: Site, pageId: Id<"pages">, blocks: Block[]) {
   const g = await gens(f, pageId)
   return f.owner.mutation(api.cms.publication.saveEditorDraft, {
     pageId,
@@ -155,7 +155,7 @@ async function saveSlices(f: Site, pageId: Id<"pages">, slices: Slice[]) {
       locale: "en",
       slug: (await f.t.run((ctx) => ctx.db.get("pages", pageId)))!.slug,
       expectedGeneration: g.locale.draftGeneration,
-      draft: { pageType: "landing-page", localized: { title: "T" }, slices },
+      draft: { pageType: "landing-page", localized: { title: "T" }, blocks },
     },
   })
 }
@@ -319,11 +319,11 @@ describe("purge refusals", () => {
 
   test(
     "a draft that shows the image refuses and names the page",
-    sliceProfile(PROFILE),
+    blockProfile(PROFILE),
     async () => {
       const f = await setup()
       const m = await media(f, "draft.png")
-      await newPage(f, "draft-page", [heroSlice(m)])
+      await newPage(f, "draft-page", [heroBlock(m)])
       const [r] = await purge(f, [m.mediaId])
       expect(r).toMatchObject({
         status: "refused",
@@ -339,15 +339,15 @@ describe("purge refusals", () => {
 
   test(
     "a published page refuses; editing the image away leaves only the older version, which still refuses",
-    sliceProfile(PROFILE),
+    blockProfile(PROFILE),
     async () => {
       const f = await setup()
       const m = await media(f, "published.png")
-      const pageId = await newPage(f, "pub-page", [heroSlice(m)])
+      const pageId = await newPage(f, "pub-page", [heroBlock(m)])
       await publish(f, pageId)
       let [r] = await purge(f, [m.mediaId])
       expect(r?.detail?.uses.some((u) => u.where === "published")).toBe(true)
-      await saveSlices(f, pageId, [])
+      await saveBlocks(f, pageId, [])
       await publish(f, pageId)
       ;[r] = await purge(f, [m.mediaId], { trash: false })
       // The first publish is an older version now (F08 clause 15).
@@ -367,13 +367,13 @@ describe("purge refusals", () => {
 
   test(
     "Move to Trash still allows a file only an older version shows",
-    sliceProfile(PROFILE),
+    blockProfile(PROFILE),
     async () => {
       const f = await setup()
       const m = await media(f, "old.png")
-      const pageId = await newPage(f, "old-page", [heroSlice(m)])
+      const pageId = await newPage(f, "old-page", [heroBlock(m)])
       await publish(f, pageId)
-      await saveSlices(f, pageId, [])
+      await saveBlocks(f, pageId, [])
       await publish(f, pageId)
       await f.owner.mutation(api.cms.media.softDelete, { id: m.mediaId })
       expect(
@@ -384,11 +384,11 @@ describe("purge refusals", () => {
 
   test(
     "a rich-text image in a draft and in a published page refuses, and Move to Trash refuses too",
-    sliceProfile(PROFILE),
+    blockProfile(PROFILE),
     async () => {
       const f = await setup()
       const m = await media(f, "rich.png")
-      const pageId = await newPage(f, "rich-page", [richSlice(m.url)])
+      const pageId = await newPage(f, "rich-page", [richBlock(m.url)])
       await expect(
         f.owner.mutation(api.cms.media.softDelete, { id: m.mediaId })
       ).rejects.toThrow("MEDIA_SOFT_DELETE_REFERENCED")
@@ -396,7 +396,7 @@ describe("purge refusals", () => {
       expect(draftRows).toEqual([
         expect.objectContaining({
           sourceKind: "locale_draft",
-          sourcePath: "content.en.slices[0].primary.body",
+          sourcePath: "content.en.blocks[0].primary.body",
         }),
       ])
       let [r] = await purge(f, [m.mediaId])
@@ -410,7 +410,7 @@ describe("purge refusals", () => {
       expect(
         (await richRows(f, m.mediaId)).map((row) => row.sourceKind).sort()
       ).toEqual(["candidate", "current_public"])
-      await saveSlices(f, pageId, [])
+      await saveBlocks(f, pageId, [])
       ;[r] = await purge(f, [m.mediaId], { trash: false })
       expect(r?.detail?.uses.map((u) => u.where)).toEqual([
         "published",
@@ -430,7 +430,7 @@ describe("purge refusals", () => {
         label: { en: id },
         panel: {
           columns: 2 as const,
-          blocks: [
+          sections: [
             {
               id: "f",
               kind: "featured" as const,
@@ -609,11 +609,11 @@ describe("backfill cron", () => {
 describe("rich-text image tracking", () => {
   test(
     "an external image never blocks publishing and writes no row",
-    sliceProfile(PROFILE),
+    blockProfile(PROFILE),
     async () => {
       const f = await setup()
       const pageId = await newPage(f, "external", [
-        richSlice("https://elsewhere.example.test/photo.png"),
+        richBlock("https://elsewhere.example.test/photo.png"),
       ])
       await expect(publish(f, pageId)).resolves.toBeDefined()
       const rows = await f.t.run((ctx) =>
@@ -625,11 +625,11 @@ describe("rich-text image tracking", () => {
 
   test(
     "the backfill inserts exactly the rows publication writes, once",
-    sliceProfile(PROFILE),
+    blockProfile(PROFILE),
     async () => {
       const f = await setup()
       const m = await media(f, "backfill.png")
-      const pageId = await newPage(f, "backfill-page", [richSlice(m.url)])
+      const pageId = await newPage(f, "backfill-page", [richBlock(m.url)])
       const forget = async (rows: Awaited<ReturnType<typeof richRows>>) =>
         f.t.run(async (ctx) => {
           for (const row of rows)
@@ -690,11 +690,11 @@ describe("rich-text image tracking", () => {
 
   test(
     "the backfill adds no current-public row for a withdrawn locale",
-    sliceProfile(PROFILE),
+    blockProfile(PROFILE),
     async () => {
       const f = await setup()
       const m = await media(f, "withdrawn.png")
-      const pageId = await newPage(f, "withdrawn-page", [richSlice(m.url)])
+      const pageId = await newPage(f, "withdrawn-page", [richBlock(m.url)])
       const published = await publish(f, pageId)
       const g = await gens(f, pageId)
       await f.owner.mutation(api.cms.publication.withdrawLocale, {
@@ -717,13 +717,13 @@ describe("rich-text image tracking", () => {
 
   test(
     "a purge after the backfill refuses a published rich-text image that predates tracking",
-    sliceProfile(PROFILE),
+    blockProfile(PROFILE),
     async () => {
       const f = await setup()
       const m = await media(f, "predates.png")
-      const pageId = await newPage(f, "predates-page", [richSlice(m.url)])
+      const pageId = await newPage(f, "predates-page", [richBlock(m.url)])
       await publish(f, pageId)
-      await saveSlices(f, pageId, [])
+      await saveBlocks(f, pageId, [])
       await f.t.run(async (ctx) => {
         for (const row of await ctx.db
           .query("pagePublicationMediaReferences")
@@ -765,7 +765,7 @@ describe("review round 1 fixes", () => {
 
   test(
     "an image named by its stored file alone resolves when two rows share it",
-    sliceProfile(PROFILE),
+    blockProfile(PROFILE),
     async () => {
       const f = await setup()
       const a = await media(f, "alias.png")
@@ -779,12 +779,12 @@ describe("review round 1 fixes", () => {
           uploadedAt: Date.now(),
         })
       )
-      const slice = heroSlice(a) as unknown as {
+      const block = heroBlock(a) as unknown as {
         primary: { image: Record<string, unknown> }
       }
-      delete slice.primary.image.url
+      delete block.primary.image.url
       await expect(
-        newPage(f, "alias-page", [slice as unknown as Slice])
+        newPage(f, "alias-page", [block as unknown as Block])
       ).resolves.toBeTruthy()
     }
   )
@@ -812,7 +812,7 @@ describe("review round 1 fixes", () => {
 
   test(
     "a deleted library image cannot come back through retained content; external images still work",
-    sliceProfile(PROFILE),
+    blockProfile(PROFILE),
     async () => {
       const f = await setup()
       const gone = await media(f, "gone.png")
@@ -821,28 +821,28 @@ describe("review round 1 fixes", () => {
       expect(r?.status).toBe("purged")
       // A kept copy (such as retained AI output) still carries the old URL.
       await expect(
-        saveSlices(f, pageId, [richSlice(gone.url)])
+        saveBlocks(f, pageId, [richBlock(gone.url)])
       ).rejects.toThrow("PUBLICATION_MEDIA_REFERENCE_MISSING")
       // A genuinely external image is still fine, to save and to publish.
-      await saveSlices(f, pageId, [richSlice("https://elsewhere.test/pic.png")])
+      await saveBlocks(f, pageId, [richBlock("https://elsewhere.test/pic.png")])
       await expect(publish(f, pageId)).resolves.toBeTruthy()
       // A library image whose stored file is missing is refused on save.
       const broken = await media(f, "broken.png")
       await f.t.run((ctx) => ctx.storage.delete(broken.storageId))
       await expect(
-        saveSlices(f, pageId, [richSlice(broken.url)])
+        saveBlocks(f, pageId, [richBlock(broken.url)])
       ).rejects.toThrow("PUBLICATION_MEDIA_STORAGE_MISSING")
     }
   )
 
   test(
     "a source too full for its image rows fails the backfill and purge stays refused",
-    sliceProfile(PROFILE),
+    blockProfile(PROFILE),
     async () => {
       const f = await setup()
       const m = await media(f, "full.png")
       const filler = await media(f, "filler.png")
-      const pageId = await newPage(f, "full-page", [richSlice(m.url)])
+      const pageId = await newPage(f, "full-page", [richBlock(m.url)])
       await f.t.run(async (ctx) => {
         const draft = (await ctx.db
           .query("pageLocaleDrafts")
@@ -861,7 +861,7 @@ describe("review round 1 fixes", () => {
             mediaId: filler.mediaId,
             storageId: filler.storageId,
             sourcePath: `filler.${i}`,
-            referenceKind: "slice-image",
+            referenceKind: "block-image",
             sourceKind: "locale_draft",
             sourceId: draft._id,
             sourceGeneration: draft.generation,

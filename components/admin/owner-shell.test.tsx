@@ -75,7 +75,7 @@ vi.mock("./command-palette", () => ({
   useRegisterAdminCommands: mocks.registerCommands,
 }))
 
-// The starter ships no slice library, so the shell wraps nothing (D-6).
+// The starter ships no block library, so the shell wraps nothing (D-6).
 vi.mock("@/components/admin/contributions/authoring-tools", () => ({
   ADMIN_AUTHORING_TOOLS_BROWSER_BINDING: null,
 }))

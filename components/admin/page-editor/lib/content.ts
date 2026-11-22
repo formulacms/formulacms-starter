@@ -1,10 +1,10 @@
-import { readSlice } from "@/convex/lib/slices/identity"
-import { type Slice } from "@/convex/lib/slices"
+import { readBlock } from "@/convex/lib/blocks/identity"
+import { type Block } from "@/convex/lib/blocks"
 import {
   isPrimitiveValueEmpty,
   type Primitive,
-} from "@/convex/lib/slices/primitives"
-import { walkFieldMap } from "@/convex/lib/slices/walk"
+} from "@/convex/lib/blocks/primitives"
+import { walkFieldMap } from "@/convex/lib/blocks/walk"
 import { type Locale } from "@/lib/i18n/config"
 import type { LocaleContentSummary, Page } from "./types"
 import { SYSTEM_OWNED_LOCALIZED_FIELDS } from "./system-owned-fields"
@@ -15,12 +15,12 @@ export function getTitle(page: Page, locale: Locale): string {
 
 export { slugify } from "@/convex/lib/contentTypes/routing"
 
-/** True when the page has at least a title or one slice — the minimum the
+/** True when the page has at least a title or one block — the minimum the
  *  meta-only AI call needs to summarise. Mirrors the spec §7.3 "no brief; meta
  *  is derived from existing copy." */
-export function hasAnyContent(slices: Slice[], title: string): boolean {
+export function hasAnyContent(blocks: Block[], title: string): boolean {
   if (title.trim()) return true
-  return slices.some((s) => readSlice(s).enabled !== false)
+  return blocks.some((s) => readBlock(s).enabled !== false)
 }
 
 export function summarizeLocaleContent(
@@ -28,7 +28,7 @@ export function summarizeLocaleContent(
     title?: string
     metaTitle?: string
     metaDescription?: string
-    slices?: Slice[]
+    blocks?: Block[]
     /**
      * Descriptor localized field values (author roleTitle/bio, future
      * faq/testimonial content). Plan 029 C9a: without this the transfer
@@ -80,7 +80,7 @@ export function summarizeLocaleContent(
     (content.title ?? "").trim().length > 0 ||
     (content.metaTitle ?? "").trim().length > 0 ||
     (content.metaDescription ?? "").trim().length > 0 ||
-    (content.slices ?? []).length > 0 ||
+    (content.blocks ?? []).length > 0 ||
     hasAnyDescriptorField
   return {
     hasAny,
@@ -88,7 +88,7 @@ export function summarizeLocaleContent(
       (content.title ?? "").trim().length > 0 ||
       (content.metaTitle ?? "").trim().length > 0 ||
       (content.metaDescription ?? "").trim().length > 0 ||
-      (content.slices ?? []).length > 0 ||
+      (content.blocks ?? []).length > 0 ||
       hasTranslatableDescriptorField,
   }
 }

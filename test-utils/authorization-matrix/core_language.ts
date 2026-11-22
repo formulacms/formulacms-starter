@@ -203,7 +203,7 @@ async function openRetainedDraftFixture(t: Site, owner: CallTarget, redirects: "
     })
     await ctx.db.insert("pageLocaleDrafts", {
       pageId, locale: "fr", pageType: "landing-page", generation: 1,
-      slug: "accueil", content: { title: "Brouillon conserve", slices: [] },
+      slug: "accueil", content: { title: "Brouillon conserve", blocks: [] },
       updatedBy: snapshot!.attribution, createdAt: 1, updatedAt: 1,
     })
   })

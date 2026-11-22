@@ -1,6 +1,6 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
-import { walkValue } from "../slices/walk"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
+import { walkValue } from "../blocks/walk"
 import { isLegacyTitleHtml } from "../richtext/write"
 /**
  * Provider-neutral translation traversal shared by the Production Convex
@@ -15,8 +15,8 @@ import {
   parsePMDoc,
   replaceTextSegments,
 } from "../richtext/pmText"
-import { type Primitive, type Slice } from "../slices"
-import { isTranslatableTextPrimitive } from "../slices/primitives"
+import { type Primitive, type Block } from "../blocks"
+import { isTranslatableTextPrimitive } from "../blocks/primitives"
 import {
   readFieldText,
   readTransitionField,
@@ -59,7 +59,7 @@ export interface PageTranslationContent {
   ogTitle?: string
   ogDescription?: string
   cardExcerpt?: string
-  slices: readonly Slice[]
+  blocks: readonly Block[]
   translatables?: readonly TranslatableLeaf[]
 }
 
@@ -162,7 +162,7 @@ export async function translatePrimitiveValue(
   assertTranslationInput(definition, value, address)
   const leafTraversal = {
     ...traversal,
-    path: `${traversal.path ?? "slice"}.${address?.fieldPath ?? "value"}`,
+    path: `${traversal.path ?? "block"}.${address?.fieldPath ?? "value"}`,
   }
   switch (definition.kind) {
     case "text":
@@ -277,31 +277,31 @@ export async function translatePrimitiveValue(
   }
 }
 
-/** Translate the descriptor-declared content fields of one slice. */
-export async function translateSlice(
-  slice: Slice,
+/** Translate the descriptor-declared content fields of one block. */
+export async function translateBlock(
+  block: Block,
   traversal: TranslationTraversal
-): Promise<Slice> {
-  const definition = readSliceDefinition(readSlice(slice).type)
-  if (!definition) throw new Error("Slice descriptor is unavailable.")
+): Promise<Block> {
+  const definition = readBlockDefinition(readBlock(block).type)
+  if (!definition) throw new Error("Block descriptor is unavailable.")
   const primary = (await translatePrimitiveValue(
     definition.primary,
-    readSlice(slice).primary,
+    readBlock(block).primary,
     traversal,
-    { sliceType: readSlice(slice).type, fieldPath: "primary" }
-  )) as Slice["primary"] | undefined
-  const translated: Record<string, unknown> = Object.assign({}, slice, {
-    primary: primary ?? readSlice(slice).primary,
+    { blockType: readBlock(block).type, fieldPath: "primary" }
+  )) as Block["primary"] | undefined
+  const translated: Record<string, unknown> = Object.assign({}, block, {
+    primary: primary ?? readBlock(block).primary,
   })
-  if (definition.items !== undefined && "items" in slice) {
+  if (definition.items !== undefined && "items" in block) {
     translated.items = await translatePrimitiveValue(
       definition.items,
-      (slice as { items?: unknown[] }).items,
+      (block as { items?: unknown[] }).items,
       traversal,
-      { sliceType: readSlice(slice).type, fieldPath: "items" }
+      { blockType: readBlock(block).type, fieldPath: "items" }
     )
   }
-  return translated as Slice
+  return translated as Block
 }
 
 /** Translate one descriptor-provided text leaf while retaining its identity. */
@@ -330,20 +330,20 @@ export async function translatePageContent(
   ogTitle?: string
   ogDescription?: string
   cardExcerpt?: string
-  slices: Slice[]
+  blocks: Block[]
   translatables: TranslatableLeaf[]
 }> {
   if (traversal.enabled !== false)
-    for (const slice of page.slices) {
-      const definition = readSliceDefinition(readSlice(slice).type)
-      if (!definition) throw new Error("Slice descriptor is unavailable.")
-      assertTranslationInput(definition.primary, readSlice(slice).primary, {
-        sliceType: readSlice(slice).type,
+    for (const block of page.blocks) {
+      const definition = readBlockDefinition(readBlock(block).type)
+      if (!definition) throw new Error("Block descriptor is unavailable.")
+      assertTranslationInput(definition.primary, readBlock(block).primary, {
+        blockType: readBlock(block).type,
         fieldPath: "primary",
       })
-      if (definition.items !== undefined && "items" in slice)
-        assertTranslationInput(definition.items, readSlice(slice).items, {
-          sliceType: readSlice(slice).type,
+      if (definition.items !== undefined && "items" in block)
+        assertTranslationInput(definition.items, readBlock(block).items, {
+          blockType: readBlock(block).type,
           fieldPath: "items",
         })
     }
@@ -360,7 +360,7 @@ export async function translatePageContent(
     ogTitle,
     ogDescription,
     cardExcerpt,
-    slices,
+    blocks,
     translatables,
   ] = await Promise.all([
     translatePlainText(page.title, { ...traversal, path: "title" }),
@@ -380,8 +380,8 @@ export async function translatePageContent(
     optionalText("ogDescription"),
     optionalText("cardExcerpt"),
     Promise.all(
-      page.slices.map((slice, index) =>
-        translateSlice(slice, { ...traversal, path: `slices[${index}]` })
+      page.blocks.map((block, index) =>
+        translateBlock(block, { ...traversal, path: `blocks[${index}]` })
       )
     ),
     Promise.all(
@@ -400,7 +400,7 @@ export async function translatePageContent(
     ...(page.ogTitle !== undefined ? { ogTitle } : {}),
     ...(page.ogDescription !== undefined ? { ogDescription } : {}),
     ...(page.cardExcerpt !== undefined ? { cardExcerpt } : {}),
-    slices,
+    blocks,
     translatables,
   }
 }

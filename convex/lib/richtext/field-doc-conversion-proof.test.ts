@@ -1,13 +1,13 @@
-import { createSampleSlice } from "@/convex/lib/slices/sample"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
+import { blockProfile } from "@/test-utils/block-profile"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as shapeModule from "./shape"
 import { buildFieldDoc } from "./build"
 import { resolveFieldContract } from "./contracts"
 import { validateStrict } from "./strict"
-import { writeSliceFields } from "./write"
+import { writeBlockFields } from "./write"
 
-import type { Slice } from "../slices"
+import type { Block } from "../blocks"
 
 type JsonRecord = Record<string, unknown>
 
@@ -58,11 +58,11 @@ function expectGeneratedInputHasOnlyPlainTitleNodes(value: string): void {
 describe("generated title conversion proof", () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it("passes generated text through the real shape converter without link reports", sliceProfile([]), () => {
+  it("passes generated text through the real shape converter without link reports", blockProfile([]), () => {
     const generatedText =
       '[guide](https://example.test) <a href="https://example.test">HTML</a> {"url":"https://example.test"} **bold** *italic*\nsecond line'
-    const hero = createSampleSlice("hero-with-image")
-    const fixture: Slice = {
+    const hero = createSampleBlock("hero-with-image")
+    const fixture: Block = {
       ...hero,
       primary: {
         ...hero.primary,
@@ -82,15 +82,15 @@ describe("generated title conversion proof", () => {
       })
 
     try {
-      const sliceTitleConfig = {
+      const blockTitleConfig = {
         contract: "title" as const,
-        heading: { role: "sliceTitle" as const },
+        heading: { role: "blockTitle" as const },
       }
       const itemTitleConfig = {
         contract: "title" as const,
         heading: { role: "itemTitle" as const },
       }
-      const generatedTitle = buildFieldDoc(generatedText, sliceTitleConfig, undefined, {
+      const generatedTitle = buildFieldDoc(generatedText, blockTitleConfig, undefined, {
         emphasis: true,
       })
       const generatedItemTitle = buildFieldDoc(
@@ -123,7 +123,7 @@ describe("generated title conversion proof", () => {
           .content[0]
       ).toMatchObject({ type: "heading", attrs: { level: 3 } })
       expect(
-        validateStrict(resolveFieldContract(sliceTitleConfig), JSON.stringify(generatedTitle))
+        validateStrict(resolveFieldContract(blockTitleConfig), JSON.stringify(generatedTitle))
       ).toEqual({ ok: true })
       expect(
         validateStrict(resolveFieldContract(itemTitleConfig), JSON.stringify(generatedItemTitle))
@@ -131,7 +131,7 @@ describe("generated title conversion proof", () => {
 
       const canonicalBytes = JSON.stringify(generatedTitle)
       fixture.primary.title = canonicalBytes
-      const written = writeSliceFields(fixture, "en")
+      const written = writeBlockFields(fixture, "en")
       const writtenValue = written.value
       expect(writtenValue.type).toBe("hero-with-image")
       if (writtenValue.type !== "hero-with-image")

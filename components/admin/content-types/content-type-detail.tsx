@@ -113,7 +113,7 @@ function CapabilityList({
 }) {
   const t = useTranslations("inventory.contentTypes")
   const items = [
-    [t("capabilities.sliceBody"), capabilities.sliceBody],
+    [t("capabilities.blockBody"), capabilities.blockBody],
     [t("capabilities.revisions"), capabilities.revisions],
     [t("capabilities.scheduling"), capabilities.scheduling],
     [t("capabilities.presence"), capabilities.presence],

@@ -1,32 +1,32 @@
-import { sliceProfileAny, sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfileAny, blockProfile } from "@/test-utils/block-profile"
 import { createTranslator } from "next-intl"
 import { expect, test } from "vitest"
 import fr from "@/messages/admin/fr.json"
 import {
   adminFieldMetadata,
-  adminSliceMetadata,
-  adminSliceGroupLabel,
+  adminBlockMetadata,
+  adminBlockGroupLabel,
   adminEmailProvider,
 } from "./admin-metadata"
 import {
-  INSTALLED_SLICE_TYPES,
-  sliceDefs,
+  INSTALLED_BLOCK_TYPES,
+  blockDefs,
   text,
   type Primitive,
-} from "@/convex/lib/slices"
+} from "@/convex/lib/blocks"
 import { authorContentType } from "@/convex/lib/contentTypes/author"
 import { postContentType } from "@/convex/lib/contentTypes/post"
-import { SLICE_METADATA } from "@/lib/slices/builder"
+import { BLOCK_METADATA } from "@/lib/blocks/builder"
 const t = createTranslator({
   locale: "fr",
   messages: fr,
   namespace: "metadata",
 })
-test.skipIf(INSTALLED_SLICE_TYPES.length === 0).each(INSTALLED_SLICE_TYPES)(
-  "current bundled %s metadata translates without replacing technical identity", sliceProfileAny(INSTALLED_SLICE_TYPES),
+test.skipIf(INSTALLED_BLOCK_TYPES.length === 0).each(INSTALLED_BLOCK_TYPES)(
+  "current bundled %s metadata translates without replacing technical identity", blockProfileAny(INSTALLED_BLOCK_TYPES),
   (type) => {
-    const original = SLICE_METADATA[type as keyof typeof SLICE_METADATA]!
-    const localized = adminSliceMetadata(type, t)!
+    const original = BLOCK_METADATA[type as keyof typeof BLOCK_METADATA]!
+    const localized = adminBlockMetadata(type, t)!
     expect(localized.label).not.toBe(original.label)
     expect(localized.description).not.toBe(original.description)
     expect(localized.icon).toBe(original.icon)
@@ -34,20 +34,20 @@ test.skipIf(INSTALLED_SLICE_TYPES.length === 0).each(INSTALLED_SLICE_TYPES)(
     expect(original.label).not.toBe(localized.label)
   }
 )
-test("owner metadata and custom copy on a bundled identity stay intact", sliceProfile([]), () => {
+test("owner metadata and custom copy on a bundled identity stay intact", blockProfile([]), () => {
   const meta = {
-    ...SLICE_METADATA["hero-agency"]!,
+    ...BLOCK_METADATA["hero-agency"]!,
     origin: "user" as const,
     label: "My hero",
     description: "Owner copy",
   }
-  expect(adminSliceMetadata("hero-agency", t, meta)).toBe(meta)
+  expect(adminBlockMetadata("hero-agency", t, meta)).toBe(meta)
   expect(
-    adminSliceMetadata("hero-agency", t, { ...meta, origin: "system" })
+    adminBlockMetadata("hero-agency", t, { ...meta, origin: "system" })
   ).toEqual({ ...meta, origin: "system" })
-  expect(adminSliceGroupLabel("heroes", "Heroes", t)).toBe("Bannières")
+  expect(adminBlockGroupLabel("heroes", "Heroes", t)).toBe("Bannières")
 })
-test("bundled field hints translate and owner primitives with identical keys remain intact", sliceProfile([]), () => {
+test("bundled field hints translate and owner primitives with identical keys remain intact", blockProfile([]), () => {
   const def = authorContentType.sharedFields.name
   expect(adminFieldMetadata(def, "name", t)).toMatchObject({
     label: "Nom",
@@ -66,7 +66,7 @@ test("bundled field hints translate and owner primitives with identical keys rem
       t
     ).label
   ).toBe("Mettre en avant")
-  const fields = sliceDefs["hero-with-image"].primary.config.fields as Record<
+  const fields = blockDefs["hero-with-image"].primary.config.fields as Record<
     string,
     Primitive
   >
@@ -180,5 +180,5 @@ test("development caption localization keeps synthetic host/deployment identitie
 
 test.each(["contact-form", "site-search", "cta-band"])(
   "parked %s has no authoring metadata",
-  (type) => expect(adminSliceMetadata(type, t)).toBeUndefined()
+  (type) => expect(adminBlockMetadata(type, t)).toBeUndefined()
 )

@@ -1,9 +1,9 @@
 import { v } from "convex/values"
-import { text } from "../slices/primitives"
+import { text } from "../blocks/primitives"
 import type { ContentTypeDescriptor } from "./types"
 
 /**
- * Generic page — the parent-hierarchy-participating, sliceBody-driven default.
+ * Generic page — the parent-hierarchy-participating, blockBody-driven default.
  * Routable at `<locale>/<slug>` (empty pathPrefix = mounted at the locale
  * root); scheduling + revisions + presence all on. No type-specific row
  * fields — page and landing-page are identical at the row level today; only
@@ -30,7 +30,7 @@ export const pageContentType: ContentTypeDescriptor<typeof sharedFields, typeof 
   }),
   routing: { pathPrefix: "" },
   capabilities: {
-    sliceBody: true,
+    blockBody: true,
     revisions: true,
     scheduling: true,
     presence: true,

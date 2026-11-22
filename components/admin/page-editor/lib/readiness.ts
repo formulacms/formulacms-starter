@@ -9,7 +9,7 @@ export type PageReadinessSuggestion =
   | { id: "review-locale"; label: string; locale: string }
 
 const CONTENT_ISSUE_CODES = new Set([
-  "missing_required_slice_field",
+  "missing_required_block_field",
   "missing_required_field",
   "missing_image_alt_text",
   "broken_internal_link",

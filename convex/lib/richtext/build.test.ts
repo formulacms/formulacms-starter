@@ -162,23 +162,23 @@ describe("buildPMDoc", () => {
 });
 
 describe("buildFieldDoc", () => {
-  const sliceTitle = { contract: "title" as const, heading: { role: "sliceTitle" as const } };
+  const blockTitle = { contract: "title" as const, heading: { role: "blockTitle" as const } };
   const itemTitle = { contract: "title" as const, heading: { role: "itemTitle" as const, parent: "items" } };
 
   test("builds canonical title levels from configured roles", () => {
-    for (const [config, level] of [[sliceTitle, 2], [itemTitle, 3]] as const) {
+    for (const [config, level] of [[blockTitle, 2], [itemTitle, 3]] as const) {
       const output = buildFieldDoc("A title", config);
       const json = JSON.stringify(output);
       expect((output as { content: Array<{ type: string; attrs?: { level: number } }> }).content[0]).toMatchObject({ type: "heading", attrs: { level } });
       expect(validateStrict(resolveFieldContract(config), json)).toEqual({ ok: true });
     }
-    const overridden = buildFieldDoc("A title", sliceTitle, "itemTitle");
+    const overridden = buildFieldDoc("A title", blockTitle, "itemTitle");
     expect((overridden as { content: Array<{ attrs?: { level: number } }> }).content[0]?.attrs?.level).toBe(3);
     expect((overridden as { content: Array<{ attrs?: { parent?: string } }> }).content[0]?.attrs?.parent).toBeUndefined();
   });
 
   test("preserves parent while applying an explicit role", () => {
-    const output = buildFieldDoc("A title", { contract: "title", heading: { role: "sliceTitle", parent: "primary" } }, "itemTitle");
+    const output = buildFieldDoc("A title", { contract: "title", heading: { role: "blockTitle", parent: "primary" } }, "itemTitle");
     expect(validateStrict(resolveFieldContract({ contract: "title", heading: { role: "itemTitle", parent: "primary" } }), JSON.stringify(output))).toEqual({ ok: true });
     expect((output as { content: Array<{ attrs?: { level?: number } }> }).content[0]?.attrs?.level).toBe(3);
   });
@@ -191,58 +191,58 @@ describe("buildFieldDoc", () => {
   });
 
   test("keeps empty input and turns every title newline into one space in the canonical heading", () => {
-    const empty = buildFieldDoc("", sliceTitle);
-    expect(validateStrict(resolveFieldContract(sliceTitle), JSON.stringify(empty))).toEqual({ ok: true });
-    const multiline = buildFieldDoc("one\n\ntwo\n", sliceTitle);
+    const empty = buildFieldDoc("", blockTitle);
+    expect(validateStrict(resolveFieldContract(blockTitle), JSON.stringify(empty))).toEqual({ ok: true });
+    const multiline = buildFieldDoc("one\n\ntwo\n", blockTitle);
     const content = (multiline as { content: Array<{ content?: Array<{ type: string }> }> }).content[0]?.content ?? [];
     expect(content.filter((node) => node.type === "hardBreak")).toHaveLength(0);
     expect(content).toEqual([{ type: "text", text: "one two" }]);
-    expect(validateStrict(resolveFieldContract(sliceTitle), JSON.stringify(multiline))).toEqual({ ok: true });
+    expect(validateStrict(resolveFieldContract(blockTitle), JSON.stringify(multiline))).toEqual({ ok: true });
   });
 
   test("keeps typed spaces in a title so a controlled input can round-trip each key", () => {
     // Review P1 (2026-11-04): a whole-string trim turned typing "What is" into "Whatis".
     for (const typed of ["What ", "What is ", " leading", "two  spaces"]) {
-      const content = (buildFieldDoc(typed, sliceTitle) as { content: Array<{ content?: Array<{ text?: string }> }> }).content[0]?.content ?? [];
+      const content = (buildFieldDoc(typed, blockTitle) as { content: Array<{ content?: Array<{ text?: string }> }> }).content[0]?.content ?? [];
       expect(content).toEqual([{ type: "text", text: typed }]);
     }
-    const edges = (buildFieldDoc("\n Title \n", sliceTitle) as { content: Array<{ content?: Array<{ text?: string }> }> }).content[0]?.content ?? [];
+    const edges = (buildFieldDoc("\n Title \n", blockTitle) as { content: Array<{ content?: Array<{ text?: string }> }> }).content[0]?.content ?? [];
     expect(edges).toEqual([{ type: "text", text: "Title" }]);
   });
 
   test("joins long newline runs in linear time", () => {
     // Review r2 P2 (2026-11-04): an end-anchored regex took 136 s on 1,000 newlines.
     const started = performance.now();
-    const output = buildFieldDoc(`a${"\n".repeat(5000)} \n b${" \n".repeat(5000)}`, sliceTitle);
+    const output = buildFieldDoc(`a${"\n".repeat(5000)} \n b${" \n".repeat(5000)}`, blockTitle);
     expect(performance.now() - started).toBeLessThan(1000);
     expect((output as { content: Array<{ content?: unknown[] }> }).content[0]?.content).toEqual([{ type: "text", text: "a b" }]);
   });
 
   test("parses emphasis while treating JSON and HTML-looking inputs as literal text", () => {
-    const emphasized = buildFieldDoc("A **bold** and *italic* title", sliceTitle, undefined, { emphasis: true });
-    expect(validateStrict(resolveFieldContract(sliceTitle), JSON.stringify(emphasized))).toEqual({ ok: true });
+    const emphasized = buildFieldDoc("A **bold** and *italic* title", blockTitle, undefined, { emphasis: true });
+    expect(validateStrict(resolveFieldContract(blockTitle), JSON.stringify(emphasized))).toEqual({ ok: true });
     for (const literal of ['{"type":"doc","content":[]}', "<h2>literal</h2>"]) {
-      const output = buildFieldDoc(literal, sliceTitle);
+      const output = buildFieldDoc(literal, blockTitle);
       expect(JSON.stringify(output)).toContain(JSON.stringify(literal));
-      expect(validateStrict(resolveFieldContract(sliceTitle), JSON.stringify(output))).toEqual({ ok: true });
+      expect(validateStrict(resolveFieldContract(blockTitle), JSON.stringify(output))).toEqual({ ok: true });
     }
   });
 
   test("accepts the supported 10000-character title input", () => {
-    const output = buildFieldDoc("x".repeat(10000), sliceTitle);
-    expect(validateStrict(resolveFieldContract(sliceTitle), JSON.stringify(output))).toEqual({ ok: true });
+    const output = buildFieldDoc("x".repeat(10000), blockTitle);
+    expect(validateStrict(resolveFieldContract(blockTitle), JSON.stringify(output))).toEqual({ ok: true });
   });
 
   test("matches the frozen compatibility oracle byte for byte", () => {
-    const oracle = {"titleSlice":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"Hero title"}]}]},"titleItem":{"type":"doc","content":[{"type":"heading","attrs":{"level":3},"content":[{"type":"text","text":"First line Second "},{"type":"text","text":"line","marks":[{"type":"bold"}]}]}]},"titleEmpty":{"type":"doc","content":[{"type":"heading","attrs":{"level":2}}]},"titleMultiline":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"one two"}]}]},"titleEmphasis":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"A "},{"type":"text","text":"bold","marks":[{"type":"bold"}]},{"type":"text","text":" and "},{"type":"text","text":"italic","marks":[{"type":"italic"}]},{"type":"text","text":" title"}]}]},"titleLiteralJson":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"{\"type\":\"doc\",\"content\":[]}"}]}]},"titleLiteralHtml":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"<h2>literal</h2>"}]}]},"legacyInline":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"one two"}]},{"type":"paragraph","content":[{"type":"text","text":"three"}]}]},"legacyBasic":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"one two"}]},{"type":"paragraph","content":[{"type":"text","text":"three"}]}]},"legacyFull":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"one two"}]},{"type":"paragraph","content":[{"type":"text","text":"three"}]}]}} as const;
+    const oracle = {"titleBlock":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"Hero title"}]}]},"titleItem":{"type":"doc","content":[{"type":"heading","attrs":{"level":3},"content":[{"type":"text","text":"First line Second "},{"type":"text","text":"line","marks":[{"type":"bold"}]}]}]},"titleEmpty":{"type":"doc","content":[{"type":"heading","attrs":{"level":2}}]},"titleMultiline":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"one two"}]}]},"titleEmphasis":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"A "},{"type":"text","text":"bold","marks":[{"type":"bold"}]},{"type":"text","text":" and "},{"type":"text","text":"italic","marks":[{"type":"italic"}]},{"type":"text","text":" title"}]}]},"titleLiteralJson":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"{\"type\":\"doc\",\"content\":[]}"}]}]},"titleLiteralHtml":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"<h2>literal</h2>"}]}]},"legacyInline":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"one two"}]},{"type":"paragraph","content":[{"type":"text","text":"three"}]}]},"legacyBasic":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"one two"}]},{"type":"paragraph","content":[{"type":"text","text":"three"}]}]},"legacyFull":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"one two"}]},{"type":"paragraph","content":[{"type":"text","text":"three"}]}]}} as const;
     const cases: Array<[keyof typeof oracle, string, FieldContract | RichTextContractConfig, role?: Parameters<typeof buildFieldDoc>[2], options?: Parameters<typeof buildFieldDoc>[3]]> = [
-      ["titleSlice", "Hero title", { contract: "title", heading: { role: "sliceTitle" } }],
+      ["titleBlock", "Hero title", { contract: "title", heading: { role: "blockTitle" } }],
       ["titleItem", "First line\nSecond **line**", { contract: "title", heading: { role: "itemTitle" } }, undefined, { emphasis: true }],
-      ["titleEmpty", "", { contract: "title", heading: { role: "sliceTitle" } }],
-      ["titleMultiline", "one\ntwo", { contract: "title", heading: { role: "sliceTitle" } }],
-      ["titleEmphasis", "A **bold** and *italic* title", { contract: "title", heading: { role: "sliceTitle" } }, undefined, { emphasis: true }],
-      ["titleLiteralJson", '{"type":"doc","content":[]}', { contract: "title", heading: { role: "sliceTitle" } }],
-      ["titleLiteralHtml", "<h2>literal</h2>", { contract: "title", heading: { role: "sliceTitle" } }],
+      ["titleEmpty", "", { contract: "title", heading: { role: "blockTitle" } }],
+      ["titleMultiline", "one\ntwo", { contract: "title", heading: { role: "blockTitle" } }],
+      ["titleEmphasis", "A **bold** and *italic* title", { contract: "title", heading: { role: "blockTitle" } }, undefined, { emphasis: true }],
+      ["titleLiteralJson", '{"type":"doc","content":[]}', { contract: "title", heading: { role: "blockTitle" } }],
+      ["titleLiteralHtml", "<h2>literal</h2>", { contract: "title", heading: { role: "blockTitle" } }],
       ["legacyInline", "one\ntwo\n\nthree", "inline", undefined, { emphasis: true }],
       ["legacyBasic", "one\ntwo\n\nthree", "basic", undefined, { emphasis: true }],
       ["legacyFull", "one\ntwo\n\nthree", "full", undefined, { emphasis: true }],
@@ -290,7 +290,7 @@ describe("buildFieldDoc markdown option", () => {
   });
 
   test("leaves a title untouched", () => {
-    const doc = buildFieldDoc("## Not a heading", { contract: "title", heading: { role: "sliceTitle" } }, undefined, { emphasis: true, markdown: true });
+    const doc = buildFieldDoc("## Not a heading", { contract: "title", heading: { role: "blockTitle" } }, undefined, { emphasis: true, markdown: true });
     expect(doc.content).toHaveLength(1);
     expect(doc.content[0]!.type).toBe("heading");
   });

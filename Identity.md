@@ -5,7 +5,7 @@ teams. The admin, Convex backend, typed content model, and public renderer ship
 together as one application that a site owner can inspect and evolve.
 
 This repository is a clone-and-own starting point, not a hosted CMS service and
-not a headless content API. The shipped site, content types, and Slice Types are
+not a headless content API. The shipped site, content types, and Block Types are
 examples; owners are expected to adapt the routes, presentation, content model,
 integrations, and supporting code for their project.
 

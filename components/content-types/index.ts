@@ -13,10 +13,10 @@ import type { ContentTypeRenderer } from "./types"
 const contentTypeRenderers: Partial<
   Record<ContentType, ContentTypeRenderer>
 > = {
-  "landing-page": { kind: "sliceBody", Component: LandingPageRenderer },
-  page: { kind: "sliceBody", Component: PageRenderer },
-  post: { kind: "sliceBody", Component: PostRenderer },
-  author: { kind: "sliceBody", Component: AuthorRenderer },
+  "landing-page": { kind: "blockBody", Component: LandingPageRenderer },
+  page: { kind: "blockBody", Component: PageRenderer },
+  post: { kind: "blockBody", Component: PostRenderer },
+  author: { kind: "blockBody", Component: AuthorRenderer },
 }
 // @content-type-codegen:content-type-renderers:end
 
@@ -30,7 +30,7 @@ export function getContentTypeRenderer(type: ContentType): ContentTypeRenderer {
 
 export type {
   ContentTypeRenderer,
-  SliceBodyRendererProps,
+  BlockBodyRendererProps,
   PureFormRendererProps,
   PublicByline,
 } from "./types"

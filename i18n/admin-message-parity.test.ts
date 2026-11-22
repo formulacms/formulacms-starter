@@ -12,7 +12,7 @@ const SHIPPED_NAMESPACES = [
   ["editor", "prePublish"],
   ["editor", "designSystem", "publicFont"],
   ["editor", "pageSave"],
-  ["slices"],
+  ["blocks"],
 ] as const
 
 // Owner wording (2026-11-05): "Les données sont archivées. Pour les restaurer,

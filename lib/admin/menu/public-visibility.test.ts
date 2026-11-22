@@ -2,9 +2,9 @@ import { placeholderTarget as target, postCards } from "@/test-utils/menu-visibi
 import { describe, expect, test } from "vitest"
 import { decideMenu } from "./public-visibility"
 import {
-  panelBlocks,
+  panelSections,
   type CanonicalResolvedNavItem,
-  type ResolvedBlock,
+  type ResolvedPanelSection,
   type MenuCardsBySource,
 } from "@/convex/lib/menu"
 
@@ -16,21 +16,21 @@ type Fixture = {
   decisions: [string, boolean, string | null][]
 }
 
-const group = (): ResolvedBlock => ({
+const group = (): ResolvedPanelSection => ({
   id: "group",
   kind: "linkGroup",
   links: [{ id: "child", label: "Child", target }],
 })
-const list = (): ResolvedBlock => ({
+const list = (): ResolvedPanelSection => ({
   id: "list",
   kind: "dynamicList",
   source: { pageType: "post", limit: 2 },
   seeAll: { label: "See all", target },
 })
-const panelItem = (blocks: ResolvedBlock[]): CanonicalResolvedNavItem => ({
+const panelItem = (sections: ResolvedPanelSection[]): CanonicalResolvedNavItem => ({
   id: "item",
   label: "Panel",
-  panel: { columns: 1, blocks },
+  panel: { columns: 1, sections },
 })
 const cases: Record<string, (locale: string) => Fixture> = {
   "disabled item suppresses every descendant": () => ({
@@ -139,7 +139,7 @@ const cases: Record<string, (locale: string) => Fixture> = {
         {
           ...list(),
           seeAll: { label: "See all", target: { type: "internal" } },
-        } as ResolvedBlock,
+        } as ResolvedPanelSection,
       ]),
     ],
     cards: postCards({ pageId: "page", title: "Post", href: "/post" }),
@@ -158,8 +158,8 @@ const cases: Record<string, (locale: string) => Fixture> = {
         panel: {
           layout: "columns",
           columns: [
-            { id: "empty-col", blocks: [list()] },
-            { id: "shown-col", blocks: [group()] },
+            { id: "empty-col", sections: [list()] },
+            { id: "shown-col", sections: [group()] },
           ],
         },
       },
@@ -255,7 +255,7 @@ const cases: Record<string, (locale: string) => Fixture> = {
   }),
   "legacy card target resolves only in FR": (locale) => ({
     check: (decision) => {
-      const owner = panelBlocks(decision.items[0]!.panel)[0]!.block
+      const owner = panelSections(decision.items[0]!.panel)[0]!.section
       if (locale === "fr") expect(owner).toHaveProperty("target.url", "/fr")
       else expect(owner).not.toHaveProperty("target")
     },
@@ -310,9 +310,9 @@ for (const locale of ["fr", "en"])
           fixture.output[0]!.label = fixture.items[0]!.label
           expect(decision.items).toEqual(fixture.output)
           expect(decision.items[0]).not.toHaveProperty("target")
-          for (const { block } of panelBlocks(decision.items[0]!.panel))
-            if (block.kind === "featured")
-              expect(block).not.toHaveProperty("target")
+          for (const { section } of panelSections(decision.items[0]!.panel))
+            if (section.kind === "featured")
+              expect(section).not.toHaveProperty("target")
         }
         expect(decision.items.map((item) => item.id)).toEqual(
           fixture.items
@@ -337,7 +337,7 @@ test.each([
       type: "internal",
       url: "/live",
     })
-    const legacy: Extract<ResolvedBlock, { kind: "featured" }> = {
+    const legacy: Extract<ResolvedPanelSection, { kind: "featured" }> = {
       id: "legacy",
       kind: "featured",
       heading: "Legacy",
@@ -345,7 +345,7 @@ test.each([
       target: live(),
     }
     const featureLink = { label: "Feature link", target: live() }
-    const feature: Extract<ResolvedBlock, { kind: "featured" }> = {
+    const feature: Extract<ResolvedPanelSection, { kind: "featured" }> = {
       id: "feature",
       kind: "featured",
       heading: "Feature",
@@ -353,14 +353,14 @@ test.each([
       link: featureLink,
     }
     const seeAll = { label: "See all", target: live() }
-    const dynamic: Extract<ResolvedBlock, { kind: "dynamicList" }> = {
+    const dynamic: Extract<ResolvedPanelSection, { kind: "dynamicList" }> = {
       id: "list",
       kind: "dynamicList",
       source: { pageType: "post", limit: 2 },
       seeAll,
     }
     const child = { id: "child", label: "Child", target: live() }
-    const links: Extract<ResolvedBlock, { kind: "linkGroup" }> = {
+    const links: Extract<ResolvedPanelSection, { kind: "linkGroup" }> = {
       id: "group",
       kind: "linkGroup",
       links: [child, { id: "sibling", label: "Sibling", target: live() }],
@@ -388,16 +388,16 @@ test.each([
       "link-group link": { id: "child", owner: child },
     }
     const expected = structuredClone(item)
-    const expectedBlocks = panelBlocks(expected.panel).map(({ block }) => block)
+    const expectedSections = panelSections(expected.panel).map(({ section }) => section)
     if (kind === "item with panel")
       delete (expected as CanonicalResolvedNavItem).target
     if (kind === "legacy featured card")
-      delete (expectedBlocks[1] as typeof legacy).target
+      delete (expectedSections[1] as typeof legacy).target
     if (kind === "featured Link")
-      delete (expectedBlocks[2] as typeof feature).link
-    if (kind === "See all") delete (expectedBlocks[3] as typeof dynamic).seeAll
+      delete (expectedSections[2] as typeof feature).link
+    if (kind === "See all") delete (expectedSections[3] as typeof dynamic).seeAll
     if (kind === "link-group link")
-      (expectedBlocks[0] as typeof links).links.shift()
+      (expectedSections[0] as typeof links).links.shift()
     const subject = subjects[kind]!
     subject.owner.target = { type: "internal" }
     const input = structuredClone(item)

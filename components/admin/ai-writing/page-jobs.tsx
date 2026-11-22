@@ -26,7 +26,7 @@ import { Label } from "@/components/ui/label"
 import { useConfirm } from "@/components/providers/confirm-provider"
 import { getLocaleLabel } from "@/lib/i18n/config"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
-import { readSliceMetadata } from "@/lib/slices/builder"
+import { readBlockMetadata } from "@/lib/blocks/builder"
 import { cn } from "@/lib/utils"
 
 // `status` is null while the AI module is off: treated as not loaded.
@@ -588,8 +588,8 @@ function ReviewList({
             />
             <div className="flex flex-col gap-1">
               <Label htmlFor={`${id}-${section.index}`}>
-                {readSliceMetadata(section.sliceType)?.label ??
-                  section.sliceType}
+                {readBlockMetadata(section.blockType)?.label ??
+                  section.blockType}
               </Label>
               <p className="text-muted-foreground">{section.purpose}</p>
               {section.fields.map((field, index) => (

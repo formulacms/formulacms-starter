@@ -9,7 +9,7 @@ export const RELEASE_ARTIFACT = "community" as const
 
 export const RELEASE_PIPELINE_TRANSFORMS = {
   "starter-ci-filter": "1",
-  "slice-curation": "1",
+  "block-curation": "1",
   "generated-api-reconciliation": "1",
   "generated-env-reconciliation": "1",
   "package-overlay": "1",

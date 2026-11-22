@@ -207,7 +207,7 @@ describe("R1 import and client-island boundaries", () => {
           specifier.startsWith("happy-dom/") ||
           specifier.includes("lib/rich-text") ||
           Boolean(local?.startsWith(`${resolve(root, "lib/rich-text")}/`)) ||
-          local === resolve(root, "components/slice-kit/index.tsx")
+          local === resolve(root, "components/block-kit/index.tsx")
         )
       })
       expect(offenders, relative).toEqual([])

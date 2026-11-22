@@ -6,10 +6,10 @@
  *  - the editor registry in `field-editor.tsx`, typed `satisfies
  *    Record<LeafEditorKind, …>` so a widget is required for exactly these kinds
  *    (a missing or stray widget is a tsc error), and
- *  - the verify gate (`lib/slices/authoring/verify.ts`), which fails any slice
+ *  - the verify gate (`lib/blocks/authoring/verify.ts`), which fails any block
  *    whose descriptor references a kind absent here.
  *
- * Together they close the "uneditable slice" hole: a slice can author a valid
+ * Together they close the "uneditable block" hole: a block can author a valid
  * validator + renderer and pass tsc, yet reference a field kind with no admin
  * editor (the nested `list` that printed `No editor for field … (kind: list)`).
  * The gate now rejects that class outright.
@@ -42,7 +42,7 @@ export const CONTAINER_EDITOR_KINDS = ["group", "list"] as const
 export type ContainerEditorKind = (typeof CONTAINER_EDITOR_KINDS)[number]
 
 /** Every kind the admin can edit — leaves (via a widget) + containers (via
- *  recursion). The verify gate checks each slice field's kind against this. */
+ *  recursion). The verify gate checks each block field's kind against this. */
 export const EDITABLE_FIELD_KINDS: ReadonlySet<string> = new Set<string>([
   ...LEAF_EDITOR_KINDS,
   ...CONTAINER_EDITOR_KINDS,

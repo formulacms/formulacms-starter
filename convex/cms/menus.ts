@@ -7,10 +7,10 @@ import { internal } from "../_generated/api"
 import { requireOperationAccess } from "../lib/access/policy"
 import {
   DEFAULT_MENU_SLUGS,
-  mapPanelBlocks,
-  panelBlocks,
-  type LocaleBlock,
-  type ResolvedBlock,
+  mapPanelSections,
+  panelSections,
+  type LocalePanelSection,
+  type ResolvedPanelSection,
   canonicalResolvedNavItemValidator,
   navItemValidator,
   type CanonicalResolvedNavItem,
@@ -360,8 +360,8 @@ async function resolveCanonicalNav(
   // with their subtree before any target is resolved, so an omitted node
   // costs no read and nothing falls back to the default language.
   const localized = localizeCanonicalNav(nav, locale)
-  const blocksOf = (item: LocaleNavItem) =>
-    panelBlocks(item.panel).map((entry) => entry.block)
+  const sectionsOf = (item: LocaleNavItem) =>
+    panelSections(item.panel).map((entry) => entry.section)
   const internalIds = new Set<Id<"pages">>()
   const storageIds = new Set<Id<"_storage">>()
   const visitTarget = (value: Target | undefined) => {
@@ -369,15 +369,15 @@ async function resolveCanonicalNav(
   }
   for (const item of localized) {
     visitTarget(item.target)
-    for (const block of blocksOf(item)) {
-      if (block.kind === "linkGroup") {
-        for (const link of block.links) visitTarget(link.target)
-      } else if (block.kind === "dynamicList") {
-        visitTarget(block.seeAll?.target)
+    for (const section of sectionsOf(item)) {
+      if (section.kind === "linkGroup") {
+        for (const link of section.links) visitTarget(link.target)
+      } else if (section.kind === "dynamicList") {
+        visitTarget(section.seeAll?.target)
       } else {
-        visitTarget(block.target)
-        visitTarget(block.link?.target)
-        if (block.image?.storageId) storageIds.add(block.image.storageId)
+        visitTarget(section.target)
+        visitTarget(section.link?.target)
+        if (section.image?.storageId) storageIds.add(section.image.storageId)
       }
     }
   }
@@ -423,40 +423,40 @@ async function resolveCanonicalNav(
       url: value.anchor.startsWith("#") ? value.anchor : `#${value.anchor}`,
     }
   }
-  const blocks = (values: LocaleBlock[]): ResolvedBlock[] =>
-    values.map((block) => {
-      if (block.kind === "linkGroup") {
+  const sections = (values: LocalePanelSection[]): ResolvedPanelSection[] =>
+    values.map((section) => {
+      if (section.kind === "linkGroup") {
         return {
-          ...block,
-          links: block.links.map((link) => ({
+          ...section,
+          links: section.links.map((link) => ({
             ...link,
             target: target(link.target),
           })),
         }
       }
-      if (block.kind === "dynamicList") {
+      if (section.kind === "dynamicList") {
         return {
-          ...block,
-          seeAll: block.seeAll
-            ? { label: block.seeAll.label, target: target(block.seeAll.target) }
+          ...section,
+          seeAll: section.seeAll
+            ? { label: section.seeAll.label, target: target(section.seeAll.target) }
             : undefined,
         }
       }
       return {
-        ...block,
-        image: block.image
+        ...section,
+        image: section.image
           ? {
               url:
-                block.image.url ??
-                (block.image.storageId
-                  ? urlByStorageId.get(block.image.storageId)
+                section.image.url ??
+                (section.image.storageId
+                  ? urlByStorageId.get(section.image.storageId)
                   : undefined),
-              alt: block.image.alt,
+              alt: section.image.alt,
             }
           : undefined,
-        target: block.target ? target(block.target) : undefined,
-        link: block.link
-          ? { label: block.link.label, target: target(block.link.target) }
+        target: section.target ? target(section.target) : undefined,
+        link: section.link
+          ? { label: section.link.label, target: target(section.link.target) }
           : undefined,
       }
     })
@@ -464,7 +464,7 @@ async function resolveCanonicalNav(
   return localized.map((item) => ({
     ...item,
     target: item.target ? target(item.target) : undefined,
-    panel: item.panel ? mapPanelBlocks(item.panel, blocks) : undefined,
+    panel: item.panel ? mapPanelSections(item.panel, sections) : undefined,
   }))
 }
 

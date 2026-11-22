@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import type { AdminAiTranslationHostProps } from "@/components/admin/contributions/ai-translation"
 import type { AdminPageHistoryHostProps } from "@/components/admin/contributions/history"
-import type { SlicesPanel } from "../components/slices-panel"
+import type { BlocksPanel } from "../components/blocks-panel"
 import type { Page } from "../lib/types"
 import type { Id } from "@/convex/_generated/dataModel"
 import {
@@ -57,7 +57,7 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   slotProps: [] as AdminPageHistoryHostProps[],
   enabledLocales: ["en"] as string[],
-  sliceProps: [] as Parameters<typeof SlicesPanel>[0][],
+  blockProps: [] as Parameters<typeof BlocksPanel>[0][],
 }))
 
 vi.mock("@/components/admin/locale-tabs", async (importOriginal) => {
@@ -246,11 +246,11 @@ vi.mock("@/components/admin/page-editor/components/settings-panel", () => ({
     )
   },
 }))
-vi.mock("@/components/admin/page-editor/components/slices-panel", () => ({
-  SlicesPanel: (props: Parameters<typeof SlicesPanel>[0]) => {
-    mocks.sliceProps.push(props)
+vi.mock("@/components/admin/page-editor/components/blocks-panel", () => ({
+  BlocksPanel: (props: Parameters<typeof BlocksPanel>[0]) => {
+    mocks.blockProps.push(props)
     // Test proxy for the mounted PageEditor preview-panel host, not a native iframe.
-    return <div data-testid="slice-panel" />
+    return <div data-testid="block-panel" />
   },
 }))
 
@@ -285,7 +285,7 @@ function page(): Page {
     status: "draft",
     createdAt: 100,
     updatedAt: 100,
-    content: { en: { title: "About", slices: [] } },
+    content: { en: { title: "About", blocks: [] } },
     tags: [],
     createdBy: "owner-1",
   } as Page
@@ -365,8 +365,8 @@ function mount(snapshot = false, copyFields = false) {
     // language (ADR-0037 amendment, 2026-11-17).
     ...(copyFields ? { pageType: "post", featured: true } : {}),
     content: {
-      en: { title: "About", slices: [] },
-      fr: { title: "À propos", slices: [] },
+      en: { title: "About", blocks: [] },
+      fr: { title: "À propos", blocks: [] },
     },
   } as Page
   const view = render(
@@ -827,7 +827,7 @@ test.each(
           draft: {
             pageType: "post",
             localized: { metaDescription: `Copy ${locale}` },
-            slices: [],
+            blocks: [],
           },
         },
       })

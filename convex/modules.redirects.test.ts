@@ -397,14 +397,14 @@ async function installHistoricalFixture(t: App, owner: Caller) {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   const pageId = await owner.mutation(api.cms.pages.create, {
     pageType: "landing-page",
     status: "draft",
     slug: "m01d-page",
     title: "M01d page",
-    content: { en: { title: "English v1", slices: [] } },
+    content: { en: { title: "English v1", blocks: [] } },
   })
   await t.run(async (ctx) => {
     await ctx.db.insert("siteSettings", {
@@ -445,7 +445,7 @@ async function installHistoricalFixture(t: App, owner: Caller) {
       pageType: "landing-page",
       generation: 2,
       slug: "m01d-page-v2",
-      content: { title: "English v2", slices: [] },
+      content: { title: "English v2", blocks: [] },
       updatedBy: {
         kind: "owner",
         ownerId: ownerRow._id,

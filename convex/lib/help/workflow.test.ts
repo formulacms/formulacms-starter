@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest"
 import { HELP_CORPUS } from "./corpus"
 import { intentEnumForPrompt } from "./intents"
-import { installedSliceDefs, INSTALLED_SLICE_TYPES } from "../slices"
+import { installedBlockDefs, INSTALLED_BLOCK_TYPES } from "../blocks"
 import {
   buildHelpGenerationInput,
   parseHelpGenerationOutput,
@@ -12,10 +12,10 @@ function currentContext(): string {
   const corpus = HELP_CORPUS.map(
     (entry) => `## ${entry.title}\n${entry.body}`
   ).join("\n\n")
-  const slices = INSTALLED_SLICE_TYPES.map(
-    (type) => `- ${type}: ${installedSliceDefs[type].aiHint.purpose}`
+  const blocks = INSTALLED_BLOCK_TYPES.map(
+    (type) => `- ${type}: ${installedBlockDefs[type].aiHint.purpose}`
   ).join("\n")
-  return `${corpus}\n\nBlock types currently available:\n${slices}`
+  return `${corpus}\n\nBlock types currently available:\n${blocks}`
 }
 
 describe("buildHelpGenerationInput", () => {

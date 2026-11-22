@@ -1,5 +1,5 @@
 import { v } from "convex/values"
-import { text } from "../slices/primitives"
+import { text } from "../blocks/primitives"
 import type { ContentTypeDescriptor } from "./types"
 
 /**
@@ -30,7 +30,7 @@ export const landingPageContentType: ContentTypeDescriptor<typeof sharedFields, 
   }),
   routing: { pathPrefix: "" },
   capabilities: {
-    sliceBody: true,
+    blockBody: true,
     revisions: true,
     scheduling: true,
     presence: true,

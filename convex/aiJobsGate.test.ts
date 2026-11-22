@@ -48,7 +48,7 @@ test("real catalog: every public U1b ingress fails closed, including Start CMS_M
     brief: "Test",
     locale: "en" as const,
     meta: { title: "Test", slug: "test" },
-    rows: [{ sliceType: "hero-with-image", purpose: "Intro" }],
+    rows: [{ blockType: "hero-with-image", purpose: "Intro" }],
   }
   const calls = [
     () => owner.query(api.cms.aiJobs.estimatePageJob, { input }),

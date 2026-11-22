@@ -37,7 +37,7 @@ export type PreviewClickCount = 1 | 2 | 3
 /**
  * How long after the last click of a preview click sequence the page editor
  * waits before anything that moves the preview: bringing a form field into
- * view, or showing or hiding the "only in the form" notice. The form and the
+ * view, or showing or hiding a preview refusal notice. The form and the
  * preview share one scroller, so a move during the sequence would put the
  * next click on another line.
  */

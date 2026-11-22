@@ -6,7 +6,7 @@
 //
 // One-shot: the editor reads the stash on mount, applies it, and clears the
 // key so a hard refresh after save does not rehydrate stale content.
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 
 const KEY_PREFIX = "nextcms:page-ai-draft:"
 
@@ -16,7 +16,7 @@ export interface PageDraftHandoff {
   slug?: string
   metaTitle?: string
   metaDescription?: string
-  slices: Slice[]
+  blocks: Block[]
 }
 
 function isBrowser(): boolean {
@@ -52,7 +52,7 @@ export function readPageDraftHandoff(pageId: string): PageDraftHandoff | null {
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw) as PageDraftHandoff
-    if (!parsed || !Array.isArray(parsed.slices)) return null
+    if (!parsed || !Array.isArray(parsed.blocks)) return null
     return parsed
   } catch {
     return null

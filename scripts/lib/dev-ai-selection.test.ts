@@ -134,7 +134,7 @@ describe("parseDevAiSelection", () => {
       effort: "xhigh",
       tasks: editorTaskMap({ engine: "claude" }),
     })
-    // Slice tasks stay unset — the v2 file never expressed a slice preference.
+    // Block tasks stay unset — the v2 file never expressed a block preference.
     expect(parsed.tasks).not.toHaveProperty("vision-spec")
     expect(parsed.tasks).not.toHaveProperty("renderer-jsx")
   })
@@ -919,7 +919,7 @@ describe("local tool choices (Settings › AI on localhost)", () => {
 
   test("with no file, a choice starts from the readers' default and keeps every other task unchanged", () => {
     const root = tempRoot()
-    expect(writeLocalToolChoices({ sliceCreator: sonnet }, root)).toEqual({ sliceCreator: sonnet })
+    expect(writeLocalToolChoices({ blockCreator: sonnet }, root)).toEqual({ blockCreator: sonnet })
     const saved = readDevAiSelection(root)!
     expect(saved).toEqual({
       version: 3,
@@ -933,15 +933,15 @@ describe("local tool choices (Settings › AI on localhost)", () => {
   test("writes and clears each assistant separately, leaving other keys as they were", () => {
     const root = tempRoot()
     writeDevAiSelection({ version: 3, engine: "anthropic", tasks: { "editorial-copy": { engine: "off" } } }, root)
-    expect(writeLocalToolChoices({ help: luna, sliceCreator: sonnet }, root)).toEqual({ help: luna, sliceCreator: sonnet })
-    expect(readLocalToolChoices(root)).toEqual({ help: luna, sliceCreator: sonnet })
-    expect(writeLocalToolChoices({ help: null }, root)).toEqual({ sliceCreator: sonnet })
+    expect(writeLocalToolChoices({ help: luna, blockCreator: sonnet }, root)).toEqual({ help: luna, blockCreator: sonnet })
+    expect(readLocalToolChoices(root)).toEqual({ help: luna, blockCreator: sonnet })
+    expect(writeLocalToolChoices({ help: null }, root)).toEqual({ blockCreator: sonnet })
     expect(readDevAiSelection(root)).toEqual({
       version: 3,
       engine: "anthropic",
       tasks: { "editorial-copy": { engine: "off" }, "vision-spec": sonnet, "renderer-jsx": sonnet },
     })
-    expect(writeLocalToolChoices({ sliceCreator: null }, root)).toEqual({})
+    expect(writeLocalToolChoices({ blockCreator: null }, root)).toEqual({})
     expect(readDevAiSelection(root)).toEqual({ version: 3, engine: "anthropic", tasks: { "editorial-copy": { engine: "off" } } })
   })
 
@@ -956,7 +956,7 @@ describe("local tool choices (Settings › AI on localhost)", () => {
     ["Off as a local tool", { help: { engine: "off" } }],
     ["an unsafe model id", { help: { ...sonnet, model: "sonnet 9" } }],
     ["an unsafe codex model id", { help: { ...luna, model: "../gpt-4o" } }],
-    ["an effort above the ceiling", { sliceCreator: { ...luna, effort: "max" } }],
+    ["an effort above the ceiling", { blockCreator: { ...luna, effort: "max" } }],
     ["a missing effort", { help: { engine: "claude", model: "sonnet" } }],
     ["an extra key", { help: { ...sonnet, apiKey: "x" } }],
     ["a list", [sonnet]],
@@ -965,7 +965,7 @@ describe("local tool choices (Settings › AI on localhost)", () => {
   })
 
   test("accepts a valid payload and null clears", () => {
-    expect(parseLocalToolChoiceChanges({ help: luna, sliceCreator: null })).toEqual({ help: luna, sliceCreator: null })
+    expect(parseLocalToolChoiceChanges({ help: luna, blockCreator: null })).toEqual({ help: luna, blockCreator: null })
   })
 
   test("refuses to save over a malformed file and leaves it as it was", () => {
@@ -979,7 +979,7 @@ describe("local tool choices (Settings › AI on localhost)", () => {
   test("every menu default is a choice the file accepts", () => {
     const root = tempRoot()
     for (const [engine, menu] of Object.entries(localToolMenus()) as ["claude" | "codex", ReturnType<typeof localToolMenus>["claude"]][]) {
-      for (const assistant of ["help", "sliceCreator", "writing", "translation"] as const) {
+      for (const assistant of ["help", "blockCreator", "writing", "translation"] as const) {
         const choice = { engine, ...menu.defaults[assistant] }
         expect(menu.models.find((m) => m.model === choice.model)?.efforts).toContain(choice.effort)
         expect(writeLocalToolChoices({ [assistant]: choice }, root)[assistant]).toEqual(choice)
@@ -987,7 +987,7 @@ describe("local tool choices (Settings › AI on localhost)", () => {
     }
     expect(localToolMenus().claude.defaults).toEqual({
       help: { model: "claude-haiku-5-5", effort: "low" },
-      sliceCreator: { model: "claude-sonnet-5-5", effort: "high" },
+      blockCreator: { model: "claude-sonnet-5-5", effort: "high" },
       writing: { model: "claude-sonnet-5-5", effort: "medium" },
       translation: { model: "claude-sonnet-5-5", effort: "medium" },
     })
@@ -1018,7 +1018,7 @@ describe("local tool choices (Settings › AI on localhost)", () => {
     ])
     expect(menus.codex.defaults).toEqual({
       help: { model: "gpt-6-luna", effort: "medium" },
-      sliceCreator: { model: "gpt-6.1-sol", effort: "low" },
+      blockCreator: { model: "gpt-6.1-sol", effort: "low" },
       writing: { model: "gpt-6.1-terra", effort: "low" },
       translation: { model: "gpt-6.1-terra", effort: "low" },
     })
@@ -1057,7 +1057,7 @@ describe("local tool choices (Settings › AI on localhost)", () => {
     ] } }
     expect(localToolMenus(listed).codex.defaults).toEqual({
       help: { model: "gpt-6-luna", effort: "low" },
-      sliceCreator: { model: "gpt-6.1-sol", effort: "medium" },
+      blockCreator: { model: "gpt-6.1-sol", effort: "medium" },
       writing: { model: "gpt-6.1-terra", effort: "low" },
       translation: { model: "gpt-6.1-terra", effort: "low" },
     })
@@ -1097,7 +1097,7 @@ describe("local tool choices (Settings › AI on localhost)", () => {
     writeFileSync(devAiSelectionPath(root), JSON.stringify({ version: 3, engine: "openrouter", tasks: { "grounded-help": alias } }), "utf8")
     expect(readLocalToolChoices(root)).toEqual({ help: alias })
     expect(localToolMenus().claude.models.map((m) => m.model)).not.toContain("sonnet")
-    expect(writeLocalToolChoices({ sliceCreator: sonnet }, root)).toEqual({ help: alias, sliceCreator: sonnet })
+    expect(writeLocalToolChoices({ blockCreator: sonnet }, root)).toEqual({ help: alias, blockCreator: sonnet })
     expect(
       resolveSubscriptionCliTuple({ engine: "claude-cli", profile: "grounded-help", override: { model: "sonnet", effort: "high" } })
     ).toEqual({ engine: "claude-cli", model: "sonnet", effort: "high" })
@@ -1110,7 +1110,7 @@ describe("local tool choices (Settings › AI on localhost)", () => {
     writeFileSync(devAiSelectionPath(root), JSON.stringify({ version: 3, engine: "openrouter", tasks: { "grounded-help": fable } }), "utf8")
     expect(readLocalToolChoices(root)).toEqual({ help: fable })
     expect(localToolMenus().claude.models.map((m) => m.model)).not.toContain("fable")
-    expect(writeLocalToolChoices({ sliceCreator: sonnet }, root)).toEqual({ help: fable, sliceCreator: sonnet })
+    expect(writeLocalToolChoices({ blockCreator: sonnet }, root)).toEqual({ help: fable, blockCreator: sonnet })
     expect(() =>
       resolveSubscriptionCliTuple({ engine: "claude-cli", profile: "grounded-help", override: { model: "fable", effort: "high" } })
     ).toThrow(/UNSUPPORTED_CAPABILITY: override fable\/high is not source-verified for claude-cli/)
@@ -1151,11 +1151,11 @@ describe("local tool choices (Settings › AI on localhost)", () => {
       JSON.stringify({ version: 3, engine: "openrouter", tasks: { "vision-spec": old, "renderer-jsx": old } }),
       "utf8"
     )
-    expect(readLocalToolChoices(root)).toEqual({ sliceCreator: old })
+    expect(readLocalToolChoices(root)).toEqual({ blockCreator: old })
     expect(localToolMenus().codex.models.map((m) => m.model)).not.toContain(old.model)
     // Saving another assistant never replaces it.
-    expect(writeLocalToolChoices({ help: luna }, root)).toEqual({ help: luna, sliceCreator: old })
-    expect(readLocalToolChoices(root)).toEqual({ help: luna, sliceCreator: old })
+    expect(writeLocalToolChoices({ help: luna }, root)).toEqual({ help: luna, blockCreator: old })
+    expect(readLocalToolChoices(root)).toEqual({ help: luna, blockCreator: old })
     // The installed catalog check refuses it when the machine no longer lists it.
     expect(() =>
       resolveSubscriptionCliTuple({

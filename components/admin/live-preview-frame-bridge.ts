@@ -1,7 +1,7 @@
 import { validate } from "convex-helpers/validators"
-import { sliceValidator, type Slice } from "@/convex/lib/slices"
-import { hasValidSliceOccurrencePresentation } from "@/convex/lib/slices/occurrencePresentation"
-import { validateSlicesRichText } from "@/convex/lib/slices/validate"
+import { blockValidator, type Block } from "@/convex/lib/blocks"
+import { hasValidBlockOccurrencePresentation } from "@/convex/lib/blocks/occurrencePresentation"
+import { validateBlocksRichText } from "@/convex/lib/blocks/validate"
 import {
   contentTypeDefs,
   type DescriptorFieldMap,
@@ -39,7 +39,7 @@ export type LiveFrameInput = LiveFrameIdentity & {
   buildId: string
   catalogRevision?: string
   title: string
-  slices: Slice[]
+  blocks: Block[]
   /** Unsaved descriptor values shared by every language (e.g. author name). */
   sharedFields?: Record<string, unknown>
   /** Unsaved descriptor values of this language (e.g. author role title). */
@@ -55,14 +55,14 @@ export type LiveFrameInput = LiveFrameIdentity & {
     inputRevision: number
     generation: string
   }
-  selectedSliceId: string | null
+  selectedBlockId: string | null
   inlineEditingEnabled: boolean
   mode: "light" | "dark"
 }
 export type LiveFrameCallbacks = {
-  selectSlice(id: string): void
+  selectBlock(id: string): void
   /** Authenticated exact occurrence fallback: focus its first form control. */
-  selectSliceFallback?(id: string): void
+  selectBlockFallback?(id: string): void
   selectField(
     target: PreviewFieldSelection,
     result?: PreviewInlineActivationResult
@@ -124,18 +124,18 @@ export function validLiveFrameInput(value: unknown): value is LiveFrameInput {
         !input.authorIds.every((id) => typeof id === "string" && id))) ||
     typeof input.inlineEditingEnabled !== "boolean" ||
     (input.mode !== "light" && input.mode !== "dark") ||
-    (input.selectedSliceId !== null &&
-      typeof input.selectedSliceId !== "string") ||
-    !Array.isArray(input.slices) ||
-    !input.slices.every(
-      (slice) =>
-        validate(sliceValidator, slice) &&
-        hasValidSliceOccurrencePresentation(slice)
+    (input.selectedBlockId !== null &&
+      typeof input.selectedBlockId !== "string") ||
+    !Array.isArray(input.blocks) ||
+    !input.blocks.every(
+      (block) =>
+        validate(blockValidator, block) &&
+        hasValidBlockOccurrencePresentation(block)
     )
   )
     return false
   try {
-    validateSlicesRichText(input.slices, "legacy")
+    validateBlocksRichText(input.blocks, "legacy")
   } catch {
     return false
   }
@@ -217,7 +217,7 @@ export function liveFrameMessageMatches(
 export function createLiveFrameController(
   initial: LiveFrameInput,
   callbacks: LiveFrameCallbacks = {
-    selectSlice() {},
+    selectBlock() {},
     selectField() {},
     commit() {},
     change() {},
@@ -328,8 +328,8 @@ export function createLiveFrameController(
       // A parent React render may acknowledge an older accepted character.
       // Only exact parent helper outputs carry provenance; old matching text
       // from an external update must continue to fail the ordinary field guard.
-      const echo = pageFieldEcho(next.slices)
-      const ownSlices =
+      const echo = pageFieldEcho(next.blocks)
+      const ownBlocks =
         active &&
         !echoesInvalidated &&
         bridge &&
@@ -337,7 +337,7 @@ export function createLiveFrameController(
         (!next.ordering || echo.value === active.fieldBinding?.lastApplied) &&
         validBinding(echo, bridge)
           ? reconcilePageFieldEcho(
-              next.slices,
+              next.blocks,
               next.locale,
               // active.value can be rejected recovery text; only lastApplied
               // is a parent-accepted canonical value.
@@ -352,12 +352,12 @@ export function createLiveFrameController(
           : null
       if (
         active &&
-        !ownSlices &&
+        !ownBlocks &&
         !applyPageField(
-          next.slices,
+          next.blocks,
           next.locale,
           rebasePageField(
-            next.slices,
+            next.blocks,
             next.locale,
             active,
             next.contentEpoch ?? 0,
@@ -373,9 +373,9 @@ export function createLiveFrameController(
         ...(next.ordering && bridge
           ? { ordering: { ...next.ordering, generation: bridge.generation } }
           : {}),
-        ...(ownSlices ? { slices: ownSlices } : {}),
+        ...(ownBlocks ? { blocks: ownBlocks } : {}),
         // Derive receipts locally; never trust a caller-supplied receipt.
-        inlineEditEcho: ownSlices ? pageFieldEcho(ownSlices) : undefined,
+        inlineEditEcho: ownBlocks ? pageFieldEcho(ownBlocks) : undefined,
       }
       if (next.ordering) {
         draftRevision = next.ordering.draftRevision
@@ -383,7 +383,7 @@ export function createLiveFrameController(
       }
       if (active)
         active = rebasePageField(
-          input.slices,
+          input.blocks,
           next.locale,
           active,
           next.contentEpoch ?? 0,
@@ -410,13 +410,13 @@ export function createLiveFrameController(
         }
       const current = () => bridge === next
       const connected = next.connect(input, {
-        selectSlice(id) {
-          if (current()) callbacks.selectSlice(id)
+        selectBlock(id) {
+          if (current()) callbacks.selectBlock(id)
         },
-        selectSliceFallback(id) {
+        selectBlockFallback(id) {
           if (!current()) return
-          if (callbacks.selectSliceFallback) callbacks.selectSliceFallback(id)
-          else callbacks.selectSlice(id)
+          if (callbacks.selectBlockFallback) callbacks.selectBlockFallback(id)
+          else callbacks.selectBlock(id)
         },
         selectField(target, result) {
           if (
@@ -440,34 +440,34 @@ export function createLiveFrameController(
             return false
           }
           const rebased = rebasePageField(
-            input.slices,
+            input.blocks,
             input.locale,
             commit,
             input.contentEpoch ?? 0,
             input.catalogRevision ?? ""
           )
           if (
-            active.sliceId !== commit.sliceId ||
+            active.blockId !== commit.blockId ||
             active.fieldPath !== commit.fieldPath ||
             active.kind !== commit.kind ||
             active.fieldBinding?.lastApplied !==
               commit.fieldBinding?.lastApplied
           )
             return false
-          const slices = applyPageField(
-            input.slices,
+          const blocks = applyPageField(
+            input.blocks,
             input.locale,
             rebased,
             input.contentEpoch ?? 0,
             input.catalogRevision ?? ""
           )
-          if (!slices || callbacks.commit(rebased) === false) {
+          if (!blocks || callbacks.commit(rebased) === false) {
             echoesInvalidated = true
             callbacks.change(commit)
             callbacks.conflict()
             return false
           }
-          input = { ...input, slices }
+          input = { ...input, blocks }
           if (input.ordering) {
             const acceptedRevision = callbacks.draftRevision?.()
             if (
@@ -499,7 +499,7 @@ export function createLiveFrameController(
             commit &&
             !active &&
             !applyPageField(
-              input.slices,
+              input.blocks,
               input.locale,
               commit,
               input.contentEpoch ?? 0,

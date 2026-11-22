@@ -1,7 +1,7 @@
 "use client"
 
 import type {
-  ShownBlock,
+  ShownPanelSection,
   ShownNavItem,
   ShownTarget,
 } from "@/lib/admin/menu/public-visibility"
@@ -90,44 +90,44 @@ function TargetLink({
   )
 }
 
-function MobileBlock({
-  block,
+function MobileSection({
+  section,
   pathname,
   onNavigate,
   cardsBySource,
 }: {
-  block: ShownBlock
+  section: ShownPanelSection
   pathname: string
   onNavigate: () => void
   cardsBySource: MenuCardsBySource
 }) {
-  const headingId = `mobile-menu-block-${useId().replace(/:/g, "")}`
-  if (block.kind === "featured") {
-    if (block.link)
+  const headingId = `mobile-menu-section-${useId().replace(/:/g, "")}`
+  if (section.kind === "featured") {
+    if (section.link)
       return (
         <div>
-          <MobileBlock
-            block={{ ...block, link: undefined }}
+          <MobileSection
+            section={{ ...section, link: undefined }}
             pathname={pathname}
             onNavigate={onNavigate}
             cardsBySource={cardsBySource}
           />
           <TargetLink
-            target={block.link.target}
+            target={section.link.target}
             pathname={pathname}
             onNavigate={onNavigate}
           >
-            {block.link.label}
+            {section.link.label}
           </TargetLink>
         </div>
       )
     const content = (
       <>
-        {block.image?.url && (
+        {section.image?.url && (
           <span className="relative block aspect-video w-full">
             <Image
-              src={block.image?.url}
-              alt={block.image.alt}
+              src={section.image?.url}
+              alt={section.image.alt}
               fill
               sizes="90vw"
               className="object-cover"
@@ -135,19 +135,19 @@ function MobileBlock({
           </span>
         )}
         <span className="block p-2 font-medium">
-          {block.heading}
-          {block.description && (
+          {section.heading}
+          {section.description && (
             <span className="block text-xs text-on-surface-muted">
-              {block.description}
+              {section.description}
             </span>
           )}
         </span>
       </>
     )
     const className = cn("block overflow-hidden rounded-md border")
-    return block.target ? (
+    return section.target ? (
       <TargetLink
-        target={block.target}
+        target={section.target}
         pathname={pathname}
         onNavigate={onNavigate}
         className={className}
@@ -159,16 +159,16 @@ function MobileBlock({
     )
   }
 
-  if (block.kind === "dynamicList") {
-    const cards = cardsBySource[dynamicListSourceKey(block.source)] ?? []
+  if (section.kind === "dynamicList") {
+    const cards = cardsBySource[dynamicListSourceKey(section.source)] ?? []
     return (
-      <section aria-labelledby={block.heading ? headingId : undefined}>
-        {block.heading && (
+      <section aria-labelledby={section.heading ? headingId : undefined}>
+        {section.heading && (
           <h3
             id={headingId}
             className="mb-stack text-caption font-semibold tracking-wider text-on-surface-muted uppercase"
           >
-            {block.heading}
+            {section.heading}
           </h3>
         )}
         <ul className="space-y-stack">
@@ -195,14 +195,14 @@ function MobileBlock({
             </li>
           ))}
         </ul>
-        {block.seeAll && (
+        {section.seeAll && (
           <TargetLink
-            target={block.seeAll.target}
+            target={section.seeAll.target}
             pathname={pathname}
             onNavigate={onNavigate}
             className="mt-stack inline-block text-body font-semibold text-brand"
           >
-            {block.seeAll.label}
+            {section.seeAll.label}
           </TargetLink>
         )}
       </section>
@@ -210,20 +210,20 @@ function MobileBlock({
   }
 
   return (
-    <section aria-labelledby={block.heading ? headingId : undefined}>
-      {block.heading && (
+    <section aria-labelledby={section.heading ? headingId : undefined}>
+      {section.heading && (
         <h3
           id={headingId}
           className="mb-stack text-caption font-semibold tracking-wider text-on-surface-muted uppercase"
         >
-          {block.heading}
+          {section.heading}
         </h3>
       )}
       <ul
-        aria-labelledby={block.heading ? headingId : undefined}
+        aria-labelledby={section.heading ? headingId : undefined}
         className="space-y-stack"
       >
-        {block.links.map((link) => (
+        {section.links.map((link) => (
           <li key={link.id}>
             <TargetLink
               target={link.target}
@@ -302,10 +302,10 @@ export function MobileNav({
                           <div className="flex flex-col gap-gutter">
                             {item.panel.columns.map((column) => (
                               <div key={column.id}>
-                                {column.blocks.map((block) => (
-                                  <MobileBlock
-                                    key={block.id}
-                                    block={block}
+                                {column.sections.map((section) => (
+                                  <MobileSection
+                                    key={section.id}
+                                    section={section}
                                     pathname={pathname}
                                     onNavigate={close}
                                     cardsBySource={cardsBySource}
@@ -315,10 +315,10 @@ export function MobileNav({
                             ))}
                           </div>
                         ) : (
-                          item.panel.blocks.map((block) => (
-                            <MobileBlock
-                              key={block.id}
-                              block={block}
+                          item.panel.sections.map((section) => (
+                            <MobileSection
+                              key={section.id}
+                              section={section}
                               pathname={pathname}
                               onNavigate={close}
                               cardsBySource={cardsBySource}
@@ -327,10 +327,10 @@ export function MobileNav({
                         )}
                         {item.panel.footer && (
                           <div className="space-y-gutter border-t pt-gutter">
-                            {item.panel.footer.blocks.map((block) => (
-                              <MobileBlock
-                                key={block.id}
-                                block={block}
+                            {item.panel.footer.sections.map((section) => (
+                              <MobileSection
+                                key={section.id}
+                                section={section}
                                 pathname={pathname}
                                 onNavigate={close}
                                 cardsBySource={cardsBySource}

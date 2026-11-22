@@ -148,8 +148,8 @@ beforeEach(() => {
       locale: "en",
       pageAvailable: true,
       sections: [
-        { index: 0, sliceType: "faq-simple", purpose: "Intro", fields: [] },
-        { index: 1, sliceType: "faq-simple", purpose: "Outro", fields: [] },
+        { index: 0, blockType: "faq-simple", purpose: "Intro", fields: [] },
+        { index: 1, blockType: "faq-simple", purpose: "Outro", fields: [] },
       ],
     },
   }
@@ -183,7 +183,7 @@ describe("useQueries requests keep their identity across renders", () => {
         <PageJobCard job={DONE_JOB} otherJobActive={false} />
       </NextIntlClientProvider>
     )
-    fireEvent.click(screen.getByRole("button", { name: "Review sections" }))
+    fireEvent.click(screen.getByRole("button", { name: "Review blocks" }))
     fireEvent.click(screen.getAllByRole("checkbox")[0]!)
     fireEvent.click(screen.getAllByRole("checkbox")[1]!)
     expectOneIdentity("result")

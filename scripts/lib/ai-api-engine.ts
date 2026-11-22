@@ -21,7 +21,7 @@ import {
 import {
   assistantModelChoices,
   defaultTupleFor,
-  SLICE_CREATOR_PROFILES,
+  BLOCK_CREATOR_PROFILES,
   TASK_PROFILE_REQUIREMENTS,
   taskProfileTuple,
   validateTupleForProfiles,
@@ -43,7 +43,7 @@ export interface LocalApiRequest {
   phase: WorkflowPhase
   model?: string
   effort?: ReasoningEffort
-  /** The shared model catalog the tuple is checked against: the Slice
+  /** The shared model catalog the tuple is checked against: the Block
    *  creator passes the entries from Convex, the terminal the bundled one. */
   catalog: ModelCatalog
   signal?: AbortSignal
@@ -61,8 +61,8 @@ async function loadImageDataUrl(image: EngineImage): Promise<string> {
   return `data:${image.mediaType};base64,${buffer.toString("base64")}`
 }
 
-/** Nothing chosen: a Slice creator step uses the default Settings shows
- *  (`defaultTupleFor` over both Slice creator profiles and the same catalog),
+/** Nothing chosen: a Block creator step uses the default Settings shows
+ *  (`defaultTupleFor` over both Block creator profiles and the same catalog),
  *  so a committed default that is no longer offered is replaced the same way.
  *  Other profiles keep their committed default. */
 function noOverrideDefault(
@@ -71,12 +71,12 @@ function noOverrideDefault(
   catalog: ModelCatalog,
   now: number
 ): { model: string; effort?: ReasoningEffort } | undefined {
-  if (!(SLICE_CREATOR_PROFILES as readonly TaskProfile[]).includes(profile)) return undefined
-  const primary = SLICE_CREATOR_PROFILES[0]
+  if (!(BLOCK_CREATOR_PROFILES as readonly TaskProfile[]).includes(profile)) return undefined
+  const primary = BLOCK_CREATOR_PROFILES[0]
   const fallback = defaultTupleFor(
     provider,
     primary,
-    assistantModelChoices(SLICE_CREATOR_PROFILES, catalog, now)[provider]
+    assistantModelChoices(BLOCK_CREATOR_PROFILES, catalog, now)[provider]
   )
   // The committed default is offered: the step keeps its own committed tuple.
   if (!fallback || fallback === taskProfileTuple(provider, primary)) return undefined

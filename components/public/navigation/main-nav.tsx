@@ -1,7 +1,7 @@
 "use client"
 
 import type {
-  ShownBlock,
+  ShownPanelSection,
   ShownNavItem,
   ShownTarget,
 } from "@/lib/admin/menu/public-visibility"
@@ -103,37 +103,37 @@ const columnClass = {
   4: "grid-cols-4",
 } as const
 
-function PanelBlock({
-  block,
+function PanelSectionView({
+  section,
   pathname,
   cardsBySource,
 }: {
-  block: ShownBlock
+  section: ShownPanelSection
   pathname: string
   cardsBySource: MenuCardsBySource
 }) {
-  const headingId = `menu-block-${useId().replace(/:/g, "")}`
-  if (block.kind === "featured") {
-    if (block.link)
+  const headingId = `menu-section-${useId().replace(/:/g, "")}`
+  if (section.kind === "featured") {
+    if (section.link)
       return (
         <div>
-          <PanelBlock
-            block={{ ...block, link: undefined }}
+          <PanelSectionView
+            section={{ ...section, link: undefined }}
             pathname={pathname}
             cardsBySource={cardsBySource}
           />
-          <TargetLink target={block.link.target} pathname={pathname}>
-            {block.link.label}
+          <TargetLink target={section.link.target} pathname={pathname}>
+            {section.link.label}
           </TargetLink>
         </div>
       )
     const content = (
       <>
-        {block.image?.url && (
+        {section.image?.url && (
           <span className="relative block aspect-video w-full">
             <Image
-              src={block.image?.url}
-              alt={block.image.alt}
+              src={section.image?.url}
+              alt={section.image.alt}
               fill
               sizes="(max-width: 768px) 100vw, 320px"
               className="object-cover"
@@ -141,10 +141,10 @@ function PanelBlock({
           </span>
         )}
         <span className="block px-3 py-2 text-sm font-medium">
-          {block.heading}
-          {block.description && (
+          {section.heading}
+          {section.description && (
             <span className="mt-1 block text-xs text-on-surface-muted">
-              {block.description}
+              {section.description}
             </span>
           )}
         </span>
@@ -152,11 +152,11 @@ function PanelBlock({
     )
     const className = cn(
       "block overflow-hidden rounded-md border hover:opacity-90",
-      spanClass[block.span ?? 1]
+      spanClass[section.span ?? 1]
     )
-    return block.target ? (
+    return section.target ? (
       <TargetLink
-        target={block.target}
+        target={section.target}
         pathname={pathname}
         className={className}
       >
@@ -167,20 +167,20 @@ function PanelBlock({
     )
   }
 
-  if (block.kind === "dynamicList") {
-    const cards = cardsBySource[dynamicListSourceKey(block.source)] ?? []
+  if (section.kind === "dynamicList") {
+    const cards = cardsBySource[dynamicListSourceKey(section.source)] ?? []
     return (
       <section
-        className={spanClass[block.span ?? 1]}
+        className={spanClass[section.span ?? 1]}
         role="group"
-        aria-labelledby={block.heading ? headingId : undefined}
+        aria-labelledby={section.heading ? headingId : undefined}
       >
-        {block.heading && (
+        {section.heading && (
           <h2
             id={headingId}
             className="mb-2 text-xs font-semibold tracking-wider text-on-surface-muted uppercase"
           >
-            {block.heading}
+            {section.heading}
           </h2>
         )}
         <ul className="space-y-1">
@@ -204,13 +204,13 @@ function PanelBlock({
             </li>
           ))}
         </ul>
-        {block.seeAll && (
+        {section.seeAll && (
           <TargetLink
-            target={block.seeAll.target}
+            target={section.seeAll.target}
             pathname={pathname}
             className="mt-2 inline-block text-sm font-medium text-brand hover:underline"
           >
-            {block.seeAll.label}
+            {section.seeAll.label}
           </TargetLink>
         )}
       </section>
@@ -219,20 +219,20 @@ function PanelBlock({
 
   return (
     <section
-      className={spanClass[block.span ?? 1]}
+      className={spanClass[section.span ?? 1]}
       role="group"
-      aria-labelledby={block.heading ? headingId : undefined}
+      aria-labelledby={section.heading ? headingId : undefined}
     >
-      {block.heading && (
+      {section.heading && (
         <h2
           id={headingId}
           className="mb-2 text-xs font-semibold tracking-wider text-on-surface-muted uppercase"
         >
-          {block.heading}
+          {section.heading}
         </h2>
       )}
       <ul className="space-y-1">
-        {block.links.map((link) => (
+        {section.links.map((link) => (
           <li key={link.id}>
             <TargetLink
               target={link.target}
@@ -259,13 +259,13 @@ function PanelBlock({
 }
 
 function PanelRegion({
-  blocks,
+  sections,
   columns,
   pathname,
   className,
   cardsBySource,
 }: {
-  blocks: ShownBlock[]
+  sections: ShownPanelSection[]
   columns: 1 | 2 | 3 | 4
   pathname: string
   className?: string
@@ -273,10 +273,10 @@ function PanelRegion({
 }) {
   return (
     <div className={cn("grid gap-6", columnClass[columns], className)}>
-      {blocks.map((block) => (
-        <PanelBlock
-          key={block.id}
-          block={block}
+      {sections.map((section) => (
+        <PanelSectionView
+          key={section.id}
+          section={section}
           pathname={pathname}
           cardsBySource={cardsBySource}
         />
@@ -343,10 +343,10 @@ export function MainNav({
                   >
                     {item.panel.columns.map((column) => (
                       <div key={column.id}>
-                        {column.blocks.map((block) => (
-                          <PanelBlock
-                            key={block.id}
-                            block={block}
+                        {column.sections.map((section) => (
+                          <PanelSectionView
+                            key={section.id}
+                            section={section}
                             pathname={pathname}
                             cardsBySource={cardsBySource}
                           />
@@ -356,7 +356,7 @@ export function MainNav({
                   </div>
                 ) : (
                   <PanelRegion
-                    blocks={item.panel.blocks}
+                    sections={item.panel.sections}
                     columns={item.panel.columns}
                     pathname={pathname}
                     cardsBySource={cardsBySource}
@@ -364,7 +364,7 @@ export function MainNav({
                 )}
                 {item.panel.footer && (
                   <PanelRegion
-                    blocks={item.panel.footer.blocks}
+                    sections={item.panel.footer.sections}
                     columns={isColumnPanel(item.panel) ? 1 : item.panel.columns}
                     pathname={pathname}
                     className="mt-4 border-t pt-4"

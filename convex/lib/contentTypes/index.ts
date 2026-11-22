@@ -4,8 +4,8 @@
  * Plan 028 chunk C1: the three page-type flavors that lived as `pageType`
  * literals on the `pages` table are re-declared as descriptors. Every downstream
  * surface (schema union, permission generator, admin filters, sidebar, palette,
- * relation picker) reads from this registry — mirroring the slice registry
- * pattern (`convex/lib/slices/`). The C5 batch (`author`, `faq-item`,
+ * relation picker) reads from this registry — mirroring the block registry
+ * pattern (`convex/lib/blocks/`). The C5 batch (`author`, `faq-item`,
  * `testimonial`) extends the registry with real per-type field payloads.
  */
 
@@ -20,6 +20,8 @@ import { testimonialContentType } from "./testimonial"
 import { jobContentType } from "./job"
 // @content-type-codegen:content-type-imports:end
 import { STARTER_CONTENT_TYPES } from "./starterSelection"
+import { contentTypeDefinitionProblems } from "../definitions/check"
+import { formatDefinitionProblems } from "../definitions/common"
 
 /**
  * Registry of content-type descriptors, keyed by slug. Insertion order is
@@ -39,7 +41,7 @@ export const contentTypeDefs = {
 /**
  * Content-type slug. Derived from `contentTypeDefs` so adding a descriptor
  * adds the type with no second list to keep in sync (mirrors
- * `SLICE_TYPES` / `SliceType`).
+ * `BLOCK_TYPES` / `BlockType`).
  */
 export type ContentType = keyof typeof contentTypeDefs
 
@@ -54,16 +56,7 @@ export const REGISTERED_CONTENT_TYPES = Object.keys(
  */
 export const CONTENT_TYPES = [...STARTER_CONTENT_TYPES] as ContentType[]
 
-const activeContentTypeSet = new Set<ContentType>()
-for (const type of CONTENT_TYPES) {
-  if (!(type in contentTypeDefs)) {
-    throw new Error(`Starter content-type selection is not registered: ${type}`)
-  }
-  if (activeContentTypeSet.has(type)) {
-    throw new Error(`Starter content-type selection contains a duplicate: ${type}`)
-  }
-  activeContentTypeSet.add(type)
-}
+const activeContentTypeSet = new Set<ContentType>(CONTENT_TYPES)
 
 /**
  * Whether a registered storage arm is exposed by this starter's current
@@ -78,8 +71,8 @@ export function isActiveContentType(value: string): boolean {
  * Discriminator validator for `pages.pageType`, enumerated explicitly so
  * Convex sees a static tuple of literals (the runtime-built shape is inferred
  * imprecisely). The compile-time guard below fires when the enumeration and
- * the registry drift — same trick the slice registry uses to keep
- * `sliceValidator` and `sliceDefs` in sync.
+ * the registry drift — same trick the block registry uses to keep
+ * `blockValidator` and `blockDefs` in sync.
  */
 // @content-type-codegen:content-type-validator:start
 export const contentTypeValidator = v.union(
@@ -104,22 +97,19 @@ const _registryValidatorGuard: _RegistryMatchesValidator = true
 void _registryValidatorGuard
 // @content-type-codegen:content-type-guard:end
 
-// Cross-prefix uniqueness (plan 028 C3): a non-empty `pathPrefix` must map to
-// at most one descriptor so the wildcard router can dispatch by URL segment.
-// Multiple descriptors sharing the empty prefix is fine — the URL doesn't
-// identify the type there, the doc's `pageType` does. This check runs at
-// module load: a duplicate throws before any query can misroute.
+// Definition check (replaces the starter-selection and path-prefix throws).
+// It runs once when this module loads, never per request, and reports every
+// problem in one error: key and type mismatches, reserved field names, a
+// missing required title, unknown relation targets, duplicate non-empty
+// pathPrefix values (plan 028 C3: the wildcard router dispatches by prefix;
+// several types may share the empty prefix) and bad starter selections.
 {
-  const seen = new Set<string>()
-  for (const d of Object.values(contentTypeDefs) as ContentTypeDescriptor[]) {
-    if (!d.routing) continue
-    if (d.routing.pathPrefix.length === 0) continue
-    if (seen.has(d.routing.pathPrefix)) {
-      throw new Error(
-        `Duplicate content-type pathPrefix "${d.routing.pathPrefix}" — non-empty prefixes must be unique.`
-      )
-    }
-    seen.add(d.routing.pathPrefix)
+  const problems = contentTypeDefinitionProblems({
+    definitions: contentTypeDefs,
+    activeTypes: CONTENT_TYPES,
+  })
+  if (problems.length > 0) {
+    throw new Error(formatDefinitionProblems(problems))
   }
 }
 

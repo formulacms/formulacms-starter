@@ -16,7 +16,7 @@ import { convexTest } from "@/convexTestWithExplicitAdmin"
 import { api } from "@/convex/_generated/api"
 import schema from "@/convex/schema"
 import {
-  panelBlocks,
+  panelSections,
   dynamicListSourceKey,
   type CanonicalResolvedNavItem,
   type MenuCardsBySource,
@@ -49,7 +49,7 @@ const fixture: CanonicalResolvedNavItem[] = [
   { id: "unresolved", label: "Unpublished item", target: { type: "internal" } },
   { id: "disabled", label: "Disabled item", target, isDisabled: true },
   { id: "placeholder", label: "Placeholder", target },
-  { id: "empty", label: "Empty item", panel: { columns: 1, blocks: [] } },
+  { id: "empty", label: "Empty item", panel: { columns: 1, sections: [] } },
   {
     id: "panel",
     label: "Panel",
@@ -59,7 +59,7 @@ const fixture: CanonicalResolvedNavItem[] = [
       columns: [
         {
           id: "empty-col",
-          blocks: [
+          sections: [
             {
               id: "empty-list",
               kind: "dynamicList",
@@ -70,7 +70,7 @@ const fixture: CanonicalResolvedNavItem[] = [
         },
         {
           id: "col",
-          blocks: [
+          sections: [
             {
               id: "group",
               kind: "linkGroup",
@@ -106,7 +106,7 @@ const fixture: CanonicalResolvedNavItem[] = [
         },
       ],
       footer: {
-        blocks: [
+        sections: [
           {
             id: "list",
             kind: "dynamicList",
@@ -160,20 +160,20 @@ function links(
   const result: string[] = []
   for (const item of items) {
     if (item.target) result.push(item.target.url)
-    for (const { block } of panelBlocks(item.panel)) {
-      if (block.kind === "linkGroup")
-        result.push(...block.links.map((link) => link.target.url))
-      else if (block.kind === "featured") {
-        if (block.target) result.push(block.target.url)
-        if (block.link) result.push(block.link.target.url)
+    for (const { section } of panelSections(item.panel)) {
+      if (section.kind === "linkGroup")
+        result.push(...section.links.map((link) => link.target.url))
+      else if (section.kind === "featured") {
+        if (section.target) result.push(section.target.url)
+        if (section.link) result.push(section.link.target.url)
       } else {
         result.push(
           ...(
-            cardsBySource[dynamicListSourceKey(block.source)] ??
+            cardsBySource[dynamicListSourceKey(section.source)] ??
             []
           ).map((card) => card.href!)
         )
-        if (block.seeAll) result.push(block.seeAll.target.url)
+        if (section.seeAll) result.push(section.seeAll.target.url)
       }
     }
   }
@@ -193,10 +193,10 @@ test.each(
     const panel = items.find((item) => item.id === "panel")!
     if (scenario === "unresolved overview") panel.target = { type: "internal" }
     if (scenario === "unresolved legacy card")
-      for (const { block } of panelBlocks(panel.panel))
-        if (block.kind === "featured") {
-          delete block.link
-          block.target = { type: "internal" }
+      for (const { section } of panelSections(panel.panel))
+        if (section.kind === "featured") {
+          delete section.link
+          section.target = { type: "internal" }
         }
     const expected = visibility.decideMenu(items, cards)
     const nav = mount(surface, items, cards)!
@@ -237,7 +237,7 @@ test.each(surfaces)(
         isDisabled: true,
         panel: {
           columns: 1,
-          blocks: [
+          sections: [
             {
               id: "group",
               kind: "linkGroup",
@@ -325,7 +325,7 @@ test.each(
         draft: {
           pageType: "landing-page",
           localized: { title: "FR page" },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -354,7 +354,7 @@ test.each(
               ? {
                   panel: {
                     columns: 1 as const,
-                    blocks: [
+                    sections: [
                       {
                         id: "children",
                         kind: "linkGroup" as const,

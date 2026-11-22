@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import type { ImageField } from "@/convex/lib/slices"
+import type { ImageField } from "@/convex/lib/blocks"
 import {
   clampPercent,
   normalizeFocalPoint,

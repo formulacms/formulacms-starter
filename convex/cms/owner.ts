@@ -31,6 +31,7 @@ import {
 import { getOwnerNotificationEmail } from "../lib/access/actor"
 import { rateLimiter } from "../lib/rateLimits"
 import { resolveOwnerClaim } from "../lib/environment"
+import { startRichTextImageBackfill } from "../lib/media/richTextBackfill"
 
 /**
  * Typed result of `createOwnerAccount`. No error text crosses this boundary:
@@ -196,6 +197,20 @@ export const createOwnerAccount = mutation({
     await ctx.runMutation(api.auth.signOut, {
       refreshToken: result.tokens.refreshToken,
     })
+    // A fresh site has no content, so this finishes within seconds. Without it
+    // the first permanent image delete in Trash is refused until the hourly
+    // cron starts the backfill. Supported limit: the backfill finishes in
+    // scheduled work after this claim commits, so a delete made before that
+    // work runs is still refused safely (nothing is deleted; a retry after
+    // the backfill completes works).
+    // Starting it must never fail the owner claim:
+    // the component call runs as its own sub-transaction, so a throw rolls back
+    // only the start; the cron and the purge fallback start it later.
+    try {
+      await startRichTextImageBackfill(ctx)
+    } catch (error) {
+      console.error("createOwnerAccount: image backfill start failed", error)
+    }
     return { status: "created" as const }
   },
 })

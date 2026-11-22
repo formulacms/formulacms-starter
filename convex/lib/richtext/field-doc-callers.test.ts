@@ -1,26 +1,26 @@
-import { readInstalledSliceDefinition } from "@/convex/lib/slices"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { readInstalledBlockDefinition } from "@/convex/lib/blocks"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, test } from "vitest"
-import { createSampleSlice } from "../slices/sample"
-import { installedSliceDefs, sliceDefs } from "../slices"
-import { group, list, richText } from "../slices/primitives"
+import { createSampleBlock } from "../blocks/sample"
+import { installedBlockDefs, blockDefs } from "../blocks"
+import { group, list, richText } from "../blocks/primitives"
 import {
-  resolveSliceSpecPreview,
+  resolveBlockSpecPreview,
   type FieldSpec,
-  type SliceSpec,
-} from "@/lib/slices/authoring/scaffold"
+  type BlockSpec,
+} from "@/lib/blocks/authoring/scaffold"
 import { resolveFieldContract, type RichTextContractConfig } from "./contracts"
 import { validateStrict } from "./strict"
-import { writeSliceFields } from "./write"
-import { validateSlicesRichText } from "../slices/validate"
+import { writeBlockFields } from "./write"
+import { validateBlocksRichText } from "../blocks/validate"
 import { validate } from "convex-helpers/validators"
 import { v } from "convex/values"
-import { walkValue } from "../slices/walk"
+import { walkValue } from "../blocks/walk"
 
 // Snapshot an optional descriptor without requiring it to be installed.
-const installedSliceDefinition = (type: string) => readInstalledSliceDefinition(type)
+const installedBlockDefinition = (type: string) => readInstalledBlockDefinition(type)
 
-const syntheticSpec: SliceSpec = {
+const syntheticSpec: BlockSpec = {
   type: "field-doc-callers",
   label: "Field Doc Callers",
   description: "Synthetic configured title callers",
@@ -31,7 +31,7 @@ const syntheticSpec: SliceSpec = {
     fields: {
       headline: {
         kind: "richText",
-        config: { contract: "title", heading: { role: "sliceTitle" } },
+        config: { contract: "title", heading: { role: "blockTitle" } },
       },
       cards: {
         kind: "list",
@@ -68,7 +68,7 @@ function richTextChecks(field: FieldSpec, value: unknown): Array<[RichTextContra
 
 describe("field document callers", () => {
   test("scaffold previews use every configured rich-text role", () => {
-    const preview = resolveSliceSpecPreview(syntheticSpec)
+    const preview = resolveBlockSpecPreview(syntheticSpec)
     const checks = richTextChecks(syntheticSpec.primary, preview.primary)
     expect(checks.length).toBeGreaterThan(0)
     for (const [config, json] of checks) {
@@ -76,17 +76,17 @@ describe("field document callers", () => {
     }
   })
 
-  test("the installed Hero sample title is strict for its descriptor role", sliceProfile([]), () => {
-    const sample = createSampleSlice("hero-with-image")
-    const titleField = (sliceDefs["hero-with-image"].primary.config.fields as Record<string, { config: RichTextContractConfig }>).title
+  test("the installed Hero sample title is strict for its descriptor role", blockProfile([]), () => {
+    const sample = createSampleBlock("hero-with-image")
+    const titleField = (blockDefs["hero-with-image"].primary.config.fields as Record<string, { config: RichTextContractConfig }>).title
     expect(titleField).toBeDefined()
     expect(validateStrict(resolveFieldContract(titleField!.config), sample.primary.title)).toEqual({ ok: true })
   })
 
-  test("synthesizes no-preview nested rich text and accepts its canonical write", sliceProfile([]), () => {
+  test("synthesizes no-preview nested rich text and accepts its canonical write", blockProfile([]), () => {
     const type = "rich-text-body" as const
     const markers = {
-      sliceTitle: "sample-slice-title-marker",
+      blockTitle: "sample-block-title-marker",
       itemTitle: "sample-item-title-marker",
       inlineBody: "sample-inline-body-marker",
       basicBody: "sample-basic-body-marker",
@@ -96,13 +96,13 @@ describe("field document callers", () => {
       nestedBasic: "sample-nested-basic-marker",
       nestedFull: "sample-nested-full-marker",
     }
-    const previous = sliceDefs[type]
-    const previousInstalled = installedSliceDefinition(type)
+    const previous = blockDefs[type]
+    const previousInstalled = installedBlockDefinition(type)
     const primary = group({
       title: richText({
         contract: "title",
-        heading: { role: "sliceTitle" },
-        placeholder: markers.sliceTitle,
+        heading: { role: "blockTitle" },
+        placeholder: markers.blockTitle,
       }),
       entries: list(
         group({
@@ -142,14 +142,14 @@ describe("field document callers", () => {
       }),
     }
 
-    Reflect.set(sliceDefs, type, synthetic)
-    Reflect.set(installedSliceDefs, type, synthetic)
+    Reflect.set(blockDefs, type, synthetic)
+    Reflect.set(installedBlockDefs, type, synthetic)
     try {
-      expect("preview" in sliceDefs[type]).toBe(false)
-      const sample = createSampleSlice(type)
+      expect("preview" in blockDefs[type]).toBe(false)
+      const sample = createSampleBlock(type)
       const sourceBefore = JSON.stringify(sample)
       expect(sample.type).toBe(type)
-      expect(validate(sliceDefs[type].validator, sample)).toBe(true)
+      expect(validate(blockDefs[type].validator, sample)).toBe(true)
 
       const leaves: Array<{ path: string; marker: string; config: RichTextContractConfig; value: string }> = []
       walkValue(primary, sample.primary, (leaf) => {
@@ -163,7 +163,7 @@ describe("field document callers", () => {
         }
       })
       const expected = [
-        ["title", markers.sliceTitle],
+        ["title", markers.blockTitle],
         ["entries[0].itemTitle", markers.itemTitle],
         ["entries[0].inlineBody", markers.inlineBody],
         ["entries[0].basicBody", markers.basicBody],
@@ -201,11 +201,11 @@ describe("field document callers", () => {
         }
       }
 
-      validateSlicesRichText([sample])
-      const canonical = writeSliceFields(sample, "en")
+      validateBlocksRichText([sample])
+      const canonical = writeBlockFields(sample, "en")
       expect(canonical.reports).toEqual([])
-      expect(validate(sliceDefs[type].validator, canonical.value)).toBe(true)
-      validateSlicesRichText([canonical.value])
+      expect(validate(blockDefs[type].validator, canonical.value)).toBe(true)
+      validateBlocksRichText([canonical.value])
       const writtenPrimary = canonical.value.primary
       expect(validate(primary.validator, writtenPrimary)).toBe(true)
       if (!validate(primary.validator, writtenPrimary)) {
@@ -238,10 +238,10 @@ describe("field document callers", () => {
       )
       expect(JSON.stringify(sample)).toBe(sourceBefore)
     } finally {
-      Reflect.set(sliceDefs, type, previous)
-      Reflect.set(installedSliceDefs, type, previousInstalled)
-      expect(sliceDefs[type]).toBe(previous)
-      expect(installedSliceDefinition(type)).toBe(previousInstalled)
+      Reflect.set(blockDefs, type, previous)
+      Reflect.set(installedBlockDefs, type, previousInstalled)
+      expect(blockDefs[type]).toBe(previous)
+      expect(installedBlockDefinition(type)).toBe(previousInstalled)
     }
   })
 })

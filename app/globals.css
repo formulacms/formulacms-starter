@@ -60,7 +60,7 @@
   /* ---- Site design system (ADR-0020) --------------------------------
      * One per site. The values below mirror the shadcn Neutral theme so
      * nothing changes visually until a site owner overrides them (from
-     * Figma / HTML / inferred-from-snapshot). Slice renderers TARGET these
+     * Figma / HTML / inferred-from-snapshot). Block renderers TARGET these
      * tokens; when a design's color/type/spacing can't be confidently
      * identified, the renderer falls back to the nearest token here. */
 
@@ -254,7 +254,7 @@
   /* Public shadcn controls consume the site's brand. Owner-approved parity
    * exceptions (2026-10-17): retain existing focus rings and neutral simulator
    * primary controls. No new palette or layout is introduced.
-   * CTA-only amendment (owner 2026-10-29, C1): rendered slice CTAs use
+   * CTA-only amendment (owner 2026-10-29, C1): rendered block CTAs use
    * --public-cta-focus; all other focus rings are retained. */
   [data-public-ui]:not([data-public-simulator]):not([data-public-simulator] *),
   [data-public-ui]:not([data-public-simulator]):not([data-public-simulator] *) .dark {
@@ -284,17 +284,17 @@
 @layer admin-base {
   /* Selection controls are editor chrome even inside a public preview frame.
    * Do not let a site's brand overrides recolor those controls. */
-  [data-preview-slice-control],
+  [data-preview-block-control],
   [data-preview-inline-editor],
-  [data-preview-slice-control] + [aria-hidden="true"] {
+  [data-preview-block-control] + [aria-hidden="true"] {
     --primary: oklch(0.205 0 0);
     --primary-foreground: oklch(0.985 0 0);
     --ring: oklch(0.708 0 0);
   }
 
-  .dark [data-preview-slice-control],
+  .dark [data-preview-block-control],
   .dark [data-preview-inline-editor],
-  .dark [data-preview-slice-control] + [aria-hidden="true"] {
+  .dark [data-preview-block-control] + [aria-hidden="true"] {
     --primary: oklch(0.922 0 0);
     --primary-foreground: oklch(0.205 0 0);
     --ring: oklch(0.556 0 0);
@@ -401,7 +401,7 @@ body:has([data-help-launcher]) main[data-admin-main]:not(:has(.h-screen)) {
 /* admin-help-launcher:end */
 
 /* Hero background-mode: dark overlay + white text are CSS concerns, not
- * stored on the slice (presentation layer = CSS only). The renderer emits
+ * stored on the block (presentation layer = CSS only). The renderer emits
  * `.hero--has-bg` only when the image is actively used as background.
  */
 .hero--has-bg::before {

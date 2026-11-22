@@ -55,7 +55,7 @@ describe("formulacms catalog MCP stdio boundary", () => {
         text: (current as { text: string }).text,
       })
     }
-    await expect(text("nextcms://catalog/slice/not-real")).rejects.toThrow(
+    await expect(text("nextcms://catalog/block/not-real")).rejects.toThrow(
       /not found/i
     )
 
@@ -79,12 +79,12 @@ describe("formulacms catalog MCP stdio boundary", () => {
     expect(searchResult.isError).not.toBe(true)
     expect(searchResult.structuredContent).toMatchObject({
       count: 1,
-      items: [{ id: "slice:contact-form" }],
+      items: [{ id: "block:contact-form" }],
     })
 
     const missingResult = await client.callTool({
       name: "get_catalog_asset",
-      arguments: { id: "slice:not-real" },
+      arguments: { id: "block:not-real" },
     })
     expect(missingResult.isError).toBe(true)
   })

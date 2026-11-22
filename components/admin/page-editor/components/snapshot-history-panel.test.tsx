@@ -66,11 +66,11 @@ beforeEach(() => {
   })
 })
 test("snapshot-active History calls the authoritative locale path and discloses shared/public effects", async () => {
-  const reports = ["first", "second"].map((sliceId) => ({
+  const reports = ["first", "second"].map((blockId) => ({
     locale: "fr",
-    sliceId,
+    blockId,
     fieldPath: "primary.title",
-    removedLinks: [{ href: `/${sliceId}-snapshot` }],
+    removedLinks: [{ href: `/${blockId}-snapshot` }],
   }))
   mocks.restore.mockResolvedValue({
     locale: "fr",
@@ -130,7 +130,7 @@ test("unsaved editor changes disable restore without any confirmation or mutatio
   expect(mocks.restore).not.toHaveBeenCalled()
 })
 test("absent-Type history discloses the blocked location and offers no partial restore", () => {
-  mocks.unavailablePaths = ["content.fr.slices[1]"]
+  mocks.unavailablePaths = ["content.fr.blocks[1]"]
   render(
     <SnapshotHistoryPanelSlot
       pageId={pageId}
@@ -140,7 +140,7 @@ test("absent-Type history discloses the blocked location and offers no partial r
       onRestored={vi.fn()}
     />
   )
-  expect(screen.getByText(/content.fr.slices\[1\]/)).toBeInTheDocument()
+  expect(screen.getByText(/content.fr.blocks\[1\]/)).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Restore draft" })).toBeDisabled()
   expect(mocks.restore).not.toHaveBeenCalled()
 })

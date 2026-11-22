@@ -1,7 +1,7 @@
 import type { Page } from "./types"
 import type { DescriptorFieldMap } from "@/convex/lib/contentTypes"
-import type { Primitive } from "@/convex/lib/slices"
-import { walkFieldMap } from "@/convex/lib/slices/walk"
+import type { Primitive } from "@/convex/lib/blocks"
+import { walkFieldMap } from "@/convex/lib/blocks/walk"
 import {
   SYSTEM_OWNED_LOCALIZED_FIELDS,
   SYSTEM_OWNED_SHARED_FIELDS,

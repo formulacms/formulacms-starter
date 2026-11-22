@@ -122,7 +122,7 @@ describe("installed admin contribution profile (F08d)", () => {
       "list-search.ts": "admin.list-search",
     }
     // Mechanism-2 overlay seams (FR2.0 rev2 S-f) have no catalog slot: source
-    // keeps the local slice library, and the starter overlay twin is `null`
+    // keeps the local block library, and the starter overlay twin is `null`
     // (scripts/starter/authoring-tools-seam.test.ts). They stay out of the
     // eager import so this test never loads source-only authoring code.
     const overlaySeams = new Set([

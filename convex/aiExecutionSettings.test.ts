@@ -74,7 +74,7 @@ async function app(on = true) {
   return { t, owner, settingsId }
 }
 const field = {
-  sliceType: "hero-with-image",
+  blockType: "hero-with-image",
   fieldLabel: "Title",
   locale: "en",
   brief: "Describe our service",
@@ -394,7 +394,7 @@ for (const caller of runtimeCallers) {
         : caller === "Help"
           ? owner.action(api.agents.helpAssistant.answer, { question: "Where are pages?" })
           : owner.action(api.agents.localizer.localizePage, {
-              title: "Title", metaTitle: "Meta title", metaDescription: "Description", slices: [],
+              title: "Title", metaTitle: "Meta title", metaDescription: "Description", blocks: [],
               sourceLocale: "en", targetLocale: "fr",
             })
       if (state === "refused") {

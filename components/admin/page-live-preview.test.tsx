@@ -9,14 +9,14 @@ const titleDoc = (text: string) =>
       },
     ],
   })
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { RichTextEditor } from "./rich-text-editor"
 import { ConfirmProvider } from "@/components/providers/confirm-provider"
 import { renderToStaticMarkup } from "react-dom/server"
-import type { SliceBodyRendererProps } from "@/components/content-types/types"
-import { DefaultSliceBodyContent } from "@/components/slices/_shared/default-slice-body"
+import type { BlockBodyRendererProps } from "@/components/content-types/types"
+import { DefaultBlockBodyContent } from "@/components/blocks/_shared/default-block-body"
 import { act, fireEvent, waitFor } from "@testing-library/react"
 import { render } from "@/test-utils/admin-i18n"
 import {
@@ -30,26 +30,26 @@ import {
   vi,
 } from "vitest"
 import type { Editor } from "@tiptap/core"
-import { sliceDefs, type Slice, type Primitive } from "@/convex/lib/slices"
-import { group, list, richText } from "@/convex/lib/slices/primitives"
+import { blockDefs, type Block, type Primitive } from "@/convex/lib/blocks"
+import { group, list, richText } from "@/convex/lib/blocks/primitives"
 import {
   applyPageField,
   capturePageField,
 } from "./page-editor/lib/page-inline-draft"
 import type { PreviewInlineEditCommit } from "./visual-editing-types"
 import type { PreviewActiveEditHandle } from "./visual-editing-types"
-import { RichTextContent } from "@/components/slices/rich-text-content"
+import { RichTextContent } from "@/components/blocks/rich-text-content"
 import {
   isBlockMostlyInView,
   PageLivePreviewCanvas as PageLivePreview,
 } from "./page-live-preview-canvas"
-import type { SliceRenderContext } from "@/lib/slices/links"
-import type { HeroWithImageSlice } from "@/convex/lib/slices"
-import { createSampleSlice } from "@/lib/slices/sample"
-import { FeaturesIconGrid } from "@/components/slices/features-icon-grid"
-import type { FeaturesIconGridSlice } from "@/convex/lib/slices"
-import { HeroWithImage } from "@/components/slices/hero-with-image"
-import { readSlicePresentationCatalog } from "@/convex/lib/slices/presentations"
+import type { BlockRenderContext } from "@/lib/blocks/links"
+import type { HeroWithImageBlock } from "@/convex/lib/blocks"
+import { createSampleBlock } from "@/lib/blocks/sample"
+import { FeaturesIconGrid } from "@/components/blocks/features-icon-grid"
+import type { FeaturesIconGridBlock } from "@/convex/lib/blocks"
+import { HeroWithImage } from "@/components/blocks/hero-with-image"
+import { readBlockPresentationCatalog } from "@/convex/lib/blocks/presentations"
 import {
   createLiveFrameController,
   type LiveFrameBridge,
@@ -58,7 +58,7 @@ import {
 } from "./live-preview-frame-bridge"
 
 const configuredSite = vi.hoisted(() => ({ defaults: {} }))
-vi.mock("@/components/slices/presentations/site-defaults", () => ({
+vi.mock("@/components/blocks/presentations/site-defaults", () => ({
   SITE_PRESENTATION_DEFAULTS: configuredSite.defaults,
 }))
 beforeEach(() => {
@@ -103,7 +103,7 @@ const pm = (text: string) =>
     type: "doc",
     content: [{ type: "paragraph", content: [{ type: "text", text }] }],
   })
-function hero(id: string, title: string): Slice {
+function hero(id: string, title: string): Block {
   return {
     id,
     type: "hero-agency",
@@ -117,7 +117,7 @@ function hero(id: string, title: string): Slice {
   }
 }
 function setup(
-  slices = [hero("hero-1", "First")],
+  blocks = [hero("hero-1", "First")],
   extra: Partial<Parameters<typeof PageLivePreview>[0]> = {}
 ) {
   vi.stubGlobal("ResizeObserver", ResizeObserverStub)
@@ -127,13 +127,13 @@ function setup(
   let handle: PreviewActiveEditHandle | null = null
   const baseProps = {
     title: "Preview",
-    slices,
+    blocks,
     locale: "en",
     defaultLocale: "en",
     contentEpoch: 0,
-    renderContext: undefined as SliceRenderContext | undefined,
-    selectedSliceId: null,
-    onSelectSlice: vi.fn(),
+    renderContext: undefined as BlockRenderContext | undefined,
+    selectedBlockId: null,
+    onSelectBlock: vi.fn(),
     onSelectField: vi.fn(),
     onInlineEditCommit: onCommit,
     controlledInlineEnabled: false,
@@ -146,14 +146,14 @@ function setup(
   }
   onCommit.mockImplementation((commit: PreviewInlineEditCommit) => {
     const next = applyPageField(
-      baseProps.slices,
+      baseProps.blocks,
       baseProps.locale,
       commit,
       baseProps.contentEpoch ?? 0,
       baseProps.renderContext?.presentationCatalog?.revision ?? ""
     )
     if (!next) return false
-    baseProps.slices = next
+    baseProps.blocks = next
     view.rerender(<PageLivePreview {...baseProps} />)
     return true
   })
@@ -187,7 +187,7 @@ async function begin(
 // Real controller + mounted Canvas/TipTap, with separate asynchronous parent
 // render and bridge delivery queues. The transport delays; it never reconciles.
 async function asyncFrame() {
-  const catalog = await readSlicePresentationCatalog()
+  const catalog = await readBlockPresentationCatalog()
   const view = setup(undefined, {
     renderContext: {
       locale: "en",
@@ -205,30 +205,30 @@ async function asyncFrame() {
     defaultLocale: "en",
     languageVersion: 3,
     title: "Preview",
-    slices: view.baseProps.slices,
+    blocks: view.baseProps.blocks,
     contentEpoch: 0,
     catalogRevision: catalog.revision,
-    selectedSliceId: null,
+    selectedBlockId: null,
     inlineEditingEnabled: true,
     mode: "light",
   }
   const snapshots: LiveFrameInput[] = []
   const deliveries: LiveFrameInput[] = []
   const accepted = vi.fn((commit: PreviewInlineEditCommit) => {
-    const slices = applyPageField(
-      parent.slices,
+    const blocks = applyPageField(
+      parent.blocks,
       "en",
       commit,
       0,
       catalog.revision
     )
-    if (!slices) return false
-    parent = { ...parent, slices }
+    if (!blocks) return false
+    parent = { ...parent, blocks }
     snapshots.push(parent)
     return true
   })
   const controller = createLiveFrameController(parent, {
-    selectSlice: vi.fn(),
+    selectBlock: vi.fn(),
     selectField: vi.fn(),
     commit: accepted,
     change: vi.fn(),
@@ -298,7 +298,7 @@ async function asyncFrame() {
     deliver: (index: number) =>
       turn(() => {
         const input = deliveries.at(index)!
-        view.baseProps.slices = input.slices
+        view.baseProps.blocks = input.blocks
         view.baseProps.locale = input.locale
         view.baseProps.contentEpoch = input.contentEpoch ?? 0
         view.baseProps.renderContext = {
@@ -316,7 +316,7 @@ async function asyncFrame() {
 }
 
 describe("async inline echo source contract", () => {
-  it("NEW accepts three character edits across late and reordered actual controller/bridge echoes", sliceProfile(["hero-agency"]), async () => {
+  it("NEW accepts three character edits across late and reordered actual controller/bridge echoes", blockProfile(["hero-agency"]), async () => {
     const frame = await asyncFrame()
     const { editor, host, view } = frame
     act(() => editor.commands.setTextSelection(3))
@@ -336,7 +336,7 @@ describe("async inline echo source contract", () => {
     expect(JSON.stringify(editor.getJSON())).toBe(latest)
     act(() => editor.commands.insertContent("d"))
     expect(frame.accepted).toHaveBeenCalledTimes(4)
-    expect(frame.parent().slices[0].primary).toMatchObject({
+    expect(frame.parent().blocks[0].primary).toMatchObject({
       title: JSON.stringify(editor.getJSON()),
     })
     expect(view.onConflict).not.toHaveBeenCalled()
@@ -350,7 +350,7 @@ describe("async inline echo source contract", () => {
     expect(view.container.querySelector("h1")?.textContent).toBe(acceptedText)
   })
 
-  it("NEW keeps controller authority on the latest character when parent renders arrive out of order", sliceProfile(["hero-agency"]), async () => {
+  it("NEW keeps controller authority on the latest character when parent renders arrive out of order", blockProfile(["hero-agency"]), async () => {
     const frame = await asyncFrame()
     for (const char of ["a", "b", "c"])
       act(() => frame.editor.commands.insertContent(char))
@@ -361,13 +361,13 @@ describe("async inline echo source contract", () => {
     }
     act(() => frame.editor.commands.insertContent("d"))
     expect(frame.accepted).toHaveBeenCalledTimes(4)
-    expect(frame.parent().slices[0].primary).toMatchObject({
+    expect(frame.parent().blocks[0].primary).toMatchObject({
       title: JSON.stringify(frame.editor.getJSON()),
     })
     expect(frame.view.onConflict).not.toHaveBeenCalled()
   })
 
-  it("NEW recognizes repeated own values after backspace without rewinding the island", sliceProfile(["hero-agency"]), async () => {
+  it("NEW recognizes repeated own values after backspace without rewinding the island", blockProfile(["hero-agency"]), async () => {
     const frame = await asyncFrame()
     act(() => frame.editor.commands.insertContent("a"))
     await frame.echo(frame.snapshots[0])
@@ -378,19 +378,19 @@ describe("async inline echo source contract", () => {
       frame.editor.commands.deleteRange({ from: end - 1, to: end })
     })
     await frame.echo(frame.snapshots[2])
-    expect(frame.snapshots[0].slices).toEqual(frame.snapshots[2].slices)
+    expect(frame.snapshots[0].blocks).toEqual(frame.snapshots[2].blocks)
     for (const index of [2, 1, 0, 1]) await frame.deliver(index)
     expect(frame.editor.getText()).toBe("Firsta")
     expect(frame.view.onConflict).not.toHaveBeenCalled()
     act(() => frame.editor.commands.insertContent("c"))
     expect(frame.accepted).toHaveBeenCalledTimes(4)
-    expect(frame.parent().slices[0].primary).toMatchObject({
+    expect(frame.parent().blocks[0].primary).toMatchObject({
       title: titleDoc("Firstac"),
     })
   })
 
   it.each(["new-value", "historical-own-value"] as const)(
-    "NEW refuses a genuine external %s even after own echo recognition", sliceProfile(["hero-agency"]),
+    "NEW refuses a genuine external %s even after own echo recognition", blockProfile(["hero-agency"]),
     async (kind) => {
       const frame = await asyncFrame()
       for (const char of ["a", "b", "c"])
@@ -400,13 +400,13 @@ describe("async inline echo source contract", () => {
       const external: LiveFrameInput = {
         ...frame.parent(),
         // Ordinary external edits have no accepted inline output provenance.
-        slices: frame.parent().slices.map((slice) => ({
-          ...slice,
+        blocks: frame.parent().blocks.map((block) => ({
+          ...block,
           primary: {
-            ...slice.primary,
+            ...block.primary,
             title: kind === "new-value" ? pm("external") : pm("Firsta"),
           },
-        })) as Slice[],
+        })) as Block[],
       }
       // A caller-supplied receipt must not grant controller echo authority.
       external.inlineEditEcho = frame.view.handle()!.capture()!
@@ -421,7 +421,7 @@ describe("async inline echo source contract", () => {
       // Even a later real own receipt cannot revive a conflicted activation.
       await frame.echo(frame.snapshots[0])
       await frame.deliver(-1)
-      expect(JSON.stringify(frame.view.baseProps.slices)).not.toContain(
+      expect(JSON.stringify(frame.view.baseProps.blocks)).not.toContain(
         "refused"
       )
       act(() => frame.editor.commands.insertContent(" still refused"))
@@ -429,18 +429,18 @@ describe("async inline echo source contract", () => {
     }
   )
 
-  it("NEW preserves unrelated parent fields while delayed own echoes remain compatible", sliceProfile(["hero-agency"]), async () => {
+  it("NEW preserves unrelated parent fields while delayed own echoes remain compatible", blockProfile(["hero-agency"]), async () => {
     const frame = await asyncFrame()
     for (const char of ["a", "b", "c"])
       act(() => frame.editor.commands.insertContent(char))
     const unrelated = {
       ...frame.parent(),
-      slices: frame.parent().slices.map((slice) => {
-        if (slice.type !== "hero-agency")
+      blocks: frame.parent().blocks.map((block) => {
+        if (block.type !== "hero-agency")
           throw new Error("Expected hero fixture")
         return {
-          ...slice,
-          primary: { ...slice.primary, eyebrow: "external retained" },
+          ...block,
+          primary: { ...block.primary, eyebrow: "external retained" },
         }
       }),
     }
@@ -449,13 +449,13 @@ describe("async inline echo source contract", () => {
     await frame.echo(unrelated)
     await frame.deliver(0)
     await frame.deliver(1)
-    expect(frame.view.baseProps.slices[0].primary).toMatchObject({
+    expect(frame.view.baseProps.blocks[0].primary).toMatchObject({
       eyebrow: "external retained",
       title: titleDoc("Firstabc"),
     })
     act(() => frame.editor.commands.insertContent("d"))
     expect(frame.accepted).toHaveBeenCalledTimes(4)
-    expect(frame.parent().slices[0].primary).toMatchObject({
+    expect(frame.parent().blocks[0].primary).toMatchObject({
       eyebrow: "external retained",
       title: titleDoc("Firstabcd"),
     })
@@ -463,7 +463,7 @@ describe("async inline echo source contract", () => {
   })
 
   it.each(["epoch", "presentation", "catalog", "disabled", "removed"] as const)(
-    "NEW invalidates an accepted echo after %s changes without authorizing more writes", sliceProfile(["hero-agency"]),
+    "NEW invalidates an accepted echo after %s changes without authorizing more writes", blockProfile(["hero-agency"]),
     async (kind) => {
       const frame = await asyncFrame()
       act(() => frame.editor.commands.insertContent("a"))
@@ -472,11 +472,11 @@ describe("async inline echo source contract", () => {
         ...old,
         ...(kind === "epoch" ? { contentEpoch: 1 } : {}),
         ...(kind === "catalog" ? { catalogRevision: "changed" } : {}),
-        slices:
+        blocks:
           kind === "removed"
             ? []
-            : old.slices.map((slice) => ({
-                ...slice,
+            : old.blocks.map((block) => ({
+                ...block,
                 ...(kind === "presentation"
                   ? { presentationIdV1: "centered" }
                   : {}),
@@ -486,7 +486,7 @@ describe("async inline echo source contract", () => {
       await frame.echo(changed)
       await frame.deliver(-1)
       expect(frame.view.onConflict).toHaveBeenCalled()
-      // The host may unmount when its owning slice is removed/disabled.
+      // The host may unmount when its owning block is removed/disabled.
       if (kind !== "removed" && kind !== "disabled") {
         act(() => frame.editor.commands.insertContent(" refused"))
         expect(frame.accepted).toHaveBeenCalledTimes(1)
@@ -494,7 +494,7 @@ describe("async inline echo source contract", () => {
     }
   )
 
-  it("NEW cannot reuse an earlier activation's receipt after discard and re-entry", sliceProfile(["hero-agency"]), async () => {
+  it("NEW cannot reuse an earlier activation's receipt after discard and re-entry", blockProfile(["hero-agency"]), async () => {
     const frame = await asyncFrame()
     act(() => frame.editor.commands.insertContent("a"))
     await frame.echo(frame.snapshots[0])
@@ -513,9 +513,9 @@ describe("async inline echo source contract", () => {
 })
 
 describe("B1 parent draft and uncontrolled inline DOM", () => {
-  it("NEW accepts DOM typing through the frame controller before the parent echoes its draft", sliceProfile(["hero-with-image"]), async () => {
-    const catalog = await readSlicePresentationCatalog()
-    const sample = createSampleSlice("hero-with-image")
+  it("NEW accepts DOM typing through the frame controller before the parent echoes its draft", blockProfile(["hero-with-image"]), async () => {
+    const catalog = await readBlockPresentationCatalog()
+    const sample = createSampleBlock("hero-with-image")
     const view = setup(
       [
         {
@@ -545,28 +545,28 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
       defaultLocale: "en",
       languageVersion: 3,
       title: "Preview",
-      slices: view.baseProps.slices,
+      blocks: view.baseProps.blocks,
       contentEpoch: 0,
       catalogRevision: catalog.revision,
-      selectedSliceId: null,
+      selectedBlockId: null,
       inlineEditingEnabled: true,
       mode: "light",
     }
     const accepted = vi.fn((commit: PreviewInlineEditCommit) => {
-      const slices = applyPageField(
-        parent.slices,
+      const blocks = applyPageField(
+        parent.blocks,
         "en",
         commit,
         0,
         catalog.revision
       )
-      if (!slices) return false
+      if (!blocks) return false
       // A separate parent React root owns this draft; no synchronous child echo.
-      parent = { ...parent, slices }
+      parent = { ...parent, blocks }
       return true
     })
     const controller = createLiveFrameController(parent, {
-      selectSlice: vi.fn(),
+      selectBlock: vi.fn(),
       selectField: vi.fn(),
       commit: accepted,
       change: vi.fn(),
@@ -615,8 +615,8 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
     fireEvent.input(host, { inputType: "insertText", data: " [native Escape]" })
     await waitFor(() => expect(accepted).toHaveBeenCalledTimes(1))
     const exact = JSON.stringify(editor.getJSON())
-    expect(parent.slices[0].primary).toMatchObject({ title: exact })
-    expect(view.baseProps.slices[0].primary).toMatchObject({
+    expect(parent.blocks[0].primary).toMatchObject({ title: exact })
+    expect(view.baseProps.blocks[0].primary).toMatchObject({
       title: titleDoc("Repeated headline"),
     })
     expect(view.onConflict).not.toHaveBeenCalled()
@@ -633,22 +633,22 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
     expect(latestChange).toHaveBeenCalled()
     expect(view.onConflict).not.toHaveBeenCalled()
     // Then the actual parent echo acknowledges the same canonical value.
-    view.baseProps.slices = parent.slices
+    view.baseProps.blocks = parent.blocks
     expect(controller.replaceInput(parent)).toBe(true)
     view.rerender(<PageLivePreview {...view.baseProps} />)
     expect(view.getByRole("textbox")).toBe(host)
     expect(view.onConflict).not.toHaveBeenCalled()
     fireEvent.keyDown(host, { key: "Escape" })
     expect(view.queryByRole("textbox")).toBeNull()
-    expect(parent.slices[0].primary).toMatchObject({
+    expect(parent.blocks[0].primary).toMatchObject({
       title: titleDoc("Repeated headline [native Escape] again"),
     })
   })
 
   it.each(["same-field", "epoch", "presentation", "catalog"] as const)(
-    "NEW still refuses a changed %s parent input after locally accepted typing", sliceProfile(["hero-agency"]),
+    "NEW still refuses a changed %s parent input after locally accepted typing", blockProfile(["hero-agency"]),
     async (kind) => {
-      const catalog = await readSlicePresentationCatalog()
+      const catalog = await readBlockPresentationCatalog()
       const view = setup(undefined, {
         renderContext: {
           locale: "en",
@@ -660,7 +660,7 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
       view.onCommit.mockImplementation(
         (commit) =>
           applyPageField(
-            view.baseProps.slices,
+            view.baseProps.blocks,
             "en",
             commit,
             0,
@@ -671,14 +671,14 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
       act(() => editor.commands.insertContent(" accepted"))
       expect(view.onConflict).not.toHaveBeenCalled()
       if (kind === "same-field")
-        view.baseProps.slices = view.baseProps.slices.map((slice) => ({
-          ...slice,
-          primary: { ...slice.primary, title: titleDoc("external") },
-        })) as Slice[]
+        view.baseProps.blocks = view.baseProps.blocks.map((block) => ({
+          ...block,
+          primary: { ...block.primary, title: titleDoc("external") },
+        })) as Block[]
       if (kind === "epoch") view.baseProps.contentEpoch = 1
       if (kind === "presentation")
-        view.baseProps.slices = view.baseProps.slices.map((slice) => ({
-          ...slice,
+        view.baseProps.blocks = view.baseProps.blocks.map((block) => ({
+          ...block,
           presentationIdV1: "centered",
         }))
       if (kind === "catalog")
@@ -688,7 +688,7 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
           pagePaths: {},
           presentationCatalog: { ...catalog, revision: "changed" },
         }
-      const before = JSON.stringify(view.baseProps.slices)
+      const before = JSON.stringify(view.baseProps.blocks)
       view.rerender(<PageLivePreview {...view.baseProps} />)
       expect(view.onConflict).toHaveBeenCalled()
       expect(view.getByRole("textbox")).toBe(host)
@@ -696,12 +696,12 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
         JSON.stringify(editor.getJSON())
       )
       act(() => editor.commands.insertContent(" rejected"))
-      expect(JSON.stringify(view.baseProps.slices)).toBe(before)
+      expect(JSON.stringify(view.baseProps.blocks)).toBe(before)
       expect(view.onCommit).toHaveBeenCalledTimes(1)
     }
   )
 
-  it("NEW explicit conflict Discard clears only the transient island and cannot revive rejected text", sliceProfile([]), async () => {
+  it("NEW explicit conflict Discard clears only the transient island and cannot revive rejected text", blockProfile([]), async () => {
     const view = setup()
     let pending: PreviewInlineEditCommit | null = null
     const currentPending = (): PreviewInlineEditCommit | null => pending
@@ -710,12 +710,12 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
     })
     const { editor } = await begin(view)
     act(() => editor.commands.insertContent(" accepted"))
-    view.baseProps.slices = view.baseProps.slices.map((slice) => {
-      if (slice.type !== "hero-agency") throw new Error("Expected hero fixture")
+    view.baseProps.blocks = view.baseProps.blocks.map((block) => {
+      if (block.type !== "hero-agency") throw new Error("Expected hero fixture")
       return {
-        ...slice,
+        ...block,
         primary: {
-          ...slice.primary,
+          ...block.primary,
           title: titleDoc("external"),
           eyebrow: "manual retained",
         },
@@ -724,7 +724,7 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
     view.rerender(<PageLivePreview {...view.baseProps} />)
     expect(view.onConflict).toHaveBeenCalled()
     expect(currentPending()?.value).toContain("accepted")
-    const canonical = JSON.stringify(view.baseProps.slices)
+    const canonical = JSON.stringify(view.baseProps.blocks)
     view.onConflict.mockClear()
     act(() => {
       pending = null
@@ -737,13 +737,13 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
     expect(view.queryByRole("textbox")).toBeNull()
     expect(view.onConflict).not.toHaveBeenCalled()
     expect(pending).toBeNull()
-    expect(JSON.stringify(view.baseProps.slices)).toBe(canonical)
+    expect(JSON.stringify(view.baseProps.blocks)).toBe(canonical)
     const fresh = await begin(view)
     expect(fresh.editor.getText()).toBe("external")
-    expect(JSON.stringify(view.baseProps.slices)).toBe(canonical)
+    expect(JSON.stringify(view.baseProps.blocks)).toBe(canonical)
   })
 
-  it("NEW Enter/Shift+Enter in a title insert nothing and composing Escape refuses cancellation", sliceProfile([]), async () => {
+  it("NEW Enter/Shift+Enter in a title insert nothing and composing Escape refuses cancellation", blockProfile([]), async () => {
     const view = setup()
     const { host, editor } = await begin(view)
     fireEvent.keyDown(host, { key: "Enter" })
@@ -761,7 +761,7 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
     )
     fireEvent.keyDown(host, { key: "Escape" })
     expect(view.queryByRole("textbox")).toBeNull()
-    expect(JSON.stringify(view.baseProps.slices)).not.toContain("hardBreak")
+    expect(JSON.stringify(view.baseProps.blocks)).not.toContain("hardBreak")
   })
   for (const profileRow of [
     {
@@ -795,7 +795,7 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
       heading: "H2",
     },
   ] as const) {
-    it.each([profileRow])("basic body activation retains public typography for $name", sliceProfile([profileRow.type]),
+    it.each([profileRow])("basic body activation retains public typography for $name", blockProfile([profileRow.type]),
       async ({ name, type, field, heading }) => {
         const paragraph = (text: string) => ({
           type: "paragraph",
@@ -821,34 +821,34 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
             },
           ],
         })
-        const slice = createSampleSlice(type)
-        if (slice.type === "features-icon-grid") {
-          slice.primary.heading = titleDoc("Features heading")
-          slice.primary.body = body
-          slice.items = [
-            { ...slice.items[0], title: titleDoc("Feature title"), body },
+        const block = createSampleBlock(type)
+        if (block.type === "features-icon-grid") {
+          block.primary.heading = titleDoc("Features heading")
+          block.primary.body = body
+          block.items = [
+            { ...block.items[0], title: titleDoc("Feature title"), body },
           ]
-        } else if (slice.type === "hero-with-image") {
-          slice.primary.title = titleDoc("Hero heading")
-          slice.primary.description = body
-          slice.presentationIdV1 =
+        } else if (block.type === "hero-with-image") {
+          block.primary.title = titleDoc("Hero heading")
+          block.primary.description = body
+          block.presentationIdV1 =
             name === "HeroWithImage centered" ? "centered" : "default"
-        } else if (slice.type === "hero-agency") {
-          slice.primary.title = titleDoc("Agency heading")
-          slice.primary.description = body
+        } else if (block.type === "hero-agency") {
+          block.primary.title = titleDoc("Agency heading")
+          block.primary.description = body
         }
-        const catalog = await readSlicePresentationCatalog()
-        const view = setup([slice], {
+        const catalog = await readBlockPresentationCatalog()
+        const view = setup([block], {
           renderContext: {
             locale: "en",
             defaultLocale: "en",
             pagePaths: {},
             presentationCatalog: catalog,
           },
-          renderPage: (slices, context) => (
-            <DefaultSliceBodyContent
-              content={{ title: "Preview" } as SliceBodyRendererProps["content"]}
-              slices={slices}
+          renderPage: (blocks, context) => (
+            <DefaultBlockBodyContent
+              content={{ title: "Preview" } as BlockBodyRendererProps["content"]}
+              blocks={blocks}
               ctx={context}
             />
           ),
@@ -931,7 +931,7 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
       }
     )
   }
-  it("registered basic body activates an island and saves Enter paragraphs with marks and links", sliceProfile([]), async () => {
+  it("registered basic body activates an island and saves Enter paragraphs with marks and links", blockProfile([]), async () => {
     const view = setup()
     const { host, editor } = await begin(view, "primary.description")
     act(() => {
@@ -956,23 +956,23 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
     )
     act(() => view.handle()?.flush?.())
     expect(
-      (view.baseProps.slices[0].primary as { description: string }).description
+      (view.baseProps.blocks[0].primary as { description: string }).description
     ).toContain("Second")
     expect(
       JSON.parse(
-        (view.baseProps.slices[0].primary as { description: string })
+        (view.baseProps.blocks[0].primary as { description: string })
           .description
       ).content
     ).toHaveLength(2)
     expect(view.getByRole("textbox")).toBe(host)
   })
-  it("NEW delivers consecutive exact values into the parent without persistence calls or replacing the island", sliceProfile([]), async () => {
+  it("NEW delivers consecutive exact values into the parent without persistence calls or replacing the island", blockProfile([]), async () => {
     const view = setup()
     const heading = view.container.querySelector("h1")!
     const headingId = heading.id
     const marker = heading
     const occurrence = heading.closest<HTMLElement>(
-      "[data-preview-slice-occurrence]"
+      "[data-preview-block-occurrence]"
     )!
     const initialMarkers = occurrence.querySelectorAll(
       '[data-preview-field="primary.title"]'
@@ -984,7 +984,7 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
     act(() => editor.commands.insertContent(" two"))
     expect(view.onCommit).toHaveBeenCalledTimes(2)
     expect(
-      (view.baseProps.slices[0].primary as Record<string, unknown>).title
+      (view.baseProps.blocks[0].primary as Record<string, unknown>).title
     ).toBe(titleDoc("First one two"))
     expect(view.getByRole("textbox")).toBe(host)
     const textDOM = host.firstChild
@@ -1012,19 +1012,19 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
     expect(heading.querySelector("p, div")).toBeNull()
     expect(marker.contains(host)).toBe(true)
   })
-  it("NEW Escape keeps typed/saved parent content and cannot revert a successful Save", sliceProfile([]), async () => {
+  it("NEW Escape keeps typed/saved parent content and cannot revert a successful Save", blockProfile([]), async () => {
     const view = setup()
     const { host, editor } = await begin(view)
     act(() => editor.commands.insertContent(" saved"))
-    const saved = JSON.stringify(view.baseProps.slices)
+    const saved = JSON.stringify(view.baseProps.blocks)
     fireEvent.keyDown(host, { key: "Escape" })
     expect(view.queryByRole("textbox")).toBeNull()
-    expect(JSON.stringify(view.baseProps.slices)).toBe(saved)
+    expect(JSON.stringify(view.baseProps.blocks)).toBe(saved)
     expect(view.container.querySelector("h1[id]")?.textContent).toBe(
       "First saved"
     )
   })
-  it("NEW fresh activation after reload/reset uses the current parent draft and is clean until input", sliceProfile([]), async () => {
+  it("NEW fresh activation after reload/reset uses the current parent draft and is clean until input", blockProfile([]), async () => {
     const view = setup()
     await begin(view)
     expect(view.onCommit).not.toHaveBeenCalled()
@@ -1038,7 +1038,7 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
     ["security defaults", "noopener noreferrer", false],
     ["authored link flags", "noopener noreferrer nofollow sponsored ugc", true],
   ] as const)(
-    "NEW B-C0 iframe replacement seeds exact parent PM including marks, links, hard breaks and %s", sliceProfile([]),
+    "NEW B-C0 iframe replacement seeds exact parent PM including marks, links, hard breaks and %s", blockProfile([]),
     async (_name, rel, flagged) => {
       const view = setup()
       const { editor, host } = await begin(view, "primary.description")
@@ -1051,7 +1051,7 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
         },
       })
       const exact = JSON.stringify(editor.getJSON())
-      const parent = view.baseProps.slices
+      const parent = view.baseProps.blocks
       expect(exact).toContain('"bold"')
       expect(exact).toContain('"link"')
       expect(exact).toContain('"hardBreak"')
@@ -1074,11 +1074,11 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
       expect(fresh.queryByRole("button", { name: "Restore" })).toBeNull()
     }
   )
-  it("NEW B-C1 ignores renderer stamps through A/B/A and never replaces parent text", sliceProfile([]), async () => {
+  it("NEW B-C1 ignores renderer stamps through A/B/A and never replaces parent text", blockProfile([]), async () => {
     const view = setup()
     const { editor, host } = await begin(view)
     act(() => editor.commands.insertContent(" retained"))
-    const exact = (view.baseProps.slices[0].primary as Record<string, unknown>)
+    const exact = (view.baseProps.blocks[0].primary as Record<string, unknown>)
       .title
     for (const revision of ["b", "", "a"]) {
       view.container
@@ -1087,40 +1087,40 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
       view.rerender(<PageLivePreview {...view.baseProps} title={revision} />)
       expect(view.getByRole("textbox")).toBe(host)
       expect(
-        (view.baseProps.slices[0].primary as Record<string, unknown>).title
+        (view.baseProps.blocks[0].primary as Record<string, unknown>).title
       ).toBe(exact)
     }
     expect(view.onConflict).not.toHaveBeenCalled()
   })
-  it("NEW unrelated same-slice sidebar edits remain compatible", sliceProfile([]), async () => {
+  it("NEW unrelated same-block sidebar edits remain compatible", blockProfile([]), async () => {
     const view = setup()
     const { editor } = await begin(view)
-    view.baseProps.slices = view.baseProps.slices.map(
-      (slice) =>
+    view.baseProps.blocks = view.baseProps.blocks.map(
+      (block) =>
         ({
-          ...slice,
-          primary: { ...slice.primary, eyebrow: "manual sidebar" },
-        }) as Slice
+          ...block,
+          primary: { ...block.primary, eyebrow: "manual sidebar" },
+        }) as Block
     )
     view.rerender(<PageLivePreview {...view.baseProps} />)
     act(() => editor.commands.insertContent(" inline"))
     expect(
-      (view.baseProps.slices[0].primary as Record<string, unknown>).eyebrow
+      (view.baseProps.blocks[0].primary as Record<string, unknown>).eyebrow
     ).toBe("manual sidebar")
     expect(view.onConflict).not.toHaveBeenCalled()
   })
-  it("NEW same-field external edits during composition keep the DOM and exact conflict text after refusal", sliceProfile([]), async () => {
+  it("NEW same-field external edits during composition keep the DOM and exact conflict text after refusal", blockProfile([]), async () => {
     const view = setup()
     const { editor, host } = await begin(view)
     fireEvent.compositionStart(host)
     expect(view.handle()?.isComposing()).toBe(true)
     act(() => editor.commands.insertContent(" composing"))
-    view.baseProps.slices = view.baseProps.slices.map(
-      (slice) =>
+    view.baseProps.blocks = view.baseProps.blocks.map(
+      (block) =>
         ({
-          ...slice,
-          primary: { ...slice.primary, title: titleDoc("external apply") },
-        }) as Slice
+          ...block,
+          primary: { ...block.primary, title: titleDoc("external apply") },
+        }) as Block
     )
     view.rerender(<PageLivePreview {...view.baseProps} />)
     expect(view.getByRole("textbox")).toBe(host)
@@ -1136,20 +1136,20 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
       })
     )
     expect(
-      (view.baseProps.slices[0].primary as Record<string, unknown>).title
+      (view.baseProps.blocks[0].primary as Record<string, unknown>).title
     ).toBe(titleDoc("external apply"))
   })
   it.each(["locale", "epoch", "removed"])(
-    "NEW drops a stale %s write without retargeting", sliceProfile([]),
+    "NEW drops a stale %s write without retargeting", blockProfile([]),
     async (kind) => {
       const view = setup()
       const { editor } = await begin(view)
       if (kind === "locale") view.baseProps.locale = "fr"
       if (kind === "epoch") view.baseProps.contentEpoch = 1
-      if (kind === "removed") view.baseProps.slices = []
+      if (kind === "removed") view.baseProps.blocks = []
       if (kind === "presentation")
-        view.baseProps.slices = view.baseProps.slices.map((slice) => ({
-          ...slice,
+        view.baseProps.blocks = view.baseProps.blocks.map((block) => ({
+          ...block,
           presentationIdV1: "centered",
         }))
       if (kind === "catalog")
@@ -1159,17 +1159,17 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
           pagePaths: {},
           presentationCatalog: { revision: "different", entries: [] } as never,
         }
-      const before = JSON.stringify(view.baseProps.slices)
+      const before = JSON.stringify(view.baseProps.blocks)
       view.rerender(<PageLivePreview {...view.baseProps} />)
       if (kind !== "removed") act(() => editor.commands.insertContent(" stale"))
-      expect(JSON.stringify(view.baseProps.slices)).toBe(before)
+      expect(JSON.stringify(view.baseProps.blocks)).toBe(before)
       expect(view.onConflict).toHaveBeenCalled()
     }
   )
-  it("NEW blocks a public link and routes unsupported fields to the sidebar", sliceProfile([]), () => {
+  it("NEW blocks a public link and routes unsupported fields to the sidebar", blockProfile([]), () => {
     const view = setup(undefined, {
-      renderPage: (slices, context) =>
-        context.previewSlice?.(slices[0], () => (
+      renderPage: (blocks, context) =>
+        context.previewBlock?.(blocks[0], () => (
           <a href="#public" data-testid="public">
             Unbound public link
           </a>
@@ -1184,7 +1184,7 @@ describe("B1 parent draft and uncontrolled inline DOM", () => {
 })
 
 describe("Unit A NEW heading target regressions", () => {
-  it("NEW starts inline editing from the whole h1 using its unique stamped inline span", sliceProfile([]), async () => {
+  it("NEW starts inline editing from the whole h1 using its unique stamped inline span", blockProfile([]), async () => {
     const view = setup()
     enableEditing(view)
     fireEvent.click(view.container.querySelector("h1[id]")!)
@@ -1192,12 +1192,12 @@ describe("Unit A NEW heading target regressions", () => {
     expect(view.handle()?.hasActiveSession()).toBe(true)
   })
 
-  it("NEW refuses ambiguous duplicate stamped descendants in a heading", sliceProfile([]), () => {
+  it("NEW refuses ambiguous duplicate stamped descendants in a heading", blockProfile([]), () => {
     const view = setup(undefined, {
-      renderPage: (slices, context) =>
-        slices.map((slice) =>
-          context.previewSlice?.(slice, (ctx) => (
-            <h2 key={slice.id} data-testid="ambiguous-heading">
+      renderPage: (blocks, context) =>
+        blocks.map((block) =>
+          context.previewBlock?.(block, (ctx) => (
+            <h2 key={block.id} data-testid="ambiguous-heading">
               {[0, 1].map((index) => (
                 <RichTextContent
                   key={index}
@@ -1220,19 +1220,19 @@ describe("Unit A NEW heading target regressions", () => {
 })
 
 describe("descriptor-bound migration click targeting", () => {
-  it("keeps root items rich text activatable and writable", sliceProfile([]), async () => {
-    const slice = createSampleSlice("features-icon-grid")
-    if (slice.type !== "features-icon-grid")
+  it("keeps root items rich text activatable and writable", blockProfile([]), async () => {
+    const block = createSampleBlock("features-icon-grid")
+    if (block.type !== "features-icon-grid")
       throw new Error("Expected the repeated-feature fixture")
-    const view = setup([slice], {
+    const view = setup([block], {
       controlledInlineEnabled: true,
-      renderPage: (slices, context) =>
-        slices.map((current) => {
+      renderPage: (blocks, context) =>
+        blocks.map((current) => {
           if (current.type !== "features-icon-grid")
             throw new Error("Expected the repeated-feature renderer")
-          return context.previewSlice?.(current, (ctx) => (
+          return context.previewBlock?.(current, (ctx) => (
             <FeaturesIconGrid
-              slice={current satisfies FeaturesIconGridSlice}
+              block={current satisfies FeaturesIconGridBlock}
               ctx={ctx}
             />
           ))
@@ -1240,11 +1240,11 @@ describe("descriptor-bound migration click targeting", () => {
     })
     const { editor } = await begin(view, "items.0.title")
     expect(view.baseProps.onSelectField).toHaveBeenCalledWith(
-      { sliceId: slice.id, fieldPath: "items.0.title", inlineEditing: true },
+      { blockId: block.id, fieldPath: "items.0.title", inlineEditing: true },
       { status: "activated" }
     )
     act(() => editor.commands.insertContent(" updated"))
-    const updated = view.baseProps.slices[0]
+    const updated = view.baseProps.blocks[0]
     if (updated.type !== "features-icon-grid")
       throw new Error("Expected the repeated-feature edit to remain in place")
     expect(JSON.parse(updated.items[0].title).content[0]).toEqual({
@@ -1254,14 +1254,14 @@ describe("descriptor-bound migration click targeting", () => {
     })
   })
 
-  it("refuses activation for a rendered slice missing from current parent state", sliceProfile([]), () => {
-    const ghost = hero("unresolved-preview-slice", "Ghost")
-    const view = setup([hero("canonical-slice", "Canonical")], {
+  it("refuses activation for a rendered block missing from current parent state", blockProfile([]), () => {
+    const ghost = hero("unresolved-preview-block", "Ghost")
+    const view = setup([hero("canonical-block", "Canonical")], {
       controlledInlineEnabled: true,
-      renderSlicesTransform: () => [ghost],
-      renderPage: (slices, context) =>
-        slices.map((slice) =>
-          context.previewSlice?.(slice, (ctx) => (
+      renderBlocksTransform: () => [ghost],
+      renderPage: (blocks, context) =>
+        blocks.map((block) =>
+          context.previewBlock?.(block, (ctx) => (
             <RichTextContent
               value={pm("Ghost")}
               profile="inline"
@@ -1278,33 +1278,33 @@ describe("descriptor-bound migration click targeting", () => {
     fireEvent.click(field)
     expect(view.queryByRole("textbox")).toBeNull()
     expect(view.baseProps.onSelectField).toHaveBeenCalledExactlyOnceWith(
-      { sliceId: ghost.id, fieldPath: "primary.title" },
+      { blockId: ghost.id, fieldPath: "primary.title" },
       { status: "refused", reason: "capture" }
     )
     expect(view.onCommit).not.toHaveBeenCalled()
   })
 
-  it("refuses primary-list rich text and selects its exact form field", sliceProfile([]), () => {
-    const originalDef = sliceDefs["hero-with-image"]
+  it("refuses primary-list rich text and selects its exact form field", blockProfile([]), () => {
+    const originalDef = blockDefs["hero-with-image"]
     const syntheticPrimary = group({
       title: richText({ profile: "inline" }),
       features: list(group({ title: richText({ profile: "inline" }) })),
     })
-    const slice = createSampleSlice("hero-with-image")
-    Reflect.set(slice.primary, "features", [{ title: titleDoc("List title") }])
-    Reflect.set(sliceDefs, "hero-with-image", {
+    const block = createSampleBlock("hero-with-image")
+    Reflect.set(block.primary, "features", [{ title: titleDoc("List title") }])
+    Reflect.set(blockDefs, "hero-with-image", {
       ...originalDef,
       primary: syntheticPrimary,
     })
-    const before = JSON.stringify([slice])
+    const before = JSON.stringify([block])
     let view: ReturnType<typeof setup> | undefined
     try {
-      view = setup([slice], {
-        selectedSliceId: slice.id,
+      view = setup([block], {
+        selectedBlockId: block.id,
         controlledInlineEnabled: true,
-        renderPage: (slices, context) =>
-          slices.map((current) =>
-            context.previewSlice?.(current, (ctx) => (
+        renderPage: (blocks, context) =>
+          blocks.map((current) =>
+            context.previewBlock?.(current, (ctx) => (
               <h2>
                 <RichTextContent
                   value={pm("List title")}
@@ -1323,19 +1323,19 @@ describe("descriptor-bound migration click targeting", () => {
       fireEvent.click(field)
       expect(view.queryByRole("textbox")).toBeNull()
       expect(view.baseProps.onSelectField).toHaveBeenCalledExactlyOnceWith(
-        { sliceId: slice.id, fieldPath: "primary.features.0.title" },
+        { blockId: block.id, fieldPath: "primary.features.0.title" },
         { status: "refused", reason: "unsupported" }
       )
       expect(view.onCommit).not.toHaveBeenCalled()
-      expect(JSON.stringify([slice])).toBe(before)
+      expect(JSON.stringify([block])).toBe(before)
     } finally {
       view?.unmount()
-      Reflect.set(sliceDefs, "hero-with-image", originalDef)
+      Reflect.set(blockDefs, "hero-with-image", originalDef)
     }
   })
 
-  it("scrolls a selected preview slice without forcing smooth motion", sliceProfile([]), async () => {
-    const migrated = createSampleSlice("hero-with-image") as HeroWithImageSlice
+  it("scrolls a selected preview block without forcing smooth motion", blockProfile([]), async () => {
+    const migrated = createSampleBlock("hero-with-image") as HeroWithImageBlock
     const scrollIntoView = vi.fn()
     const original = Object.getOwnPropertyDescriptor(
       HTMLElement.prototype,
@@ -1348,11 +1348,11 @@ describe("descriptor-bound migration click targeting", () => {
     })
     try {
       setup([migrated], {
-        selectedSliceId: migrated.id,
-        renderPage: (slices, context) =>
-          slices.map((slice) =>
-            context.previewSlice?.(slice, (ctx) => (
-              <HeroWithImage slice={slice as HeroWithImageSlice} ctx={ctx} />
+        selectedBlockId: migrated.id,
+        renderPage: (blocks, context) =>
+          blocks.map((block) =>
+            context.previewBlock?.(block, (ctx) => (
+              <HeroWithImage block={block as HeroWithImageBlock} ctx={ctx} />
             ))
           ),
       })
@@ -1375,11 +1375,11 @@ describe("descriptor-bound migration click targeting", () => {
     }
   })
 
-  it("keeps an off-toggle rich-text double-click on its exact field without activating editing", sliceProfile([]), async () => {
-    const migrated = createSampleSlice("hero-with-image") as HeroWithImageSlice
-    const selectSliceFallback = vi.fn()
+  it("keeps an off-toggle rich-text double-click on its exact field without activating editing", blockProfile([]), async () => {
+    const migrated = createSampleBlock("hero-with-image") as HeroWithImageBlock
+    const selectBlockFallback = vi.fn()
     const view = setup([migrated], {
-      onSelectSliceFallback: selectSliceFallback,
+      onSelectBlockFallback: selectBlockFallback,
     })
     const heading = view.container.querySelector(
       'h1[data-preview-field="primary.title"]'
@@ -1388,25 +1388,25 @@ describe("descriptor-bound migration click targeting", () => {
     fireEvent.doubleClick(heading)
 
     expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith({
-      sliceId: migrated.id,
+      blockId: migrated.id,
       fieldPath: "primary.title",
     })
     expect(view.queryByRole("textbox")).toBeNull()
-    expect(selectSliceFallback).not.toHaveBeenCalled()
+    expect(selectBlockFallback).not.toHaveBeenCalled()
   })
 
   it.each([
     ["primary.eyebrow", []],
     ["primary.image", [{ status: "refused", reason: "unsupported" }]],
   ] as const)(
-    "keeps off-toggle double-click focus exact for %s instead of selecting the slice fallback", sliceProfile([]),
+    "keeps off-toggle double-click focus exact for %s instead of selecting the block fallback", blockProfile([]),
     (fieldPath, notice) => {
-      const migrated = createSampleSlice(
+      const migrated = createSampleBlock(
         "hero-with-image"
-      ) as HeroWithImageSlice
-      const selectSliceFallback = vi.fn()
+      ) as HeroWithImageBlock
+      const selectBlockFallback = vi.fn()
       const view = setup([migrated], {
-        onSelectSliceFallback: selectSliceFallback,
+        onSelectBlockFallback: selectBlockFallback,
       })
       const field = view.container.querySelector(
         `[data-preview-field="${fieldPath}"]`
@@ -1415,23 +1415,23 @@ describe("descriptor-bound migration click targeting", () => {
 
       // Off-toggle text has no "form only" notice; an image keeps it.
       expect(view.baseProps.onSelectField).toHaveBeenCalledWith(
-        { sliceId: migrated.id, fieldPath },
+        { blockId: migrated.id, fieldPath },
         ...notice
       )
-      expect(selectSliceFallback).not.toHaveBeenCalled()
+      expect(selectBlockFallback).not.toHaveBeenCalled()
     }
   )
 
-  it("does not text-guess from an unmarked gap inside the migrated Hero occurrence", sliceProfile([]), () => {
-    const migrated = createSampleSlice("hero-with-image") as HeroWithImageSlice
-    const selectSliceFallback = vi.fn()
+  it("does not text-guess from an unmarked gap inside the migrated Hero occurrence", blockProfile([]), () => {
+    const migrated = createSampleBlock("hero-with-image") as HeroWithImageBlock
+    const selectBlockFallback = vi.fn()
     const view = setup([migrated], {
-      onSelectSliceFallback: selectSliceFallback,
-      renderPage: (slices, context) =>
-        slices.map((slice) =>
-          context.previewSlice?.(slice, (ctx) => (
+      onSelectBlockFallback: selectBlockFallback,
+      renderPage: (blocks, context) =>
+        blocks.map((block) =>
+          context.previewBlock?.(block, (ctx) => (
             <>
-              <HeroWithImage slice={slice as HeroWithImageSlice} ctx={ctx} />
+              <HeroWithImage block={block as HeroWithImageBlock} ctx={ctx} />
               <div data-testid="migrated-gap">{migrated.primary.title}</div>
             </>
           ))
@@ -1441,22 +1441,22 @@ describe("descriptor-bound migration click targeting", () => {
     fireEvent.click(view.getByTestId("migrated-gap"))
 
     expect(view.baseProps.onSelectField).not.toHaveBeenCalled()
-    expect(view.baseProps.onSelectSlice).not.toHaveBeenCalled()
-    expect(selectSliceFallback).toHaveBeenCalledExactlyOnceWith(migrated.id)
+    expect(view.baseProps.onSelectBlock).not.toHaveBeenCalled()
+    expect(selectBlockFallback).toHaveBeenCalledExactlyOnceWith(migrated.id)
   })
 
-  it("uses a unique legacy image match but refuses ambiguous image matches", sliceProfile([]), () => {
-    const slice = createSampleSlice("hero-with-image") as HeroWithImageSlice
-    const unique = setup([slice], {
-      renderPage: (slices, context) =>
-        slices.map((item) =>
-          context.previewSlice?.(item, () => (
+  it("uses a unique legacy image match but refuses ambiguous image matches", blockProfile([]), () => {
+    const block = createSampleBlock("hero-with-image") as HeroWithImageBlock
+    const unique = setup([block], {
+      renderPage: (blocks, context) =>
+        blocks.map((item) =>
+          context.previewBlock?.(item, () => (
             <section>
               {/* eslint-disable-next-line @next/next/no-img-element -- Native fixture tests legacy image matching. */}
               <img
                 data-testid="legacy-image"
-                src={slice.primary.image.url}
-                alt={slice.primary.image.alt ?? ""}
+                src={block.primary.image.url}
+                alt={block.primary.image.alt ?? ""}
               />
             </section>
           ))
@@ -1465,30 +1465,30 @@ describe("descriptor-bound migration click targeting", () => {
     fireEvent.click(unique.getByTestId("legacy-image"))
     expect(unique.baseProps.onSelectField).toHaveBeenCalledWith(
       {
-        sliceId: slice.id,
+        blockId: block.id,
         fieldPath: "primary.image",
       },
       { status: "refused", reason: "unsupported" }
     )
 
-    const ambiguousSlice = structuredClone(slice)
-    ambiguousSlice.items[0].icon = { ...ambiguousSlice.primary.image }
-    const duplicate = setup([ambiguousSlice], {
-      renderPage: (slices, context) =>
-        slices.map((item) =>
-          context.previewSlice?.(item, () => (
+    const ambiguousBlock = structuredClone(block)
+    ambiguousBlock.items[0].icon = { ...ambiguousBlock.primary.image }
+    const duplicate = setup([ambiguousBlock], {
+      renderPage: (blocks, context) =>
+        blocks.map((item) =>
+          context.previewBlock?.(item, () => (
             <section>
               {/* eslint-disable-next-line @next/next/no-img-element -- Native fixture tests legacy image matching. */}
               <img
                 data-testid="ambiguous-image-a"
-                src={ambiguousSlice.primary.image.url}
-                alt={ambiguousSlice.primary.image.alt ?? ""}
+                src={ambiguousBlock.primary.image.url}
+                alt={ambiguousBlock.primary.image.alt ?? ""}
               />
               {/* eslint-disable-next-line @next/next/no-img-element -- Native fixture tests legacy image matching. */}
               <img
                 data-testid="ambiguous-image-b"
-                src={ambiguousSlice.items[0].icon?.url ?? ""}
-                alt={ambiguousSlice.items[0].icon?.alt ?? ""}
+                src={ambiguousBlock.items[0].icon?.url ?? ""}
+                alt={ambiguousBlock.items[0].icon?.alt ?? ""}
               />
             </section>
           ))
@@ -1496,18 +1496,18 @@ describe("descriptor-bound migration click targeting", () => {
     })
     fireEvent.click(duplicate.getByTestId("ambiguous-image-a"))
     expect(duplicate.baseProps.onSelectField).not.toHaveBeenCalled()
-    expect(duplicate.baseProps.onSelectSlice).toHaveBeenCalledWith(
-      ambiguousSlice.id
+    expect(duplicate.baseProps.onSelectBlock).toHaveBeenCalledWith(
+      ambiguousBlock.id
     )
   })
 
-  it("keeps exactly one marker on the active Hero h1 while the editor replaces its children", sliceProfile([]), async () => {
-    const migrated = createSampleSlice("hero-with-image") as HeroWithImageSlice
+  it("keeps exactly one marker on the active Hero h1 while the editor replaces its children", blockProfile([]), async () => {
+    const migrated = createSampleBlock("hero-with-image") as HeroWithImageBlock
     const view = setup([migrated], {
-      renderPage: (slices, context) => (
-        <DefaultSliceBodyContent
+      renderPage: (blocks, context) => (
+        <DefaultBlockBodyContent
           content={{ title: "Preview" } as never}
-          slices={slices}
+          blocks={blocks}
           ctx={context}
         />
       ),
@@ -1532,11 +1532,11 @@ describe("descriptor-bound migration click targeting", () => {
     )
   })
 
-  it("keeps a unique legacy Hero text guess but refuses ambiguous copy", sliceProfile([]), () => {
+  it("keeps a unique legacy Hero text guess but refuses ambiguous copy", blockProfile([]), () => {
     const unique = setup(undefined, {
-      renderPage: (slices, context) =>
-        slices.map((slice) =>
-          context.previewSlice?.(slice, () => (
+      renderPage: (blocks, context) =>
+        blocks.map((block) =>
+          context.previewBlock?.(block, () => (
             <section>
               <div data-testid="legacy-title">First</div>
             </section>
@@ -1545,7 +1545,7 @@ describe("descriptor-bound migration click targeting", () => {
     })
     fireEvent.click(unique.getByTestId("legacy-title"))
     expect(unique.baseProps.onSelectField).toHaveBeenCalledWith({
-      sliceId: "hero-1",
+      blockId: "hero-1",
       fieldPath: "primary.title",
     })
 
@@ -1554,9 +1554,9 @@ describe("descriptor-bound migration click targeting", () => {
       throw new Error("Ambiguous legacy Hero fixture must use Hero Agency")
     duplicate.primary.description = pm("First")
     const ambiguous = setup([duplicate], {
-      renderPage: (slices, context) =>
-        slices.map((slice) =>
-          context.previewSlice?.(slice, () => (
+      renderPage: (blocks, context) =>
+        blocks.map((block) =>
+          context.previewBlock?.(block, () => (
             <section>
               <div data-testid="ambiguous-copy">First</div>
             </section>
@@ -1565,7 +1565,7 @@ describe("descriptor-bound migration click targeting", () => {
     })
     fireEvent.click(ambiguous.getByTestId("ambiguous-copy"))
     expect(ambiguous.baseProps.onSelectField).not.toHaveBeenCalled()
-    expect(ambiguous.baseProps.onSelectSlice).toHaveBeenCalledWith(
+    expect(ambiguous.baseProps.onSelectBlock).toHaveBeenCalledWith(
       "hero-ambiguous"
     )
   })
@@ -1574,7 +1574,7 @@ describe("descriptor-bound migration click targeting", () => {
 describe("Caret placement NEW coordinate consumer contract", () => {
   function expectSoleTitleHeadingMarker(heading: HTMLElement) {
     const occurrence = heading.closest<HTMLElement>(
-      "[data-preview-slice-occurrence]"
+      "[data-preview-block-occurrence]"
     )!
     const markers = occurrence.querySelectorAll(
       '[data-preview-field="primary.title"]'
@@ -1587,9 +1587,9 @@ describe("Caret placement NEW coordinate consumer contract", () => {
   }
 
   async function centeredTitles() {
-    const catalog = await readSlicePresentationCatalog()
-    const slices = ["caret-first", "caret-second"].map((id) => {
-      const sample = createSampleSlice("hero-with-image")
+    const catalog = await readBlockPresentationCatalog()
+    const blocks = ["caret-first", "caret-second"].map((id) => {
+      const sample = createSampleBlock("hero-with-image")
       return {
         ...sample,
         id,
@@ -1598,7 +1598,7 @@ describe("Caret placement NEW coordinate consumer contract", () => {
         primary: { ...sample.primary, title: titleDoc("Repeated headline") },
       }
     })
-    const view = setup(slices, {
+    const view = setup(blocks, {
       renderContext: {
         locale: "en",
         defaultLocale: "en",
@@ -1652,7 +1652,7 @@ describe("Caret placement NEW coordinate consumer contract", () => {
     { point: "letter", clientX: 460, clientY: 180, offset: 4 },
     { point: "word gap", clientX: 653, clientY: 185, offset: 9 },
   ])(
-    "NEW maps a $point click in frame viewport coordinates to the mounted text offset", sliceProfile(["hero-with-image"]),
+    "NEW maps a $point click in frame viewport coordinates to the mounted text offset", blockProfile(["hero-with-image"]),
     async ({ point, clientX, clientY, offset }) => {
       const view = await centeredTitles()
       const mapping = browserPoint(view, offset)
@@ -1692,14 +1692,14 @@ describe("Caret placement NEW coordinate consumer contract", () => {
         )
         expect(view.baseProps.onSelectField).toHaveBeenCalledExactlyOnceWith(
           {
-            sliceId: "caret-first",
+            blockId: "caret-first",
             fieldPath: "primary.title",
             inlineEditing: true,
           },
           { status: "activated" }
         )
         expect(view.handle()?.capture()).toMatchObject({
-          sliceId: "caret-first",
+          blockId: "caret-first",
           fieldPath: "primary.title",
           value: titleDoc("Repeated headline"),
         })
@@ -1712,11 +1712,11 @@ describe("Caret placement NEW coordinate consumer contract", () => {
         expect(editor.getText()).toBe(expected)
         expect(view.onCommit).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
-            sliceId: "caret-first",
+            blockId: "caret-first",
             value: titleDoc(expected),
           })
         )
-        expect(view.baseProps.slices[1].primary).toMatchObject({
+        expect(view.baseProps.blocks[1].primary).toMatchObject({
           title: titleDoc("Repeated headline"),
         })
         view.baseProps.title = "Fresh parent title"
@@ -1727,7 +1727,7 @@ describe("Caret placement NEW coordinate consumer contract", () => {
         expect(view.onConflict).not.toHaveBeenCalled()
         fireEvent.keyDown(host, { key: "Escape" })
         expect(view.queryByRole("textbox")).toBeNull()
-        expect(view.baseProps.slices[0].primary).toMatchObject({
+        expect(view.baseProps.blocks[0].primary).toMatchObject({
           title: titleDoc(expected),
         })
       } finally {
@@ -1736,7 +1736,7 @@ describe("Caret placement NEW coordinate consumer contract", () => {
     }
   )
 
-  it("places the caret from the click-time text offset even if the frame scrolls before mount", sliceProfile(["hero-with-image"]), async () => {
+  it("places the caret from the click-time text offset even if the frame scrolls before mount", blockProfile(["hero-with-image"]), async () => {
     const view = await centeredTitles()
     const heading = view.container.querySelector<HTMLElement>(
       '#caret-first-heading[data-preview-field="primary.title"]'
@@ -1772,7 +1772,7 @@ describe("Caret placement NEW coordinate consumer contract", () => {
     }
   })
 
-  it("NEW falls back to the end when a pointing click cannot map into the mounted editor", sliceProfile(["hero-with-image"]), async () => {
+  it("NEW falls back to the end when a pointing click cannot map into the mounted editor", blockProfile(["hero-with-image"]), async () => {
     const view = await centeredTitles()
     const mapping = browserPoint(view, null)
     const heading = view.container.querySelector<HTMLElement>(
@@ -1800,7 +1800,7 @@ describe("Caret placement NEW coordinate consumer contract", () => {
     }
   })
 
-  it("NEW keeps zero-detail keyboard-style activation at the end without coordinate mapping", sliceProfile(["hero-with-image"]), async () => {
+  it("NEW keeps zero-detail keyboard-style activation at the end without coordinate mapping", blockProfile(["hero-with-image"]), async () => {
     const view = await centeredTitles()
     const mapping = browserPoint(view, 4)
     const heading = view.container.querySelector<HTMLElement>(
@@ -1831,9 +1831,9 @@ describe("Caret placement NEW coordinate consumer contract", () => {
 
 describe("Inline activation NEW centered Hero consumer contract", () => {
   async function centeredSiblings() {
-    const catalog = await readSlicePresentationCatalog()
-    const slices = ["first-centered", "second-centered"].map((id) => {
-      const sample = createSampleSlice("hero-with-image")
+    const catalog = await readBlockPresentationCatalog()
+    const blocks = ["first-centered", "second-centered"].map((id) => {
+      const sample = createSampleBlock("hero-with-image")
       return {
         ...sample,
         id,
@@ -1846,7 +1846,7 @@ describe("Inline activation NEW centered Hero consumer contract", () => {
         },
       }
     })
-    const view = setup(slices, {
+    const view = setup(blocks, {
       renderContext: {
         locale: "en",
         defaultLocale: "en",
@@ -1866,7 +1866,7 @@ describe("Inline activation NEW centered Hero consumer contract", () => {
     )!
     const headingId = heading.id
     const occurrence = heading.closest<HTMLElement>(
-      "[data-preview-slice-occurrence]"
+      "[data-preview-block-occurrence]"
     )!
     const field = heading
     expect(field.dataset.previewInlineContract).toBe("title")
@@ -1896,13 +1896,13 @@ describe("Inline activation NEW centered Hero consumer contract", () => {
     expect(click.defaultPrevented).toBe(true)
     expect(view.baseProps.onSelectField).toHaveBeenCalledExactlyOnceWith(
       {
-        sliceId: "second-centered",
+        blockId: "second-centered",
         fieldPath: "primary.title",
         inlineEditing: true,
       },
       { status: "activated" }
     )
-    expect(view.baseProps.onSelectSlice).not.toHaveBeenCalled()
+    expect(view.baseProps.onSelectBlock).not.toHaveBeenCalled()
     const host = await view.findByRole("textbox", { name: "Inline edit Title" })
     expect(host.parentElement).toBe(heading)
     expect(view.container.querySelector("#second-centered-heading")).toBe(
@@ -1925,7 +1925,7 @@ describe("Inline activation NEW centered Hero consumer contract", () => {
     expect(view.handle()?.hasActiveSession()).toBe(true)
     expect(view.handle()?.capture()).toMatchObject({
       locale: "en",
-      sliceId: "second-centered",
+      blockId: "second-centered",
       fieldPath: "primary.title",
       value: titleDoc("Repeated headline"),
       fieldBinding: {
@@ -1941,37 +1941,37 @@ describe("Inline activation NEW centered Hero consumer contract", () => {
     expect(view.onCommit).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         locale: "en",
-        sliceId: "second-centered",
+        blockId: "second-centered",
         fieldPath: "primary.title",
         value: exact,
       })
     )
     expect(view.onChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({ sliceId: "second-centered", value: exact })
+      expect.objectContaining({ blockId: "second-centered", value: exact })
     )
-    expect(view.baseProps.slices[0].primary).toMatchObject({
+    expect(view.baseProps.blocks[0].primary).toMatchObject({
       title: titleDoc("Repeated headline"),
     })
-    expect(view.baseProps.slices[1].primary).toMatchObject({ title: exact })
+    expect(view.baseProps.blocks[1].primary).toMatchObject({ title: exact })
     expect(view.onConflict).not.toHaveBeenCalled()
   }
 
-  it("NEW dispatches an outer centered H2 through field admission and the exact sibling's parent draft", sliceProfile(["hero-with-image"]), async () => {
+  it("NEW dispatches an outer centered H2 through field admission and the exact sibling's parent draft", blockProfile(["hero-with-image"]), async () => {
     await activateSecond("outer H2")
   })
 
-  it("NEW dispatches the coordinate-bearing word-space span through field admission and its parent draft", sliceProfile(["hero-with-image"]), async () => {
+  it("NEW dispatches the coordinate-bearing word-space span through field admission and its parent draft", blockProfile(["hero-with-image"]), async () => {
     await activateSecond("word-space span")
   })
 
-  it("NEW keeps a disabled centered outer H2 form-only without an inline session or draft write", sliceProfile(["hero-with-image"]), async () => {
+  it("NEW keeps a disabled centered outer H2 form-only without an inline session or draft write", blockProfile(["hero-with-image"]), async () => {
     const { view } = await centeredSiblings()
     fireEvent.click(view.container.querySelector("#second-centered-heading")!, {
       clientX: 652,
       clientY: 270,
     })
     expect(view.baseProps.onSelectField).toHaveBeenCalledExactlyOnceWith({
-      sliceId: "second-centered",
+      blockId: "second-centered",
       fieldPath: "primary.title",
     })
     expect(view.handle()?.hasActiveSession()).toBe(false)
@@ -1981,7 +1981,7 @@ describe("Inline activation NEW centered Hero consumer contract", () => {
   })
 
   it.each(["development", "production"] as const)(
-    "NEW reports activation only in development while %s keeps the same consumer outcome", sliceProfile(["hero-with-image"]),
+    "NEW reports activation only in development while %s keeps the same consumer outcome", blockProfile(["hero-with-image"]),
     async (environment) => {
       const info = vi.spyOn(console, "info").mockImplementation(() => {})
       vi.stubEnv("NODE_ENV", environment)
@@ -1996,7 +1996,7 @@ describe("Inline activation NEW centered Hero consumer contract", () => {
           expect(refusal).not.toHaveBeenCalled()
         } else {
           expect(refusal).toHaveBeenCalledExactlyOnceWith(
-            "slice identity does not resolve to exactly one slice"
+            "block identity does not resolve to exactly one block"
           )
           expect(info).toHaveBeenCalledWith(
             expect.stringContaining(
@@ -2016,7 +2016,7 @@ describe("Inline activation NEW centered Hero consumer contract", () => {
 })
 
 describe("Inline refusal handoff", () => {
-  it("routes a composed-field begin refusal back to its exact form target", sliceProfile([]), async () => {
+  it("routes a composed-field begin refusal back to its exact form target", blockProfile([]), async () => {
     const view = setup()
     enableEditing(view)
     fireEvent.click(
@@ -2032,18 +2032,18 @@ describe("Inline refusal handoff", () => {
     )
 
     expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(
-      { sliceId: "hero-1", fieldPath: "primary.description" },
+      { blockId: "hero-1", fieldPath: "primary.description" },
       { status: "refused", reason: "begin" }
     )
     expect(view.handle()?.capture()?.fieldPath).toBe("primary.title")
   })
 
-  it("reports a refused capture for a field whose rendered occurrence is ambiguous", sliceProfile([]), () => {
+  it("reports a refused capture for a field whose rendered occurrence is ambiguous", blockProfile([]), () => {
     const duplicate = hero("duplicate", "Repeated")
     const view = setup([duplicate, { ...duplicate }])
     enableEditing(view)
     const occurrences = view.container.querySelectorAll(
-      "[data-preview-slice-occurrence]"
+      "[data-preview-block-occurrence]"
     )
     const field = occurrences[1].querySelector<HTMLElement>(
       '[data-preview-field="primary.title"]'
@@ -2053,7 +2053,7 @@ describe("Inline refusal handoff", () => {
 
     expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(
       {
-        sliceId: "__formulacms-legacy-slice-2",
+        blockId: "__formulacms-legacy-block-2",
         fieldPath: "primary.title",
       },
       { status: "refused", reason: "capture" }
@@ -2061,14 +2061,14 @@ describe("Inline refusal handoff", () => {
     expect(view.handle()?.hasActiveSession()).toBe(false)
   })
 
-  it("lets an untouched session yield to a same-field change outside the preview", sliceProfile([]), async () => {
+  it("lets an untouched session yield to a same-field change outside the preview", blockProfile([]), async () => {
     const view = setup()
     enableEditing(view)
     fireEvent.click(
       view.container.querySelector('[data-preview-field="primary.title"]')!
     )
     await view.findByRole("textbox")
-    view.baseProps.slices = [hero("hero-1", "Changed elsewhere")]
+    view.baseProps.blocks = [hero("hero-1", "Changed elsewhere")]
     view.rerender(<PageLivePreview {...view.baseProps} />)
 
     expect(view.onConflict).not.toHaveBeenCalled()
@@ -2079,7 +2079,7 @@ describe("Inline refusal handoff", () => {
     ).toBe("Changed elsewhere")
   })
 
-  it("reports a stale refusal after a typed field changes outside the preview", sliceProfile([]), async () => {
+  it("reports a stale refusal after a typed field changes outside the preview", blockProfile([]), async () => {
     const view = setup()
     enableEditing(view)
     fireEvent.click(
@@ -2091,7 +2091,7 @@ describe("Inline refusal handoff", () => {
         "x"
       )
     )
-    view.baseProps.slices = [hero("hero-1", "Changed elsewhere")]
+    view.baseProps.blocks = [hero("hero-1", "Changed elsewhere")]
     view.rerender(<PageLivePreview {...view.baseProps} />)
 
     fireEvent.click(
@@ -2102,13 +2102,13 @@ describe("Inline refusal handoff", () => {
 
     expect(view.onConflict).toHaveBeenCalled()
     expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(
-      { sliceId: "hero-1", fieldPath: "primary.description" },
+      { blockId: "hero-1", fieldPath: "primary.description" },
       { status: "refused", reason: "stale" }
     )
     expect(view.handle()?.capture()?.fieldPath).toBe("primary.title")
   })
 
-  it("returns a localized fallback result when an enabled field has no inline marker", sliceProfile([]), () => {
+  it("returns a localized fallback result when an enabled field has no inline marker", blockProfile([]), () => {
     const view = setup()
     enableEditing(view)
     const field = view.container.querySelector<HTMLElement>(
@@ -2119,7 +2119,7 @@ describe("Inline refusal handoff", () => {
     fireEvent.click(field)
 
     expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(
-      { sliceId: "hero-1", fieldPath: "primary.title" },
+      { blockId: "hero-1", fieldPath: "primary.title" },
       { status: "refused", reason: "unsupported" }
     )
     expect(view.handle()?.hasActiveSession()).toBe(false)
@@ -2129,9 +2129,9 @@ describe("Inline refusal handoff", () => {
 describe("Unit A amendment3 NEW heading guards", () => {
   function guardedView(kind: "link" | "button" | "distinct" | "div" | "h3") {
     return setup(undefined, {
-      renderPage: (slices, context) =>
-        slices.map((slice) =>
-          context.previewSlice?.(slice, (ctx) => {
+      renderPage: (blocks, context) =>
+        blocks.map((block) =>
+          context.previewBlock?.(block, (ctx) => {
             const title = (
               <RichTextContent
                 value={pm("First")}
@@ -2169,7 +2169,7 @@ describe("Unit A amendment3 NEW heading guards", () => {
   }
 
   it.each(["link", "button"] as const)(
-    "NEW A-R1 refuses an unbound nested %s without retargeting title", sliceProfile([]),
+    "NEW A-R1 refuses an unbound nested %s without retargeting title", blockProfile([]),
     (kind) => {
       const view = guardedView(kind)
       enableEditing(view)
@@ -2186,21 +2186,21 @@ describe("Unit A amendment3 NEW heading guards", () => {
   )
 
   async function withGenuineInlineFields(run: () => void | Promise<void>) {
-    const original = sliceDefs["hero-agency"]
+    const original = blockDefs["hero-agency"]
     const primary = group({
       ...(original.primary.config.fields as Record<string, Primitive>),
       title: richText({ profile: "inline" }),
       description: richText({ profile: "inline" }),
     })
-    Reflect.set(sliceDefs, "hero-agency", { ...original, primary })
+    Reflect.set(blockDefs, "hero-agency", { ...original, primary })
     try {
       await run()
     } finally {
-      Reflect.set(sliceDefs, "hero-agency", original)
+      Reflect.set(blockDefs, "hero-agency", original)
     }
   }
 
-  it("NEW A-R1 refuses a whole H2 with distinct stamped fields without choosing either field", sliceProfile([]), async () =>
+  it("NEW A-R1 refuses a whole H2 with distinct stamped fields without choosing either field", blockProfile([]), async () =>
     withGenuineInlineFields(() => {
       const view = guardedView("distinct")
       enableEditing(view)
@@ -2213,7 +2213,7 @@ describe("Unit A amendment3 NEW heading guards", () => {
     }))
 
   it.each(["div"] as const)(
-    "NEW A-R1 keeps %s ancestor matching form-only", sliceProfile([]),
+    "NEW A-R1 keeps %s ancestor matching form-only", blockProfile([]),
     (kind) => {
       const view = guardedView(kind)
       enableEditing(view)
@@ -2222,7 +2222,7 @@ describe("Unit A amendment3 NEW heading guards", () => {
       expect(view.queryByRole("textbox")).toBeNull()
       expect(view.baseProps.onSelectField).toHaveBeenCalledWith(
         {
-          sliceId: "hero-1",
+          blockId: "hero-1",
           fieldPath: "primary.title",
         },
         { status: "refused", reason: "unsupported" }
@@ -2231,7 +2231,7 @@ describe("Unit A amendment3 NEW heading guards", () => {
     }
   )
 
-  it("NEW A-R1 keeps a precise stamped span editable inside a multi-field heading", sliceProfile([]), async () =>
+  it("NEW A-R1 keeps a precise stamped span editable inside a multi-field heading", blockProfile([]), async () =>
     withGenuineInlineFields(async () => {
       const view = guardedView("distinct")
       enableEditing(view)
@@ -2244,7 +2244,7 @@ describe("Unit A amendment3 NEW heading guards", () => {
       expect(view.handle()?.capture()?.fieldPath).toBe("primary.description")
       expect(view.baseProps.onSelectField).toHaveBeenCalledWith(
         {
-          sliceId: "hero-1",
+          blockId: "hero-1",
           fieldPath: "primary.description",
           inlineEditing: true,
         },
@@ -2254,7 +2254,7 @@ describe("Unit A amendment3 NEW heading guards", () => {
       view.unmount()
     }))
 
-  it("refuses a basic body forged as an inline stamp inside a heading", sliceProfile([]), () => {
+  it("refuses a basic body forged as an inline stamp inside a heading", blockProfile([]), () => {
     const view = guardedView("distinct")
     enableEditing(view)
     fireEvent.click(
@@ -2265,7 +2265,7 @@ describe("Unit A amendment3 NEW heading guards", () => {
     expect(view.queryByRole("textbox")).toBeNull()
     expect(view.handle()?.hasActiveSession()).toBe(false)
     expect(view.baseProps.onSelectField).toHaveBeenCalledWith(
-      { sliceId: "hero-1", fieldPath: "primary.description" },
+      { blockId: "hero-1", fieldPath: "primary.description" },
       { status: "refused", reason: "unsupported" }
     )
     expect(view.onCommit).not.toHaveBeenCalled()
@@ -2275,11 +2275,11 @@ describe("Unit A amendment3 NEW heading guards", () => {
 // RF3 promotes only the opening occurrence, while form-only containers stay guarded.
 describe("RF3 heading activation", () => {
   it.each([1, 2, 3, 4, 5, 6])(
-    "activates a unique stamped inline span from H%s", sliceProfile([]),
+    "activates a unique stamped inline span from H%s", blockProfile([]),
     async (level) => {
       const view = setup(undefined, {
-        renderPage: (slices, context) =>
-          context.previewSlice?.(slices[0], (ctx) =>
+        renderPage: (blocks, context) =>
+          context.previewBlock?.(blocks[0], (ctx) =>
             React.createElement(
               `h${level}`,
               { "data-testid": "outline-host" },
@@ -2302,12 +2302,12 @@ describe("RF3 heading activation", () => {
 
 describe("RF4b preview ownership", () => {
   it.each(["en", "fr"])(
-    "%s matches public ownership after an earlier section", sliceProfile(["faq-simple","hero-with-image"]),
+    "%s matches public ownership after an earlier section", blockProfile(["faq-simple","hero-with-image"]),
     async (locale) => {
-      const catalog = await readSlicePresentationCatalog()
+      const catalog = await readBlockPresentationCatalog()
       for (const presentationId of ["default", "centered"]) {
-        const section = createSampleSlice("faq-simple")
-        const sample = createSampleSlice("hero-with-image")
+        const section = createSampleBlock("faq-simple")
+        const sample = createSampleBlock("hero-with-image")
         const makeHero = (id: string, title: string) => ({
           ...sample,
           id,
@@ -2315,7 +2315,7 @@ describe("RF4b preview ownership", () => {
           primary: { ...sample.primary, title: titleDoc(title) },
         })
         const title = locale === "fr" ? "Titre localisé" : "Localized title"
-        const slices = [
+        const blocks = [
           section,
           { ...makeHero("disabled", "Disabled"), enabled: false },
           makeHero("empty", ""),
@@ -2328,14 +2328,14 @@ describe("RF4b preview ownership", () => {
           pagePaths: {},
           presentationCatalog: catalog,
         }
-        const view = setup(slices, { locale, renderContext })
+        const view = setup(blocks, { locale, renderContext })
         const publicContainer = document.createElement("div")
         publicContainer.innerHTML = renderToStaticMarkup(
-          <DefaultSliceBodyContent
+          <DefaultBlockBodyContent
             content={
-              { title: "Preview", slices } as SliceBodyRendererProps["content"]
+              { title: "Preview", blocks } as BlockBodyRendererProps["content"]
             }
-            slices={slices}
+            blocks={blocks}
             ctx={renderContext}
           />
         )
@@ -2357,8 +2357,8 @@ describe("RF4b preview ownership", () => {
   )
 })
 
-function ed10Description(slices: Slice[]) {
-  const primary = slices[0].primary
+function ed10Description(blocks: Block[]) {
+  const primary = blocks[0].primary
   return "description" in primary ? primary.description : undefined
 }
 
@@ -2400,12 +2400,12 @@ const ed10OwnerDescription = JSON.stringify({
 describe("ED10 preview behaviour", () => {
   it.each([true, false])(
     "ED10 multi-click fallback guard (enabled=%s)",
-    sliceProfile([]),
+    blockProfile([]),
     async (enabled) => {
       const fallback = vi.fn()
       const view = setup(undefined, {
         controlledInlineEnabled: enabled,
-        onSelectSliceFallback: fallback,
+        onSelectBlockFallback: fallback,
       })
       const field = view.container.querySelector<HTMLElement>(
         '[data-preview-field="primary.description"]'
@@ -2430,7 +2430,7 @@ describe("ED10 preview behaviour", () => {
 
   it(
     "ED10 mounted editor double-click keeps native selection events",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = setup()
       const { host } = await begin(view, "primary.description")
@@ -2448,14 +2448,14 @@ describe("ED10 preview behaviour", () => {
 
   it.each([pm("Copy"), ed10OwnerDescription])(
     "ED10 toggle-off flushes the touched island and ends its session (%#)",
-    sliceProfile([]),
+    blockProfile([]),
     async (description) => {
       const base = hero("hero-1", "First")
-      const slice = {
+      const block = {
         ...base,
         primary: { ...base.primary, description },
-      } as Slice
-      const view = setup([slice])
+      } as Block
+      const view = setup([block])
       const { editor } = await begin(view, "primary.description")
       act(() => editor.commands.insertContent("island "))
       // Simulate a final document mutation not yet delivered by onUpdate.
@@ -2465,14 +2465,14 @@ describe("ED10 preview behaviour", () => {
         )
       )
       const finalValue = JSON.stringify(editor.getJSON())
-      expect(JSON.stringify(view.baseProps.slices)).not.toContain("last ")
+      expect(JSON.stringify(view.baseProps.blocks)).not.toContain("last ")
       view.baseProps.controlledInlineEnabled = false
       await act(async () =>
         view.rerender(<PageLivePreview {...view.baseProps} />)
       )
       expect(view.handle()?.hasActiveSession()).toBe(false)
       expect(view.queryByRole("textbox")).toBeNull()
-      expect(ed10Description(view.baseProps.slices)).toBe(finalValue)
+      expect(ed10Description(view.baseProps.blocks)).toBe(finalValue)
       expect(view.onConflict).not.toHaveBeenCalled()
       expect(view.onChange).toHaveBeenLastCalledWith(null)
     }
@@ -2480,7 +2480,7 @@ describe("ED10 preview behaviour", () => {
 
   it(
     "ED10 toggle-off waits for composition then flushes and leaves",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = setup()
       const { host, editor } = await begin(view, "primary.description")
@@ -2494,25 +2494,25 @@ describe("ED10 preview behaviour", () => {
       const value = JSON.stringify(editor.getJSON())
       fireEvent.compositionEnd(host)
       await waitFor(() => expect(view.handle()?.hasActiveSession()).toBe(false))
-      expect(ed10Description(view.baseProps.slices)).toBe(value)
+      expect(ed10Description(view.baseProps.blocks)).toBe(value)
       expect(view.onConflict).not.toHaveBeenCalled()
     }
   )
 
   it.each([pm("Copy"), ed10OwnerDescription])(
     "ED10 untouched toggle-off keeps the original bytes (%#)",
-    sliceProfile([]),
+    blockProfile([]),
     async (description) => {
       const base = hero("hero-1", "First")
       const view = setup([
-        { ...base, primary: { ...base.primary, description } } as Slice,
+        { ...base, primary: { ...base.primary, description } } as Block,
       ])
       await begin(view, "primary.description")
       view.baseProps.controlledInlineEnabled = false
       await act(async () =>
         view.rerender(<PageLivePreview {...view.baseProps} />)
       )
-      expect(ed10Description(view.baseProps.slices)).toBe(description)
+      expect(ed10Description(view.baseProps.blocks)).toBe(description)
       expect(view.onCommit).not.toHaveBeenCalled()
       expect(view.handle()?.hasActiveSession()).toBe(false)
     }
@@ -2520,7 +2520,7 @@ describe("ED10 preview behaviour", () => {
 
   it(
     "ED10 a locale switch refuses a deferred old-locale flush",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = setup()
       const { host, editor } = await begin(view, "primary.description")
@@ -2535,17 +2535,17 @@ describe("ED10 preview behaviour", () => {
       view.onCommit.mockClear()
       const next = hero("hero-1", "French")
       view.baseProps.locale = "fr"
-      view.baseProps.slices = [
+      view.baseProps.blocks = [
         {
           ...next,
           primary: { ...next.primary, description: pm("French draft") },
-        } as Slice,
+        } as Block,
       ]
       view.rerender(<PageLivePreview {...view.baseProps} />)
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 5))
       })
-      expect(ed10Description(view.baseProps.slices)).toBe(pm("French draft"))
+      expect(ed10Description(view.baseProps.blocks)).toBe(pm("French draft"))
       expect(view.onCommit).not.toHaveBeenCalled()
       expect(view.onConflict).toHaveBeenCalled()
       expect(view.handle()?.capture()?.value).toBe(pending)
@@ -2554,7 +2554,7 @@ describe("ED10 preview behaviour", () => {
 
   it(
     "ED10 frame teardown cancels a deferred session end",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = setup()
       const { host } = await begin(view, "primary.description")
@@ -2576,17 +2576,17 @@ describe("ED10 preview behaviour", () => {
 
   it(
     "ED10 untouched sidebar edit still yields without a conflict",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = setup()
       const { host } = await begin(view, "primary.description")
       fireEvent.blur(host, { relatedTarget: null })
-      view.baseProps.slices = view.baseProps.slices.map(
-        (slice) =>
+      view.baseProps.blocks = view.baseProps.blocks.map(
+        (block) =>
           ({
-            ...slice,
-            primary: { ...slice.primary, description: pm("Copy /") },
-          }) as Slice
+            ...block,
+            primary: { ...block.primary, description: pm("Copy /") },
+          }) as Block
       )
       view.rerender(<PageLivePreview {...view.baseProps} />)
       expect(view.onConflict).not.toHaveBeenCalled()
@@ -2596,19 +2596,19 @@ describe("ED10 preview behaviour", () => {
 
   it(
     "ED10 touched sidebar focus adopts the flushed island before immediate typing",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const frameBody = document.createElement("div")
       document.body.append(frameBody)
       let active: PreviewActiveEditHandle | null = null
-      let draft: Slice[] = [hero("hero-1", "First")]
+      let draft: Block[] = [hero("hero-1", "First")]
       const conflict = vi.fn()
       const changes = vi.fn()
       function Parent() {
-        const [slices, setSlices] = React.useState(draft)
-        function replace(next: Slice[]) {
+        const [blocks, setBlocks] = React.useState(draft)
+        function replace(next: Block[]) {
           draft = next
-          setSlices(next)
+          setBlocks(next)
         }
         return (
           <ConfirmProvider>
@@ -2616,13 +2616,13 @@ describe("ED10 preview behaviour", () => {
               <RichTextEditor
                 label="Sidebar Description"
                 profile="basic"
-                value={String(ed10Description(slices))}
+                value={String(ed10Description(blocks))}
                 onChange={(value) => {
                   replace(
-                    slices.map((slice) => ({
-                      ...slice,
-                      primary: { ...slice.primary, description: value },
-                    })) as Slice[]
+                    blocks.map((block) => ({
+                      ...block,
+                      primary: { ...block.primary, description: value },
+                    })) as Block[]
                   )
                 }}
               />
@@ -2630,11 +2630,11 @@ describe("ED10 preview behaviour", () => {
             {createPortal(
               <PageLivePreview
                 title="Preview"
-                slices={slices}
+                blocks={blocks}
                 locale="en"
                 defaultLocale="en"
-                selectedSliceId={null}
-                onSelectSlice={() => {}}
+                selectedBlockId={null}
+                onSelectBlock={() => {}}
                 onSelectField={() => {}}
                 controlledInlineEnabled
                 contentEpoch={0}
@@ -2711,11 +2711,11 @@ describe("form-only rich-text click carries the clicked spot", () => {
     ],
   })
   function bodyView() {
-    const slice = createSampleSlice("rich-text-body") as Slice & {
+    const block = createSampleBlock("rich-text-body") as Block & {
       primary: { body: string }
     }
-    slice.primary.body = body
-    const view = setup([slice])
+    block.primary.body = body
+    const view = setup([block])
     enableEditing(view)
     const field = view.container.querySelector<HTMLElement>(
       '[data-preview-field="primary.body"]'
@@ -2727,14 +2727,14 @@ describe("form-only rich-text click carries the clicked spot", () => {
       configurable: true,
       value: () => range,
     })
-    return { view, slice, field }
+    return { view, block, field }
   }
   afterEach(() => {
     Reflect.deleteProperty(document, "caretRangeFromPoint")
   })
 
-  it("sends the text offset of a pointer click in paragraph 2", sliceProfile(["rich-text-body"]), () => {
-    const { view, slice, field } = bodyView()
+  it("sends the text offset of a pointer click in paragraph 2", blockProfile(["rich-text-body"]), () => {
+    const { view, block, field } = bodyView()
     fireEvent.click(field.querySelectorAll("p")[1]!, {
       detail: 1,
       clientX: 5,
@@ -2742,22 +2742,22 @@ describe("form-only rich-text click carries the clicked spot", () => {
     })
     // 1 + "First one" + 1 + "Second ".
     expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(
-      { sliceId: slice.id, fieldPath: "primary.body", textOffset: 18 },
+      { blockId: block.id, fieldPath: "primary.body", textOffset: 18 },
       { status: "refused", reason: "unsupported" }
     )
   })
 
-  it("sends no offset for a keyboard click", sliceProfile(["rich-text-body"]), () => {
-    const { view, slice, field } = bodyView()
+  it("sends no offset for a keyboard click", blockProfile(["rich-text-body"]), () => {
+    const { view, block, field } = bodyView()
     fireEvent.click(field, { detail: 0 })
     expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(
-      { sliceId: slice.id, fieldPath: "primary.body" },
+      { blockId: block.id, fieldPath: "primary.body" },
       { status: "refused", reason: "unsupported" }
     )
   })
 })
 
-describe("plain-text field click carries the clicked letter", () => {
+describe("plain-text field click: in place when allowed, else the clicked letter", () => {
   function eyebrowView(enabled: boolean) {
     const view = setup()
     if (enabled) enableEditing(view)
@@ -2777,26 +2777,27 @@ describe("plain-text field click carries the clicked letter", () => {
   })
 
   it.each([true, false])(
-    "sends the offset with edit-in-preview %s",
-    sliceProfile([]),
+    "sends the offset with editing in the preview allowed: %s",
+    blockProfile([]),
     (enabled) => {
       const { view, field } = eyebrowView(enabled)
       expect(field.textContent).toBe("Agency")
       fireEvent.click(field, { detail: 1, clientX: 5, clientY: 5 })
-      // One implicit block, then "Age". With editing in the preview off,
-      // every field is edited in the form: no "form only" notice.
-      const target = {
-        sliceId: "hero-1",
-        fieldPath: "primary.eyebrow",
-        textOffset: 4,
-      }
+      // One implicit block, then "Age". While editing in the preview is
+      // blocked, every field is edited in the form: no refusal result.
+      // Allowed: the one-line plain text field opens in place (PR A3), and
+      // its editor takes the clicked letter.
       if (enabled)
-        expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(target, {
-          status: "refused",
-          reason: "unsupported",
-        })
+        expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(
+          { blockId: "hero-1", fieldPath: "primary.eyebrow", inlineEditing: true },
+          { status: "activated" }
+        )
       else
-        expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith(target)
+        expect(view.baseProps.onSelectField).toHaveBeenLastCalledWith({
+          blockId: "hero-1",
+          fieldPath: "primary.eyebrow",
+          textOffset: 4,
+        })
     }
   )
 })

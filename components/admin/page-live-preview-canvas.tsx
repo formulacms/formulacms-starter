@@ -1,7 +1,7 @@
 "use client"
 
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
 import {
   mergeRemovedLinks,
   type RemovedRichTextLink,
@@ -10,11 +10,11 @@ import {
 import {
   resolvePageOutline,
   pageHeadingModeFor,
-} from "@/lib/slices/page-outline"
+} from "@/lib/blocks/page-outline"
 
 import {
   adminFieldMetadata,
-  adminSliceMetadata,
+  adminBlockMetadata,
   type AdminMetadataTranslator,
 } from "@/lib/i18n/admin-metadata"
 
@@ -33,17 +33,20 @@ import { useTranslations } from "next-intl"
 import {
   type ImageField,
   type Primitive,
-  type Slice,
-} from "@/convex/lib/slices"
-import { withUniqueSliceRenderIds } from "@/convex/lib/slices/identity"
+  type Block,
+} from "@/convex/lib/blocks"
+import { withUniqueBlockRenderIds } from "@/convex/lib/blocks/identity"
 import {
   resolveFieldContract,
   type FieldContract,
   type ResolvedFieldContract,
 } from "@/convex/lib/richtext/contracts"
-import { SliceZone } from "@/components/slices/slice-zone"
-import type { SliceRenderContext } from "@/lib/slices/links"
-import { parseFieldPath } from "./page-editor/lib/field-path"
+import { BlockList } from "@/components/blocks/block-list"
+import type { BlockRenderContext } from "@/lib/blocks/links"
+import {
+  parseFieldPath,
+  setValueAtFieldPath,
+} from "./page-editor/lib/field-path"
 import { cn } from "@/lib/utils"
 import type {
   PreviewActiveEditHandle,
@@ -56,6 +59,7 @@ import {
   applyPageField,
   rebasePageField,
   reconcilePageFieldEcho,
+  isInPlacePlainText,
   isPrimaryListPath,
 } from "./page-editor/lib/page-inline-draft"
 import type { PreviewInlineSession } from "./preview-inline-session"
@@ -101,6 +105,9 @@ type PreviewFieldTarget = {
   /** The installed descriptor profile; direct editing must never widen it. */
   profile?: FieldContract
   resolvedContract?: ResolvedFieldContract
+  /** A one-line plain text field, edited in place like a title. */
+  plainLine?: boolean
+  maxLength?: number
 }
 
 type PreviewFieldMatch = {
@@ -112,14 +119,14 @@ type PreviewFieldMatch = {
 /** The field selection a preview click reports: one click is the default,
  *  only a double or triple click says so. */
 function previewFieldSelection(
-  sliceId: string,
+  blockId: string,
   fieldPath: string,
   result?: PreviewInlineActivationResult,
   click?: PreviewClickPoint
 ): PreviewFieldSelection {
   const clickCount = click?.clickCount
   return {
-    sliceId,
+    blockId,
     fieldPath,
     ...(result?.status === "activated" ? { inlineEditing: true } : {}),
     ...(click?.textOffset !== undefined ? { textOffset: click.textOffset } : {}),
@@ -197,6 +204,13 @@ function collectPreviewTargets(
           label,
           kind: "text",
           text,
+          value: value as string,
+          ...(isInPlacePlainText(def)
+            ? {
+                plainLine: true,
+                maxLength: (def.config as { maxLength?: number }).maxLength,
+              }
+            : {}),
         })
       }
       return
@@ -270,26 +284,26 @@ function collectPreviewTargets(
   }
 }
 
-function previewTargetsForSlice(
-  slice: Slice,
+function previewTargetsForBlock(
+  block: Block,
   labels: { primary: string; items: string },
   tMetadata: AdminMetadataTranslator
 ): PreviewFieldTarget[] {
-  const def = readSliceDefinition(readSlice(slice).type)
+  const def = readBlockDefinition(readBlock(block).type)
   if (!def) return []
   const targets: PreviewFieldTarget[] = []
   collectPreviewTargets(
     def.primary,
-    readSlice(slice).primary,
+    readBlock(block).primary,
     "primary",
     labels.primary,
     targets,
     tMetadata
   )
-  if (def.items !== undefined && "items" in slice) {
+  if (def.items !== undefined && "items" in block) {
     collectPreviewTargets(
       def.items,
-      (slice as { items?: unknown[] }).items,
+      (block as { items?: unknown[] }).items,
       "items",
       labels.items,
       targets,
@@ -404,17 +418,45 @@ function fieldMatchFromClick(
   return null
 }
 
-function AdminSlicePreviewZone({
+/**
+ * The in-place editor a matched field host opens, or null when the field is
+ * edited in the form: a title, inline or basic rich-text field, or a one-line
+ * plain text field ("plain"), on its own marked host and outside a primary
+ * list. Full rich text, multiline text, images and list rows stay in the form.
+ */
+function inPlaceMode(
+  block: Block,
+  { target, element }: PreviewFieldMatch
+): FieldContract | "plain" | null {
+  if (element.dataset.previewField !== target.fieldPath) return null
+  const def = readBlockDefinition(readBlock(block).type)
+  if (def && isPrimaryListPath(def.primary, target.fieldPath)) return null
+  const marker = element.dataset.previewInlineContract
+  if (target.kind === "text")
+    return target.plainLine && marker === "plain" ? "plain" : null
+  const profile = target.profile
+  if (
+    target.kind !== "richText" ||
+    !profile ||
+    !["inline", "title", "basic"].includes(profile)
+  )
+    return null
+  return marker === profile || (profile === "title" && marker === "inline")
+    ? profile
+    : null
+}
+
+function AdminBlockPreviewZone({
   title,
-  slices,
+  blocks,
   ctx,
-  selectedSliceId,
-  onSelectSlice,
-  onSelectSliceFallback,
+  selectedBlockId,
+  onSelectBlock,
+  onSelectBlockFallback,
   onSelectField,
   inlineEditingEnabled,
   onBeginInlineEdit,
-  registerSliceNode,
+  registerBlockNode,
   activeSession,
   inlineEditor: PreviewInlineEditor,
   initialPoint,
@@ -426,21 +468,21 @@ function AdminSlicePreviewZone({
   renderPage,
 }: {
   title: string
-  slices: Slice[]
-  ctx: SliceRenderContext
-  selectedSliceId: string | null
-  onSelectSlice: (sliceId: string) => void
-  onSelectSliceFallback?: (sliceId: string) => void
+  blocks: Block[]
+  ctx: BlockRenderContext
+  selectedBlockId: string | null
+  onSelectBlock: (blockId: string) => void
+  onSelectBlockFallback?: (blockId: string) => void
   onSelectField: (
     target: PreviewFieldSelection,
     result?: PreviewInlineActivationResult
   ) => void
   inlineEditingEnabled: boolean
   onBeginInlineEdit: (
-    sliceId: string,
+    blockId: string,
     match: PreviewFieldMatch
   ) => PreviewInlineActivationResult
-  registerSliceNode: (sliceId: string, node: HTMLDivElement | null) => void
+  registerBlockNode: (blockId: string, node: HTMLDivElement | null) => void
   activeSession: PreviewInlineSession | null
   /** The loaded in-place editor; null while its code is still loading. */
   inlineEditor: InlineEditorComponent | null
@@ -450,24 +492,24 @@ function AdminSlicePreviewZone({
   onCancel: () => void
   onCompositionChange: (composing: boolean) => void
   onFlushHandleChange: (flush: (() => void) | null) => void
-  renderPage?: (slices: Slice[], context: SliceRenderContext) => ReactNode
+  renderPage?: (blocks: Block[], context: BlockRenderContext) => ReactNode
 }) {
   const t = useTranslations("editor.livePreview")
   const tMetadata = useTranslations("metadata")
-  const visible = slices.filter((slice) => readSlice(slice).enabled !== false)
+  const visible = blocks.filter((block) => readBlock(block).enabled !== false)
 
-  const interceptedContext: SliceRenderContext = {
+  const interceptedContext: BlockRenderContext = {
     ...ctx,
-    previewSlice: (slice, render) => {
+    previewBlock: (block, render) => {
       const index = visible.findIndex(
-        (entry) => readSlice(entry).id === readSlice(slice).id
+        (entry) => readBlock(entry).id === readBlock(block).id
       )
       const label =
-        adminSliceMetadata(readSlice(slice).type, tMetadata)?.label ??
-        readSlice(slice).type
-      const selected = selectedSliceId === readSlice(slice).id
-      const fieldTargets = previewTargetsForSlice(
-        slice,
+        adminBlockMetadata(readBlock(block).type, tMetadata)?.label ??
+        readBlock(block).type
+      const selected = selectedBlockId === readBlock(block).id
+      const fieldTargets = previewTargetsForBlock(
+        block,
         {
           primary: t("primary"),
           items: t("items"),
@@ -475,14 +517,14 @@ function AdminSlicePreviewZone({
         tMetadata
       )
 
-      function selectSlice() {
-        onSelectSlice(readSlice(slice).id)
+      function selectBlock() {
+        onSelectBlock(readBlock(block).id)
       }
 
-      function focusSliceFormFallback(clickCount: number) {
+      function focusBlockFormFallback(clickCount: number) {
         if (clickCount > 1) return
-        if (onSelectSliceFallback) onSelectSliceFallback(readSlice(slice).id)
-        else selectSlice()
+        if (onSelectBlockFallback) onSelectBlockFallback(readBlock(block).id)
+        else selectBlock()
       }
 
       function selectField(
@@ -491,7 +533,7 @@ function AdminSlicePreviewZone({
         click?: PreviewClickPoint
       ) {
         const target = previewFieldSelection(
-          readSlice(slice).id,
+          readBlock(block).id,
           fieldPath,
           result,
           click
@@ -513,8 +555,9 @@ function AdminSlicePreviewZone({
             ? readPreviewClick(match.element, event)
             : undefined
         if (!inlineEditingEnabled) {
-          // With editing in the preview off, every field is edited in the
-          // form, so no field is "form only": no notice, except for images.
+          // While the editor blocks editing in the preview (a recovered
+          // draft waits, a repeated conflict, a lock, a reload needed),
+          // every field is edited in the form; an image always is.
           selectField(
             match.target.fieldPath,
             match.target.kind === "image"
@@ -524,37 +567,22 @@ function AdminSlicePreviewZone({
           )
           return false
         }
-        const supported =
-          match.target.kind === "richText" &&
-          ["inline", "title", "basic"].includes(match.target.profile ?? "") &&
-          (match.element.dataset.previewInlineContract ===
-            match.target.profile ||
-            (match.target.profile === "title" &&
-              match.element.dataset.previewInlineContract === "inline")) &&
-          match.element.dataset.previewField === match.target.fieldPath
-        if (process.env.NODE_ENV === "development") {
-          const reasons = [
-            match.target.kind !== "richText" &&
-              "matched field is not rich text",
-            match.target.profile !== "inline" &&
-              match.target.profile !== "title" &&
-              match.target.profile !== "basic" &&
-              "field profile is not inline",
-            !["inline", "title", "basic"].includes(
-              match.element.dataset.previewInlineContract ?? ""
-            ) && "matched element has no inline profile",
-            match.element.dataset.previewField !== match.target.fieldPath &&
-              "matched element does not identify the matched field",
-          ].filter(Boolean)
+        // Every form-only field is refused here, with the click, so its
+        // form control gets the clicked spot and count.
+        const supported = inPlaceMode(block, match) !== null
+        if (process.env.NODE_ENV === "development")
           inlineActivationDiagnostic(
             supported ? "Supported field can begin" : "Supported field refused",
             {
-              sliceId: readSlice(slice).id,
+              blockId: readBlock(block).id,
               fieldPath: match.target.fieldPath,
-              reasons,
+              kind: match.target.kind,
+              profile: match.target.profile ?? null,
+              marker:
+                match.element.dataset.previewInlineContract ?? null,
+              markedField: match.element.dataset.previewField ?? null,
             }
           )
-        }
         if (!supported) {
           selectField(
             match.target.fieldPath,
@@ -563,7 +591,7 @@ function AdminSlicePreviewZone({
           )
           return false
         }
-        const result = onBeginInlineEdit(readSlice(slice).id, {
+        const result = onBeginInlineEdit(readBlock(block).id, {
           ...match,
           point: click,
         })
@@ -573,13 +601,13 @@ function AdminSlicePreviewZone({
 
       return (
         <div
-          key={readSlice(slice).id}
-          data-preview-slice-occurrence
-          ref={(node) => registerSliceNode(readSlice(slice).id, node)}
+          key={readBlock(block).id}
+          data-preview-block-occurrence
+          ref={(node) => registerBlockNode(readBlock(block).id, node)}
           onClickCapture={(event) => {
             if (process.env.NODE_ENV === "development")
-              inlineActivationDiagnostic("Click reached the slice", {
-                sliceId: readSlice(slice).id,
+              inlineActivationDiagnostic("Click reached the block", {
+                blockId: readBlock(block).id,
                 target: diagnosticElement(event.target),
                 clientX: event.clientX,
                 clientY: event.clientY,
@@ -592,16 +620,21 @@ function AdminSlicePreviewZone({
               inlineActivationDiagnostic(
                 "Click stays in the active inline editor"
               )
+              // A plain text host may sit in a link, button or label. A
+              // click in its editor places the caret only: it never follows
+              // the link, submits or moves the focus.
+              if (event.target.closest("a, button, label"))
+                event.preventDefault()
               return
             }
             event.preventDefault()
             event.stopPropagation()
             if (
               event.target instanceof HTMLElement &&
-              event.target.closest("[data-preview-slice-control]")
+              event.target.closest("[data-preview-block-control]")
             ) {
-              inlineActivationDiagnostic("Click selects a slice control")
-              selectSlice()
+              inlineActivationDiagnostic("Click selects a block control")
+              selectBlock()
               return
             }
             const match = fieldMatchFromClick(
@@ -611,7 +644,7 @@ function AdminSlicePreviewZone({
             )
             if (process.env.NODE_ENV === "development")
               inlineActivationDiagnostic("Click field match", {
-                sliceId: readSlice(slice).id,
+                blockId: readBlock(block).id,
                 match: match
                   ? {
                       fieldPath: match.target.fieldPath,
@@ -625,12 +658,12 @@ function AdminSlicePreviewZone({
               beginInlineIfSupported(match, event)
               return
             }
-            focusSliceFormFallback(event.detail)
+            focusBlockFormFallback(event.detail)
           }}
           onDoubleClickCapture={(event) => {
             if (process.env.NODE_ENV === "development")
-              inlineActivationDiagnostic("Double click reached the slice", {
-                sliceId: readSlice(slice).id,
+              inlineActivationDiagnostic("Double click reached the block", {
+                blockId: readBlock(block).id,
                 target: diagnosticElement(event.target),
                 clientX: event.clientX,
                 clientY: event.clientY,
@@ -658,15 +691,15 @@ function AdminSlicePreviewZone({
             )
             if (!inlineEditingEnabled) {
               inlineActivationDiagnostic(
-                "Double click refused: inline editing is switched off"
+                "Double click refused: editing in the preview is blocked"
               )
               if (match) beginInlineIfSupported(match, event)
-              else focusSliceFormFallback(event.detail)
+              else focusBlockFormFallback(event.detail)
               return
             }
             if (process.env.NODE_ENV === "development")
               inlineActivationDiagnostic("Double click field match", {
-                sliceId: readSlice(slice).id,
+                blockId: readBlock(block).id,
                 match: match
                   ? {
                       fieldPath: match.target.fieldPath,
@@ -677,7 +710,7 @@ function AdminSlicePreviewZone({
                   : null,
               })
             if (!match) {
-              focusSliceFormFallback(event.detail)
+              focusBlockFormFallback(event.detail)
               return
             }
             beginInlineIfSupported(match, event)
@@ -703,7 +736,7 @@ function AdminSlicePreviewZone({
                     (entry) => entry.fieldPath === fieldPath
                   )
                   const editingThisField =
-                    activeSession?.sliceId === readSlice(slice).id &&
+                    activeSession?.blockId === readBlock(block).id &&
                     activeSession.fieldPath === fieldPath
                   if (!target && !editingThisField) return rendered
                   if (
@@ -713,7 +746,7 @@ function AdminSlicePreviewZone({
                   ) {
                     const editor = (
                       <PreviewInlineEditor
-                        key={`${readSlice(slice).id}:${fieldPath}`}
+                        key={`${readBlock(block).id}:${fieldPath}`}
                         fieldPath={fieldPath}
                         contract={contract}
                         resolvedContract={target?.resolvedContract}
@@ -757,13 +790,13 @@ function AdminSlicePreviewZone({
                       })
                     : rendered
                 },
-                previewField: ({ fieldPath, rendered }) => {
+                previewField: ({ fieldPath, kind, rendered }) => {
                   const normalized = parseFieldPath(fieldPath).join(".")
                   const target = fieldTargets.find(
                     (entry) => entry.fieldPath === normalized
                   )
                   const editingThisField =
-                    activeSession?.sliceId === readSlice(slice).id &&
+                    activeSession?.blockId === readBlock(block).id &&
                     activeSession.fieldPath === normalized
                   if (
                     (!target && !editingThisField) ||
@@ -771,11 +804,47 @@ function AdminSlicePreviewZone({
                   ) {
                     return rendered
                   }
+                  // A one-line plain text host opens in place, as a title,
+                  // when the field's text is all it holds (the kit's `Text`).
+                  const marker =
+                    kind === "text" &&
+                    target?.plainLine &&
+                    typeof rendered.props.children === "string"
+                      ? { "data-preview-inline-contract": "plain" }
+                      : {}
+                  if (
+                    editingThisField &&
+                    PreviewInlineEditor &&
+                    activeSession.kind === "text" &&
+                    "data-preview-inline-contract" in marker
+                  )
+                    // Same host, same id; the editor replaces its text only.
+                    return cloneElement(
+                      rendered,
+                      { "data-preview-field": normalized, ...marker },
+                      <PreviewInlineEditor
+                        key={`${readBlock(block).id}:${normalized}`}
+                        fieldPath={normalized}
+                        plainText
+                        maxLength={target?.maxLength}
+                        value={activeSession.draft}
+                        initialPoint={initialPoint}
+                        label={t("inlineEdit", {
+                          label: activeSession.label,
+                        })}
+                        onChange={onDraftChange}
+                        onCancel={onCancel}
+                        onCommit={onCommit}
+                        onCompositionChange={onCompositionChange}
+                        onFlushHandleChange={onFlushHandleChange}
+                      />
+                    )
                   return cloneElement(rendered, {
                     "data-preview-field": normalized,
+                    ...marker,
                   })
                 },
-                previewKitSlice: (rendered) =>
+                previewKitBlock: (rendered) =>
                   isValidElement<Record<string, unknown>>(rendered)
                     ? cloneElement(rendered, {
                         "data-preview-field-kit": "true",
@@ -785,13 +854,13 @@ function AdminSlicePreviewZone({
             : null}
           <button
             type="button"
-            data-preview-slice-control
-            aria-label={t("editSlice", { label, index: index + 1 })}
+            data-preview-block-control
+            aria-label={t("editBlock", { label, index: index + 1 })}
             aria-pressed={selected}
             onClick={(event) => {
               event.preventDefault()
               event.stopPropagation()
-              selectSlice()
+              selectBlock()
             }}
             className={cn(
               "absolute top-3 left-3 z-30 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground opacity-0 shadow-sm transition-opacity outline-none",
@@ -814,16 +883,16 @@ function AdminSlicePreviewZone({
     },
   }
   const outline = resolvePageOutline({
-    slices,
+    blocks,
     locale: ctx.locale,
     mode: pageHeadingModeFor("page"),
   })
   return renderPage ? (
-    renderPage(slices, interceptedContext)
+    renderPage(blocks, interceptedContext)
   ) : (
     <>
       {outline.hostRendersFallbackH1 && <h1 className="sr-only">{title}</h1>}
-      <SliceZone slices={slices} ctx={interceptedContext} outline={outline} />
+      <BlockList blocks={blocks} ctx={interceptedContext} outline={outline} />
     </>
   )
 }
@@ -844,14 +913,14 @@ export function isBlockMostlyInView(
 
 export function PageLivePreviewCanvas({
   title,
-  slices,
+  blocks,
   locale,
   defaultLocale,
   contentEpoch = 0,
   inlineEditEcho,
-  selectedSliceId,
-  onSelectSlice,
-  onSelectSliceFallback,
+  selectedBlockId,
+  onSelectBlock,
+  onSelectBlockFallback,
   onSelectField,
   onInlineEditCommit,
   onActiveEditHandleChange,
@@ -860,17 +929,17 @@ export function PageLivePreviewCanvas({
   controlledInlineEnabled,
   renderContext,
   renderPage,
-  renderSlicesTransform,
+  renderBlocksTransform,
 }: {
   title: string
-  slices: Slice[]
+  blocks: Block[]
   locale: string
   defaultLocale: string
   contentEpoch?: number
   inlineEditEcho?: PreviewInlineEditCommit
-  selectedSliceId: string | null
-  onSelectSlice: (sliceId: string) => void
-  onSelectSliceFallback?: (sliceId: string) => void
+  selectedBlockId: string | null
+  onSelectBlock: (blockId: string) => void
+  onSelectBlockFallback?: (blockId: string) => void
   onSelectField: (
     target: PreviewFieldSelection,
     result?: PreviewInlineActivationResult
@@ -880,17 +949,17 @@ export function PageLivePreviewCanvas({
   onActiveEditChange?: (commit: PreviewInlineEditCommit | null) => void
   onActiveEditConflict?: () => void
   controlledInlineEnabled?: boolean
-  renderContext?: SliceRenderContext
-  renderPage?: (slices: Slice[], context: SliceRenderContext) => ReactNode
-  renderSlicesTransform?: (slices: Slice[]) => Slice[]
+  renderContext?: BlockRenderContext
+  renderPage?: (blocks: Block[], context: BlockRenderContext) => ReactNode
+  renderBlocksTransform?: (blocks: Block[]) => Block[]
 }) {
   const [session, setSession] = useState<PreviewInlineSession | null>(null)
   // Display only parent-accepted local values over the exact lagging input.
   // A new external array immediately drops this projection. It is not a draft
   // owner: every change below must first succeed through the parent callback.
   const [projection, setProjection] = useState<{
-    input: Slice[]
-    slices: Slice[]
+    input: Block[]
+    blocks: Block[]
   } | null>(null)
   const [initialPoint, setInitialPoint] = useState<
     PreviewClickPoint | undefined
@@ -906,12 +975,12 @@ export function PageLivePreviewCanvas({
   const [bindFlush] = useState(() => (flush: (() => void) | null) => {
     flushEditor.current = flush
   })
-  const sliceRefs = useRef<Map<string, HTMLDivElement> | null>(null)
-  if (sliceRefs.current === null) {
-    sliceRefs.current = new Map()
+  const blockRefs = useRef<Map<string, HTMLDivElement> | null>(null)
+  if (blockRefs.current === null) {
+    blockRefs.current = new Map()
   }
   const canonical = useRef({
-    slices,
+    blocks,
     locale,
     contentEpoch,
     catalog: renderContext?.presentationCatalog?.revision ?? "",
@@ -926,7 +995,7 @@ export function PageLivePreviewCanvas({
   const pendingClick = useRef<PreviewClickPoint | undefined>(undefined)
   const loadingEditor = useRef(false)
   const enabled = controlledInlineEnabled ?? false
-  const ctx: SliceRenderContext = renderContext ?? {
+  const ctx: BlockRenderContext = renderContext ?? {
     locale,
     defaultLocale,
     pagePaths: {},
@@ -938,7 +1007,7 @@ export function PageLivePreviewCanvas({
     if (process.env.NODE_ENV === "development")
       inlineActivationDiagnostic("Session report", {
         active: next !== null,
-        sliceId: next?.sliceId ?? null,
+        blockId: next?.blockId ?? null,
         fieldPath: next?.fieldPath ?? null,
         composing: composing.current,
       })
@@ -973,7 +1042,7 @@ export function PageLivePreviewCanvas({
     const reconciled =
       current && !conflict.current
         ? reconcilePageFieldEcho(
-            slices,
+            blocks,
             locale,
             { ...current, value: current.draft },
             inlineEditEcho,
@@ -981,10 +1050,10 @@ export function PageLivePreviewCanvas({
             ctx.presentationCatalog?.revision ?? ""
           )
         : null
-    const baseline = reconciled ?? slices
-    if (reconciled) setProjection({ input: slices, slices: reconciled })
+    const baseline = reconciled ?? blocks
+    if (reconciled) setProjection({ input: blocks, blocks: reconciled })
     canonical.current = {
-      slices: baseline,
+      blocks: baseline,
       locale,
       contentEpoch,
       catalog: ctx.presentationCatalog?.revision ?? "",
@@ -1011,7 +1080,7 @@ export function PageLivePreviewCanvas({
       const now = capturePageField(
         baseline,
         locale,
-        current.sliceId,
+        current.blockId,
         current.fieldPath,
         contentEpoch,
         canonical.current.catalog
@@ -1026,7 +1095,7 @@ export function PageLivePreviewCanvas({
         current.locale === locale &&
         binding.contentEpoch === contentEpoch &&
         binding.catalogRevision === canonical.current.catalog &&
-        now.sliceType === current.sliceType &&
+        now.blockType === current.blockType &&
         now.kind === current.kind &&
         now.fieldBinding.presentation === binding.presentation &&
         now.fieldBinding.descriptor === binding.descriptor &&
@@ -1039,7 +1108,7 @@ export function PageLivePreviewCanvas({
     } else sessionRef.current = { ...current, ...rebased, draft: current.draft }
     // A same-field external change never overwrites the uncontrolled island.
   }, [
-    slices,
+    blocks,
     locale,
     contentEpoch,
     ctx.presentationCatalog?.revision,
@@ -1065,9 +1134,9 @@ export function PageLivePreviewCanvas({
     return () => onActiveEditHandleChange?.(null)
   }, [onActiveEditHandleChange])
   useEffect(() => {
-    if (!selectedSliceId) return
+    if (!selectedBlockId) return
     const id = requestAnimationFrame(() => {
-      const node = sliceRefs.current?.get(selectedSliceId)
+      const node = blockRefs.current?.get(selectedBlockId)
       // A block the owner can already see stays put: scrolling it would move
       // the second click of a double-click onto another line.
       if (
@@ -1077,7 +1146,7 @@ export function PageLivePreviewCanvas({
         node.scrollIntoView({ block: "start" })
     })
     return () => cancelAnimationFrame(id)
-  }, [selectedSliceId])
+  }, [selectedBlockId])
   function leave() {
     if (composing.current) return
     endRequested.current = false
@@ -1127,7 +1196,7 @@ export function PageLivePreviewCanvas({
         leave()
         callbacks.current.onSelectField(
           previewFieldSelection(
-            current.sliceId,
+            current.blockId,
             current.fieldPath,
             undefined,
             pendingClick.current
@@ -1139,12 +1208,12 @@ export function PageLivePreviewCanvas({
   }
   const ensureFromEffect = useEffectEvent(ensureInlineEditor)
   useEffect(() => {
-    // Preload as soon as editing in the preview is on.
+    // Preload as soon as editing in the preview is allowed.
     if (enabled) ensureFromEffect()
   }, [enabled])
   useEffect(() => {
     const frameDocument =
-      sliceRefs.current?.values().next().value?.ownerDocument ?? document
+      blockRefs.current?.values().next().value?.ownerDocument ?? document
     const parentDocument =
       frameDocument.defaultView?.frameElement?.ownerDocument ?? frameDocument
     function onSidebarFocus(event: FocusEvent) {
@@ -1166,22 +1235,22 @@ export function PageLivePreviewCanvas({
     }
   }, [])
   function begin(
-    sliceId: string,
+    blockId: string,
     match: PreviewFieldMatch
   ): PreviewInlineActivationResult {
     const current = canonical.current
-    const targetSlice = current.slices.find(
-      (slice) => readSlice(slice).id === sliceId
+    const targetBlock = current.blocks.find(
+      (block) => readBlock(block).id === blockId
     )
-    const targetDef = targetSlice
-      ? readSliceDefinition(readSlice(targetSlice).type)
+    const targetDef = targetBlock
+      ? readBlockDefinition(readBlock(targetBlock).type)
       : undefined
-    if (!targetSlice || !targetDef)
+    if (!targetBlock || !targetDef)
       return { status: "refused", reason: "capture" }
     if (isPrimaryListPath(targetDef.primary, match.target.fieldPath))
       return { status: "refused", reason: "unsupported" }
     if (
-      sessionRef.current?.sliceId === sliceId &&
+      sessionRef.current?.blockId === blockId &&
       sessionRef.current.fieldPath === match.target.fieldPath
     ) {
       inlineActivationDiagnostic("Begin retained the active field session")
@@ -1200,40 +1269,32 @@ export function PageLivePreviewCanvas({
     if (
       !enabled ||
       composing.current ||
-      match.target.kind !== "richText" ||
-      !["inline", "title", "basic"].includes(match.target.profile ?? "") ||
-      match.element.dataset.previewField !== match.target.fieldPath
+      inPlaceMode(targetBlock, match) === null
     ) {
       if (process.env.NODE_ENV === "development")
         inlineActivationDiagnostic("Begin refused", {
-          sliceId,
+          blockId,
           fieldPath: match.target.fieldPath,
           reasons: [
-            !enabled && "inline editing is switched off",
+            !enabled && "editing in the preview is blocked",
             composing.current && "an edit is composing",
-            match.target.kind !== "richText" &&
-              "matched field is not rich text",
-            match.target.profile !== "inline" &&
-              match.target.profile !== "title" &&
-              match.target.profile !== "basic" &&
-              "field profile is not inline",
-            match.element.dataset.previewField !== match.target.fieldPath &&
-              "matched element does not identify the matched field",
+            inPlaceMode(targetBlock, match) === null &&
+              "the matched field is edited in the form",
           ].filter(Boolean),
         })
       return { status: "refused", reason: "begin" }
     }
     const binding = capturePageField(
-      current.slices,
+      current.blocks,
       current.locale,
-      sliceId,
+      blockId,
       match.target.fieldPath,
       current.contentEpoch,
       current.catalog,
       process.env.NODE_ENV === "development"
         ? (reason) =>
             inlineActivationDiagnostic(`Capture refused: ${reason}`, {
-              sliceId,
+              blockId,
               fieldPath: match.target.fieldPath,
             })
         : undefined
@@ -1275,7 +1336,7 @@ export function PageLivePreviewCanvas({
     setSession(next)
     const base = canonical.current
     const commit = rebasePageField(
-      base.slices,
+      base.blocks,
       base.locale,
       { ...next, value, composing: composing.current },
       base.contentEpoch,
@@ -1284,7 +1345,7 @@ export function PageLivePreviewCanvas({
     const patched =
       !conflict.current &&
       applyPageField(
-        base.slices,
+        base.blocks,
         base.locale,
         commit,
         base.contentEpoch,
@@ -1294,8 +1355,8 @@ export function PageLivePreviewCanvas({
       markConflict()
       return
     }
-    canonical.current = { ...base, slices: patched }
-    setProjection({ input: slices, slices: patched })
+    canonical.current = { ...base, blocks: patched }
+    setProjection({ input: blocks, blocks: patched })
     report({
       ...next,
       ...commit,
@@ -1303,29 +1364,40 @@ export function PageLivePreviewCanvas({
       fieldBinding: { ...commit.fieldBinding!, lastApplied: value },
     })
   }
-  const renderSlices = withUniqueSliceRenderIds(
-    renderSlicesTransform
-      ? renderSlicesTransform(
-          projection?.input === slices ? projection.slices : slices
+  const projected = projection?.input === blocks ? projection.blocks : blocks
+  // A plain text field being edited renders its opening value: its editor
+  // owns the host's text, and a renderer hides an empty field (`Text`, or
+  // `{primary.eyebrow && …}`), so clearing it in place must not remove its
+  // host (or move the page under the pointer).
+  const shown =
+    session?.kind === "text"
+      ? projected.map((block) =>
+          readBlock(block).id === session.blockId
+            ? (setValueAtFieldPath(
+                block,
+                parseFieldPath(session.fieldPath),
+                session.cancellationValue
+              ) as Block)
+            : block
         )
-      : projection?.input === slices
-        ? projection.slices
-        : slices
+      : projected
+  const renderBlocks = withUniqueBlockRenderIds(
+    renderBlocksTransform ? renderBlocksTransform(shown) : shown
   )
   return (
-    <AdminSlicePreviewZone
+    <AdminBlockPreviewZone
       title={title}
-      slices={renderSlices}
+      blocks={renderBlocks}
       ctx={ctx}
-      selectedSliceId={selectedSliceId}
-      onSelectSlice={onSelectSlice}
-      onSelectSliceFallback={onSelectSliceFallback}
+      selectedBlockId={selectedBlockId}
+      onSelectBlock={onSelectBlock}
+      onSelectBlockFallback={onSelectBlockFallback}
       onSelectField={onSelectField}
       inlineEditingEnabled={enabled}
       onBeginInlineEdit={begin}
-      registerSliceNode={(id, node) => {
-        if (node) sliceRefs.current?.set(id, node)
-        else sliceRefs.current?.delete(id)
+      registerBlockNode={(id, node) => {
+        if (node) blockRefs.current?.set(id, node)
+        else blockRefs.current?.delete(id)
       }}
       activeSession={session}
       inlineEditor={inlineEditor}

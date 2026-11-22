@@ -8,7 +8,7 @@ import {
   writePageContent,
   writeLocaleContent,
   writeFieldMap,
-  writeSliceFields,
+  writeBlockFields,
   removedTitleLinksValidator,
   type WriteOptions,
 } from "../lib/richtext/write"
@@ -27,11 +27,11 @@ import { contentTypeDefs, isActiveContentType } from "../lib/contentTypes"
 import { contentDraftInputValidator } from "../lib/domains/contentModel"
 import {
   validateFieldMapRichText,
-  validateSlicesRichText,
-  validateUniqueSliceIds,
-} from "../lib/slices/validate"
-import type { Slice } from "../lib/slices"
-import { findUnavailableSliceLocations } from "../lib/slices/profile"
+  validateBlocksRichText,
+  validateUniqueBlockIds,
+} from "../lib/blocks/validate"
+import type { Block } from "../lib/blocks"
+import { findUnavailableBlockLocations } from "../lib/blocks/profile"
 import {
   buildLocaleRelativePath,
   isRoutableContentType,
@@ -85,7 +85,10 @@ import {
   recordPublicChange,
 } from "../lib/language/freshness"
 import { retireContinuityRowForClaim } from "../lib/language/retirement"
-import { collectDocumentReferences } from "../lib/documentReferences"
+import {
+  collectDocumentReferences,
+  referrerContentTypes,
+} from "../lib/documentReferences"
 import {
   collectMediaReferences,
   resolveMediaReference,
@@ -100,10 +103,10 @@ import {
 import { ensurePageBackfilled } from "../lib/publishing/perLanguageBackfill"
 import { pageTypeValidator } from "../lib/pages/types"
 import {
-  assertSliceMutationIntegrity,
-  diffSliceMutations,
-  requireSliceMutationsPermitted,
-} from "../lib/slices/permissions"
+  assertBlockMutationIntegrity,
+  diffBlockMutations,
+  requireBlockMutationsPermitted,
+} from "../lib/blocks/permissions"
 
 import {
   digestLocalePublicationCandidate,
@@ -975,7 +978,7 @@ async function clearSourceReferences(
   const tables = [
     "pagePublicationDocumentReferences",
     "pagePublicationMediaReferences",
-    "pagePublicationSliceReferences",
+    "pagePublicationBlockReferences",
   ] as const
   for (const table of tables) {
     const rows = await ctx.db
@@ -985,9 +988,10 @@ async function clearSourceReferences(
       )
       .take(513)
     if (rows.length > 512) throw new ConvexError("PUBLICATION_REFERENCE_LIMIT")
-    await Promise.all(
-      rows.map((row) => occurrenceUsageWrites(ctx).delete(table, row._id))
-    )
+    // Deletes stay sequential: an unwrapped caller reconciles after each write.
+    for (const row of rows) {
+      await occurrenceUsageWrites(ctx).delete(table, row._id)
+    }
   }
 }
 
@@ -1060,15 +1064,15 @@ export async function initializeSuccessorPage(
     return
   }
   const localizedContent = Object.fromEntries(
-    Object.entries(content).map(([locale, block]) => [
+    Object.entries(content).map(([locale, localeContent]) => [
       locale,
-      isRecord(block.content) ? block.content : block,
+      isRecord(localeContent.content) ? localeContent.content : localeContent,
     ])
   )
   const historical = "kind" in owner && owner.kind === "migration"
-  await assertSliceMutationIntegrity(
+  await assertBlockMutationIntegrity(
     ctx,
-    diffSliceMutations(
+    diffBlockMutations(
       historical ? (localizedContent as never) : undefined,
       localizedContent as never
     ),
@@ -1084,8 +1088,8 @@ export async function initializeSuccessorPage(
     string,
     Awaited<ReturnType<typeof allocatePageAddress>>
   >()
-  for (const [locale, block] of Object.entries(content)) {
-    const slug = typeof block.slug === "string" ? block.slug : page.slug
+  for (const [locale, localeContent] of Object.entries(content)) {
+    const slug = typeof localeContent.slug === "string" ? localeContent.slug : page.slug
     const input = {
       pageId: page._id,
       pageType: page.pageType,
@@ -1205,9 +1209,9 @@ export async function initializeSuccessorPage(
       }
     )
     void localeStateId
-    const block = content[locale]
-    const slug = typeof block.slug === "string" ? block.slug : page.slug
-    const localized = isRecord(block.content) ? block.content : block
+    const localeContent = content[locale]
+    const slug = typeof localeContent.slug === "string" ? localeContent.slug : page.slug
+    const localized = isRecord(localeContent.content) ? localeContent.content : localeContent
     const localeDraftId = await occurrenceUsageWrites(ctx).insert(
       "pageLocaleDrafts",
       {
@@ -1267,7 +1271,7 @@ async function clearCurrentReferences(
   const tables = [
     "pagePublicationDocumentReferences",
     "pagePublicationMediaReferences",
-    "pagePublicationSliceReferences",
+    "pagePublicationBlockReferences",
   ] as const
   for (const table of tables) {
     const rows = await ctx.db
@@ -1280,9 +1284,10 @@ async function clearCurrentReferences(
       )
       .take(513)
     if (rows.length > 512) throw new ConvexError("PUBLICATION_REFERENCE_LIMIT")
-    await Promise.all(
-      rows.map((row) => occurrenceUsageWrites(ctx).delete(table, row._id))
-    )
+    // Deletes stay sequential: an unwrapped caller reconciles after each write.
+    for (const row of rows) {
+      await occurrenceUsageWrites(ctx).delete(table, row._id)
+    }
   }
 }
 
@@ -1392,20 +1397,20 @@ async function writeReferences(
     // deleted for good, or one whose file is gone, never reaches a page.
     { strict: true }
   )
-  const slices = locale
+  const blocks = locale
     ? ((
         source.content?.[locale] as
-          { slices?: Array<{ type: string }> } | undefined
-      )?.slices ?? [])
+          { blocks?: Array<{ type: string }> } | undefined
+      )?.blocks ?? [])
     : []
-  const sliceCounts = new Map<string, number>()
-  for (const slice of slices)
-    sliceCounts.set(slice.type, (sliceCounts.get(slice.type) ?? 0) + 1)
+  const blockCounts = new Map<string, number>()
+  for (const block of blocks)
+    blockCounts.set(block.type, (blockCounts.get(block.type) ?? 0) + 1)
   if (
     documents.length +
       media.length +
       richTextImages.length +
-      sliceCounts.size +
+      blockCounts.size +
       ancestry.length >
     512
   ) {
@@ -1494,12 +1499,12 @@ async function writeReferences(
       updatedAt: now,
     } as never)
   }
-  for (const [sliceType, count] of sliceCounts) {
-    await occurrenceUsageWrites(ctx).insert("pagePublicationSliceReferences", {
+  for (const [blockType, count] of blockCounts) {
+    await occurrenceUsageWrites(ctx).insert("pagePublicationBlockReferences", {
       pageId,
       ...(locale ? { locale } : {}),
       ...sourceMetadata,
-      sliceType,
+      blockType,
       count,
       createdAt: now,
       updatedAt: now,
@@ -1719,7 +1724,7 @@ export async function initializeEmptySnapshotAuthorityForOwner(
     ctx.db.query("pagePublicationExpiries").take(1),
     ctx.db.query("pageCandidateDocumentReferences").take(1),
     ctx.db.query("pageCandidateMediaReferences").take(1),
-    ctx.db.query("pageCandidateSliceReferences").take(1),
+    ctx.db.query("pageCandidateBlockReferences").take(1),
     ctx.db.query("documentReferences").take(1),
     ctx.db.query("mediaReferences").take(1),
     ctx.db.query("pagePublicationPageStates").take(1),
@@ -1731,7 +1736,7 @@ export async function initializeEmptySnapshotAuthorityForOwner(
     ctx.db.query("pagePublishedSnapshots").take(1),
     ctx.db.query("pagePublicationDocumentReferences").take(1),
     ctx.db.query("pagePublicationMediaReferences").take(1),
-    ctx.db.query("pagePublicationSliceReferences").take(1),
+    ctx.db.query("pagePublicationBlockReferences").take(1),
     ctx.db.query("pageHistoricalLocaleRoutes").take(1),
     ctx.db.query("pagePublicationRevalidationIntents").take(1),
     ctx.db.query("pagePublicationMigrationPages").take(1),
@@ -2217,9 +2222,9 @@ export const prepareSnapshotMigrationPage = mutation({
     >
     // Inspect both retained source bags before initializing or freezing any
     // successor content. Staging cannot conceal malformed live metadata.
-    await assertSliceMutationIntegrity(
+    await assertBlockMutationIntegrity(
       ctx,
-      diffSliceMutations(effectiveContent as never, effectiveContent as never),
+      diffBlockMutations(effectiveContent as never, effectiveContent as never),
       {
         existingContent: page.content,
         content: effectiveContent,
@@ -2526,7 +2531,7 @@ async function countPageReferences(
   pageId: Id<"pages">,
   sourceKind: "shared_draft" | "locale_draft" | "candidate" | "current_public"
 ): Promise<number> {
-  const [documents, media, slices] = await Promise.all([
+  const [documents, media, blocks] = await Promise.all([
     ctx.db
       .query("pagePublicationDocumentReferences")
       .withIndex("by_pageId_and_sourceKind", (q) =>
@@ -2540,15 +2545,15 @@ async function countPageReferences(
       )
       .take(513),
     ctx.db
-      .query("pagePublicationSliceReferences")
+      .query("pagePublicationBlockReferences")
       .withIndex("by_pageId_and_sourceKind", (q) =>
         q.eq("pageId", pageId).eq("sourceKind", sourceKind)
       )
       .take(513),
   ])
-  if (documents.length > 512 || media.length > 512 || slices.length > 512)
+  if (documents.length > 512 || media.length > 512 || blocks.length > 512)
     throw new ConvexError("PUBLICATION_REFERENCE_LIMIT")
-  return documents.length + media.length + slices.length
+  return documents.length + media.length + blocks.length
 }
 
 async function countWorkingPageReferences(
@@ -2580,7 +2585,7 @@ async function verifyMigrationPublicReferences(
   const candidateIds = new Set(manifest.candidateIds.map(String))
   const snapshotIds = new Set(manifest.snapshotIds.map(String))
   for (const sourceKind of ["candidate", "current_public"] as const) {
-    const [documents, media, slices] = await Promise.all([
+    const [documents, media, blocks] = await Promise.all([
       ctx.db
         .query("pagePublicationDocumentReferences")
         .withIndex("by_pageId_and_sourceKind", (q) =>
@@ -2594,18 +2599,18 @@ async function verifyMigrationPublicReferences(
         )
         .take(513),
       ctx.db
-        .query("pagePublicationSliceReferences")
+        .query("pagePublicationBlockReferences")
         .withIndex("by_pageId_and_sourceKind", (q) =>
           q.eq("pageId", manifest.pageId).eq("sourceKind", sourceKind)
         )
         .take(513),
     ])
-    if (documents.length > 512 || media.length > 512 || slices.length > 512) {
+    if (documents.length > 512 || media.length > 512 || blocks.length > 512) {
       throw new ConvexError("PUBLICATION_MIGRATION_ARTIFACT_DRIFT")
     }
     const expectedSources =
       sourceKind === "candidate" ? candidateIds : snapshotIds
-    for (const ref of [...documents, ...media, ...slices]) {
+    for (const ref of [...documents, ...media, ...blocks]) {
       if (
         ref.sourceKind !== sourceKind ||
         !("locale" in ref) ||
@@ -2895,7 +2900,7 @@ async function assertPageSuccessorArtifactsAbsent(
     ),
     ...sourceKinds.map((sourceKind) =>
       ctx.db
-        .query("pagePublicationSliceReferences")
+        .query("pagePublicationBlockReferences")
         .withIndex("by_pageId_and_sourceKind", (q) =>
           q.eq("pageId", pageId).eq("sourceKind", sourceKind)
         )
@@ -3262,7 +3267,7 @@ export const listSnapshotHistory = query({
           generation: snapshot.generation,
           publishedAt: snapshot.publishedAt,
           payloadJson: canonicalJson(frozen.payload),
-          unavailablePaths: findUnavailableSliceLocations({
+          unavailablePaths: findUnavailableBlockLocations({
             [args.locale]: frozen.payload.localized.content,
           }).map((location) => location.path),
         }
@@ -3374,12 +3379,12 @@ export const restoreSnapshotAsDraft = mutation({
       state
     )
     // The profile check precedes all writes and inspects both whole bags.
-    await requireSliceMutationsPermitted(
+    await requireBlockMutationsPermitted(
       ctx,
-      diffSliceMutations(
+      diffBlockMutations(
         (presentationBaseline !== undefined
           ? { [args.locale]: presentationBaseline }
-          : undefined) as Parameters<typeof diffSliceMutations>[0],
+          : undefined) as Parameters<typeof diffBlockMutations>[0],
         content
       ),
       {
@@ -3402,9 +3407,9 @@ export const restoreSnapshotAsDraft = mutation({
       restoredSharedDescriptor,
       "legacy"
     )
-    if (descriptor.capabilities.sliceBody) {
-      validateUniqueSliceIds(localized.content.slices as Slice[])
-      validateSlicesRichText(localized.content.slices as Slice[], "write", {
+    if (descriptor.capabilities.blockBody) {
+      validateUniqueBlockIds(localized.content.blocks as Block[])
+      validateBlocksRichText(localized.content.blocks as Block[], "write", {
         options: copyOptions,
         locale: args.locale,
       })
@@ -3713,22 +3718,22 @@ export const saveLocaleDraft = mutation({
       writeOptions
     )
     validateFieldMapRichText(descriptor.localizedFields, localized)
-    const hasSlices = descriptor.capabilities.sliceBody
-    const incomingSlices =
-      hasSlices && "slices" in args.draft
-        ? args.draft.slices.map(
-            (slice) => writeSliceFields(slice, args.locale, writeOptions).value
+    const hasBlocks = descriptor.capabilities.blockBody
+    const incomingBlocks =
+      hasBlocks && "blocks" in args.draft
+        ? args.draft.blocks.map(
+            (block) => writeBlockFields(block, args.locale, writeOptions).value
           )
         : undefined
-    if (incomingSlices) {
-      validateUniqueSliceIds(incomingSlices as readonly Slice[])
-      validateSlicesRichText(incomingSlices as readonly Slice[])
+    if (incomingBlocks) {
+      validateUniqueBlockIds(incomingBlocks as readonly Block[])
+      validateBlocksRichText(incomingBlocks as readonly Block[])
     }
     const localizedContent: Record<string, unknown> = {}
     for (const key of Object.keys(descriptor.localizedFields)) {
       if (localized[key] !== undefined) localizedContent[key] = localized[key]
     }
-    if (incomingSlices !== undefined) localizedContent.slices = incomingSlices
+    if (incomingBlocks !== undefined) localizedContent.blocks = incomingBlocks
     const existingRows = await ctx.db
       .query("pageLocaleDrafts")
       .withIndex("by_pageId_and_locale", (q) =>
@@ -3798,12 +3803,12 @@ export const saveLocaleDraft = mutation({
       updatedAt: now,
     }
     if (!row.slug) throw new ConvexError("SLUG_REQUIRED")
-    await requireSliceMutationsPermitted(
+    await requireBlockMutationsPermitted(
       ctx,
-      diffSliceMutations(
+      diffBlockMutations(
         (presentationBaseline !== undefined
           ? { [args.locale]: presentationBaseline }
-          : undefined) as Parameters<typeof diffSliceMutations>[0],
+          : undefined) as Parameters<typeof diffBlockMutations>[0],
         { [args.locale]: content }
       ),
       {
@@ -4045,23 +4050,23 @@ export const saveEditorDraft = mutation({
         writeOptions
       )
       validateFieldMapRichText(descriptor.localizedFields, localized)
-      const incomingSlices =
-        descriptor.capabilities.sliceBody && "slices" in args.localized.draft
-          ? args.localized.draft.slices.map(
-              (slice) =>
-                writeSliceFields(slice, args.localized!.locale, writeOptions)
+      const incomingBlocks =
+        descriptor.capabilities.blockBody && "blocks" in args.localized.draft
+          ? args.localized.draft.blocks.map(
+              (block) =>
+                writeBlockFields(block, args.localized!.locale, writeOptions)
                   .value
             )
           : undefined
-      if (incomingSlices) {
-        validateUniqueSliceIds(incomingSlices as readonly Slice[])
-        validateSlicesRichText(incomingSlices as readonly Slice[])
+      if (incomingBlocks) {
+        validateUniqueBlockIds(incomingBlocks as readonly Block[])
+        validateBlocksRichText(incomingBlocks as readonly Block[])
       }
       const localizedContent: Record<string, unknown> = {}
       for (const key of Object.keys(descriptor.localizedFields)) {
         if (localized[key] !== undefined) localizedContent[key] = localized[key]
       }
-      if (incomingSlices !== undefined) localizedContent.slices = incomingSlices
+      if (incomingBlocks !== undefined) localizedContent.blocks = incomingBlocks
       const slug = addressPlans.get(locale)?.slug ?? args.localized.slug.trim()
       if (!slug) throw new ConvexError("SLUG_REQUIRED")
       const presentationBaseline = await presentationWorkingContent(
@@ -4081,12 +4086,12 @@ export const saveEditorDraft = mutation({
         },
         presentationBaseline as Record<string, unknown> | undefined
       )
-      await requireSliceMutationsPermitted(
+      await requireBlockMutationsPermitted(
         ctx,
-        diffSliceMutations(
+        diffBlockMutations(
           (presentationBaseline !== undefined
             ? { [locale]: presentationBaseline }
-            : undefined) as Parameters<typeof diffSliceMutations>[0],
+            : undefined) as Parameters<typeof diffBlockMutations>[0],
           { [locale]: content }
         ),
         {
@@ -4449,9 +4454,9 @@ export const publishLocale = mutation({
       ).value as typeof sourceDraft.content,
     }
 
-    await requireSliceMutationsPermitted(
+    await requireBlockMutationsPermitted(
       ctx,
-      diffSliceMutations(
+      diffBlockMutations(
         { [args.locale]: sourceDraft.content },
         { [args.locale]: draft.content }
       ),
@@ -5003,30 +5008,38 @@ export async function assertSnapshotPageSoftDeleteAllowed(
   }
 
   const target = await ctx.db.get("pages", pageId)
-  if (!target || target.pageType !== "author") return
+  if (!target) return
+  // The pages whose descriptor relates to this page's type (a post's byline
+  // points at an author). The error code and `posts` key keep their original
+  // names: the admin messages read them.
+  const referrerTypes = referrerContentTypes(target.pageType)
+  if (referrerTypes.size === 0) return
   const currentReferences = await ctx.db
     .query("pagePublicationDocumentReferences")
     .withIndex("by_targetId_and_sourceKind_and_locale", (q) =>
       q.eq("targetId", pageId).eq("sourceKind", "current_public")
     )
     .take(PAGE_SOFT_DELETE_REFERENCE_READ_LIMIT + 1)
+  // A page that references itself (a self-relation) goes away with its own
+  // references, so its own rows never block it.
   const boundedCurrentReferences = currentReferences
     .slice(0, PAGE_SOFT_DELETE_REFERENCE_READ_LIMIT)
     .filter((reference) => reference.sourceKind === "current_public")
+    .filter((reference) => reference.pageId !== pageId)
   const sourceIds = Array.from(
     new Set(boundedCurrentReferences.map((reference) => reference.pageId))
   )
   const sourcePages = await Promise.all(sourceIds.map((id) => ctx.db.get("pages", id)))
-  const publishedPostIds = new Set(
+  const publishedReferrerIds = new Set(
     sourcePages
       .filter(
         (page): page is Doc<"pages"> =>
-          page !== null && page.pageType === "post"
+          page !== null && referrerTypes.has(page.pageType)
       )
       .map((page) => page._id)
   )
   const postReferences = boundedCurrentReferences
-    .filter((reference) => publishedPostIds.has(reference.pageId))
+    .filter((reference) => publishedReferrerIds.has(reference.pageId))
     .map((reference) => ({
       pageId: reference.pageId,
       locale: reference.locale,
@@ -5729,7 +5742,7 @@ async function schedulePurgeStep(ctx: MutationCtx) {
 
 /**
  * The single worker chain. It always takes the oldest queued Page that is not
- * stalled or waiting, so purges drain one after another (the slice-occurrence
+ * stalled or waiting, so purges drain one after another (the block-occurrence
  * counts they share are never written by two purges at once).
  */
 export const runPagePurgeStep = internalMutation({
@@ -5989,7 +6002,7 @@ export async function publishPreparedTargetLocale(
   let sourceSharedDraftGeneration: number
   let sourceDraftGeneration: number
   let draftId: Id<"pageLocaleDrafts"> | undefined
-  let admittedContent: Parameters<typeof diffSliceMutations>[0]
+  let admittedContent: Parameters<typeof diffBlockMutations>[0]
   let titleSource: WriteOptions["trustedSource"]
   if (input.arm === "draft") {
     const shared = await oneSharedDraft(ctx, input.pageId)
@@ -6079,9 +6092,9 @@ export async function publishPreparedTargetLocale(
     trustedSource: titleSource,
   }).value
   // Callers authenticate; workers act under the transition's owner attribution.
-  await assertSliceMutationIntegrity(
+  await assertBlockMutationIntegrity(
     ctx,
-    diffSliceMutations(admittedContent, { [locale]: content } as never),
+    diffBlockMutations(admittedContent, { [locale]: content } as never),
     {
       existingContent: { [locale]: content },
       content: { [locale]: content },
@@ -6539,9 +6552,9 @@ export async function createTransitionTargetDraft(
     sourceDrafts[0],
     sourceState
   )
-  await assertSliceMutationIntegrity(
+  await assertBlockMutationIntegrity(
     ctx,
-    diffSliceMutations(undefined, { [locale]: input.content } as never),
+    diffBlockMutations(undefined, { [locale]: input.content } as never),
     {
       existingContent:
         sourceContent === undefined ? undefined : { [locale]: sourceContent },

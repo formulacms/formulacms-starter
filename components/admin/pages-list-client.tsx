@@ -176,18 +176,18 @@ function getLocaleRow(
 }
 
 function hasLocale(page: Page, locale: string) {
-  // Every arm carries `title`; only slice-body arms carry `slices` (plan
+  // Every arm carries `title`; only block-body arms carry `blocks` (plan
   // 029 C10 pure-form testimonials don't). Read via a permissive shape so
   // the check works uniformly — an empty testimonial locale has no title
-  // and no slices, so it correctly reads as "no locale". `effectiveTitles`
+  // and no blocks, so it correctly reads as "no locale". `effectiveTitles`
   // from the staged overlay counts as "the locale exists" for a draft
   // whose `pages.content` is empty (Deploy 2 PR B item 3).
   const bag = page.content?.[locale] as
-    { title?: string; slices?: unknown[] } | undefined
+    { title?: string; blocks?: unknown[] } | undefined
   const stagedTitle = (
     page.localizedTitles?.[locale] ?? page.effectiveTitles?.[locale]
   )?.trim()
-  return Boolean(bag?.title || bag?.slices?.length || stagedTitle)
+  return Boolean(bag?.title || bag?.blocks?.length || stagedTitle)
 }
 
 

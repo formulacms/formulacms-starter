@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { v } from "convex/values"
-import { boolean, text } from "../slices/primitives"
+import { boolean, text } from "../blocks/primitives"
 import { jobContentType } from "./job"
 import { postContentType } from "./post"
 import { SYSTEM_OWNED_SHARED_FIELDS } from "./fieldOwnership"
@@ -36,7 +36,7 @@ const eventDescriptor = {
   }),
   routing: { pathPrefix: "events" },
   capabilities: {
-    sliceBody: true,
+    blockBody: true,
     revisions: true,
     scheduling: true,
     presence: true,
@@ -50,7 +50,7 @@ const eventDescriptor = {
 } satisfies ContentTypeDescriptor<typeof sharedFields, typeof localizedFields>
 
 describe("descriptor-driven write shapes", () => {
-  it("materializes defaults and builds a slice-body locale without type branches", () => {
+  it("materializes defaults and builds a block-body locale without type branches", () => {
     expect(descriptorDefaults(eventDescriptor.sharedFields)).toEqual({
       venue: "",
       featured: false,
@@ -58,14 +58,14 @@ describe("descriptor-driven write shapes", () => {
     expect(
       buildInitialLocalizedContent(
         eventDescriptor,
-        { en: { title: "Launch", slices: [] } },
+        { en: { title: "Launch", blocks: [] } },
         "en",
         "Ignored"
       )
     ).toEqual({
       en: {
         title: "Launch",
-        slices: [],
+        blocks: [],
       },
     })
   })

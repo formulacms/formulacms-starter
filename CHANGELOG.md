@@ -7,6 +7,80 @@ Fixed. The format follows Keep a Changelog 1.1.0.
 The known limits of each release are on its release page:
 https://github.com/formulacms/formulacms-starter/releases
 
+## 0.4.0
+
+0.4.0 supports fresh installs only; there is no upgrade path from 0.3.1.
+Do not merge or pull 0.4.0 into a site made from 0.3.x. Start a new site and a
+new Convex deployment from v0.4.0; do not reuse a Convex deployment made by an
+earlier release. `scripts/check-release-transition.ts` refuses the 0.3.1 to
+0.4.0 hop as unsupported.
+
+### Added
+
+- `pnpm content-type:new` creates a content type in your site, during local
+  development. It writes source files only.
+  `pnpm content-type:new -- --recover` undoes a run that stopped halfway, and
+  keeps any file that you changed after it. `pnpm content-type:verify` checks
+  a content type. <!-- #194 -->
+- The site checks its content types and blocks when it loads. A broken
+  definition stops it with one message that names each problem and its
+  repair. <!-- #194 -->
+- `pnpm build` runs `pnpm check:blocks:coverage` before `next build`. The
+  check fails when a block shows a text, rich-text or image field that you
+  cannot click in the preview, and it names the file, the block, the field and
+  the repair. <!-- #190 -->
+- `pnpm check:blocks:render` clicks the text fields of every installed block
+  in the block simulator. The starter's GitHub workflow runs it in a new
+  `block-clicks` job. <!-- #192 -->
+- You can edit one-line text fields, such as an eyebrow, a label or a button
+  text, in place in the page preview, as you edit a title. <!-- #193 -->
+
+### Changed
+
+- "Block" replaces the former term "slice" everywhere: in the admin, the code,
+  the file paths, the stored field names and the docs. The schema version is
+  now 6. <!-- #185 -->
+- The block routes are `/admin/blocks` and, during local development,
+  `/block-sim`. <!-- #185 -->
+- The block commands are `pnpm blocks:sync`, `pnpm blocks:author` and
+  `pnpm check:blocks:narrowed-profile`. The new checks
+  `pnpm check:blocks:coverage` and `pnpm check:blocks:render` also use the
+  block name. <!-- #185 #190 #192 -->
+- The block environment variables are `FORMULACMS_BLOCK_*` and
+  `NEXTCMS_BLOCK_*`; when both are set, `FORMULACMS_BLOCK_*` wins.
+  <!-- #185 -->
+- `pnpm build` and `pnpm check:preflight` run `pnpm check:factories`. This one
+  check reads the module, block and content-type files without changing them,
+  and prints the repair for each problem. <!-- #188 -->
+- The page preview is always editable. A click opens the field in place, or
+  puts the focus on its field in the form. <!-- #191 -->
+- The block simulator lets you click and edit the text of every installed
+  block, also the blocks you add. <!-- #192 -->
+- Trash refuses a page while a published page still points to it through any
+  relation field. Before, only an author used by a published post was
+  protected. A page that points to itself does not block its own move to
+  Trash. The message now says "A published page still uses this one."
+  <!-- #194 -->
+- Package updates: Next.js 16.4.6, Convex 1.51.0, the background job queue
+  (workpool) 0.5.0, AI SDK 7.0.177, Claude Agent SDK 0.3.328, dotenv 18.0.10
+  and smaller updates. After you start the site on 0.4.0, going back to 0.3.x
+  does not undo the job queue change. <!-- #178 -->
+
+### Removed
+
+- The "Edit text in preview" button and the "only in the form" notice in the
+  page editor. <!-- #191 -->
+- `scripts/check-generated-files.ts`. Its check is now part of
+  `pnpm check:factories`. <!-- #188 -->
+
+### Fixed
+
+- A language change that replaces the content no longer fails on a page with
+  two or more block types. <!-- #195 -->
+- On a fresh site, the first permanent image delete in Trash works the first
+  time. Before, Trash refused it once, until a background index finished.
+  <!-- #197 -->
+
 ## 0.3.1
 
 0.3.1 supports fresh installs only; there is no upgrade path from 0.3.0.

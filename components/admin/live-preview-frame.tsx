@@ -10,15 +10,9 @@ import {
 import { PREVIEW_BUILD_ID } from "@/lib/preview-build-id"
 import { useTheme } from "next-themes"
 import { useTranslations } from "next-intl"
-import {
-  ExternalLink,
-  Monitor,
-  PencilLine,
-  Smartphone,
-  Tablet,
-} from "lucide-react"
+import { ExternalLink, Monitor, Smartphone, Tablet } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 import type {
   PreviewActiveEditHandle,
   PreviewFieldSelection,
@@ -41,7 +35,7 @@ import {
 
 export type PageLivePreviewProps = {
   title: string
-  slices: Slice[]
+  blocks: Block[]
   /** Unsaved descriptor field values; the frame shows them live. */
   sharedFieldValues?: Record<string, unknown>
   localizedFieldValues?: Record<string, unknown>
@@ -57,15 +51,14 @@ export type PageLivePreviewProps = {
   getDraftRevision?(): number
   catalogRevision?: string
   inlineEditingBlocked?: boolean
-  selectedSliceId: string | null
-  onSelectSlice(id: string): void
-  onSelectSliceFallback?(id: string): void
+  selectedBlockId: string | null
+  onSelectBlock(id: string): void
+  onSelectBlockFallback?(id: string): void
   onSelectField(
     target: PreviewFieldSelection,
     result?: PreviewInlineActivationResult
   ): void
   onInlineEditCommit(commit: PreviewInlineEditCommit): boolean | void
-  onInlineEditingEnabledChange?(enabled: boolean): void
   onActiveEditHandleChange?(handle: PreviewActiveEditHandle | null): void
   onActiveEditChange?(commit: PreviewInlineEditCommit | null): void
   onActiveEditConflict?(): void
@@ -124,7 +117,7 @@ function isCurrentFrameBridge(
 }
 
 // True when `next` carries the same values as the input last pushed. Every
-// field is compared by identity (slices by array identity, never by JSON).
+// field is compared by identity (blocks by array identity, never by JSON).
 // `ordering` is compared by its parent-owned part: draftRevision. inputRevision
 // and generation are stamped by the push itself.
 function sameLivePushInput(
@@ -161,7 +154,6 @@ function BoundLivePreviewFrame(
   const [sessionId] = useState(() => crypto.randomUUID())
   const [viewport, setViewport] = useState<keyof typeof VIEWPORTS>("desktop")
   const [zoom, setZoom] = useState("fit")
-  const [inlineEditingEnabled, setInlineEditingEnabled] = useState(false)
   const [width, setWidth] = useState(0)
   const [status, setStatus] = useState<
     "loading" | "ready" | "unavailable" | "conflict" | "updated"
@@ -184,16 +176,16 @@ function BoundLivePreviewFrame(
     languageVersion: props.languageVersion,
     pageType: props.pageType,
     title: props.title,
-    slices: props.slices,
+    blocks: props.blocks,
     sharedFields: props.sharedFieldValues,
     localizedFields: props.localizedFieldValues,
     authorIds: props.authorIds,
     contentEpoch: props.contentEpoch ?? 0,
-    selectedSliceId: props.selectedSliceId,
-    inlineEditingEnabled:
-      inlineEditingEnabled &&
-      !props.inlineEditingBlocked &&
-      status !== "updated",
+    selectedBlockId: props.selectedBlockId,
+    // Editing in the preview is always on, except while the editor blocks
+    // it (a recovered draft waits, a repeated conflict, a lock) or the
+    // preview needs a reload.
+    inlineEditingEnabled: !props.inlineEditingBlocked && status !== "updated",
     mode: resolvedTheme === "dark" ? "dark" : "light",
     ...(props.draftRevision !== undefined && props.getDraftRevision
       ? {
@@ -212,8 +204,8 @@ function BoundLivePreviewFrame(
     )
     callbacks.current = props
     controller.replaceCallbacks({
-      selectSlice: props.onSelectSlice,
-      selectSliceFallback: props.onSelectSliceFallback,
+      selectBlock: props.onSelectBlock,
+      selectBlockFallback: props.onSelectBlockFallback,
       selectField: props.onSelectField,
       commit: props.onInlineEditCommit,
       draftRevision: props.getDraftRevision,
@@ -281,12 +273,6 @@ function BoundLivePreviewFrame(
       callbacks.current.onActiveEditHandleChange?.(null)
     }
   }, [controller])
-  const effectiveInlineEnabled =
-    inlineEditingEnabled && !props.inlineEditingBlocked
-  useEffect(() => {
-    callbacks.current.onInlineEditingEnabledChange?.(effectiveInlineEnabled)
-  }, [effectiveInlineEnabled])
-
   useLayoutEffect(() => {
     const observer = new ResizeObserver(() =>
       setWidth(measure.current?.clientWidth ?? 0)
@@ -390,30 +376,6 @@ function BoundLivePreviewFrame(
             <option value="75">75%</option>
             <option value="100">100%</option>
           </select>
-          <Button
-            type="button"
-            size="sm"
-            variant={effectiveInlineEnabled ? "default" : "outline"}
-            data-preview-save-control
-            disabled={props.inlineEditingBlocked || status === "updated"}
-            title={
-              props.inlineEditingBlocked
-                ? t("frameResolveRecovery")
-                : t(
-                    effectiveInlineEnabled
-                      ? "inlineEditingOn"
-                      : "inlineEditingOff"
-                  )
-            }
-            aria-label={t(
-              effectiveInlineEnabled ? "inlineEditingOn" : "inlineEditingOff"
-            )}
-            aria-pressed={effectiveInlineEnabled}
-            onClick={() => setInlineEditingEnabled((enabled) => !enabled)}
-          >
-            <PencilLine className="size-4" />
-            {t(effectiveInlineEnabled ? "inlineEditingOn" : "inlineEditingOff")}
-          </Button>
           <button type="button" onClick={props.onOpenSavedPreview}>
             <ExternalLink className="mr-1 inline size-4" />
             {t("saved")}

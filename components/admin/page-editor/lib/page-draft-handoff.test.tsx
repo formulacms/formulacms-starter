@@ -7,7 +7,7 @@ import {
 } from "./page-draft-handoff"
 
 const pageId = "page_1"
-const draft = { slices: [] } as PageDraftHandoff
+const draft = { blocks: [] } as PageDraftHandoff
 const storageKey = `nextcms:page-ai-draft:${pageId}`
 
 describe("page draft handoff", () => {
@@ -27,7 +27,7 @@ describe("page draft handoff", () => {
     expect(readPageDraftHandoff(pageId)).toBeNull()
   })
 
-  test.each(["not JSON", "null", JSON.stringify({ slices: {} })])(
+  test.each(["not JSON", "null", JSON.stringify({ blocks: {} })])(
     "keeps the existing parse guard for %s",
     (stored) => {
       window.sessionStorage.setItem(storageKey, stored)

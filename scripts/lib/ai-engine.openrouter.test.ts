@@ -67,7 +67,7 @@ describe("build OpenRouter engine", () => {
       prompt: "USER PROMPT",
       images: [{ path: imagePath, mediaType: "image/png" }],
       profile: "vision-spec",
-      phase: "slice-spec",
+      phase: "block-spec",
     }
 
     await expect(
@@ -139,7 +139,7 @@ describe("build OpenRouter engine", () => {
         prompt: "USER PROMPT",
         images: [],
         profile: "vision-spec",
-        phase: "slice-spec",
+        phase: "block-spec",
       })
     ).rejects.toMatchObject({
       category: "CONFIG_MISSING",
@@ -161,7 +161,7 @@ describe("build OpenRouter engine", () => {
         prompt: "USER PROMPT",
         images: [{ path: imagePath, mediaType: "image/png" }],
         profile: "vision-spec",
-        phase: "slice-spec",
+        phase: "block-spec",
       })
     ).rejects.toMatchObject({
       category: "INPUT_TOO_LARGE",

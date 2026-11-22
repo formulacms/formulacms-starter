@@ -2,7 +2,7 @@ import { ConvexError } from "convex/values"
 import {
   MENU_ICON_NAMES,
   isColumnPanel,
-  panelBlocks,
+  panelSections,
   type L10n,
   type NavItem,
   type Target,
@@ -70,20 +70,20 @@ function validateMenuStructure(nav: readonly NavItem[]): void {
         ids.add(column.id)
       }
     }
-    for (const { block, path } of panelBlocks(panel)) {
-      const blockPath = `${itemPath}.panel.${path}`
-      if (panel && isColumnPanel(panel) && block.span !== undefined)
-        reject("Column panel blocks cannot have a span")
-      if (block.kind === "featured") {
-        if (panel && isColumnPanel(panel) && block.target !== undefined)
-          reject("Column featured blocks cannot have a card target")
-        if (panel && !isColumnPanel(panel) && block.link !== undefined)
-          reject("Legacy featured blocks cannot have a Link")
+    for (const { section, path } of panelSections(panel)) {
+      const sectionPath = `${itemPath}.panel.${path}`
+      if (panel && isColumnPanel(panel) && section.span !== undefined)
+        reject("Column panel sections cannot have a span")
+      if (section.kind === "featured") {
+        if (panel && isColumnPanel(panel) && section.target !== undefined)
+          reject("Column featured sections cannot have a card target")
+        if (panel && !isColumnPanel(panel) && section.link !== undefined)
+          reject("Legacy featured sections cannot have a Link")
       }
-      registerId(block.id, blockPath)
-      if (block.kind === "linkGroup") {
-        for (const link of block.links) {
-          const linkPath = `${blockPath}.links[${link.id}]`
+      registerId(section.id, sectionPath)
+      if (section.kind === "linkGroup") {
+        for (const link of section.links) {
+          const linkPath = `${sectionPath}.links[${link.id}]`
           registerId(link.id, linkPath)
           validateTarget(link.target, `${linkPath}.target`)
           if (link.icon && !MENU_ICON_NAME_SET.has(link.icon)) {
@@ -93,35 +93,36 @@ function validateMenuStructure(nav: readonly NavItem[]): void {
         continue
       }
 
-      if (block.kind === "dynamicList") {
-        if (!isActiveContentType(block.source.pageType)) {
+      if (section.kind === "dynamicList") {
+        if (!isActiveContentType(section.source.pageType)) {
           reject(
-            `${blockPath}.source.pageType must name an active content type`
+            `${sectionPath}.source.pageType must name an active content type`
           )
         }
         if (
-          !Number.isInteger(block.source.limit) ||
-          block.source.limit < 1 ||
-          block.source.limit > 12
+          !Number.isInteger(section.source.limit) ||
+          section.source.limit < 1 ||
+          section.source.limit > 12
         ) {
-          reject(`${blockPath}.source.limit must be an integer from 1 to 12`)
+          reject(`${sectionPath}.source.limit must be an integer from 1 to 12`)
         }
-        if (block.seeAll) {
-          validateTarget(block.seeAll.target, `${blockPath}.seeAll.target`)
+        if (section.seeAll) {
+          validateTarget(section.seeAll.target, `${sectionPath}.seeAll.target`)
         }
         continue
       }
 
       if (
-        block.image &&
-        block.image.storageId === undefined &&
-        !hasText(block.image.url)
+        section.image &&
+        section.image.storageId === undefined &&
+        !hasText(section.image.url)
       ) {
-        reject(`${blockPath}.image must select an image`)
+        reject(`${sectionPath}.image must select an image`)
       }
-      if (block.target) validateTarget(block.target, `${blockPath}.target`)
-      if (block.link)
-        validateTarget(block.link.target, `${blockPath}.link.target`)
+      if (section.target)
+        validateTarget(section.target, `${sectionPath}.target`)
+      if (section.link)
+        validateTarget(section.link.target, `${sectionPath}.link.target`)
     }
   }
 }

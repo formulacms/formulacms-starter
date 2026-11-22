@@ -11,6 +11,7 @@ import {
   isRoutableContentType,
   futurePageAddress,
   pathPrefixForContentType,
+  reservedFirstSegments,
   type FuturePageAddressInput,
 } from "../contentTypes/routing"
 import { SUPPORTED_LOCALES } from "../../../lib/i18n/config"
@@ -308,7 +309,7 @@ export async function checkPageAddress(
     return { ...free, kind: "language", reservedLocale }
   const prefix = pathPrefixForContentType(input.pageType)
   if (
-    ["admin", "setup", "sign-in", "api", "authors", "jobs"].includes(first) &&
+    reservedFirstSegments().includes(first) &&
     !(prefix && prefix === first)
   )
     return { ...free, kind: "system", segment: first }

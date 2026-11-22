@@ -12,7 +12,7 @@ const baseReq: GenerateRequest = {
   prompt: "BASE PROMPT",
   images: [{ path: "/tmp/a.png", mediaType: "image/png" }],
   profile: "vision-spec",
-  phase: "slice-spec",
+  phase: "block-spec",
 }
 
 describe("resolveEngineId", () => {

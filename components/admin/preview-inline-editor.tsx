@@ -6,6 +6,7 @@ import type {
 
 import { useLayoutEffect, useRef, useState } from "react"
 import { UndoRedo } from "@tiptap/extensions/undo-redo"
+import { CharacterCount } from "@tiptap/extensions/character-count"
 import { Editor, type JSONContent } from "@tiptap/core"
 import { extensionsForContract } from "@/lib/rich-text/extensions"
 import { BasicTextPaste, BASIC_PARAGRAPH_GAP } from "@/lib/rich-text/basic-text-paste"
@@ -116,9 +117,18 @@ export function PreviewInlineEditor({
   onFlushHandleChange,
   simulator,
   headingFloor = 2,
+  plainText = false,
+  maxLength,
 }: {
   value: string
   simulator?: PreviewInlineSimulator
+  /**
+   * A one-line plain text field (`text()`): no marks, no line break, paste
+   * joined into one line, as a title. Writes the plain string.
+   */
+  plainText?: boolean
+  /** The field's `maxLength`: typing stops there and a paste is cut to fit. */
+  maxLength?: number
   contract?: FieldContract
   resolvedContract?: ResolvedFieldContract
   headingFloor?: number
@@ -135,6 +145,8 @@ export function PreviewInlineEditor({
   const host = useRef<HTMLElement | null>(null)
   const [sim] = useState(() => simulator)
   const block = contract === "basic" || contract === "full" || !!sim?.block
+  const [plainLine] = useState(plainText)
+  const plain = !!sim?.plain || plainLine
   const floor = sim?.headingFloor ?? headingFloor
   const callbacks = useRef({
     onChange,
@@ -154,9 +166,10 @@ export function PreviewInlineEditor({
     initialPoint,
     // Bind descriptor shaping to this editing session, like its seed value.
     resolvedContract,
+    maxLength,
   }))
   const [seed] = useState(() =>
-    sim?.plain
+    plain
       ? {
           document: {
             type: "doc",
@@ -190,7 +203,7 @@ export function PreviewInlineEditor({
         ...editor.options.editorProps,
         attributes: {
           role: "textbox",
-          "aria-multiline": "true",
+          "aria-multiline": plainLine ? "false" : "true",
           "aria-label": label,
           "data-preview-inline-editor": "",
           class: cn(
@@ -201,7 +214,7 @@ export function PreviewInlineEditor({
         },
       },
     })
-  }, [className, label, fieldPath, contract])
+  }, [className, label, fieldPath, contract, plainLine])
   // A layout effect: the editor's text is in the host before the browser
   // paints, so opening the field never shows an empty host.
   useLayoutEffect(() => {
@@ -210,7 +223,7 @@ export function PreviewInlineEditor({
       removedLinks.current = mergeRemovedLinks(removedLinks.current, links)
     }
     const documentValue = () =>
-      sim?.plain
+      plain
         ? editor.getText({ blockSeparator: "\n" })
         : JSON.stringify(
             block
@@ -264,11 +277,14 @@ export function PreviewInlineEditor({
         ].filter((mark) => editor.isActive(mark)),
       }
     }
-    const isTitle = contract === "title" && !block && !sim?.plain
+    const isTitle = contract === "title" && !block && !plain
+    // A title and a one-line plain text field share one input rule.
+    const oneLine = isTitle || plainLine
     const extensions = extensionsForContract(contract)
       .filter(
         (extension) =>
-          (!sim?.plain || extension.type !== "mark") &&
+          (!plain || extension.type !== "mark") &&
+          (!plainLine || extension.name !== "hardBreak") &&
           (!block ||
             ![
               "image",
@@ -295,15 +311,24 @@ export function PreviewInlineEditor({
       extensions: [
         ...extensions,
         ...(contract === "basic" ? [BasicTextPaste] : []),
-        ...(isTitle ? [TitleInput] : []),
+        ...(oneLine ? [TitleInput] : []),
         ...(sim ? [] : [UndoRedo]),
+        ...(initialAttributes.maxLength
+          ? [
+              CharacterCount.configure({
+                limit: initialAttributes.maxLength,
+                // Never shorten a stored value only because it was opened.
+                autoTrim: false,
+              }),
+            ]
+          : []),
       ],
       content: seed.document,
       injectCSS: false,
       editorProps: {
         attributes: {
           role: "textbox",
-          "aria-multiline": "true",
+          "aria-multiline": plainLine ? "false" : "true",
           "aria-label": initialAttributes.label,
           class: cn(
             initialAttributes.className,
@@ -320,7 +345,7 @@ export function PreviewInlineEditor({
             return true
           }
           // A title's Enter belongs to the shared title input rule (TitleInput).
-          if (event.key === "Enter" && !block && !isTitle) {
+          if (event.key === "Enter" && !block && !oneLine) {
             event.preventDefault()
             editor?.commands.setHardBreak()
             return true
@@ -342,8 +367,10 @@ export function PreviewInlineEditor({
           const clipboard = event.clipboardData
           if (!clipboard || !editor) return false
           if (block) return false
+          // A plain line has no marks: the schema drops formatting and links.
+          if (plainLine) return false
           if (isTitle) {
-            // TitleInput shapes the pasted slice (one rule for both editors);
+            // TitleInput shapes the pasted block (one rule for both editors);
             // keep only the report of links its schema is about to drop.
             const pasted = clipboard.getData("text/html")
             if (pasted)
@@ -356,7 +383,7 @@ export function PreviewInlineEditor({
               )
             return false
           }
-          const html = sim?.plain ? "" : clipboard.getData("text/html")
+          const html = plain ? "" : clipboard.getData("text/html")
           const text = clipboard.getData("text/plain")
           const parsed = html
             ? prepareInlineValue(
@@ -516,6 +543,8 @@ export function PreviewInlineEditor({
     sim,
     block,
     floor,
+    plain,
+    plainLine,
   ])
 
   // No prop echo into Tiptap: its active text DOM, range and history stay owned

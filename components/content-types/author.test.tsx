@@ -1,9 +1,9 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, it } from "vitest"
 import { render, screen } from "@testing-library/react"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
-import type { Slice } from "@/convex/lib/slices"
-import type { SliceRenderContext } from "@/lib/slices/links"
+import type { Block } from "@/convex/lib/blocks"
+import type { BlockRenderContext } from "@/lib/blocks/links"
 import { AuthorRenderer } from "./author"
 
 /**
@@ -14,19 +14,19 @@ import { AuthorRenderer } from "./author"
  * refactor doesn't silently drop the name/roleTitle/socials header.
  */
 
-const ctx: SliceRenderContext = {
+const ctx: BlockRenderContext = {
   locale: "en",
   defaultLocale: "en",
   pagePaths: {},
 }
 
-const heroSlice = {
+const heroBlock = {
   id: "s1" as string,
   type: "hero-agency",
   enabled: true,
   primary: { eyebrow: "", title: "Hero heading", description: "" },
   items: [],
-} as unknown as Slice
+} as unknown as Block
 
 function makeAuthor(
   overrides: Partial<{
@@ -50,7 +50,7 @@ function makeAuthor(
       en: {
         title: overrides.title ?? "Ada Lovelace",
         roleTitle: overrides.roleTitle,
-        slices: [],
+        blocks: [],
       },
     },
   } as unknown as Doc<"pages">
@@ -59,10 +59,10 @@ function makeAuthor(
 describe("AuthorRenderer", () => {
   for (const profileRow of [
     ["empty", []],
-    ["populated", [heroSlice]],
+    ["populated", [heroBlock]],
   ] as const) {
-    it.each([profileRow])("renders one outer element for %s author content without changing its order", sliceProfile([]),
-      (_state, slices) => {
+    it.each([profileRow])("renders one outer element for %s author content without changing its order", blockProfile([]),
+      (_state, blocks) => {
         const page = makeAuthor({
           name: "Ada Lovelace",
           roleTitle: "Programmer",
@@ -72,7 +72,7 @@ describe("AuthorRenderer", () => {
           <AuthorRenderer
             page={page as never}
             content={content as never}
-            slices={[...slices]}
+            blocks={[...blocks]}
             ctx={ctx}
             locale="en"
             renderLocale="en"
@@ -87,7 +87,7 @@ describe("AuthorRenderer", () => {
         expect(
           screen.getByRole("heading", { name: "Ada Lovelace" })
         ).toBeInTheDocument()
-        if (slices.length === 0) {
+        if (blocks.length === 0) {
           expect(screen.getByText("No content yet.")).toBeInTheDocument()
         } else {
           expect(screen.getByText("Hero heading")).toBeInTheDocument()
@@ -106,7 +106,7 @@ describe("AuthorRenderer", () => {
       <AuthorRenderer
         page={page as never}
         content={content as never}
-        slices={[]}
+        blocks={[]}
         ctx={ctx}
         locale="en"
         renderLocale="en"
@@ -134,7 +134,7 @@ describe("AuthorRenderer", () => {
       <AuthorRenderer
         page={page as never}
         content={content as never}
-        slices={[]}
+        blocks={[]}
         ctx={ctx}
         locale="en"
         renderLocale="en"
@@ -158,14 +158,14 @@ describe("AuthorRenderer", () => {
       status: "published",
       createdAt: 0,
       updatedAt: 0,
-      content: { en: { title: "x", slices: [] } },
+      content: { en: { title: "x", blocks: [] } },
     } as unknown as Doc<"pages">
-    const content = { title: "x", slices: [] }
+    const content = { title: "x", blocks: [] }
     const { container } = render(
       <AuthorRenderer
         page={page as never}
         content={content as never}
-        slices={[]}
+        blocks={[]}
         ctx={ctx}
         locale="en"
         renderLocale="en"

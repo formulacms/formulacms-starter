@@ -31,15 +31,15 @@ export const localGenerationKindValidator = v.union(
   v.literal("page-translate"),
   v.literal("field-generate"),
   v.literal("field-refine"),
-  v.literal("slice-generate"),
+  v.literal("block-generate"),
   v.literal("page-generate-fill"),
   v.literal("page-generate-meta"),
   v.literal("page-generate-outline"),
   v.literal("help-answer"),
-  // Block creator (internal name Slice creator): one kind per profile, so the
-  // spec steps (create, tweak, text-only create) share `slice-spec`.
-  v.literal("slice-spec"),
-  v.literal("slice-renderer"),
+  // Block creator (internal name Block creator): one kind per profile, so the
+  // spec steps (create, tweak, text-only create) share `block-spec`.
+  v.literal("block-spec"),
+  v.literal("block-renderer"),
   // One unit of a whole-page job run by the local job runner. Only
   // `recordLocalJobUnitAudit` writes these, stored as page-generate-fill and
   // page-translate rows.
@@ -52,13 +52,13 @@ export type LocalGenerationKind =
   | "page-translate"
   | "field-generate"
   | "field-refine"
-  | "slice-generate"
+  | "block-generate"
   | "page-generate-fill"
   | "page-generate-meta"
   | "page-generate-outline"
   | "help-answer"
-  | "slice-spec"
-  | "slice-renderer"
+  | "block-spec"
+  | "block-renderer"
   | "page-job-write"
   | "page-job-translation"
 
@@ -76,7 +76,7 @@ type PreflightTask = {
 
 // The Block creator has no Convex agent definition and no saved prompt: its
 // prompts and Instructions live with the dev-only Next server actions
-// (`slices/ai-actions.ts`), so it is audit-only here and `preflight` refuses it.
+// (`blocks/ai-actions.ts`), so it is audit-only here and `preflight` refuses it.
 type AuditOnlyTask = {
   agent: null
   profile: BlockCreatorProfile
@@ -95,7 +95,7 @@ type LocalGenerationProfile =
   | "structured-outline-meta"
   | "grounded-help"
 
-type BlockCreatorProfile = "vision-spec" | "renderer-jsx"
+export type BlockCreatorProfile = "vision-spec" | "renderer-jsx"
 
 const LOCAL_GENERATION_TASKS: Record<LocalGenerationKind, LocalGenerationTask> =
   {
@@ -131,7 +131,7 @@ const LOCAL_GENERATION_TASKS: Record<LocalGenerationKind, LocalGenerationTask> =
       usesUserPrompt: false,
       usesBrandVoice: true,
     },
-    "slice-generate": {
+    "block-generate": {
       agent: "content",
       profile: "editorial-copy",
       phase: "content-generation",
@@ -171,15 +171,15 @@ const LOCAL_GENERATION_TASKS: Record<LocalGenerationKind, LocalGenerationTask> =
       usesUserPrompt: true,
       usesBrandVoice: false,
     },
-    "slice-spec": {
+    "block-spec": {
       agent: null,
       profile: "vision-spec",
-      phase: "slice-spec",
+      phase: "block-spec",
       pageOp: false,
       usesUserPrompt: false,
       usesBrandVoice: false,
     },
-    "slice-renderer": {
+    "block-renderer": {
       agent: null,
       profile: "renderer-jsx",
       phase: "renderer-jsx",
@@ -214,11 +214,11 @@ export function auditKindsForProfile(profile: string): LocalGenerationKind[] {
 }
 
 /** The `aiAuditLog.kind` a local kind is stored under. Block creator runs use
- *  the table's existing `slice-author-propose`, as the API route does
+ *  the table's existing `block-author-propose`, as the API route does
  *  (`convex/cms/ai.ts`); the rest are stored under their own name. */
 function auditRowKind(kind: LocalGenerationKind) {
-  if (kind === "slice-spec" || kind === "slice-renderer")
-    return "slice-author-propose" as const
+  if (kind === "block-spec" || kind === "block-renderer")
+    return "block-author-propose" as const
   if (kind === "page-job-write") return "page-generate-fill" as const
   if (kind === "page-job-translation") return "page-translate" as const
   return kind
@@ -397,7 +397,7 @@ const localAuditArgs = {
   attemptId: v.optional(v.string()),
   kind: localGenerationKindValidator,
   briefHash: v.optional(v.string()),
-  sliceCount: v.optional(v.number()),
+  blockCount: v.optional(v.number()),
   selectedEngine: generationEngineValidator,
   selectedModel: v.optional(v.string()),
   selectedReasoning: v.optional(reasoningEffortValidator),
@@ -480,7 +480,7 @@ function assertLocalAuditBriefHash(args: {
 }
 
 function assertLocalAuditCounts(args: {
-  sliceCount?: number
+  blockCount?: number
   tokenUsage: {
     promptTokens?: number
     completionTokens?: number
@@ -488,7 +488,7 @@ function assertLocalAuditCounts(args: {
   }
 }): void {
   const counts = [
-    args.sliceCount,
+    args.blockCount,
     args.tokenUsage.promptTokens,
     args.tokenUsage.completionTokens,
     args.tokenUsage.totalTokens,
@@ -631,10 +631,10 @@ function buildLocalAuditEvent(
     authId,
     kind: auditRowKind(args.kind),
     ...(args.briefHash ? { briefHash: args.briefHash } : {}),
-    sliceCount: args.sliceCount ?? 0,
+    blockCount: args.blockCount ?? 0,
     modelId: args.selectedEngine,
     // The audit table's `profile` field has no Block creator profiles; the
-    // phase (`slice-spec` or `renderer-jsx`) names the step on those rows.
+    // phase (`block-spec` or `renderer-jsx`) names the step on those rows.
     ...(task.agent === null ? {} : { profile: task.profile }),
     selectedLane: "local-build" as const,
     selectedEngine: args.selectedEngine,
@@ -705,7 +705,7 @@ export async function recordLocalJobUnitAudit(
   const args: LocalAuditInput = {
     kind,
     attemptId: claimToken,
-    sliceCount: job.kind === "write" ? 1 : 0,
+    blockCount: job.kind === "write" ? 1 : 0,
     selectedEngine: route.engine === "claude" ? "claude-cli" : "codex-cli",
     selectedModel: route.model,
     selectedReasoning: route.effort,

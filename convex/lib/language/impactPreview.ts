@@ -1,4 +1,4 @@
-import { isColumnPanel, panelBlocks } from "../menu"
+import { isColumnPanel, panelSections } from "../menu"
 import { ConvexError } from "convex/values"
 import type {
   PaginationOptions,
@@ -306,7 +306,7 @@ function ownText(locale: string, ...bags: (L10n | undefined)[]): boolean {
 
 /**
  * Menu nodes whose own text bag has a key for the locale, in a deterministic
- * walk: item, then each panel and footer block, then that block's links
+ * walk: item, then each panel and footer section, then that section's links
  * (ledger C2b.1d). A node path is its id chain.
  */
 export function menuNodePathsWithLocaleText(
@@ -322,26 +322,26 @@ export function menuNodePathsWithLocaleText(
         ownText(locale, item.panel.title, item.panel.description))
     )
       paths.push(item.id)
-    const blocks = panelBlocks(item.panel).map((entry) => entry.block)
-    for (const block of blocks) {
-      const blockPath = `${item.id}/${block.id}`
+    const sections = panelSections(item.panel).map((entry) => entry.section)
+    for (const section of sections) {
+      const sectionPath = `${item.id}/${section.id}`
       const text =
-        block.kind === "linkGroup"
-          ? ownText(locale, block.heading)
-          : block.kind === "featured"
+        section.kind === "linkGroup"
+          ? ownText(locale, section.heading)
+          : section.kind === "featured"
             ? ownText(
                 locale,
-                block.heading,
-                block.description,
-                block.image?.alt,
-                block.link?.label
+                section.heading,
+                section.description,
+                section.image?.alt,
+                section.link?.label
               )
-            : ownText(locale, block.heading, block.seeAll?.label)
-      if (text) paths.push(blockPath)
-      if (block.kind !== "linkGroup") continue
-      for (const link of block.links) {
+            : ownText(locale, section.heading, section.seeAll?.label)
+      if (text) paths.push(sectionPath)
+      if (section.kind !== "linkGroup") continue
+      for (const link of section.links) {
         if (ownText(locale, link.label, link.description)) {
-          paths.push(`${blockPath}/${link.id}`)
+          paths.push(`${sectionPath}/${link.id}`)
         }
       }
     }

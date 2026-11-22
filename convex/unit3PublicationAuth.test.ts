@@ -35,7 +35,7 @@ function draftContent(title: string) {
   return {
     pageType: "landing-page" as const,
     localized: { title },
-    slices: [],
+    blocks: [],
   }
 }
 
@@ -57,7 +57,7 @@ async function makeFixture(mode: Authority): Promise<Fixture> {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   await t.run((ctx) =>
     ctx.db.insert("siteSettings", {
@@ -74,7 +74,7 @@ async function makeFixture(mode: Authority): Promise<Fixture> {
     status: "draft",
     slug: "unit3-proof",
     title: "Initial draft",
-    content: { en: { title: "Initial draft", slices: [] } },
+    content: { en: { title: "Initial draft", blocks: [] } },
   })
   if (mode === "legacy") {
     await owner.mutation(api.cms.pages.acquirePageEditorLock, { pageId })
@@ -167,7 +167,7 @@ const stateTables = [
   "pageLocaleDrafts", "pageLocalePublicationStates", "pageLocalePublicationCandidates",
   "pageLocalePublicationReleases", "pagePublishedSnapshots", "pageHistoricalLocaleRoutes",
   "pagePublicationDocumentReferences", "pagePublicationMediaReferences",
-  "pagePublicationSliceReferences", "pagePublicationRevalidationIntents",
+  "pagePublicationBlockReferences", "pagePublicationRevalidationIntents",
   "revalidationAttempts",
 ] as const
 
@@ -245,7 +245,7 @@ describe("Unit3 selected publication and write authorization", () => {
           status: "published",
           slug: "section",
           title: "Section",
-          content: { en: { title: "Section", slices: [] } },
+          content: { en: { title: "Section", blocks: [] } },
         })
         await f.owner.mutation(api.cms.pages.update, { id: f.pageId, parentId })
         scheduledExpectations.get(f.t)!.jobs += 1
@@ -296,7 +296,7 @@ describe("Unit3 selected publication and write authorization", () => {
           status: "draft",
           slug: "valid-denied-create",
           title: "Denied creation",
-          content: { en: { title: "Denied creation", slices: [] } },
+          content: { en: { title: "Denied creation", blocks: [] } },
         })).rejects.toMatchObject({ data: code })
         expect(await selectedState(f.t)).toEqual(before)
         expect(await publicPage(f)).toEqual(beforePublic)

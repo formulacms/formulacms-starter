@@ -1,14 +1,14 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { Doc, Id } from "../_generated/dataModel"
-import { type Primitive, type Slice } from "./slices"
-import { type LeafVisit, walkFieldMap, walkValue } from "./slices/walk"
-import { hasSliceBody } from "./pages/sliceBodyContent"
+import { type Primitive, type Block } from "./blocks"
+import { type LeafVisit, walkFieldMap, walkValue } from "./blocks/walk"
+import { hasBlockBody } from "./pages/blockBodyContent"
 import { contentTypeDefs, type ContentType } from "./contentTypes"
 
 export type MediaReferenceSource =
-  "slice-image" | "slice-media-link" | "card-image" | "descriptor-image"
+  "block-image" | "block-media-link" | "card-image" | "descriptor-image"
 
 export type CollectedMediaReference = {
   mediaId?: Id<"media">
@@ -51,13 +51,13 @@ export type PageLeaf = {
   leaf: LeafVisit
   locale?: string
   path: string
-  /** Descriptor (shared or localized) field, or a slice field. */
-  area: "descriptor" | "slice"
+  /** Descriptor (shared or localized) field, or a block field. */
+  area: "descriptor" | "block"
 }
 
 /**
  * Walk every field leaf of a page in the order the reference writers rely on:
- * descriptor shared fields, descriptor localized fields per locale, then slice
+ * descriptor shared fields, descriptor localized fields per locale, then block
  * primary and item fields. Image/link collection and rich-text image
  * collection share this walk so their paths cannot drift apart.
  */
@@ -66,9 +66,9 @@ export function visitPageLeaves(
   visit: (entry: PageLeaf) => void
 ): void {
   // Plan 029 C10 — descriptor field-map walk. Runs on EVERY arm, including
-  // pure-form (`sliceBody: false`) types like testimonial whose descriptor-
+  // pure-form (`blockBody: false`) types like testimonial whose descriptor-
   // level `image()` fields (e.g. `personImage`) are the first non-card,
-  // non-slice image source in the system. Unknown pageType silently no-ops,
+  // non-block image source in the system. Unknown pageType silently no-ops,
   // matching the doc-refs scanner + search extractor fallthrough. No
   // `publicFieldsOf` gate — media references track storage usage / GC /
   // deletion; admin-only media still needs a reference row so it isn't
@@ -101,32 +101,32 @@ export function visitPageLeaves(
     }
   }
 
-  // Pure-form arms (`sliceBody: false`) have no slice canvas — skip the
-  // slice walk. Card-image + descriptor references still apply.
-  if (!hasSliceBody(page)) return
+  // Pure-form arms (`blockBody: false`) have no block canvas — skip the
+  // block walk. Card-image + descriptor references still apply.
+  if (!hasBlockBody(page)) return
 
   for (const [locale, localeContent] of Object.entries(page.content ?? {})) {
-    const slices = localeContent.slices ?? []
-    slices.forEach((slice: Slice, sliceIndex) => {
-      const def = readSliceDefinition(readSlice(slice).type)
+    const blocks = localeContent.blocks ?? []
+    blocks.forEach((block: Block, blockIndex) => {
+      const def = readBlockDefinition(readBlock(block).type)
       if (!def) return
 
-      walkValue(def.primary, readSlice(slice).primary, (leaf) =>
+      walkValue(def.primary, readBlock(block).primary, (leaf) =>
         visit({
           leaf,
           locale,
-          path: `content.${locale}.slices[${sliceIndex}].primary.${leaf.path}`,
-          area: "slice",
+          path: `content.${locale}.blocks[${blockIndex}].primary.${leaf.path}`,
+          area: "block",
         })
       )
 
-      if (!def.items || !("items" in slice)) return
-      walkValue(def.items as Primitive, readSlice(slice).items, (leaf) =>
+      if (!def.items || !("items" in block)) return
+      walkValue(def.items as Primitive, readBlock(block).items, (leaf) =>
         visit({
           leaf,
           locale,
-          path: `content.${locale}.slices[${sliceIndex}].items${leaf.path}`,
-          area: "slice",
+          path: `content.${locale}.blocks[${blockIndex}].items${leaf.path}`,
+          area: "block",
         })
       )
     })
@@ -144,7 +144,7 @@ export function collectMediaReferences(
       source: "card-image",
     })
   }
-  // Descriptor media links use the existing slice-media-link discriminator;
+  // Descriptor media links use the existing block-media-link discriminator;
   // their path identifies the descriptor field.
   visitPageLeaves(page, ({ leaf, locale, path, area }) => {
     const media = mediaLeafValue(leaf)
@@ -155,10 +155,10 @@ export function collectMediaReferences(
       path,
       source:
         leaf.def.kind === "link"
-          ? "slice-media-link"
+          ? "block-media-link"
           : area === "descriptor"
             ? "descriptor-image"
-            : "slice-image",
+            : "block-image",
     })
   })
   return refs

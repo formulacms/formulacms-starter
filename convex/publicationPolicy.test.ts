@@ -66,14 +66,14 @@ async function activeFixture() {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   const pageId = await owner.mutation(api.cms.pages.create, {
     pageType: "landing-page",
     status: "draft",
     slug: "policy-page",
     title: "Policy page",
-    content: { en: { title: "Policy page", slices: [] } },
+    content: { en: { title: "Policy page", blocks: [] } },
   })
   await t.run((ctx) =>
     ctx.db.insert("siteSettings", {
@@ -110,7 +110,7 @@ const PUBLICATION_TABLES = [
   "pagePublishedSnapshots",
   "pagePublicationDocumentReferences",
   "pagePublicationMediaReferences",
-  "pagePublicationSliceReferences",
+  "pagePublicationBlockReferences",
   "pageHistoricalLocaleRoutes",
   "pagePublicationRevalidationIntents",
 ] as const

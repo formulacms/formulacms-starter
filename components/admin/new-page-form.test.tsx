@@ -1,4 +1,4 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { getFunctionName } from "convex/server"
 import { NextIntlClientProvider } from "next-intl"
@@ -21,12 +21,12 @@ const mocks = vi.hoisted(() => ({
   useQuery: vi.fn(),
 }))
 
-vi.mock("@/convex/lib/slices", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/convex/lib/slices")>()
+vi.mock("@/convex/lib/blocks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/convex/lib/blocks")>()
   return {
     ...actual,
-    get INSTALLED_SLICE_TYPES() {
-      return mocks.installedTypes ?? actual.INSTALLED_SLICE_TYPES
+    get INSTALLED_BLOCK_TYPES() {
+      return mocks.installedTypes ?? actual.INSTALLED_BLOCK_TYPES
     },
   }
 })
@@ -132,7 +132,7 @@ describe("NewPageForm", () => {
 
   test(
     "opens no AI subscription while the AI module is off",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     () => {
       // Writing is installed; the route passes its (empty) route data.
       render(
@@ -174,7 +174,7 @@ describe("NewPageForm", () => {
     ["fr", ["hero-agency"]],
   ] as const)(
     "hides Markdown import and its dialog without Rich Text Body while blank Create stays available in %s (%j)",
-    sliceProfile([]),
+    blockProfile([]),
     async (locale, installedTypes) => {
       mocks.installedTypes = [...installedTypes]
       renderForm(locale)
@@ -199,7 +199,7 @@ describe("NewPageForm", () => {
       await waitFor(() => expect(mocks.createPage).toHaveBeenCalledOnce())
       expect(mocks.createPage).toHaveBeenCalledWith(
         expect.objectContaining({
-          content: { en: { title: "Ordinary page", slices: [] } },
+          content: { en: { title: "Ordinary page", blocks: [] } },
         })
       )
       expect(mocks.stashPageDraftHandoff).not.toHaveBeenCalled()
@@ -213,7 +213,7 @@ describe("NewPageForm", () => {
     ["fr", ["hero-agency"]],
   ] as const)(
     "refuses a retained import callback before creating a page when Rich Text Body is absent in %s (%j)",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async (locale, installedTypes) => {
       renderForm(locale)
       const retainedImport = mocks.importCallbacks.at(-1)!
@@ -236,7 +236,7 @@ describe("NewPageForm", () => {
 
   test.each(["en", "fr"] as const)(
     "invalid Markdown candidate refuses before writes and handoff in %s",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async (locale) => {
       renderForm(locale)
       await act(async () =>
@@ -255,7 +255,7 @@ describe("NewPageForm", () => {
 
   test(
     "preserves the Markdown draft handoff when Rich Text Body is installed",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async () => {
       renderForm()
       const imported = {
@@ -265,7 +265,7 @@ describe("NewPageForm", () => {
       await act(async () => mocks.importCallbacks.at(-1)!(imported))
       expect(mocks.createPage).toHaveBeenCalledOnce()
       expect(mocks.stashPageDraftHandoff).toHaveBeenCalledWith("page-1", {
-        slices: [
+        blocks: [
           expect.objectContaining({
             type: "rich-text-body",
             primary: { body: imported.body },
@@ -278,7 +278,7 @@ describe("NewPageForm", () => {
 
   test(
     "hides owner-facing creation actions from an unrelated account",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
       mocks.useQuery.mockImplementation((reference) => {
         const name = getFunctionName(reference)
@@ -303,7 +303,7 @@ describe("NewPageForm", () => {
 
   test(
     "lets the owner create an Author without a member account",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       mocks.requestedType = "author"
       mocks.useQuery.mockImplementation((reference) => {
@@ -344,7 +344,7 @@ describe("NewPageForm", () => {
 
   test(
     "keeps Author creation independent of Team permissions",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
       mocks.requestedType = "author"
       mocks.useQuery.mockImplementation((reference) => {
@@ -373,7 +373,7 @@ describe("NewPageForm", () => {
 
   test(
     "prospective create-own keeps the Post creation path visible",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
       mocks.requestedType = "post"
       mocks.useQuery.mockImplementation((reference) => {
@@ -406,7 +406,7 @@ describe("NewPageForm", () => {
 
   test(
     "starts with the first owner-available type when no type is requested",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       mocks.useQuery.mockImplementation((reference) => {
         const name = getFunctionName(reference)
@@ -449,7 +449,7 @@ describe("NewPageForm", () => {
 
   test(
     "heading and submit button track the selected content type",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
       mocks.useQuery.mockImplementation((reference) => {
         const name = getFunctionName(reference)
@@ -494,7 +494,7 @@ describe("NewPageForm", () => {
 
   test(
     "keeps the requested Author type available to the owner",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       mocks.requestedType = "author"
       mocks.useQuery.mockImplementation((reference) => {
@@ -535,7 +535,7 @@ describe("NewPageForm", () => {
 
   test(
     "fails closed while archive state is loading",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     () => {
       mocks.useQuery.mockImplementation((reference) => {
         const name = getFunctionName(reference)
@@ -571,7 +571,7 @@ describe("NewPageForm", () => {
 
   test(
     "renders the new-page form in French",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     () => {
       renderForm("fr")
 

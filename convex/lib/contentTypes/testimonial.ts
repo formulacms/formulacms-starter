@@ -1,16 +1,16 @@
 import { v } from "convex/values"
-import { image, text } from "../slices/primitives"
+import { image, text } from "../blocks/primitives"
 import type { ContentTypeDescriptor } from "./types"
 
 /**
- * Testimonial — the first `sliceBody: false` content type (plan 029 C10
+ * Testimonial — the first `blockBody: false` content type (plan 029 C10
  * vertical tracer). Non-routable: exists to be referenced from a
- * "testimonials" slice on another page, not to be its own URL.
+ * "testimonials" block on another page, not to be its own URL.
  *
- * Registering it widened `content[locale]` from the slice-body shape to a
+ * Registering it widened `content[locale]` from the block-body shape to a
  * union that also admits this type's pure-form `{title, quote}`. Consumers
- * that read `.slices` / `.metaTitle` / `.metaDescription` narrow first — see
- * `hasSliceBody` in `convex/lib/pages/sliceBodyContent.ts`, which is the seam
+ * that read `.blocks` / `.metaTitle` / `.metaDescription` narrow first — see
+ * `hasBlockBody` in `convex/lib/pages/blockBodyContent.ts`, which is the seam
  * that keeps that widening from reaching every read site.
  *
  * Shape per plan 029 addendum §Q8 (owner-approved 2026-07-09):
@@ -21,10 +21,10 @@ import type { ContentTypeDescriptor } from "./types"
  *   quote (required, plain multiline text, public — translated per locale).
  *
  * Capabilities:
- * - `sliceBody: false` — activates {@link armLocalizedContentValidatorNoSlices}.
- *   The admin editor renders a PURE FORM for this arm: no slice canvas, no
- *   "Add slice" button (`components/admin/page-editor.tsx` gates the canvas on
- *   `capabilities.sliceBody`).
+ * - `blockBody: false` — activates {@link armLocalizedContentValidatorNoBlocks}.
+ *   The admin editor renders a PURE FORM for this arm: no block canvas, no
+ *   "Add block" button (`components/admin/page-editor.tsx` gates the canvas on
+ *   `capabilities.blockBody`).
  * - `revisions: true` — save-history discipline still applies.
  * - `scheduling: false` / `presence: false` — one-shot reference targets
  *   don't warrant scheduling or lock choreography.
@@ -81,7 +81,7 @@ export const testimonialContentType: ContentTypeDescriptor<
   // No routing — testimonials are referenced by relation() only.
   // No SEO — no public URL.
   capabilities: {
-    sliceBody: false,
+    blockBody: false,
     revisions: true,
     scheduling: false,
     presence: false,

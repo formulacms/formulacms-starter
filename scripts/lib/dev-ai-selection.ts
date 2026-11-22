@@ -57,7 +57,7 @@ export type DevAiChoice = (typeof DEV_AI_CHOICES)[number]
 /**
  * Task profiles that the Development-lane per-task routing block can address.
  * The full agentic set that shows up as a row in Settings → AI → Development —
- * five editor-facing profiles plus the two slice-authoring profiles that live
+ * five editor-facing profiles plus the two block-authoring profiles that live
  * in the build lane exclusively (ADR-0032 amendment 2026-07-14). The two
  * agentic-rescue profiles (`judgment-transform`, `explicit-agentic-rescue`)
  * stay internal escape hatches and never appear in the UI.
@@ -122,7 +122,7 @@ export type DevAiTaskOverrides = Readonly<
  *     per-task routing under the Development lane, replacing the coarse
  *     `contentLane` toggle. Editor tasks with per-task `engine: "off"` fall
  *     back to the Production runtime path (preserving v2 `contentLane: "off"`
- *     behavior); slice tasks with `engine: "off"` fail closed at the caller.
+ *     behavior); block tasks with `engine: "off"` fail closed at the caller.
  *
  * `parseDevAiSelection` accepts v1 and v2 files and upgrades them in-memory
  * to v3. The on-disk file is only rewritten as v3 the next time the operator
@@ -137,7 +137,7 @@ export interface DevAiSelection {
   readonly effort?: ReasoningEffort
   /** Per-task overrides. A key omitted here means "inherit the top-level
    *  provider"; a task set to `engine: "off"` opts out (editor tasks fall
-   *  back to Production AI, slice tasks fail closed). */
+   *  back to Production AI, block tasks fail closed). */
   readonly tasks?: DevAiTaskOverrides
 }
 
@@ -626,7 +626,7 @@ export function resolveDevAiSelection(
 
 /**
  * A task-aware effective selection. Never throws on `engine: "off"` — that
- * decision belongs to the caller (slice tasks fail closed, editor tasks fall
+ * decision belongs to the caller (block tasks fail closed, editor tasks fall
  * back to Production AI). `persisted === null` resolves to the top-level
  * default (openrouter), matching `resolveDevAiSelection`'s empty-file path.
  */
@@ -701,7 +701,7 @@ function resolveTaskOverride(
 
 export const LOCAL_TOOL_ASSISTANT_TASKS = Object.freeze({
   help: Object.freeze(["grounded-help"] as const),
-  sliceCreator: Object.freeze(["vision-spec", "renderer-jsx"] as const),
+  blockCreator: Object.freeze(["vision-spec", "renderer-jsx"] as const),
   writing: Object.freeze(["editorial-copy", "structured-outline-meta"] as const),
   translation: Object.freeze([
     "brand-translation",

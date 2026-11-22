@@ -80,7 +80,7 @@ import {
 import { requireInstallationOwner } from "./lib/access/policy"
 import type { NavItem } from "./lib/menu"
 import schema from "./schema"
-import { readSlicePresentationCatalog } from "./lib/slices/presentations"
+import { readBlockPresentationCatalog } from "./lib/blocks/presentations"
 import { SUPPORTED_LOCALES } from "../lib/i18n/config"
 import {
   scanIndexReaders,
@@ -91,7 +91,7 @@ import {
 
 /**
  * FR2e (D-7): inventory rows for files the starter does not ship (Search, AI,
- * the slice library, the private migrations runner) live in the private
+ * the block library, the private migrations runner) live in the private
  * `multilingual.sourceInventory.ts`. Source merges them, so its inventories
  * stay exact; the starter copy is exact for what it ships.
  */
@@ -235,7 +235,7 @@ async function createPage(owner: Caller, slug: string, locales: string[]) {
     content: Object.fromEntries(
       locales.map((locale) => [
         locale,
-        { title: `${slug} ${locale}`, slices: [] },
+        { title: `${slug} ${locale}`, blocks: [] },
       ])
     ),
   })
@@ -664,7 +664,7 @@ async function operationResults(site: Site) {
     draft: {
       pageType: "landing-page",
       localized: { title: "About, republished" },
-      slices: [],
+      blocks: [],
     } as never,
     expectedDraftGeneration: draft.state!.draftGeneration,
     expectedLifecycleGeneration: draft.page!.lifecycleGeneration,
@@ -885,9 +885,9 @@ function occurrenceAccountingDeltas(state: string): AllowedDelta[] {
     {
       path: [],
       addCensus: {
-        sliceOccurrenceCountState: 1,
-        sliceOccurrenceSources: state === "S2" ? 12 : 8,
-        ...(state === "S1" ? { sliceOccurrenceCounts: 9 } : {}),
+        blockOccurrenceCountState: 1,
+        blockOccurrenceSources: state === "S2" ? 12 : 8,
+        ...(state === "S1" ? { blockOccurrenceCounts: 9 } : {}),
       },
       reason: OCCURRENCE_ACCOUNTING_REASON,
     },
@@ -898,27 +898,27 @@ function occurrenceAccountingDeltas(state: string): AllowedDelta[] {
         "get pageLocaleDrafts",
         "get pageLocalePublicationCandidates",
         "get pagePublishedSnapshots",
-        "get sliceOccurrenceSources",
-        "get sliceOccurrenceSources",
-        'query pagePublicationSliceReferences.by_sourceKind_and_sourceId [sourceKind Eq "candidate", sourceId Eq "<id:pageLocalePublicationCandidates>"] asc +operators [{"limit":513}]',
-        'query pagePublicationSliceReferences.by_sourceKind_and_sourceId [sourceKind Eq "current_public", sourceId Eq "<id:pagePublishedSnapshots>"] asc +operators [{"limit":513}]',
-        'query pagePublicationSliceReferences.by_sourceKind_and_sourceId [sourceKind Eq "locale_draft", sourceId Eq "<id:pageLocaleDrafts>"] asc +operators [{"limit":513}]',
-        'query sliceOccurrenceCountState.by_key [key Eq "slice-occurrences-v1"] asc +operators [{"limit":2}]',
-        'query sliceOccurrenceCountState.by_key [key Eq "slice-occurrences-v1"] asc +operators [{"limit":2}]',
-        'query sliceOccurrenceCountState.by_key [key Eq "slice-occurrences-v1"] asc +operators [{"limit":2}]',
-        'query sliceOccurrenceSourceMembers.by_sourceId_and_occurrenceId [sourceId Eq "<id:sliceOccurrenceSources>"] asc +operators [{"limit":513}]',
-        'query sliceOccurrenceSources.by_key [key Eq "pageLocaleDrafts:<id:pageLocaleDrafts>"] asc +operators [{"limit":2}]',
-        'query sliceOccurrenceSources.by_key [key Eq "pageLocalePublicationCandidates:<id:pageLocalePublicationCandidates>"] asc +operators [{"limit":2}]',
-        'query sliceOccurrenceSources.by_key [key Eq "pagePublishedSnapshots:<id:pagePublishedSnapshots>"] asc +operators [{"limit":2}]',
+        "get blockOccurrenceSources",
+        "get blockOccurrenceSources",
+        'query pagePublicationBlockReferences.by_sourceKind_and_sourceId [sourceKind Eq "candidate", sourceId Eq "<id:pageLocalePublicationCandidates>"] asc +operators [{"limit":513}]',
+        'query pagePublicationBlockReferences.by_sourceKind_and_sourceId [sourceKind Eq "current_public", sourceId Eq "<id:pagePublishedSnapshots>"] asc +operators [{"limit":513}]',
+        'query pagePublicationBlockReferences.by_sourceKind_and_sourceId [sourceKind Eq "locale_draft", sourceId Eq "<id:pageLocaleDrafts>"] asc +operators [{"limit":513}]',
+        'query blockOccurrenceCountState.by_key [key Eq "block-occurrences-v1"] asc +operators [{"limit":2}]',
+        'query blockOccurrenceCountState.by_key [key Eq "block-occurrences-v1"] asc +operators [{"limit":2}]',
+        'query blockOccurrenceCountState.by_key [key Eq "block-occurrences-v1"] asc +operators [{"limit":2}]',
+        'query blockOccurrenceSourceMembers.by_sourceId_and_occurrenceId [sourceId Eq "<id:blockOccurrenceSources>"] asc +operators [{"limit":513}]',
+        'query blockOccurrenceSources.by_key [key Eq "pageLocaleDrafts:<id:pageLocaleDrafts>"] asc +operators [{"limit":2}]',
+        'query blockOccurrenceSources.by_key [key Eq "pageLocalePublicationCandidates:<id:pageLocalePublicationCandidates>"] asc +operators [{"limit":2}]',
+        'query blockOccurrenceSources.by_key [key Eq "pagePublishedSnapshots:<id:pagePublishedSnapshots>"] asc +operators [{"limit":2}]',
       ],
       addWrites: [
-        "delete sliceOccurrenceSources",
-        "insert sliceOccurrenceSources {epoch,fingerprint,invalidTypes,key,sourceId,table,unknownInvalid}",
-        "insert sliceOccurrenceSources {epoch,fingerprint,invalidTypes,key,sourceId,table,unknownInvalid}",
-        "patch sliceOccurrenceSources {epoch,fingerprint,invalidTypes,unknownInvalid}",
-        "patch sliceOccurrenceSources {epoch,fingerprint,invalidTypes,unknownInvalid}",
+        "delete blockOccurrenceSources",
+        "insert blockOccurrenceSources {epoch,fingerprint,invalidTypes,key,sourceId,table,unknownInvalid}",
+        "insert blockOccurrenceSources {epoch,fingerprint,invalidTypes,key,sourceId,table,unknownInvalid}",
+        "patch blockOccurrenceSources {epoch,fingerprint,invalidTypes,unknownInvalid}",
+        "patch blockOccurrenceSources {epoch,fingerprint,invalidTypes,unknownInvalid}",
       ],
-      addRows: { sliceOccurrenceSources: 1 },
+      addRows: { blockOccurrenceSources: 1 },
     },
   ]
 }
@@ -946,7 +946,7 @@ function dropSessionLookups(value: unknown): unknown {
 function normalizeOccurrenceKeyReads(value: unknown): unknown {
   if (typeof value === "string") {
     const source =
-      /^(query sliceOccurrenceSources\.by_key \[key Eq ")(pages|pageStaging|pageLocaleDrafts|pageSharedDrafts|pageLocalePublicationCandidates|pagePublishedSnapshots):([^"]+)("\] asc \+operators \[\{"limit":2\}\])$/.exec(
+      /^(query blockOccurrenceSources\.by_key \[key Eq ")(pages|pageStaging|pageLocaleDrafts|pageSharedDrafts|pageLocalePublicationCandidates|pagePublishedSnapshots):([^"]+)("\] asc \+operators \[\{"limit":2\}\])$/.exec(
         value
       )
     if (source) {
@@ -956,12 +956,12 @@ function normalizeOccurrenceKeyReads(value: unknown): unknown {
         : value
     }
     const member =
-      /^(query sliceOccurrenceSourceMembers\.by_sourceId_and_occurrenceId \[sourceId Eq ")([^"]+)("\] asc \+operators \[\{"limit":513\}\])$/.exec(
+      /^(query blockOccurrenceSourceMembers\.by_sourceId_and_occurrenceId \[sourceId Eq ")([^"]+)("\] asc \+operators \[\{"limit":513\}\])$/.exec(
         value
       )
     if (member) {
       const id = normalizeIds(member[2])
-      return id === "<id:sliceOccurrenceSources>"
+      return id === "<id:blockOccurrenceSources>"
         ? `${member[1]}${id}${member[3]}`
         : value
     }
@@ -1327,8 +1327,8 @@ async function expectedAfterC1(
   // Source has nine; the five-Type starter has six, and no-Hero has four.
   // Adapt only S1's selection census; every other field stays exact.
   if (key.startsWith("S1/"))
-    (expected.initialCensus as Record<string, number>).sliceOccurrenceCounts = (
-      await readSlicePresentationCatalog()
+    (expected.initialCensus as Record<string, number>).blockOccurrenceCounts = (
+      await readBlockPresentationCatalog()
     ).entries.length
   // convex-test pins Date to the transaction clock. Adapt only the initial
   // public Page scalar times and the republish result, using producer receipts
@@ -3631,9 +3631,9 @@ const RECORDING_CALL_SITES = [
   "convex/cms/aiSettings.ts#setAssistant#recordPublicChange",
   "convex/cms/aiSettings.ts#setAssistantLocalTool#recordPublicChange",
   "convex/cms/aiSettings.ts#setProductionAiConfiguration#recordPublicChange",
-  "convex/cms/aiSettings.ts#setSliceCreator#recordPublicChange",
-  "convex/cms/sliceLibrary.ts#cleanupDeletedSliceTypeArchive#recordPublicChange",
-  "convex/cms/sliceLibrary.ts#setSliceArchived#recordPublicChange",
+  "convex/cms/aiSettings.ts#setBlockCreator#recordPublicChange",
+  "convex/cms/blockLibrary.ts#cleanupDeletedBlockTypeArchive#recordPublicChange",
+  "convex/cms/blockLibrary.ts#setBlockArchived#recordPublicChange",
   "convex/cms/contentTypes.ts#setContentTypeArchived#recordPublicChange",
   "convex/cms/contentTypes.ts#setContentTypeTranslation#recordPublicChange",
   "convex/cms/menus.ts#createCanonical#recordPublicChange",
@@ -3741,7 +3741,7 @@ async function freshnessScript(site: Site) {
       draft: {
         pageType: "landing-page",
         localized: { title: "About, again" },
-        slices: [],
+        blocks: [],
       } as never,
       expectedDraftGeneration: draft.state!.draftGeneration,
       expectedLifecycleGeneration: draft.page!.lifecycleGeneration,
@@ -4104,7 +4104,7 @@ function menuNav(
     label: text(`Item ${item}`),
     panel: {
       columns: 1 as const,
-      blocks: [
+      sections: [
         {
           id: `group-${item}${idPad}`,
           kind: "linkGroup" as const,
@@ -4445,7 +4445,7 @@ describe("M05 P17 sealed preview mechanics", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "About, again" },
-        slices: [],
+        blocks: [],
       } as never,
       expectedDraftGeneration: about.expectedDraftGeneration,
       expectedLifecycleGeneration: about.expectedLifecycleGeneration,
@@ -4468,7 +4468,7 @@ describe("M05 P17 sealed preview mechanics", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "Bonjour, encore" },
-        slices: [],
+        blocks: [],
       } as never,
       expectedDraftGeneration: bonjour.expectedDraftGeneration,
       expectedLifecycleGeneration: bonjour.expectedLifecycleGeneration,
@@ -4602,8 +4602,8 @@ describe("M05 P17 sealed preview mechanics", () => {
       slug: "long",
       title: "long",
       content: {
-        en: { title: "long en", slices: [] },
-        fr: { title: long(8 * KIB), slices: [] },
+        en: { title: "long en", blocks: [] },
+        fr: { title: long(8 * KIB), blocks: [] },
       },
     })
     await owner.mutation(
@@ -5453,7 +5453,7 @@ async function saveFrDraft(site: PreviewSite, slug: string, title: string) {
     draft: {
       pageType: "landing-page",
       localized: { title },
-      slices: [],
+      blocks: [],
     } as never,
     expectedDraftGeneration: args.expectedDraftGeneration,
     expectedLifecycleGeneration: args.expectedLifecycleGeneration,
@@ -13083,7 +13083,7 @@ async function saveSlugDraft(
     draft: {
       pageType: "landing-page",
       localized: { title: `${slug} ${locale}` },
-      slices: [],
+      blocks: [],
     } as never,
     expectedDraftGeneration: draft.state!.draftGeneration,
     expectedLifecycleGeneration: draft.page!.lifecycleGeneration,
@@ -13956,7 +13956,23 @@ function p14Nav(site: P14Site, withFr: boolean): NavItem[] {
       target: about,
       panel: {
         columns: 3,
-        blocks: [
+        // Stored objects read back with keys in name order, so footer comes first.
+        footer: {
+          sections: [
+            {
+              id: "footer-group",
+              kind: "linkGroup",
+              links: [
+                {
+                  id: "footer-link",
+                  label: marked(D, "Footer link"),
+                  target: about,
+                },
+              ],
+            },
+          ],
+        },
+        sections: [
           {
             id: "group",
             kind: "linkGroup",
@@ -14015,21 +14031,6 @@ function p14Nav(site: P14Site, withFr: boolean): NavItem[] {
             },
           },
         ],
-        footer: {
-          blocks: [
-            {
-              id: "footer-group",
-              kind: "linkGroup",
-              links: [
-                {
-                  id: "footer-link",
-                  label: marked(D, "Footer link"),
-                  target: about,
-                },
-              ],
-            },
-          ],
-        },
       },
     },
     {
@@ -14037,7 +14038,7 @@ function p14Nav(site: P14Site, withFr: boolean): NavItem[] {
       label: marked(D, "Missing"),
       panel: {
         columns: 1,
-        blocks: [
+        sections: [
           {
             id: "missing-group",
             kind: "linkGroup",
@@ -14082,7 +14083,7 @@ describe("M05 P14 Menus present, Search absent (C6)", () => {
             target: { type: "internal", url: aboutFr },
             panel: {
               columns: 3,
-              blocks: [
+              sections: [
                 {
                   id: "group",
                   kind: "linkGroup",
@@ -14110,7 +14111,7 @@ describe("M05 P14 Menus present, Search absent (C6)", () => {
                 },
               ],
               footer: {
-                blocks: [{ id: "footer-group", kind: "linkGroup", links: [] }],
+                sections: [{ id: "footer-group", kind: "linkGroup", links: [] }],
               },
             },
           },
@@ -14160,7 +14161,7 @@ describe("M05 P14 Menus present, Search absent (C6)", () => {
       expect(it!.nav.map((item) => item.label)).toEqual(["it:Full"])
       // A dynamic list has no required label, so only its optional heading
       // and its see-all link (whose label is required) drop.
-      expect(legacyPanel(it!.nav[0]!.panel!).blocks).toEqual([
+      expect(legacyPanel(it!.nav[0]!.panel!).sections).toEqual([
         { id: "group", kind: "linkGroup", links: [] },
         {
           id: "list",
@@ -14222,7 +14223,7 @@ describe("M05 P14 Menus present, Search absent (C6)", () => {
         target: { type: "anchor", anchor: "#shared" },
         panel: {
           columns: 1,
-          blocks: [
+          sections: [
             {
               id: "shared-group",
               kind: "linkGroup",
@@ -14266,7 +14267,7 @@ describe("M05 P14 Menus present, Search absent (C6)", () => {
 
     const fr = await readMenu(t, "fr")
     expect(fr!.nav.map((item) => item.label)).toEqual(["fr:Shared", "fr:Added"])
-    expect(legacyPanel(fr!.nav[0]!.panel!).blocks).toEqual([
+    expect(legacyPanel(fr!.nav[0]!.panel!).sections).toEqual([
       {
         id: "shared-group",
         kind: "linkGroup",
@@ -14284,7 +14285,7 @@ describe("M05 P14 Menus present, Search absent (C6)", () => {
 
     const en = await readMenu(t, "en")
     expect(en!.nav.map((item) => item.label)).toEqual(["en:Shared"])
-    expect(legacyPanel(en!.nav[0]!.panel!).blocks[0]).toMatchObject({
+    expect(legacyPanel(en!.nav[0]!.panel!).sections[0]).toMatchObject({
       links: [{ id: "shared-link", description: "en:Old-default description" }],
     })
     expectNoTextFrom(en, "fr")

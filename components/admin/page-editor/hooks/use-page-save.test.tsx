@@ -1,5 +1,5 @@
-import { createSampleSlice } from "@/convex/lib/slices/sample"
-import { sliceProfile, createInstalledDefaultSlice } from "@/test-utils/slice-profile"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
+import { blockProfile, createInstalledDefaultBlock } from "@/test-utils/block-profile"
 import * as legacyParser from "@/lib/rich-text/legacy-html"
 import { PreviewInlineEditor } from "../../preview-inline-editor"
 import { adoptHeroTitles } from "@/lib/rich-text/adopt-hero-titles"
@@ -81,7 +81,7 @@ function makePage(overrides: Partial<Page> = {}): Page {
     content: {
       en: {
         title: "Home",
-        slices: [],
+        blocks: [],
       },
     },
     tags: [],
@@ -100,7 +100,7 @@ function makeDraft(overrides: Partial<PageSaveDraft> = {}): PageSaveDraft {
     tags: [],
     metaTitle: "",
     metaDescription: "",
-    slices: [],
+    blocks: [],
     seoNoIndex: false,
     seoNoFollow: false,
     seoOgTitle: "",
@@ -967,7 +967,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
   })
 
   it.each([false, true])(
-    "captures the presentation revision with the draft before lock renewal (snapshot=%s)", sliceProfile(["hero-with-image"]),
+    "captures the presentation revision with the draft before lock renewal (snapshot=%s)", blockProfile(["hero-with-image"]),
     async (snapshotAuthority) => {
       const lock = deferred<boolean>()
       const saveSnapshotDraft = vi.fn<SaveSnapshotEditorDraft>(async () => ({
@@ -979,18 +979,18 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
         presentationCatalogRevision: firstRevision,
         ...(snapshotAuthority ? { saveSnapshotDraft } : {}),
       })
-      const slice = {
-        ...createInstalledDefaultSlice("hero-with-image"),
+      const block = {
+        ...createInstalledDefaultBlock("hero-with-image"),
         presentationIdV1: "centered",
       }
-      const submitted = makeDraft({ slices: [slice] })
+      const submitted = makeDraft({ blocks: [block] })
       hook.rerender({ draft: submitted })
       let saving!: Promise<boolean>
       act(() => {
         saving = hook.result.current.save()
       })
       hook.rerender({
-        draft: makeDraft({ title: "Later work", slices: [slice] }),
+        draft: makeDraft({ title: "Later work", blocks: [block] }),
         catalogRevision: `sha256:${"b".repeat(64)}`,
       })
       await act(async () => {
@@ -1006,7 +1006,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
         : hook.updateDraft.mock.calls[0][0].content?.en
       expect(persisted).toMatchObject({
         localized: { title: "Home" },
-        slices: [slice],
+        blocks: [block],
       })
       expect(hook.result.current.hasUnsaved).toBe(true)
     }
@@ -1112,7 +1112,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
 
   describe("refuseDraft", () => {
     const blankTitlePage = () =>
-      makePage({ content: { en: { title: "", slices: [] } } })
+      makePage({ content: { en: { title: "", blocks: [] } } })
     const snapshotSave = () =>
       vi.fn<SaveSnapshotEditorDraft>(async () => ({ updatedAt: 101 }))
 
@@ -1166,14 +1166,14 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
           content: {
             en: {
               title: "Home",
-              slices: [],
+              blocks: [],
               seo: {
                 noIndex: true,
                 ogTitle: "English social",
                 ogDescription: "English description",
               },
             },
-            fr: { title: "Accueil", slices: [] },
+            fr: { title: "Accueil", blocks: [] },
           },
         }),
         initialDraft: makeDraft(english),
@@ -1202,7 +1202,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
           content: {
             en: {
               title: "Home",
-              slices: [],
+              blocks: [],
               seo: { ogTitle: "English social", structuredData: "{}" },
             },
           },
@@ -1255,7 +1255,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
           content: {
             en: {
               title: "Home",
-              slices: [],
+              blocks: [],
               seo: { structuredData: "{\"old\":true}", keywords: ["old"] },
             },
           },
@@ -1283,7 +1283,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       expect((draft as { seo: object }).seo).not.toHaveProperty("keywords")
     })
 
-    // Round 1 (finding 1): the pure-form arm (no slice body) carries the same
+    // Round 1 (finding 1): the pure-form arm (no block body) carries the same
     // per-language fields; Copy -> Save -> Reload must not lose them there.
     it("a pure-form type (testimonial) sends copied values and the card excerpt, and clears what the copied language lacks", async () => {
       const saveSnapshotDraft = snapshotSave()
@@ -1328,7 +1328,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
         unknown
       >
       expect(sent.pageType).toBe("testimonial")
-      expect(sent).not.toHaveProperty("slices")
+      expect(sent).not.toHaveProperty("blocks")
       expect(sent).toMatchObject({
         seo: { structuredData: "{\"copied\":true}", ogTitle: "Copied social" },
         cardExcerpt: "Copied excerpt",
@@ -1393,8 +1393,8 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       const page = makePage({
         localizedSlugs: { fr: "accueil" },
         content: {
-          en: { title: "Home", slices: [] },
-          fr: { title: "Accueil", slices: [] },
+          en: { title: "Home", blocks: [] },
+          fr: { title: "Accueil", blocks: [] },
         },
       })
       const hook = renderSaveHook({
@@ -1563,8 +1563,8 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     const hook = renderSaveHook({
       page: makePage({
         content: {
-          en: { title: "Home", slices: [] },
-          fr: { title: "French saved draft", slices: [] },
+          en: { title: "Home", blocks: [] },
+          fr: { title: "French saved draft", blocks: [] },
         },
       }),
     })
@@ -1592,8 +1592,8 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     const hook = renderSaveHook({
       page: makePage({
         content: {
-          en: { title: "Home", slices: [] },
-          fr: { title: "Accueil", slices: [] },
+          en: { title: "Home", blocks: [] },
+          fr: { title: "Accueil", blocks: [] },
         },
       }),
     })
@@ -1618,8 +1618,8 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     const hook = renderSaveHook({
       page: makePage({
         content: {
-          en: { title: "Home", slices: [] },
-          fr: { title: "Accueil", slices: [] },
+          en: { title: "Home", blocks: [] },
+          fr: { title: "Accueil", blocks: [] },
         },
       }),
     })
@@ -1639,8 +1639,8 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     const hook = renderSaveHook({
       page: makePage({
         content: {
-          en: { title: "Home", slices: [] },
-          fr: { title: "Accueil", slices: [] },
+          en: { title: "Home", blocks: [] },
+          fr: { title: "Accueil", blocks: [] },
         },
       }),
     })
@@ -1669,8 +1669,8 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     const hook = renderSaveHook({
       page: makePage({
         content: {
-          en: { title: "Home", slices: [] },
-          fr: { title: "Accueil", slices: [] },
+          en: { title: "Home", blocks: [] },
+          fr: { title: "Accueil", blocks: [] },
         },
       }),
     })
@@ -1697,8 +1697,8 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     const hook = renderSaveHook({
       page: makePage({
         content: {
-          en: { title: "Home", slices: [] },
-          fr: { title: "Accueil", slices: [] },
+          en: { title: "Home", blocks: [] },
+          fr: { title: "Accueil", blocks: [] },
         },
       }),
     })
@@ -1934,7 +1934,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
               metaTitle: undefined,
               metaDescription: undefined,
             },
-            slices: [],
+            blocks: [],
           },
         },
         expectedUpdatedAt: undefined,
@@ -2461,7 +2461,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       expect(hook.result.current.hasStaging).toBe(false)
       expect(hook.result.current.hasUnsaved).toBe(false)
       // Deploy 2 PR B (9c3bd87) — discard prefers a full reload in browser
-      // env so client `useState` (title, slices, bags) rebuilds from server
+      // env so client `useState` (title, blocks, bags) rebuilds from server
       // props; router.refresh alone left stale UI. router.refresh is only
       // the server-side fallback.
       expect(reloadMock).toHaveBeenCalledOnce()
@@ -2788,7 +2788,7 @@ describe("D2 actual-consumer adoption", () => {
     }
   })
   it.each(["en", "fr"] as const)(
-    "two linked Heroes: edit/real inline flush/Save/reopen in %s adopts both and retains located reports", sliceProfile(["hero-with-image"]),
+    "two linked Heroes: edit/real inline flush/Save/reopen in %s adopts both and retains located reports", blockProfile(["hero-with-image"]),
     async (locale) => {
       window.sessionStorage.clear()
       const identity = {
@@ -2806,15 +2806,15 @@ describe("D2 actual-consumer adoption", () => {
         pageType: "landing-page",
         status: "draft",
         slug: "consumer",
-        content: { [locale]: { title: "Home", slices: [] } },
+        content: { [locale]: { title: "Home", blocks: [] } },
       })
       await owner.mutation(api.cms.pages.acquirePageEditorLock, { pageId: id })
-      const source = ["first", "second"].map((sliceId) => ({
-        ...createSampleSlice("hero-with-image"),
-        id: sliceId,
+      const source = ["first", "second"].map((blockId) => ({
+        ...createSampleBlock("hero-with-image"),
+        id: blockId,
         primary: {
-          ...createSampleSlice("hero-with-image").primary,
-          title: `<p><strong>Hello</strong><br><a href="/${sliceId}">World</a></p>`,
+          ...createSampleBlock("hero-with-image").primary,
+          title: `<p><strong>Hello</strong><br><a href="/${blockId}">World</a></p>`,
         },
       }))
       await t.run(async (ctx) => {
@@ -2823,7 +2823,7 @@ describe("D2 actual-consumer adoption", () => {
           .withIndex("by_pageId", (q) => q.eq("pageId", id))
           .unique()
         await ctx.db.patch(staging!._id, {
-          content: { [locale]: { title: "Home", slices: source } },
+          content: { [locale]: { title: "Home", blocks: source } },
         })
       })
       const adopted = adoptHeroTitles([source[0]], locale)
@@ -2851,7 +2851,7 @@ describe("D2 actual-consumer adoption", () => {
       const page = makePage({
         _id: id,
         pageType: "landing-page",
-        content: { [locale]: { title: "Home", slices: source } },
+        content: { [locale]: { title: "Home", blocks: source } },
       } as Partial<Page>)
       let preparedDraft: PageSaveDraft | undefined
       const hook = renderSaveHook({
@@ -2866,16 +2866,16 @@ describe("D2 actual-consumer adoption", () => {
           flush!()
           return {
             ...draft,
-            slices: [
+            blocks: [
               {
-                ...(preparedDraft?.slices[0] ?? first),
+                ...(preparedDraft?.blocks[0] ?? first),
                 primary: {
                   ...first.primary,
                   title: flushed,
                   eyebrow: "Edited sibling",
                 },
               },
-              preparedDraft?.slices[1] ?? source[1],
+              preparedDraft?.blocks[1] ?? source[1],
             ] as typeof source,
           }
         },
@@ -2886,7 +2886,7 @@ describe("D2 actual-consumer adoption", () => {
           pageType: "landing-page",
           title: "Home",
           slug: "consumer",
-          slices: source,
+          blocks: source,
           removedTitleLinks: adopted.reports,
         }),
       })
@@ -2901,7 +2901,7 @@ describe("D2 actual-consumer adoption", () => {
           .withIndex("by_pageId", (q) => q.eq("pageId", id))
           .unique()
       )
-      const reopened = stored!.content![locale] as { slices: typeof source }
+      const reopened = stored!.content![locale] as { blocks: typeof source }
       const expected = JSON.stringify({
         type: "doc",
         content: [
@@ -2915,29 +2915,29 @@ describe("D2 actual-consumer adoption", () => {
           },
         ],
       })
-      expect(reopened.slices.map((slice) => slice.primary.title)).toEqual([
+      expect(reopened.blocks.map((block) => block.primary.title)).toEqual([
         expected,
         expected,
       ])
-      expect(reopened.slices.map((slice) => slice.id)).toEqual([
+      expect(reopened.blocks.map((block) => block.id)).toEqual([
         "first",
         "second",
       ])
-      const expectedReports = ["first", "second"].map((sliceId) => ({
+      const expectedReports = ["first", "second"].map((blockId) => ({
         locale,
-        sliceId,
+        blockId,
         fieldPath: "primary.title",
-        removedLinks: [{ href: `/${sliceId}` }],
+        removedLinks: [{ href: `/${blockId}` }],
       }))
       expect(preparedDraft!.removedTitleLinks).toEqual(expectedReports)
       expect(hook.result.current.titleAdoptionReports.current).toEqual(
         expectedReports
       )
-      expect(adoptHeroTitles(reopened.slices, locale).value).toEqual(
-        reopened.slices
+      expect(adoptHeroTitles(reopened.blocks, locale).value).toEqual(
+        reopened.blocks
       )
       expect(source[1].primary.title).toContain('<a href="/second">')
-      const preparedHero = preparedDraft!.slices[0]
+      const preparedHero = preparedDraft!.blocks[0]
       expect(preparedHero.type).toBe("hero-with-image")
       const firstIds =
         "items" in preparedHero
@@ -2962,8 +2962,8 @@ describe("D2 actual-consumer adoption", () => {
           .unique()
       )
       const secondHero = (
-        secondStage!.content![locale] as { slices: typeof source }
-      ).slices[0]
+        secondStage!.content![locale] as { blocks: typeof source }
+      ).blocks[0]
       expect(secondHero.items.map((item) => item.itemId)).toEqual(firstIds)
 
       hook.unmount()
@@ -2972,13 +2972,13 @@ describe("D2 actual-consumer adoption", () => {
   )
 })
 
-test("D2 failed HTML adoption refuses Save before any durable write", sliceProfile([]), () => {
+test("D2 failed HTML adoption refuses Save before any durable write", blockProfile([]), () => {
   window.sessionStorage.clear()
-  const source = createSampleSlice("hero-with-image")
+  const source = createSampleBlock("hero-with-image")
   source.primary.title = "<p><strong>Do not lose this</strong></p>"
   const before = JSON.stringify(source)
   const hook = renderSaveHook()
-  hook.rerender({ draft: makeDraft({ slices: [source] }) })
+  hook.rerender({ draft: makeDraft({ blocks: [source] }) })
   const parser = vi
     .spyOn(legacyParser, "generateRichTextDocument")
     .mockImplementationOnce(() => {
@@ -2998,20 +2998,20 @@ test("D2 failed HTML adoption refuses Save before any durable write", sliceProfi
 // Forwarding proof uses canonical values: an adopting reader cannot recreate
 // these attached diagnostics. Inspect raw storage before readRecoveryDraft.
 test.each(["lifecycle flush", "pending scope"] as const)(
-  "canonical recovery capture recipient: %s", sliceProfile([]),
+  "canonical recovery capture recipient: %s", blockProfile([]),
   (boundary) => {
     window.sessionStorage.clear()
     window.localStorage.clear()
     vi.useFakeTimers()
-    const slices = ["first", "second"].map((id) => ({
-      ...createSampleSlice("hero-with-image"),
+    const blocks = ["first", "second"].map((id) => ({
+      ...createSampleBlock("hero-with-image"),
       id,
     }))
-    const reports = slices.map((slice) => ({
+    const reports = blocks.map((block) => ({
       locale: "en",
-      sliceId: slice.id,
+      blockId: block.id,
       fieldPath: "primary.title",
-      removedLinks: [{ href: `/${slice.id}-capture` }],
+      removedLinks: [{ href: `/${block.id}-capture` }],
     }))
     const capture = vi.fn((draft: PageSaveDraft) => ({
       ...draft,
@@ -3020,7 +3020,7 @@ test.each(["lifecycle flush", "pending scope"] as const)(
     const hook = renderSaveHook({ recoveryDraftForFlush: capture })
     try {
       hook.rerender({
-        draft: makeDraft({ title: "Captured", slices }),
+        draft: makeDraft({ title: "Captured", blocks }),
         locale: "en",
       })
       if (boundary === "lifecycle flush") {
@@ -3033,7 +3033,7 @@ test.each(["lifecycle flush", "pending scope"] as const)(
       const raw = JSON.parse(
         window.sessionStorage.getItem(recoveryKey(pageId, "en"))!
       )
-      expect(raw.slices).toEqual(slices)
+      expect(raw.blocks).toEqual(blocks)
       expect(raw.removedTitleLinks).toEqual(reports)
       expect(capture).toHaveBeenCalled()
       expect(hook.updateDraft).not.toHaveBeenCalled()
@@ -3102,7 +3102,7 @@ it.each(
       retainedSaveBase: base,
       page: makePage({
         updatedAt: 500,
-        content: { en: { title: "Restored", slices: [] } },
+        content: { en: { title: "Restored", blocks: [] } },
       }),
       initialDraft: makeDraft({ title: "Newer unsaved English" }),
       hasStaging: true,

@@ -1,14 +1,14 @@
 import {
   resolvePageOutline,
   pageHeadingModeFor,
-} from "@/lib/slices/page-outline"
+} from "@/lib/blocks/page-outline"
 import { getPublicMessages } from "@/lib/i18n/public-messages"
 import Image from "next/image"
-import { SliceZone } from "@/components/slices/slice-zone"
+import { BlockList } from "@/components/blocks/block-list"
 import { postContentType } from "@/convex/lib/contentTypes/post"
 import { publicFieldsOf } from "@/convex/lib/contentTypes/exposure"
 import { formatBylineNames } from "./byline"
-import type { SliceBodyRendererProps } from "./types"
+import type { BlockBodyRendererProps } from "./types"
 
 /**
  * Public renderer for `post` — descriptor-driven, ADR-0038 exposure-gated.
@@ -32,11 +32,11 @@ import type { SliceBodyRendererProps } from "./types"
  */
 export function PostRenderer({
   content,
-  slices,
+  blocks,
   ctx,
   locale,
   bylines,
-}: SliceBodyRendererProps) {
+}: BlockBodyRendererProps) {
   const publicShared = publicFieldsOf(postContentType.sharedFields)
   // `tags` is admin-only, so it never appears in this map — this is the
   // ADR-0038 fail-closed enforcement.
@@ -48,13 +48,13 @@ export function PostRenderer({
   )
 
   const outline = resolvePageOutline({
-    slices,
+    blocks,
     locale: ctx.locale,
     mode: pageHeadingModeFor("post"),
   })
   return (
     <div>
-      {slices.length === 0 ? (
+      {blocks.length === 0 ? (
         <div className="px-6 py-10">
           <h1 className="text-3xl font-semibold">{content.title}</h1>
           <p className="mt-2 text-muted-foreground">
@@ -85,7 +85,7 @@ export function PostRenderer({
               </div>
             </div>
           )}
-          <SliceZone slices={slices} ctx={ctx} outline={outline} />
+          <BlockList blocks={blocks} ctx={ctx} outline={outline} />
         </>
       )}
     </div>

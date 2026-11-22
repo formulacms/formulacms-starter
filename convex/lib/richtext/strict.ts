@@ -273,10 +273,10 @@ function validateChildren(type: string, children: unknown[]): string | null {
       kinds[0] !== "paragraph" ||
       kinds
         .slice(1)
-        .some((kind) => typeof kind !== "string" || !blockTypes.includes(kind)))
+        .some((kind) => typeof kind !== "string" || !nodeTypes.includes(kind)))
   )
     return "listItem starts with a paragraph and then accepts blocks"
-  if (type === "blockquote" && (children.length === 0 || !all(blockTypes)))
+  if (type === "blockquote" && (children.length === 0 || !all(nodeTypes)))
     return "blockquote requires block children"
   if (type === "codeBlock" && !all(["text"]))
     return "codeBlock accepts text only"
@@ -289,13 +289,13 @@ function validateChildren(type: string, children: unknown[]): string | null {
     return "tableRow requires cells"
   if (
     (type === "tableCell" || type === "tableHeader") &&
-    (children.length === 0 || !all(blockTypes))
+    (children.length === 0 || !all(nodeTypes))
   )
     return `${type} requires block children`
   return null
 }
 
-const blockTypes = [
+const nodeTypes = [
   "paragraph",
   "heading",
   "bulletList",
@@ -308,18 +308,18 @@ const blockTypes = [
 ]
 
 function validParent(type: string, parent?: string): boolean {
-  if (parent === "doc") return blockTypes.includes(type)
+  if (parent === "doc") return nodeTypes.includes(type)
   if (parent === "paragraph" || parent === "heading")
     return type === "text" || type === "hardBreak"
   if (parent === "bulletList" || parent === "orderedList")
     return type === "listItem"
-  if (parent === "listItem") return blockTypes.includes(type)
+  if (parent === "listItem") return nodeTypes.includes(type)
   if (
     parent === "blockquote" ||
     parent === "tableCell" ||
     parent === "tableHeader"
   )
-    return blockTypes.includes(type)
+    return nodeTypes.includes(type)
   if (parent === "table") return type === "tableRow"
   if (parent === "tableRow")
     return type === "tableCell" || type === "tableHeader"

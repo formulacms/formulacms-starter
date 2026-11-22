@@ -16,7 +16,7 @@ type Panel = NonNullable<LocaleNavItem["panel"]>
 
 const initial: Panel = {
   columns: 2,
-  blocks: [
+  sections: [
     { id: "first", kind: "linkGroup", heading: "First", links: [] },
     { id: "second", kind: "linkGroup", heading: "Second", links: [] },
   ],
@@ -35,10 +35,10 @@ function Harness({
   return (
     <NextIntlClientProvider locale={locale} messages={messages}>
       <output data-testid="shape">
-        {legacyPanel(panel).columns}:{legacyPanel(panel).blocks.map((block) => block.id).join(",")}
+        {legacyPanel(panel).columns}:{legacyPanel(panel).sections.map((section) => section.id).join(",")}
       </output>
       <output data-testid="kinds">
-        {legacyPanel(panel).blocks.map((block) => block.kind).join(",")}
+        {legacyPanel(panel).sections.map((section) => section.kind).join(",")}
       </output>
       <CanonicalPanelEditor
         panel={panel}
@@ -50,7 +50,7 @@ function Harness({
   )
 }
 
-test("changes columns and reorders blocks without regenerating IDs", () => {
+test("changes columns and reorders sections without regenerating IDs", () => {
   const { container } = render(<Harness />)
   fireEvent.change(screen.getByLabelText("Panel columns"), {
     target: { value: "3" },
@@ -69,7 +69,7 @@ test("secondary-locale mode removes structural controls", () => {
   expect(screen.getByLabelText("Panel columns")).toBeDisabled()
   expect(screen.queryByRole("button", { name: /add link group/i })).toBeNull()
   expect(
-    screen.queryByRole("button", { name: /add featured block/i })
+    screen.queryByRole("button", { name: /add featured section/i })
   ).toBeNull()
   expect(screen.getByDisplayValue("First")).toBeEnabled()
 })
@@ -90,7 +90,7 @@ test("renders canonical panel controls in French", () => {
   render(<Harness messages={fr} locale="fr" />)
 
   expect(screen.getByLabelText("Colonnes du panneau")).toBeEnabled()
-  expect(screen.getByText("Blocs du panneau")).toBeInTheDocument()
+  expect(screen.getByText("Sections du panneau")).toBeInTheDocument()
   expect(
     screen.getAllByRole("button", { name: /Ajouter un groupe de liens —/ })
   ).toHaveLength(2)
@@ -102,15 +102,15 @@ test("renders canonical panel controls in French", () => {
   expect(screen.getByRole("option", { name: "Articles" })).toBeInTheDocument()
 })
 
-test("new lists have no heading and block widths are bounded by the panel", () => {
+test("new lists have no heading and section widths are bounded by the panel", () => {
   render(<Harness />)
   fireEvent.click(
     screen.getAllByRole("button", {
-      name: /add dynamic list — panel blocks/i,
+      name: /add dynamic list — panel sections/i,
     })[0]!
   )
   expect(screen.getByPlaceholderText("List heading (optional)")).toHaveValue("")
-  for (const select of screen.getAllByLabelText("Block width")) {
+  for (const select of screen.getAllByLabelText("Section width")) {
     expect(
       Array.from(select.querySelectorAll("option")).map(
         (option) => option.value
@@ -120,7 +120,7 @@ test("new lists have no heading and block widths are bounded by the panel", () =
   fireEvent.change(screen.getByLabelText("Panel columns"), {
     target: { value: "1" },
   })
-  for (const select of screen.getAllByLabelText("Block width"))
+  for (const select of screen.getAllByLabelText("Section width"))
     expect(select.querySelectorAll("option")).toHaveLength(1)
 })
 
@@ -135,7 +135,7 @@ test("keyboard handles reorder panel and bottom lists independently", () => {
 
 
 test("R1a old panel editor leaves a stored column panel untouched", () => {
-  const panel: Panel = { layout: "columns", columns: [{ id: "left", blocks: [{ id: "feature", kind: "featured", heading: "Title" }] }] }
+  const panel: Panel = { layout: "columns", columns: [{ id: "left", sections: [{ id: "feature", kind: "featured", heading: "Title" }] }] }
   const before = JSON.stringify(panel), onChange = vi.fn()
   render(<NextIntlClientProvider locale="en" messages={en}><CanonicalPanelEditor panel={panel} locale="en" onChange={onChange} /></NextIntlClientProvider>)
   expect(onChange).not.toHaveBeenCalled()

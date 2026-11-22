@@ -1,118 +1,29 @@
 import type { Doc, Id } from "../../_generated/dataModel"
-import type { CMSLinkField, ImageField, Slice } from "../slices"
-import type { Primitive } from "../slices/primitives"
+import type { Primitive } from "../blocks/primitives"
 import { contentTypeDefs, type ContentType } from "."
 import { publicFieldsOf } from "./exposure"
+import type { PublicPage, PublicSeo } from "./publicValidator"
 
-/**
- * The only page shape that may leave an anonymous page-read function.
- *
- * This is intentionally independent of `Doc<"pages">`: adding a storage or
- * admin field cannot make it public by accident. The projector below copies
- * only the system allowlist and descriptor fields explicitly marked
- * `.public()`.
+export type {
+  PublicAuthorPage,
+  PublicGenericPage,
+  PublicJobPage,
+  PublicLandingPage,
+  PublicPage,
+  PublicPageOf,
+  PublicPostPage,
+  PublicSeo,
+  PublicTestimonialPage,
+} from "./publicValidator"
+
+/*
+ * The public page types and the response validator are derived from the
+ * descriptors in `publicValidator.ts`. The projector below copies only the
+ * system allowlist and descriptor fields explicitly marked `.public()`, so
+ * adding a storage or admin field cannot make it public by accident.
  */
-export type PublicSeo = {
-  metaTitle?: string
-  metaDescription?: string
-  ogImage?: string
-  ogTitle?: string
-  ogDescription?: string
-  twitterCard?: "summary" | "summary_large_image"
-  noIndex?: boolean
-  noFollow?: boolean
-  structuredData?: string
-}
 
-type PublicPageBase<LocalizedContent> = {
-  _id: Id<"pages">
-  pageType: ContentType
-  updatedAt: number
-  publishedAt?: number
-  seo?: PublicSeo
-  /** Exactly one requested locale is present at runtime. */
-  content: Record<string, LocalizedContent>
-}
-
-export type PublicSliceBodyContent = {
-  title: string
-  metaTitle?: string
-  metaDescription?: string
-  slices: Slice[]
-}
-
-export type PublicAuthorContent = PublicSliceBodyContent & {
-  roleTitle?: string
-}
-
-export type PublicJobContent = {
-  title: string
-  summary?: string
-  slices: Slice[]
-}
-
-export type PublicTestimonialContent = {
-  quote: string
-}
-
-export type PublicLandingPage = PublicPageBase<PublicSliceBodyContent> & {
-  pageType: "landing-page"
-}
-
-export type PublicGenericPage = PublicPageBase<PublicSliceBodyContent> & {
-  pageType: "page"
-}
-
-/** The post category is written in each language (ADR-0037 amendment, 2026-11-17). */
-export type PublicPostContent = PublicSliceBodyContent & { category?: string }
-
-export type PublicPostPage = PublicPageBase<PublicPostContent> & {
-  pageType: "post"
-  authorIds?: Array<{ pageId?: Id<"pages">; itemId?: string }>
-  featured: boolean
-  promoteToFront: boolean
-}
-
-export type PublicAuthorPage = PublicPageBase<PublicAuthorContent> & {
-  pageType: "author"
-  name: string
-  socials?: Array<{ platform: string; url: string }>
-}
-
-export type PublicTestimonialPage = PublicPageBase<PublicTestimonialContent> & {
-  pageType: "testimonial"
-  personName: string
-  personRole?: string
-  personCompany?: string
-  personImage?: ImageField
-  sourceUrl?: string
-}
-
-export type PublicJobPage = PublicPageBase<PublicJobContent> & {
-  pageType: "job"
-  department?: string
-  location?: string
-  remoteType: "remote" | "hybrid" | "onsite"
-  employmentType:
-    "full-time" | "part-time" | "contract" | "internship" | "temporary"
-  salaryCurrency: "USD" | "EUR" | "GBP" | "CAD" | "AUD"
-  salaryMin: number
-  salaryMax: number
-  applyUrl?: CMSLinkField
-  applyEmail?: string
-  closingDate?: string
-  jobStatus: "open" | "closed" | "filled"
-}
-
-export type PublicPage =
-  | PublicLandingPage
-  | PublicGenericPage
-  | PublicPostPage
-  | PublicAuthorPage
-  | PublicTestimonialPage
-  | PublicJobPage
-
-/** Public, locale-strict depth-one relation projection for slice renderers. */
+/** Public, locale-strict depth-one relation projection for block renderers. */
 export type PublicRelationCard = {
   pageId: Id<"pages">
   pageType: ContentType
@@ -130,12 +41,13 @@ type PublicDescriptorDocument = {
   _id: Id<"pages">
   pageType: ContentType
   slug: string
-  status: "published"
+  status: Doc<"pages">["status"]
   cardImageMediaId?: Id<"media">
   content: Record<string, Record<string, unknown>>
 } & Record<string, unknown>
 
-const PUBLIC_SEO_KEYS = [
+/** The one list of SEO keys that cross the public seam (also feeds the validator). */
+export const PUBLIC_SEO_KEYS = [
   "metaTitle",
   "metaDescription",
   "ogImage",
@@ -180,12 +92,14 @@ function projectPublicSeo(value: unknown): PublicSeo | undefined {
  */
 function projectPublicDescriptorDocument(
   page: Doc<"pages">,
-  locale: string
+  locale: string,
+  opts: { requirePublished: boolean } = { requirePublished: true }
 ): {
   descriptor: (typeof contentTypeDefs)[ContentType]
   document: PublicDescriptorDocument
 } | null {
-  if (page.deletedAt !== undefined || page.status !== "published") return null
+  if (page.deletedAt !== undefined) return null
+  if (opts.requirePublished && page.status !== "published") return null
   const pageType = page.pageType as ContentType
   const descriptor = contentTypeDefs[pageType]
   if (!descriptor) return null
@@ -201,10 +115,10 @@ function projectPublicDescriptorDocument(
     localizedValues
   )
   if (
-    descriptor.capabilities.sliceBody &&
-    localizedValues.slices !== undefined
+    descriptor.capabilities.blockBody &&
+    localizedValues.blocks !== undefined
   ) {
-    publicLocalized.slices = localizedValues.slices
+    publicLocalized.blocks = localizedValues.blocks
   }
 
   return {
@@ -213,7 +127,7 @@ function projectPublicDescriptorDocument(
       _id: page._id,
       pageType,
       slug: page.slug,
-      status: "published",
+      status: page.status,
       ...(page.cardImageMediaId
         ? { cardImageMediaId: page.cardImageMediaId }
         : {}),
@@ -274,4 +188,25 @@ export function projectPublicReferenceCard(
     ...(card.subtitle ? { excerpt: card.subtitle } : {}),
     ...(card.imageMediaId ? { imageMediaId: card.imageMediaId } : {}),
   }
+}
+
+/**
+ * The public-safe display title of a page in one language, for the search
+ * index. The page's own title may be admin-only (a testimonial's internal
+ * label); the descriptor's `referenceCard` then names the page, and it
+ * receives public fields only, so an admin-only value cannot leak. Unlike
+ * {@link projectPublicReferenceCard}, this does not require the page to be
+ * published: search rows exist for drafts too, and public search filters by
+ * status later.
+ */
+export function publicDisplayTitle(page: Doc<"pages">, locale: string): string {
+  const projected = projectPublicDescriptorDocument(page, locale, {
+    requirePublished: false,
+  })
+  if (!projected) return ""
+  const card = projected.descriptor.referenceCard(
+    projected.document as unknown as Doc<"pages">,
+    locale
+  )
+  return card?.title ?? ""
 }

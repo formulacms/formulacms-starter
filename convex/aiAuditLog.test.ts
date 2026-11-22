@@ -16,7 +16,7 @@ function rowAt(createdAt: number, authId = "u-1") {
   return {
     authId,
     kind: "page-generate-meta" as const,
-    sliceCount: 0,
+    blockCount: 0,
     modelId: "test-model",
     tokenUsage: {},
     success: true,
@@ -116,7 +116,7 @@ describe("aiAuditLog — translation actions write audit rows (AI-03)", () => {
       kind: "field-translate",
       authId: "auth-1",
       success: true,
-      sliceCount: 0,
+      blockCount: 0,
     })
     expect(rows[0]!.modelId).toBeTruthy()
   })
@@ -148,7 +148,7 @@ describe("aiAuditLog — translation actions write audit rows (AI-03)", () => {
     const result = await asUser.action(api.agents.localizer.localizePage, {
       title: "Hello",
       metaTitle: "",
-      slices: [],
+      blocks: [],
       sourceLocale: "en",
       targetLocale: "en",
     })
@@ -156,7 +156,7 @@ describe("aiAuditLog — translation actions write audit rows (AI-03)", () => {
     expect(result).toEqual({
       title: "Hello",
       metaTitle: "",
-      slices: [],
+      blocks: [],
       translatables: [],
     })
     expect(Object.hasOwn(result, "metaTitle")).toBe(true)
@@ -168,7 +168,7 @@ describe("aiAuditLog — translation actions write audit rows (AI-03)", () => {
       kind: "page-translate",
       authId: "auth-page-translate",
       success: true,
-      sliceCount: 0,
+      blockCount: 0,
     })
   })
 })
@@ -256,7 +256,7 @@ describe("aiAuditLog.recordEvent — internal writer", () => {
     const base = {
       authId: "u-7",
       kind: "page-generate-meta" as const,
-      sliceCount: 0,
+      blockCount: 0,
       modelId: "test-model",
       tokenUsage: {},
       success: true,
@@ -282,7 +282,7 @@ describe("aiAuditLog.recordEvent — internal writer", () => {
     await t.mutation(internal.cms.aiAuditLog.recordEvent, {
       authId: "u-7",
       kind: "page-generate-meta",
-      sliceCount: 0,
+      blockCount: 0,
       modelId: "deepseek/deepseek-v4-flash",
       selectedProvider: "openrouter",
       selectedModel: "openai/gpt-5.6-terra",
@@ -325,7 +325,7 @@ describe("aiAuditLog.recordEvent — internal writer", () => {
     await t.mutation(internal.cms.aiAuditLog.recordEvent, {
       authId: "u-7",
       kind: "page-generate-meta",
-      sliceCount: 0,
+      blockCount: 0,
       modelId: "deepseek/deepseek-v4-flash",
       tokenUsage: {},
       success: false,

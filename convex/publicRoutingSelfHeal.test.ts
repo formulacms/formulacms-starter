@@ -89,7 +89,7 @@ async function publishTranslated(
     draft: {
       pageType: "landing-page",
       localized: { title: `${slug} ${locale}` },
-      slices: [],
+      blocks: [],
     } as never,
     expectedDraftGeneration: state?.draftGeneration ?? 0,
     expectedLifecycleGeneration: page!.lifecycleGeneration,
@@ -119,7 +119,7 @@ function createEnglishPage(owner: Caller, slug: string) {
     status: "draft",
     slug,
     title: slug,
-    content: { en: { title: slug, slices: [] } },
+    content: { en: { title: slug, blocks: [] } },
   })
 }
 

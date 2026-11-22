@@ -34,7 +34,7 @@ function makeRoot(): string {
 
 function seedLegacy(root: string, ...relative: string[]): void {
   const legacy = join(root, ".nextcms")
-  mkdirSync(join(legacy, "slice-references"), { recursive: true })
+  mkdirSync(join(legacy, "block-references"), { recursive: true })
   writeFileSync(join(legacy, "dev-ai.json"), "{}\n")
   for (const path of relative)
     mkdirSync(join(legacy, path), { recursive: true })
@@ -174,7 +174,7 @@ describe("local state folder", () => {
     const release = markLocalStateInUse(root)
     const original = join(
       localStateDirectory(root),
-      "slice-references",
+      "block-references",
       "originals",
       "x.png"
     )

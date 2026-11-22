@@ -1,10 +1,10 @@
 /// <reference types="vite/client" />
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import { describe, expect, test, vi } from "vitest"
 import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
-import type { Slice } from "./lib/slices"
+import type { Block } from "./lib/blocks"
 import { IMAGE_DIMENSION_FIXTURES } from "./lib/media/imageDimensions.testFixtures"
 import schema from "./schema"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
@@ -59,8 +59,8 @@ async function createStoredMedia(
   })
 }
 
-type HeroAgencySlice = Extract<Slice, { type: "hero-agency" }>
-type HeroWithImageSlice = Extract<Slice, { type: "hero-with-image" }>
+type HeroAgencyBlock = Extract<Block, { type: "hero-agency" }>
+type HeroWithImageBlock = Extract<Block, { type: "hero-with-image" }>
 
 describe("media URL import", () => {
   test.each(IMAGE_DIMENSION_FIXTURES)(
@@ -389,7 +389,7 @@ describe("public media storage URL resolution", () => {
 
 function heroAgencyWithRichTextStorageReference(
   storageId: string
-): HeroAgencySlice {
+): HeroAgencyBlock {
   return {
     id: "hero-1",
     type: "hero-agency",
@@ -414,7 +414,7 @@ function heroAgencyWithRichTextStorageReference(
 function heroWithImageStorageReference(
   storageId: Id<"_storage">,
   url: string
-): HeroWithImageSlice {
+): HeroWithImageBlock {
   return {
     id: "hero-with-image-1",
     type: "hero-with-image",
@@ -440,18 +440,18 @@ function heroWithImageStorageReference(
 }
 
 describe("media usage", () => {
-  test("removing one of two primary-link pages retains the other page's asset", sliceProfile(["hero-with-image"]), async () => {
+  test("removing one of two primary-link pages retains the other page's asset", blockProfile(["hero-with-image"]), async () => {
     const t = mediaTest()
     const owner = t.withIdentity(TEST_USER)
     const media = await createStoredMedia(t)
-    const slice = heroWithImageStorageReference(media.storageId, media.url)
-    slice.primary.image = { url: "/placeholder.png", width: 1, height: 1, alt: "" }
-    slice.primary.eyebrowLink = { type: "media", storageId: media.storageId }
+    const block = heroWithImageStorageReference(media.storageId, media.url)
+    block.primary.image = { url: "/placeholder.png", width: 1, height: 1, alt: "" }
+    block.primary.eyebrowLink = { type: "media", storageId: media.storageId }
     const pageIds: Id<"pages">[] = []
     for (const slug of ["first-download", "second-download"]) {
       pageIds.push(await owner.mutation(api.cms.pages.create, {
         slug, pageType: "landing-page", status: "draft",
-        content: { en: { title: slug, slices: [slice] } },
+        content: { en: { title: slug, blocks: [block] } },
       }))
     }
     await owner.mutation(api.cms.pages.remove, { id: pageIds[0]! })
@@ -476,26 +476,26 @@ describe("media usage", () => {
   })
 
   test.each(["items link", "primary image", "external link"] as const)(
-    "%s keeps its existing media usage behavior", sliceProfile(["hero-with-image"]), async (field) => {
+    "%s keeps its existing media usage behavior", blockProfile(["hero-with-image"]), async (field) => {
       const t = mediaTest()
       const owner = t.withIdentity(TEST_USER)
       const media = await createStoredMedia(t)
-      const slice = heroWithImageStorageReference(media.storageId, media.url)
+      const block = heroWithImageStorageReference(media.storageId, media.url)
       if (field !== "primary image") {
-        slice.primary.image = { url: "/placeholder.png", width: 1, height: 1, alt: "" }
+        block.primary.image = { url: "/placeholder.png", width: 1, height: 1, alt: "" }
       }
       if (field === "items link") {
-        slice.items = [{
+        block.items = [{
           id: "download", label: "Download", variant: "primary", withIcon: false, enabled: true,
           link: { type: "media", mediaId: media.mediaId },
         }]
       }
       if (field === "external link") {
-        slice.primary.eyebrowLink = { type: "external", url: media.url }
+        block.primary.eyebrowLink = { type: "external", url: media.url }
       }
       const pageId = await owner.mutation(api.cms.pages.create, {
         slug: "usage-regression", pageType: "landing-page", status: "draft",
-        content: { en: { title: "Usage", slices: [slice] } },
+        content: { en: { title: "Usage", blocks: [block] } },
       })
       const usage = await owner.query(api.cms.media.usage, { id: media.mediaId })
       expect(usage.pages).toEqual(field === "external link" ? [] : [
@@ -504,18 +504,18 @@ describe("media usage", () => {
     }
   )
 
-  test("primary media link alone blocks both deletion mutations and retains storage", sliceProfile(["hero-with-image"]), async () => {
+  test("primary media link alone blocks both deletion mutations and retains storage", blockProfile(["hero-with-image"]), async () => {
     const t = mediaTest()
     const owner = t.withIdentity(TEST_USER)
     const media = await createStoredMedia(t)
-    const slice = heroWithImageStorageReference(media.storageId, media.url)
-    slice.primary.image = { url: "/placeholder.png", width: 1, height: 1, alt: "" }
-    slice.primary.eyebrowLink = { type: "media", mediaId: media.mediaId }
+    const block = heroWithImageStorageReference(media.storageId, media.url)
+    block.primary.image = { url: "/placeholder.png", width: 1, height: 1, alt: "" }
+    block.primary.eyebrowLink = { type: "media", mediaId: media.mediaId }
     const pageId = await owner.mutation(api.cms.pages.create, {
       slug: "primary-link",
       pageType: "landing-page",
       status: "draft",
-      content: { en: { title: "Primary link", slices: [slice] } },
+      content: { en: { title: "Primary link", blocks: [block] } },
     })
 
     await expect(owner.query(api.cms.media.usage, { id: media.mediaId }))
@@ -525,8 +525,8 @@ describe("media usage", () => {
     expect(refs).toEqual([expect.objectContaining({
       mediaId: media.mediaId,
       storageId: media.storageId,
-      source: "slice-media-link",
-      path: "content.en.slices[0].primary.eyebrowLink",
+      source: "block-media-link",
+      path: "content.en.blocks[0].primary.eyebrowLink",
     })])
     await expect(owner.mutation(api.cms.media.softDelete, { id: media.mediaId }))
       .rejects.toThrow("MEDIA_SOFT_DELETE_REFERENCED")
@@ -542,7 +542,7 @@ describe("media usage", () => {
       .toBe("test image")
   })
 
-  test("usage reports a page whose slice image references the media", sliceProfile(["hero-with-image"]), async () => {
+  test("usage reports a page whose block image references the media", blockProfile(["hero-with-image"]), async () => {
     const t = mediaTest()
     const asUser = t.withIdentity(TEST_USER)
     const media = await createStoredMedia(t)
@@ -554,7 +554,7 @@ describe("media usage", () => {
       content: {
         en: {
           title: "Image Page",
-          slices: [heroWithImageStorageReference(media.storageId, media.url)],
+          blocks: [heroWithImageStorageReference(media.storageId, media.url)],
         },
       },
     })
@@ -566,7 +566,7 @@ describe("media usage", () => {
     expect(usage.settings).toEqual([])
   })
 
-  test("usage ignores storage-id text that is not a media field", sliceProfile(["hero-agency"]), async () => {
+  test("usage ignores storage-id text that is not a media field", blockProfile(["hero-agency"]), async () => {
     const t = mediaTest()
     const asUser = t.withIdentity(TEST_USER)
     const media = await createStoredMedia(t)
@@ -578,7 +578,7 @@ describe("media usage", () => {
       content: {
         en: {
           title: "Text Page",
-          slices: [heroAgencyWithRichTextStorageReference(media.storageId)],
+          blocks: [heroAgencyWithRichTextStorageReference(media.storageId)],
         },
       },
     })
@@ -587,7 +587,7 @@ describe("media usage", () => {
     expect(usage.pages).toEqual([])
   })
 
-  test("backfill populates references for existing pages", sliceProfile([]), async () => {
+  test("backfill populates references for existing pages", blockProfile([]), async () => {
     const t = mediaTest()
     const asUser = t.withIdentity(TEST_USER)
     const media = await createStoredMedia(t)
@@ -601,7 +601,7 @@ describe("media usage", () => {
         content: {
           en: {
             title: "Legacy Image Page",
-            slices: [heroWithImageStorageReference(media.storageId, media.url)],
+            blocks: [heroWithImageStorageReference(media.storageId, media.url)],
           },
         },
       })
@@ -644,7 +644,7 @@ describe("media usage", () => {
     expect(usage.pages).toEqual([])
   })
 
-  test("remove throws for in-use media and keeps the document", sliceProfile(["hero-with-image"]), async () => {
+  test("remove throws for in-use media and keeps the document", blockProfile(["hero-with-image"]), async () => {
     const t = mediaTest()
     const asUser = t.withIdentity(TEST_USER)
     const media = await createStoredMedia(t)
@@ -656,7 +656,7 @@ describe("media usage", () => {
       content: {
         en: {
           title: "Referencing Page",
-          slices: [heroWithImageStorageReference(media.storageId, media.url)],
+          blocks: [heroWithImageStorageReference(media.storageId, media.url)],
         },
       },
     })

@@ -829,7 +829,7 @@
                   "_id": "<id:pages>",
                   "content": {
                     "en": {
-                      "slices": [],
+                      "blocks": [],
                       "title": "about en"
                     }
                   },
@@ -958,8 +958,8 @@
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
-            "query pagePublicationSliceReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pageSharedDrafts.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
@@ -999,7 +999,7 @@
             "query pagePublicationDocumentReferences.by_targetId [targetId Eq \"<id:pages>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteSettings full-scan asc +operators [{\"limit\":2}]"
@@ -1840,7 +1840,7 @@
                   "_id": "<id:pages>",
                   "content": {
                     "en": {
-                      "slices": [],
+                      "blocks": [],
                       "title": "about en"
                     }
                   },
@@ -1969,8 +1969,8 @@
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
-            "query pagePublicationSliceReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pageSharedDrafts.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
@@ -2010,7 +2010,7 @@
             "query pagePublicationDocumentReferences.by_targetId [targetId Eq \"<id:pages>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteSettings full-scan asc +operators [{\"limit\":2}]"
@@ -2899,7 +2899,7 @@
                   "_id": "<id:pages>",
                   "content": {
                     "en": {
-                      "slices": [],
+                      "blocks": [],
                       "title": "about en"
                     }
                   },
@@ -3028,8 +3028,8 @@
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
-            "query pagePublicationSliceReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pageSharedDrafts.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
@@ -3069,7 +3069,7 @@
             "query pagePublicationDocumentReferences.by_targetId [targetId Eq \"<id:pages>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteSettings full-scan asc +operators [{\"limit\":2}]"
@@ -3957,7 +3957,7 @@
                   "_id": "<id:pages>",
                   "content": {
                     "en": {
-                      "slices": [],
+                      "blocks": [],
                       "title": "about en"
                     }
                   },
@@ -4086,8 +4086,8 @@
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
-            "query pagePublicationSliceReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pageSharedDrafts.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
@@ -4127,7 +4127,7 @@
             "query pagePublicationDocumentReferences.by_targetId [targetId Eq \"<id:pages>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteSettings full-scan asc +operators [{\"limit\":2}]"
@@ -5007,7 +5007,7 @@
                   "_id": "<id:pages>",
                   "content": {
                     "en": {
-                      "slices": [],
+                      "blocks": [],
                       "title": "about en"
                     }
                   },
@@ -5141,7 +5141,7 @@
                   "_id": "<id:pages>",
                   "content": {
                     "fr": {
-                      "slices": [],
+                      "blocks": [],
                       "title": "about fr"
                     }
                   },
@@ -5284,8 +5284,8 @@
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
-            "query pagePublicationSliceReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pageSharedDrafts.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
@@ -5325,7 +5325,7 @@
             "query pagePublicationDocumentReferences.by_targetId [targetId Eq \"<id:pages>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteSettings full-scan asc +operators [{\"limit\":2}]"
@@ -6204,7 +6204,7 @@
                   "_id": "<id:pages>",
                   "content": {
                     "en": {
-                      "slices": [],
+                      "blocks": [],
                       "title": "about en"
                     }
                   },
@@ -6338,7 +6338,7 @@
                   "_id": "<id:pages>",
                   "content": {
                     "fr": {
-                      "slices": [],
+                      "blocks": [],
                       "title": "about fr"
                     }
                   },
@@ -6481,8 +6481,8 @@
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
-            "query pagePublicationSliceReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_sourceKind_and_sourceId [sourceKind Eq \"locale_draft\", sourceId Eq \"<id:pageLocaleDrafts>\"] asc +operators [{\"limit\":513}]",
             "query pageSharedDrafts.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
@@ -6522,7 +6522,7 @@
             "query pagePublicationDocumentReferences.by_targetId [targetId Eq \"<id:pages>\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationMediaReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query pagePublicationPageStates.by_pageId [pageId Eq \"<id:pages>\"] asc +operators [{\"limit\":2}]",
-            "query pagePublicationSliceReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
+            "query pagePublicationBlockReferences.by_pageId_and_locale_and_sourceKind [pageId Eq \"<id:pages>\", locale Eq \"en\", sourceKind Eq \"current_public\"] asc +operators [{\"limit\":513}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteLanguageAuthority.by_key [key Eq \"site-language-v1\"] asc +operators [{\"limit\":2}]",
             "query siteSettings full-scan asc +operators [{\"limit\":2}]"

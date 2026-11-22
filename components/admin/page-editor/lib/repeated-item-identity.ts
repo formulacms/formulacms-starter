@@ -1,6 +1,6 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
-import { type Primitive, type Slice } from "@/convex/lib/slices"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
+import { type Primitive, type Block } from "@/convex/lib/blocks"
 import { parseFieldPath, setValueAtFieldPath } from "./field-path"
 
 export type RepeatedItemAncestor = {
@@ -48,7 +48,7 @@ function fingerprint(row: Row, path: string[], mask: boolean): string | null {
 
 /** Resolve a transient repeated-row identity from the installed descriptor and value. */
 export function repeatedItemIdentity(
-  slice: Slice,
+  block: Block,
   fieldPath: string,
   contentEpoch: number,
   options: { maskField?: boolean } = {}
@@ -69,7 +69,7 @@ export function repeatedItemIdentity(
   )
     return null
 
-  const def = readSliceDefinition(readSlice(slice).type)
+  const def = readBlockDefinition(readBlock(block).type)
   if (!def) return null
   let descriptor: Primitive | undefined =
     path[0] === "primary"
@@ -79,9 +79,9 @@ export function repeatedItemIdentity(
         : undefined
   let value: unknown =
     path[0] === "primary"
-      ? readSlice(slice).primary
-      : "items" in slice
-        ? readSlice(slice).items
+      ? readBlock(block).primary
+      : "items" in block
+        ? readBlock(block).items
         : undefined
   const rows: Row[] = []
   const consumed: string[] = [path[0]]
@@ -146,7 +146,7 @@ export function repeatedItemIdentity(
 
 /** Match a complete full-row binding against the current descriptor and value. */
 export function repeatedTargetMatches(
-  slice: Slice,
+  block: Block,
   target: RepeatedItemTarget | undefined,
   contentEpoch: number,
   options: RepeatedTargetMatchOptions = {}
@@ -184,7 +184,7 @@ export function repeatedTargetMatches(
   )
     return false
   const expected = repeatedItemIdentity(
-    slice,
+    block,
     options.fieldPath ?? `${listPath}.${target.itemIndex}`,
     contentEpoch,
     { maskField: options.maskField === true }

@@ -247,7 +247,7 @@ describe("brief step", () => {
     expect(screen.getByLabelText("Meta description")).toHaveValue("Who we are.")
     expect(
       screen
-        .getAllByRole("textbox", { name: "Section purpose" })
+        .getAllByRole("textbox", { name: "Block purpose" })
         .map((box) => (box as HTMLTextAreaElement).value)
     ).toEqual(["Open with who we are", "Answer common questions"])
   })
@@ -302,8 +302,8 @@ describe("outline step", () => {
           metaDescription: "Who we are.",
         },
         rows: [
-          { sliceType: "features-icon-grid", purpose: "Open with who we are" },
-          { sliceType: "faq-simple", purpose: "Answer common questions" },
+          { blockType: "features-icon-grid", purpose: "Open with who we are" },
+          { blockType: "faq-simple", purpose: "Answer common questions" },
         ],
       },
     })
@@ -352,7 +352,7 @@ describe("outline step", () => {
     )
     expect(screen.getByLabelText("Page title")).toHaveValue("About us")
     expect(
-      screen.getAllByRole("textbox", { name: "Section purpose" })
+      screen.getAllByRole("textbox", { name: "Block purpose" })
     ).toHaveLength(2)
   })
 
@@ -368,30 +368,30 @@ describe("outline step", () => {
     )
   })
 
-  test("Start needs a row and no blank purpose; Add section stops at 8", async () => {
+  test("Start needs a row and no blank purpose; Add block stops at 8", async () => {
     renderWizard()
     await planPage()
     const start = screen.getByRole("button", { name: "Start" })
     expect(start).toBeEnabled()
     fireEvent.change(
-      screen.getAllByRole("textbox", { name: "Section purpose" })[1]!,
+      screen.getAllByRole("textbox", { name: "Block purpose" })[1]!,
       {
         target: { value: "   " },
       }
     )
     expect(start).toBeDisabled()
     for (const remove of screen.getAllByRole("button", {
-      name: "Remove section",
+      name: "Remove block",
     }))
       fireEvent.click(remove)
     expect(
-      screen.getByText("No sections — add one below to write something.")
+      screen.getByText("No blocks — add one below to write something.")
     ).toBeInTheDocument()
     expect(start).toBeDisabled()
-    const add = screen.getByRole("button", { name: "Add section" })
+    const add = screen.getByRole("button", { name: "Add block" })
     for (let i = 0; i < 8; i++) fireEvent.click(add)
     expect(
-      screen.getAllByRole("textbox", { name: "Section purpose" })
+      screen.getAllByRole("textbox", { name: "Block purpose" })
     ).toHaveLength(8)
     expect(add).toBeDisabled()
   })
@@ -404,7 +404,7 @@ describe("outline step", () => {
     renderWizard()
     expect(screen.getByLabelText("Brief")).toHaveAttribute("maxLength", "2000")
     await planPage()
-    const purpose = screen.getByRole("textbox", { name: "Section purpose" })
+    const purpose = screen.getByRole("textbox", { name: "Block purpose" })
     expect(purpose).toHaveValue("x".repeat(500))
     expect(purpose).toHaveAttribute("maxLength", "500")
     const start = screen.getByRole("button", { name: "Start" })
@@ -442,7 +442,7 @@ describe("languages and copy", () => {
       screen.getByLabelText("Titre pour les moteurs de recherche")
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "Ajouter une section" })
+      screen.getByRole("button", { name: "Ajouter un bloc" })
     ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Démarrer" })).toBeEnabled()
     expect(screen.getByRole("button", { name: "Retour" })).toBeInTheDocument()

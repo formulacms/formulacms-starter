@@ -1,8 +1,8 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice, type SliceStructure } from "@/convex/lib/slices/identity"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock, type BlockStructure } from "@/convex/lib/blocks/identity"
 import { ConvexError, v } from "convex/values"
 import { contentTypeDefs } from "../contentTypes"
-import { type Slice, type Primitive } from "../slices"
+import { type Block, type Primitive } from "../blocks"
 import { resolveFieldContract, type ResolvedFieldContract } from "./contracts"
 import { toFieldShape, type RemovedRichTextLink } from "./shape"
 import { validateLegacy, validateStrict } from "./strict"
@@ -11,7 +11,7 @@ import { convertTransitionTitle } from "./transitions"
 export const removedTitleLinksValidator = v.array(
   v.object({
     locale: v.string(),
-    sliceId: v.string(),
+    blockId: v.string(),
     fieldPath: v.string(),
     removedLinks: v.array(
       v.object({ href: v.optional(v.string()), pageId: v.optional(v.string()) })
@@ -20,7 +20,7 @@ export const removedTitleLinksValidator = v.array(
 )
 export type TitleWriteReport = {
   locale: string
-  sliceId: string
+  blockId: string
   fieldPath: string
   removedLinks: RemovedRichTextLink[]
 }
@@ -39,7 +39,7 @@ export type TrustedTitleSource = {
 }
 export type WriteOptions = {
   /** Server-owned descriptor address for registered primitive transitions. */
-  sliceType?: string
+  blockType?: string
   duplicate?: boolean
   identitiesOnly?: boolean
   allocateItemIds?: boolean
@@ -70,27 +70,27 @@ export function isLegacyTitleHtml(value: string): boolean {
 export function preservesTitleAt(
   options: WriteOptions,
   locale: string,
-  slice: Pick<Slice, "id" | "type">,
+  block: Pick<Block, "id" | "type">,
   path: string,
   value: string
 ): boolean {
-  return preservesTitleAtStructure(options, locale, slice, path, value)
+  return preservesTitleAtStructure(options, locale, block, path, value)
 }
 
 function preservesTitleAtStructure(
   options: WriteOptions,
   locale: string,
-  slice: Pick<SliceStructure, "id" | "type">,
+  block: Pick<BlockStructure, "id" | "type">,
   path: string,
   value: string
 ): boolean {
-  return trustedOriginalAt(options, locale, slice, path) === value
+  return trustedOriginalAt(options, locale, block, path) === value
 }
 
 function trustedOriginalAt(
   options: WriteOptions,
   locale: string,
-  slice: Pick<SliceStructure, "id" | "type">,
+  block: Pick<BlockStructure, "id" | "type">,
   path: string
 ): unknown {
   const source = options.trustedSource
@@ -105,10 +105,10 @@ function trustedOriginalAt(
     source.destinationLocale !== locale
   )
     return undefined
-  const block = source.content[source.sourceLocale ?? locale]
-  if (!isRecord(block) || !Array.isArray(block.slices)) return undefined
-  const matches = block.slices.filter(
-    (row) => isRecord(row) && row.id === slice.id && row.type === slice.type
+  const localeContent = source.content[source.sourceLocale ?? locale]
+  if (!isRecord(localeContent) || !Array.isArray(localeContent.blocks)) return undefined
+  const matches = localeContent.blocks.filter(
+    (row) => isRecord(row) && row.id === block.id && row.type === block.type
   )
   if (matches.length !== 1) return undefined
   let found: unknown = matches[0]
@@ -126,7 +126,7 @@ function trustedOriginalAt(
 function repairedOriginalAt(
   options: WriteOptions,
   locale: string,
-  slice: Pick<SliceStructure, "id" | "type">,
+  block: Pick<BlockStructure, "id" | "type">,
   path: string
 ): unknown {
   const source = options.trustedSource
@@ -144,20 +144,20 @@ function repairedOriginalAt(
   if (
     !isRecord(original) ||
     !isRecord(repaired) ||
-    !Array.isArray(original.slices) ||
-    !Array.isArray(repaired.slices) ||
-    original.slices.length !== repaired.slices.length
+    !Array.isArray(original.blocks) ||
+    !Array.isArray(repaired.blocks) ||
+    original.blocks.length !== repaired.blocks.length
   )
     return undefined
-  const originalRows = original.slices
-  const repairedRows = repaired.slices
+  const originalRows = original.blocks
+  const repairedRows = repaired.blocks
   if (!originalRows.every(isRecord) || !repairedRows.every(isRecord))
     return undefined
   const withoutIds = (rows: Record<string, unknown>[]) =>
     rows.map(({ id: _id, ...row }) => row)
   if (
-    JSON.stringify({ ...original, slices: withoutIds(originalRows) }) !==
-    JSON.stringify({ ...repaired, slices: withoutIds(repairedRows) })
+    JSON.stringify({ ...original, blocks: withoutIds(originalRows) }) !==
+    JSON.stringify({ ...repaired, blocks: withoutIds(repairedRows) })
   )
     return undefined
   const reserved = new Set(
@@ -187,7 +187,7 @@ function repairedOriginalAt(
     } else if (reserved.has(repairedId)) return undefined
   }
   const index = repairedRows.findIndex(
-    (row) => row.id === slice.id && row.type === slice.type
+    (row) => row.id === block.id && row.type === block.type
   )
   if (index < 0) return undefined
   let found: unknown = originalRows[index]
@@ -204,7 +204,7 @@ function repairedOriginalAt(
 export function preservesLegacyRichTextAt(
   options: WriteOptions,
   locale: string,
-  slice: Pick<SliceStructure, "id" | "type">,
+  block: Pick<BlockStructure, "id" | "type">,
   path: string,
   candidate: string,
   contract: ResolvedFieldContract,
@@ -218,8 +218,8 @@ export function preservesLegacyRichTextAt(
   )
     return false
   const original = options.trustedSource?.repairedIdentityContent !== undefined
-    ? repairedOriginalAt(options, locale, slice, path)
-    : trustedOriginalAt(options, locale, slice, path)
+    ? repairedOriginalAt(options, locale, block, path)
+    : trustedOriginalAt(options, locale, block, path)
   return (
     typeof original === "string" &&
     (originalInput === undefined || original === originalInput) &&
@@ -305,9 +305,9 @@ export function writePrimitive(
       throw new ConvexError(`Invalid rich-text content: ${checked.error}`)
     return candidate
   }
-  const transitioned = options.sliceType
+  const transitioned = options.blockType
     ? convertTransitionTitle(
-        { sliceType: options.sliceType, fieldPath: path },
+        { blockType: options.blockType, fieldPath: path },
         value
       )
     : undefined
@@ -322,26 +322,26 @@ export function writePrimitive(
   return converted.value
 }
 
-function writeSliceFields<T extends SliceStructure>(
-  slice: T,
+function writeBlockFields<T extends BlockStructure>(
+  block: T,
   locale = "",
   options: WriteOptions = {}
 ) {
-  const def = readSliceDefinition(readSlice(slice).type)
+  const def = readBlockDefinition(readBlock(block).type)
   const reports: TitleWriteReport[] = []
-  if (!def) return { value: slice, reports }
+  if (!def) return { value: block, reports }
   const report = (fieldPath: string, removedLinks: RemovedRichTextLink[]) =>
     reports.push({
       locale,
-      sliceId: readSlice(slice).id,
+      blockId: readBlock(block).id,
       fieldPath,
       removedLinks,
     })
   const scoped = {
     ...options,
-    sliceType: readSlice(slice).type,
+    blockType: readBlock(block).type,
     preserveHtml: (path: string, value: string) =>
-      preservesTitleAtStructure(options, locale, slice, path, value),
+      preservesTitleAtStructure(options, locale, block, path, value),
     preserveLegacy: (
       path: string,
       original: string,
@@ -351,27 +351,27 @@ function writeSliceFields<T extends SliceStructure>(
       preservesLegacyRichTextAt(
         options,
         locale,
-        slice,
+        block,
         path,
         candidate,
         contract,
         original
       ),
   }
-  const value = Object.assign({}, slice, {
+  const value = Object.assign({}, block, {
     primary: writePrimitive(
       def.primary,
-      readSlice(slice).primary,
+      readBlock(block).primary,
       scoped,
       report,
       "primary"
     ),
   })
-  if (def.items !== undefined && "items" in slice)
+  if (def.items !== undefined && "items" in block)
     Object.assign(value, {
       items: writePrimitive(
         def.items,
-        readSlice(slice).items,
+        readBlock(block).items,
         scoped,
         report,
         "items"
@@ -380,13 +380,13 @@ function writeSliceFields<T extends SliceStructure>(
   return { value, reports }
 }
 
-const writeAdmittedSliceFields: (
-  slice: Slice,
+const writeAdmittedBlockFields: (
+  block: Block,
   locale?: string,
   options?: WriteOptions
-) => { value: Slice; reports: TitleWriteReport[] } = writeSliceFields
+) => { value: Block; reports: TitleWriteReport[] } = writeBlockFields
 
-export { writeAdmittedSliceFields as writeSliceFields }
+export { writeAdmittedBlockFields as writeBlockFields }
 
 export function writeFieldMap(
   fields: Record<string, Primitive>,
@@ -412,9 +412,9 @@ export function writeLocaleContent(
     options
   )
   const reports: TitleWriteReport[] = []
-  if (Array.isArray(content.slices))
-    value.slices = content.slices.map((slice: SliceStructure) => {
-      const converted = writeSliceFields(slice, locale, options)
+  if (Array.isArray(content.blocks))
+    value.blocks = content.blocks.map((block: BlockStructure) => {
+      const converted = writeBlockFields(block, locale, options)
       reports.push(...converted.reports)
       return converted.value
     })
@@ -429,9 +429,9 @@ export function writePageContent<T>(
   if (!isRecord(content)) return { value: content, reports: [] }
   const reports: TitleWriteReport[] = []
   const value = Object.fromEntries(
-    Object.entries(content).map(([locale, block]) => {
-      if (!isRecord(block)) return [locale, block]
-      const converted = writeLocaleContent(pageType, block, locale, options)
+    Object.entries(content).map(([locale, localeContent]) => {
+      if (!isRecord(localeContent)) return [locale, localeContent]
+      const converted = writeLocaleContent(pageType, localeContent, locale, options)
       reports.push(...converted.reports)
       return [locale, converted.value]
     })

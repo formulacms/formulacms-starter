@@ -211,7 +211,7 @@ describe("direct runtime provider composition", () => {
 
   // The `vision-spec` profile below is now a build-lane-only entry in the
   // shared `TASK_PROFILES` contract (the 2026-07-14 ADR-0032 amendment moved
-  // slice authoring off the runtime lane). It still exercises the generic
+  // block authoring off the runtime lane). It still exercises the generic
   // `generateRuntimeText` executor's image handling here — no runtime caller
   // reaches this codepath — and stays as the only committed runtime tuple
   // that declares image input for the unit-level test.
@@ -246,7 +246,7 @@ describe("direct runtime provider composition", () => {
         { catalog: BUNDLED_MODEL_CATALOG,
           selectedProvider: "anthropic",
           profile: "vision-spec",
-          phase: "slice-spec",
+          phase: "block-spec",
           instructions: "SYSTEM PROMPT",
           messages,
         },

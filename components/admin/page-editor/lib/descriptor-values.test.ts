@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { list, group, richText, text } from "@/convex/lib/slices/primitives"
+import { list, group, richText, text } from "@/convex/lib/blocks/primitives"
 import type { Page } from "./types"
 import {
   collectTranslatableLeaves,

@@ -1,4 +1,4 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, it } from "vitest"
 import { catalogAssets } from "./assets"
 import { getCatalogAsset, listCatalog, searchCatalog } from "./query"
@@ -19,18 +19,18 @@ describe("formulacms catalog", () => {
     expect(listCatalog()).toHaveLength(catalogAssets.length)
     expect(
       searchCatalog({ query: "agency services" }).map(({ id }) => id)
-    ).toEqual(["slice:hero-agency"])
+    ).toEqual(["block:hero-agency"])
     expect(
       searchCatalog({ query: "lead capture" }).map(({ id }) => id)
-    ).toEqual(["slice:contact-form"])
+    ).toEqual(["block:contact-form"])
     expect(searchCatalog({ group: "features" }).map(({ id }) => id)).toEqual([
-      "slice:features-icon-grid",
+      "block:features-icon-grid",
     ])
   })
 
-  it("gets an asset by stable ID or slug and fails closed for unknown IDs", sliceProfile([]), () => {
-    expect(getCatalogAsset("slice:hero-agency")?.slug).toBe("hero-agency")
-    expect(getCatalogAsset("HERO-AGENCY")?.id).toBe("slice:hero-agency")
-    expect(getCatalogAsset("slice:not-real")).toBeUndefined()
+  it("gets an asset by stable ID or slug and fails closed for unknown IDs", blockProfile([]), () => {
+    expect(getCatalogAsset("block:hero-agency")?.slug).toBe("hero-agency")
+    expect(getCatalogAsset("HERO-AGENCY")?.id).toBe("block:hero-agency")
+    expect(getCatalogAsset("block:not-real")).toBeUndefined()
   })
 })

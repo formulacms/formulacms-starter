@@ -1,10 +1,10 @@
-import { readInstalledSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readInstalledBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
 import { withSlugFallback } from "../contentTypes/routing"
-import { writeSliceFields } from "../richtext/write"
+import { writeBlockFields } from "../richtext/write"
 import { validate } from "convex-helpers/validators"
 import { ConvexError } from "convex/values"
-import { buildContextBlock, type PageContext } from "./pageContext"
+import { buildContextSection, type PageContext } from "./pageContext"
 import { renderTemplate } from "./registry"
 import { buildFieldDoc } from "../richtext/build"
 import { resolveFieldContract, type FieldContract } from "../richtext/contracts"
@@ -15,18 +15,18 @@ import {
   replaceTextSegments,
 } from "../richtext/pmText"
 import {
-  createDefaultSlice,
-  installedSliceValidator,
-  INSTALLED_SLICE_TYPES,
+  createDefaultBlock,
+  installedBlockValidator,
+  INSTALLED_BLOCK_TYPES,
   type Primitive,
-  type InstalledSlice,
-  type InstalledSliceType,
-} from "../slices"
+  type InstalledBlock,
+  type InstalledBlockType,
+} from "../blocks"
 import {
   primaryFieldProtocol,
   primaryListInstructions,
-} from "../slices/repeating"
-import { isEditorialTextPrimitive } from "../slices/primitives"
+} from "../blocks/repeating"
+import { isEditorialTextPrimitive } from "../blocks/primitives"
 import { MAX_CONCURRENT_LLM_CALLS, Semaphore } from "../semaphore"
 
 export type PageMeta = {
@@ -37,7 +37,7 @@ export type PageMeta = {
 export type ContentSystemInput = {
   systemTemplate: string
   language: string
-  sliceType: string
+  blockType: string
   context?: PageContext
   brandVoice?: string
 }
@@ -45,12 +45,12 @@ export type ContentSystemInput = {
 export function buildContentSystemInstructions({
   systemTemplate,
   language,
-  sliceType,
+  blockType,
   context,
   brandVoice,
 }: ContentSystemInput): string {
-  const head = renderTemplate(systemTemplate, { language, sliceType })
-  const tail = buildContextBlock(context, brandVoice)
+  const head = renderTemplate(systemTemplate, { language, blockType })
+  const tail = buildContextSection(context, brandVoice)
   return tail ? `${head}\n\n${tail}` : head
 }
 
@@ -84,7 +84,7 @@ export function buildFieldGenerationInput(
 
 export type RefinementGenerationInput = Omit<
   ContentSystemInput,
-  "sliceType"
+  "blockType"
 > & {
   text: string
   instruction: string
@@ -98,7 +98,7 @@ export function buildRefinementGenerationInput(
   return {
     instructions: buildContentSystemInstructions({
       ...input,
-      sliceType: "section",
+      blockType: "content",
     }),
     prompt: [
       `Rewrite the "${input.fieldLabel}" content below in ${input.language}, following the user's instruction. Preserve the meaning and keep it on-topic.`,
@@ -123,22 +123,22 @@ export function assembleRefinedText(
   return refined ? leading + refined + trailing : original
 }
 
-export type SliceGenerationInput = Omit<ContentSystemInput, "sliceType"> & {
+export type BlockGenerationInput = Omit<ContentSystemInput, "blockType"> & {
   userTemplate: string
-  sliceType: InstalledSliceType
+  blockType: InstalledBlockType
   brief: string
 }
 
-export function buildSliceGenerationInput(
-  input: SliceGenerationInput
+export function buildBlockGenerationInput(
+  input: BlockGenerationInput
 ): ContentGenerationInput {
   return {
     instructions: buildContentSystemInstructions(input),
-    prompt: `${renderTemplate(input.userTemplate, { brief: input.brief })}\n\n${buildSliceFieldInstructions(input.sliceType)}`,
+    prompt: `${renderTemplate(input.userTemplate, { brief: input.brief })}\n\n${buildBlockFieldInstructions(input.blockType)}`,
   }
 }
 
-export type PageFillGenerationInput = Omit<SliceGenerationInput, "brief"> & {
+export type PageFillGenerationInput = Omit<BlockGenerationInput, "brief"> & {
   pageBrief: string
   purpose: string
 }
@@ -149,13 +149,13 @@ export function buildPageFillGenerationInput(
   const brief = [
     `Page-level brief: ${input.pageBrief.trim()}`,
     "",
-    `This "${input.sliceType}" section's purpose on the page: ${input.purpose.trim()}`,
+    `This "${input.blockType}" block's purpose on the page: ${input.purpose.trim()}`,
   ].join("\n")
-  return buildSliceGenerationInput({
+  return buildBlockGenerationInput({
     systemTemplate: input.systemTemplate,
     userTemplate: input.userTemplate,
     language: input.language,
-    sliceType: input.sliceType,
+    blockType: input.blockType,
     brief,
     context: input.context,
     brandVoice: input.brandVoice,
@@ -164,12 +164,12 @@ export function buildPageFillGenerationInput(
 
 export const META_TITLE_MAX = 60
 export const META_DESCRIPTION_MAX = 160
-export const OUTLINE_MAX_SLICES = 8
+export const OUTLINE_MAX_BLOCKS = 8
 
 /** Mechanical metadata constraints appended after the page summary. */
 export const META_INSTRUCTIONS = [
-  "Write SEO metadata for the page summarised above (page title + section",
-  "contents). Output ONLY the two fenced blocks below — no preamble, no",
+  "Write SEO metadata for the page summarised above (page title + block",
+  "contents). Output ONLY the two tagged fields below — no preamble, no",
   "explanation, no Markdown, no quotes, no labels other than the tags.",
   "",
   `[metaTitle]`,
@@ -185,14 +185,14 @@ export const META_INSTRUCTIONS = [
 ].join("\n")
 
 export function buildPageMetaGenerationInput(
-  input: Omit<ContentSystemInput, "sliceType" | "context"> & {
+  input: Omit<ContentSystemInput, "blockType" | "context"> & {
     context: PageContext
   }
 ): ContentGenerationInput {
   return {
     instructions: buildContentSystemInstructions({
       ...input,
-      sliceType: "page",
+      blockType: "page",
     }),
     prompt: META_INSTRUCTIONS,
   }
@@ -200,14 +200,14 @@ export function buildPageMetaGenerationInput(
 
 /** Assemble page metadata from the content writer's labeled response format. */
 export function assembleMeta(raw: string): PageMeta {
-  const blocks = parseLabeled(raw, ["metaTitle", "metaDescription"])
+  const fieldsByLabel = parseLabeled(raw, ["metaTitle", "metaDescription"])
   return {
     metaTitle: capWords(
-      stripWrappingQuotes(blocks.metaTitle ?? ""),
+      stripWrappingQuotes(fieldsByLabel.metaTitle ?? ""),
       META_TITLE_MAX
     ),
     metaDescription: capWords(
-      stripWrappingQuotes(blocks.metaDescription ?? ""),
+      stripWrappingQuotes(fieldsByLabel.metaDescription ?? ""),
       META_DESCRIPTION_MAX
     ),
   }
@@ -216,16 +216,16 @@ export function assembleMeta(raw: string): PageMeta {
 export type PageOutline = PageMeta & {
   title: string
   slug: string
-  outline: { type: InstalledSliceType; purpose: string }[]
+  outline: { type: InstalledBlockType; purpose: string }[]
 }
 
 export function buildOutlineInstructions(): string {
   return [
-    "Plan a single page for the brief above. Output ONLY the fenced blocks below.",
+    "Plan a single page for the brief above. Output ONLY the tagged fields below.",
     "Do not add explanation, Markdown, or quotes around values.",
     "",
-    "Available section types (pick from these exact slugs — no others):",
-    renderSliceCatalog(),
+    "Available block types (pick from these exact slugs — no others):",
+    renderBlockCatalog(),
     "",
     "[title]",
     "Page title in ≤ 8 words, plain text.",
@@ -244,16 +244,16 @@ export function buildOutlineInstructions(): string {
     `[/metaDescription]`,
     "",
     "[outline]",
-    `Between 2 and ${OUTLINE_MAX_SLICES} sections, one per line, in this exact format:`,
-    "- <slice-type> | <one short sentence describing this section's purpose on the page>",
-    "Pick the slice mix that best fits the brief. Each slice type may repeat if useful.",
+    `Between 2 and ${OUTLINE_MAX_BLOCKS} sections, one per line, in this exact format:`,
+    "- <block-type> | <one short sentence describing this block's purpose on the page>",
+    "Pick the block mix that best fits the brief. Each block type may repeat if useful.",
     "[/outline]",
   ].join("\n")
 }
 
 export type PageOutlineGenerationInput = Omit<
   ContentSystemInput,
-  "sliceType" | "context"
+  "blockType" | "context"
 > & {
   userTemplate: string
   brief: string
@@ -266,7 +266,7 @@ export function buildPageOutlineGenerationInput(
     instructions: buildContentSystemInstructions({
       systemTemplate: input.systemTemplate,
       language: input.language,
-      sliceType: "page",
+      blockType: "page",
       brandVoice: input.brandVoice,
     }),
     prompt: `${renderTemplate(input.userTemplate, { brief: input.brief })}\n\n${buildOutlineInstructions()}`,
@@ -274,7 +274,7 @@ export function buildPageOutlineGenerationInput(
 }
 
 export function assembleOutline(raw: string): PageOutline {
-  const blocks = parseLabeled(raw, [
+  const fieldsByLabel = parseLabeled(raw, [
     "title",
     "slug",
     "metaTitle",
@@ -283,18 +283,18 @@ export function assembleOutline(raw: string): PageOutline {
   ])
 
   const title = capWords(
-    stripWrappingQuotes(blocks.title ?? ""),
+    stripWrappingQuotes(fieldsByLabel.title ?? ""),
     META_TITLE_MAX
   )
   const metaTitle = capWords(
-    stripWrappingQuotes(blocks.metaTitle ?? ""),
+    stripWrappingQuotes(fieldsByLabel.metaTitle ?? ""),
     META_TITLE_MAX
   )
   const metaDescription = capWords(
-    stripWrappingQuotes(blocks.metaDescription ?? ""),
+    stripWrappingQuotes(fieldsByLabel.metaDescription ?? ""),
     META_DESCRIPTION_MAX
   )
-  const slugSource = stripWrappingQuotes(blocks.slug ?? "") || title
+  const slugSource = stripWrappingQuotes(fieldsByLabel.slug ?? "") || title
   // The fallback is keyed on the title, never on the AI's slug block, so a
   // non-ASCII slug cannot hash to a different address than create's
   // generateSlug(title) would give the same page.
@@ -302,17 +302,17 @@ export function assembleOutline(raw: string): PageOutline {
     slugifyServer(slugSource) || withSlugFallback(title, slugifyServer(title))
 
   const outline: PageOutline["outline"] = []
-  if (blocks.outline) {
-    for (const line of parseList(blocks.outline)) {
+  if (fieldsByLabel.outline) {
+    for (const line of parseList(fieldsByLabel.outline)) {
       const match = line.match(/^([\w-]+)\s*[|—–-]\s*(.+)$/)
       if (!match) continue
       const rawType = match[1]!.toLowerCase()
       const purpose = stripWrappingQuotes(match[2]!.trim())
       if (!purpose) continue
-      if ((INSTALLED_SLICE_TYPES as readonly string[]).includes(rawType)) {
-        outline.push({ type: rawType as InstalledSliceType, purpose })
+      if ((INSTALLED_BLOCK_TYPES as readonly string[]).includes(rawType)) {
+        outline.push({ type: rawType as InstalledBlockType, purpose })
       }
-      if (outline.length >= OUTLINE_MAX_SLICES) break
+      if (outline.length >= OUTLINE_MAX_BLOCKS) break
     }
   }
 
@@ -325,72 +325,72 @@ export function assembleOutline(raw: string): PageOutline {
   return { title, slug, metaTitle, metaDescription, outline }
 }
 
-export function buildSliceFieldInstructions(
-  sliceType: InstalledSliceType
+export function buildBlockFieldInstructions(
+  blockType: InstalledBlockType
 ): string {
-  const definition = readInstalledSliceDefinition(sliceType)
+  const definition = readInstalledBlockDefinition(blockType)
   const listInstructions = primaryListInstructions(definition.primary)
   return listInstructions
     ? `${definition.aiHint.fields}\n\n${listInstructions}`
     : definition.aiHint.fields
 }
 
-export function assertSliceType(value: string): InstalledSliceType {
-  if ((INSTALLED_SLICE_TYPES as readonly string[]).includes(value)) {
-    return value as InstalledSliceType
+export function assertBlockType(value: string): InstalledBlockType {
+  if ((INSTALLED_BLOCK_TYPES as readonly string[]).includes(value)) {
+    return value as InstalledBlockType
   }
-  throw new ConvexError(`UNKNOWN_SLICE_TYPE: ${value}`)
+  throw new ConvexError(`UNKNOWN_BLOCK_TYPE: ${value}`)
 }
 
 /** Assemble model-authored editorial fields onto trusted structural defaults. */
-export function assembleSlice(
-  sliceType: InstalledSliceType,
+export function assembleBlock(
+  blockType: InstalledBlockType,
   raw: string
-): InstalledSlice {
-  const def = readInstalledSliceDefinition(sliceType)
-  const defaults = createDefaultSlice(sliceType)
-  const primary = structuredClone(readSlice(defaults).primary) as Record<
+): InstalledBlock {
+  const def = readInstalledBlockDefinition(blockType)
+  const defaults = createDefaultBlock(blockType)
+  const primary = structuredClone(readBlock(defaults).primary) as Record<
     string,
     unknown
   >
   const protocol = primaryFieldProtocol(def.primary)
-  const blocks = parseLabeled(
+  const fieldsByLabel = parseLabeled(
     raw,
     protocol.scalars.flatMap(({ path, legacyAlias }) =>
       legacyAlias ? [path, legacyAlias] : [path]
     )
   )
-  fillGeneratedPrimary(primary, protocol.scalars, blocks)
+  fillGeneratedPrimary(primary, protocol.scalars, fieldsByLabel)
   const declaredLists = protocol.lists.filter(
     ({ path }) => !path.includes("[]")
   )
-  const listBlocks = parseLabeled(
+  const fieldListsByLabel = parseLabeled(
     raw,
     declaredLists.map(({ path }) => path)
   )
   for (const { path, definition } of declaredLists) {
-    if (!Object.hasOwn(listBlocks, path)) continue
-    const value = parsePrimaryList(listBlocks[path]!, path, definition)
+    if (!Object.hasOwn(fieldListsByLabel, path)) continue
+    const value = parsePrimaryList(fieldListsByLabel[path]!, path, definition)
     assignPrimaryPath(primary, path, value)
   }
 
-  const slice: Record<string, unknown> = {
+  const block: Record<string, unknown> = {
     id: crypto.randomUUID(),
-    type: sliceType,
+    type: blockType,
     enabled: true,
     primary,
   }
   if (def.items !== undefined) {
-    const generatedItems = assembleGeneratedItems(sliceType, raw)
-    slice.items =
+    const generatedItems = assembleGeneratedItems(blockType, raw)
+    block.items =
       generatedItems.length > 0
         ? generatedItems
         : structuredClone((defaults as { items?: unknown[] }).items ?? [])
   }
-  const normalized = writeSliceFields(slice as InstalledSlice).value
-  if (!validate(installedSliceValidator, normalized)) {
+  const normalized = writeBlockFields(block as InstalledBlock).value
+  if (!validate(installedBlockValidator, normalized)) {
     throw new ConvexError(
-      `INVALID_GENERATED_SLICE: ${String(sliceType)} does not match its installed contract.`
+      `INVALID_GENERATED_BLOCK: ${String(blockType)} does not match its installed contract.`
     )
   }
   return normalized
@@ -422,13 +422,13 @@ export async function refineRichTextSegments(
 function fillGeneratedPrimary(
   primary: Record<string, unknown>,
   fields: ReturnType<typeof primaryFieldProtocol>["scalars"],
-  blocks: Record<string, string>
+  fieldsByLabel: Record<string, string>
 ): void {
   for (const { path, definition: field, legacyAlias } of fields) {
-    const hasCanonical = Object.hasOwn(blocks, path)
+    const hasCanonical = Object.hasOwn(fieldsByLabel, path)
     const sourceKey = hasCanonical ? path : legacyAlias
-    if (!sourceKey || !Object.hasOwn(blocks, sourceKey)) continue
-    const value = blocks[sourceKey]!
+    if (!sourceKey || !Object.hasOwn(fieldsByLabel, sourceKey)) continue
+    const value = fieldsByLabel[sourceKey]!
     if (!hasCanonical && !value) continue
     let authoredValue: unknown
     if (field.kind === "text") {
@@ -453,13 +453,13 @@ function fillGeneratedPrimary(
 }
 
 function parsePrimaryList(
-  block: string,
+  fieldText: string,
   path: string,
   definition: Primitive
 ): unknown[] {
   let parsed: unknown
   try {
-    parsed = JSON.parse(block)
+    parsed = JSON.parse(fieldText)
   } catch {
     throw new ConvexError(`PRIMARY_LIST_INVALID_JSON: ${path}`)
   }
@@ -558,19 +558,19 @@ function assignPrimaryPath(
 }
 
 function assembleGeneratedItems(
-  sliceType: InstalledSliceType,
+  blockType: InstalledBlockType,
   raw: string
 ): unknown[] {
-  const def = readInstalledSliceDefinition(sliceType)
+  const def = readInstalledBlockDefinition(blockType)
   if (!def.items) return []
   const item = def.items.config.item as Primitive
   if (item.kind !== "group") return structuredClone(def.items.default) as unknown[]
   const fields = item.config.fields as Record<string, Primitive>
   const max = (def.items.config.max as number | undefined) ?? 24
   const hasButtonShape = "label" in fields && "link" in fields
-  const blocks = parseLabeled(raw, ["items", "buttons"])
+  const fieldsByLabel = parseLabeled(raw, ["items", "buttons"])
   const rows: Array<Record<string, unknown>> = []
-  for (const line of parseList(blocks.items ?? blocks.buttons ?? "")) {
+  for (const line of parseList(fieldsByLabel.items ?? fieldsByLabel.buttons ?? "")) {
     // `key: value | key: value` lines (the format the aiHint teaches) first;
     // a line with no declared key is a button label when the item is a button.
     const keyed = parseKeyedItemLine(line, fields)
@@ -611,7 +611,7 @@ function parseKeyedItemLine(
 
 /** Shape one keyed line with the rules the primary list rows use. A line that
  * carries no copy, or whose copy the save validation would refuse, is skipped
- * (undefined) instead of failing the slice. */
+ * (undefined) instead of failing the block. */
 function shapeKeyedItem(
   values: Record<string, string>,
   item: Primitive
@@ -677,16 +677,16 @@ function stripWrappingQuotes(text: string): string {
   return match?.[1] !== undefined ? match[1].trim() : text
 }
 
-function parseList(block: string): string[] {
-  return block
+function parseList(fieldText: string): string[] {
+  return fieldText
     .split(/\r?\n/)
     .map((line) => line.replace(/^\s*[-*•]\s*/, "").trim())
     .filter((line) => line.length > 0)
 }
 
-function renderSliceCatalog(): string {
-  return INSTALLED_SLICE_TYPES.map(
-    (type) => `- ${type} — ${readInstalledSliceDefinition(type).aiHint.purpose}`
+function renderBlockCatalog(): string {
+  return INSTALLED_BLOCK_TYPES.map(
+    (type) => `- ${type} — ${readInstalledBlockDefinition(type).aiHint.purpose}`
   ).join("\n")
 }
 

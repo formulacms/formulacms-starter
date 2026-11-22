@@ -15,7 +15,7 @@ export type MarkdownImportResult = {
  * Parse a Markdown string into a page title + full-profile PM-JSON body string.
  *
  * The first H1 (`# …`) is extracted as the page title and removed from the
- * body. Everything else becomes a single `rich-text-body` slice value via
+ * body. Everything else becomes a single `rich-text-body` block value via
  * TipTap's `generateJSON` + the `full` profile extension set — so the output
  * is guaranteed to match the allowlist that `validateDoc` enforces on save.
  */

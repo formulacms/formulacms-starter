@@ -1,4 +1,4 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { render, screen, cleanup, fireEvent } from "@testing-library/react"
 import {
   afterAll,
@@ -222,7 +222,7 @@ test("dialog accessible Close default uses the admin language", () => {
   expect(screen.getByRole("button", { name: "Fermer" })).toBeInTheDocument()
 })
 
-test("inline preview accessible field labels use admin French while keeping owner content", sliceProfile([]), async () => {
+test("inline preview accessible field labels use admin French while keeping owner content", blockProfile([]), async () => {
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -234,7 +234,7 @@ test("inline preview accessible field labels use admin French while keeping owne
   french(
     <PageLivePreview
       title="Owner page"
-      slices={[
+      blocks={[
         {
           id: "hero",
           type: "hero-agency",
@@ -257,8 +257,8 @@ test("inline preview accessible field labels use admin French while keeping owne
       ]}
       locale="en"
       defaultLocale="en"
-      selectedSliceId={null}
-      onSelectSlice={() => {}}
+      selectedBlockId={null}
+      onSelectBlock={() => {}}
       onSelectField={() => {}}
       onInlineEditCommit={() => {}}
       controlledInlineEnabled

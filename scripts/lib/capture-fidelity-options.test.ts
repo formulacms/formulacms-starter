@@ -1,4 +1,4 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, test } from "vitest"
 import { parseCaptureFidelityArgs } from "./capture-fidelity-options"
 
@@ -25,13 +25,13 @@ describe("parseCaptureFidelityArgs", () => {
     )
   })
 
-  test("rejects a slice name instead of quietly ignoring it", sliceProfile([]), () => {
+  test("rejects a block name instead of quietly ignoring it", blockProfile([]), () => {
     expect(() => parseCaptureFidelityArgs(["hero-with-image"])).toThrow(
-      /takes no slice name \(got "hero-with-image"\)/
+      /takes no block name \(got "hero-with-image"\)/
     )
   })
 
-  test("does not mistake the supplied folder for a slice name", () => {
+  test("does not mistake the supplied folder for a block name", () => {
     expect(
       parseCaptureFidelityArgs(["--run-dir", "/tmp/run-a"])
     ).toEqual({ runDir: "/tmp/run-a" })

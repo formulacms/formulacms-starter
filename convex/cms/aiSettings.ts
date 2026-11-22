@@ -39,7 +39,7 @@ import {
   ASSISTANT_PROFILES,
   assistantModelChoices,
   defaultTupleFor,
-  SLICE_CREATOR_PROFILES,
+  BLOCK_CREATOR_PROFILES,
   taskProfileTuple,
   tupleSupportsTaskProfile,
   validateApiModelTuple,
@@ -196,9 +196,9 @@ function assistantModelDefaults(
 
 const assistantStatusFields = aiSettingsStatusValidator.fields.assistants.element.fields
 
-/** The local-only Slice creator's saved model and instructions, with what it may offer.
+/** The local-only Block creator's saved model and instructions, with what it may offer.
  *  Owner-only. It returns no key, no connection state and no readiness. */
-export const sliceCreator = query({
+export const blockCreator = query({
   args: { now: v.optional(v.number()) },
   returns: assistantSettingsValidator.extend({
     choices: assistantStatusFields.choices,
@@ -220,9 +220,9 @@ export const sliceCreator = query({
     const settings = await getSingleSettings(ctx)
     const now = settingsNow(args.now)
     const modelCatalog = await loadSettingsCatalog(ctx)
-    const choices = assistantModelChoices(SLICE_CREATOR_PROFILES, modelCatalog, now)
-    const saved = settings?.aiRuntime?.assistants?.sliceCreator
-    const defaults = assistantModelDefaults(choices, SLICE_CREATOR_PROFILES[0])
+    const choices = assistantModelChoices(BLOCK_CREATOR_PROFILES, modelCatalog, now)
+    const saved = settings?.aiRuntime?.assistants?.blockCreator
+    const defaults = assistantModelDefaults(choices, BLOCK_CREATOR_PROFILES[0])
     const newerModels: Array<{
       for: { provider: string; model: string }
       provider: string
@@ -243,7 +243,7 @@ export const sliceCreator = query({
       defaults,
       catalog: await loadRuntimeCatalogEntries(ctx, {
         providers: API_PROVIDERS,
-        profiles: SLICE_CREATOR_PROFILES,
+        profiles: BLOCK_CREATOR_PROFILES,
         tuples: [saved?.tuple],
         now,
       }),
@@ -301,13 +301,13 @@ export const setAssistantLocalTool = mutation({
   },
 })
 
-/** Owner-only save for the Slice creator; the other assistants' entries stay untouched. */
-export const setSliceCreator = mutation({
+/** Owner-only save for the Block creator; the other assistants' entries stay untouched. */
+export const setBlockCreator = mutation({
   args: { ...assistantSettingsValidator.fields },
   returns: v.null(),
   handler: async (ctx, { tuple, instructions }) => {
     await requireOwnerAndOptionalModule(ctx, "ai", { requireReady: false })
-    await saveAssistantSettings(ctx, "sliceCreator", SLICE_CREATOR_PROFILES, { tuple, instructions })
+    await saveAssistantSettings(ctx, "blockCreator", BLOCK_CREATOR_PROFILES, { tuple, instructions })
     await recordPublicChange(ctx, { scopes: [] })
     return null
   },

@@ -11,7 +11,7 @@ import {
 
 export type MarkdownImportData = {
   title: string
-  /** PM-JSON string for the rich-text-body slice. */
+  /** PM-JSON string for the rich-text-body block. */
   body: string
 }
 

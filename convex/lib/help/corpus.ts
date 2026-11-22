@@ -9,8 +9,8 @@
 // en.json). When a feature ships or changes, update the matching entry.
 //
 // Server-safe: no UI / React imports, so the Convex help action can import it.
-// The live slice-type list is NOT hardcoded here (it grows via ADR-0016); the
-// prompt builder (workflow.ts) appends the purposes of the installed slice
+// The live block-type list is NOT hardcoded here (it grows via ADR-0016); the
+// prompt builder (workflow.ts) appends the purposes of the installed block
 // types at call time.
 
 export interface HelpEntry {
@@ -38,10 +38,10 @@ export const HELP_CORPUS: HelpEntry[] = [
     body: "In the Settings tab of the page editor, the URL identifier is the last part of the page's address. Two pages cannot share an address. A parent page nests the address and builds breadcrumbs. The editor tells you when an address is taken and asks for another URL identifier. When Multilingual is on, each language can have its own URL identifier.",
   },
   {
-    id: "add-slices",
+    id: "add-blocks",
     title: "Add, reorder, and remove blocks",
-    tags: ["slice", "section", "block", "add", "reorder", "layout", "builder"],
-    body: "Pages are built from blocks, the typed content sections that stack to form the page. In the page editor, choose Add block, pick a type, and fill its fields. Drag blocks to reorder them, or use Move up and Move down. Remove takes the block out of this language's draft. Choose Save to keep the change. Each block type has a fixed set of fields, so content stays structured.",
+    tags: ["block", "section", "block", "add", "reorder", "layout", "builder"],
+    body: "Pages are built from blocks, the typed pieces of content that stack to form the page. In the page editor, choose Add block, pick a type, and fill its fields. Drag blocks to reorder them, or use Move up and Move down. Remove takes the block out of this language's draft. Choose Save to keep the change. Each block type has a fixed set of fields, so content stays structured.",
   },
   {
     id: "locales-and-translation",
@@ -116,7 +116,7 @@ export const HELP_CORPUS: HelpEntry[] = [
     id: "menus",
     title: "Edit navigation menus",
     tags: ["menu", "navigation", "nav", "header", "footer", "links"],
-    body: "Menus use one shared structure and destination set, with labels, descriptions, headings, and image alt text written for each language under Menus. The default language controls items, panels, blocks, order, links, and images; other language tabs change text only. The Menus screen has Main navigation and Footer navigation. Main navigation also serves the phone menu. Choose Add navigation item, then set its link to Page, URL or No link. Choose Panel to open a panel menu with columns and blocks.",
+    body: "Menus use one shared structure and destination set, with labels, descriptions, headings, and image alt text written for each language under Menus. The default language controls items, panels, sections, order, links, and images; other language tabs change text only. The Menus screen has Main navigation and Footer navigation. Main navigation also serves the phone menu. Choose Add navigation item, then set its link to Page, URL or No link. Choose Panel to open a panel menu with columns and blocks.",
   },
   {
     id: "redirects",
@@ -168,9 +168,9 @@ export const HELP_CORPUS: HelpEntry[] = [
     body: "Turn the AI module on in Settings › Modules. AI needs a key set as an environment variable on your Convex deployment: OPENROUTER_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY. Settings › AI shows which keys are found and lets you choose the provider and model for each assistant. formulacms never stores your key. Content you send to an assistant goes to its provider, which bills you per use.",
   },
   {
-    id: "what-is-a-slice",
+    id: "what-is-a-block",
     title: "What is a block?",
-    tags: ["slice", "what is", "concept", "section", "component"],
+    tags: ["block", "what is", "concept", "section", "component"],
     body: "A block is one typed section of a page, like a hero, a feature grid, or an FAQ. Each block type defines exactly which fields it has, so you fill in a known structure instead of free-form content. You build a page by stacking blocks in the order you want. Developers add new block types.",
   },
 ]

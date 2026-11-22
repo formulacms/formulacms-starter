@@ -194,8 +194,8 @@ export const assistantsSettingsValidator = v.object({
   writing: v.optional(localToolAssistantSettingsValidator),
   translation: v.optional(localToolAssistantSettingsValidator),
   help: v.optional(assistantSettingsValidator),
-  // Local-only fourth assistant; not an AssistantId (see SLICE_CREATOR_PROFILES).
-  sliceCreator: v.optional(assistantSettingsValidator),
+  // Local-only fourth assistant; not an AssistantId (see BLOCK_CREATOR_PROFILES).
+  blockCreator: v.optional(assistantSettingsValidator),
 })
 export const providerHealthStateValidator = v.union(
   v.literal("ok"), v.literal("refused"), v.literal("unreachable")
@@ -288,7 +288,7 @@ export const workflowPhaseValidator = v.union(
   v.literal("page-meta"),
   v.literal("page-outline"),
   v.literal("page-fill"),
-  v.literal("slice-spec"),
+  v.literal("block-spec"),
   v.literal("renderer-jsx"),
   v.literal("help-answer")
 )

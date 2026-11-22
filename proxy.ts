@@ -15,7 +15,7 @@ import {
 import { reportContainedModuleFailure } from "@/lib/modules/containment"
 import { isHomeAliasPath } from "@/lib/pages/home-aliases"
 import { SUPPORTED_LOCALES } from "@/lib/i18n/config"
-import { SLICE_SIMULATOR_ROUTE } from "@/config/slice-simulator"
+import { BLOCK_SIMULATOR_ROUTE } from "@/config/block-simulator"
 import createMiddleware from "next-intl/middleware"
 import { convexAuthNextjsProxy } from "@/lib/auth/convexAuth"
 
@@ -53,8 +53,8 @@ function splitLocale(
   return { locale: defaultLocale, path: pathname || "/" }
 }
 
-// Paths that must never receive a locale prefix / locale routing. `/slice-sim`
-// is the dev-only slice simulator (ADR-0016), an internal non-localized route in
+// Paths that must never receive a locale prefix / locale routing. `/block-sim`
+// is the dev-only block simulator (ADR-0016), an internal non-localized route in
 // its own root layout — without this it'd be rewritten into the public locale
 // tree and 404 in the catch-all.
 const I18N_EXCLUDED = [
@@ -62,7 +62,7 @@ const I18N_EXCLUDED = [
   "/setup",
   "/sign-in",
   "/recover",
-  ...(SLICE_SIMULATOR_ROUTE === null ? [] : [SLICE_SIMULATOR_ROUTE]),
+  ...(BLOCK_SIMULATOR_ROUTE === null ? [] : [BLOCK_SIMULATOR_ROUTE]),
 ]
 
 /** Evict the forgeable predecessor cookie from browsers still carrying it. */
@@ -167,7 +167,7 @@ async function handleProxy(request: NextRequest, mayRefreshVersion: boolean) {
   const config = siteConfigState.value
   const onboarded = config.onboardingCompletedAt != null
 
-  // The slice simulator renders sample content through the public pipeline and
+  // The block simulator renders sample content through the public pipeline and
   // reads no site configuration, so first-run setup has nothing to say about
   // it. Without this a deployment that has not been set up yet — a fresh CI
   // checkout, or a clone before its first run — answers every simulator URL
@@ -175,9 +175,9 @@ async function handleProxy(request: NextRequest, mayRefreshVersion: boolean) {
   // the setup wizard. It stays dev-only regardless: the page itself 404s under
   // NODE_ENV=production.
   const isSimulator =
-    SLICE_SIMULATOR_ROUTE !== null &&
-    (pathname === SLICE_SIMULATOR_ROUTE ||
-      pathname.startsWith(`${SLICE_SIMULATOR_ROUTE}/`))
+    BLOCK_SIMULATOR_ROUTE !== null &&
+    (pathname === BLOCK_SIMULATOR_ROUTE ||
+      pathname.startsWith(`${BLOCK_SIMULATOR_ROUTE}/`))
 
   // The one-time owner recovery link (ADR-0056 rule 4) is never sent to
   // /setup: the redirect would drop its token.

@@ -8,10 +8,10 @@ import type { LocaleNavItem } from "@/convex/lib/menu"
 import {
   generateMenuId,
   isColumnPanel,
-  type LocaleBlock,
+  type LocalePanelSection,
 } from "@/convex/lib/menu"
 import { Button } from "@/components/ui/button"
-import { CanonicalBlockEditor } from "./canonical-block-editor"
+import { CanonicalSectionEditor } from "./canonical-section-editor"
 import { moveItem } from "@/lib/use-drag-reorder"
 import { Columns3, Plus } from "lucide-react"
 import { useTranslations } from "next-intl"
@@ -29,11 +29,11 @@ function EmptyTarget() {
   return { type: "external" as const, url: "", openInNewTab: true }
 }
 
-function newLinkGroup(): Extract<LocaleBlock, { kind: "linkGroup" }> {
+function newLinkGroup(): Extract<LocalePanelSection, { kind: "linkGroup" }> {
   return { id: generateMenuId(), kind: "linkGroup", links: [] }
 }
 
-function newFeatured(): Extract<LocaleBlock, { kind: "featured" }> {
+function newFeatured(): Extract<LocalePanelSection, { kind: "featured" }> {
   return {
     id: generateMenuId(),
     kind: "featured",
@@ -43,7 +43,7 @@ function newFeatured(): Extract<LocaleBlock, { kind: "featured" }> {
   }
 }
 
-function newDynamicList(): Extract<LocaleBlock, { kind: "dynamicList" }> {
+function newDynamicList(): Extract<LocalePanelSection, { kind: "dynamicList" }> {
   return {
     id: generateMenuId(),
     kind: "dynamicList",
@@ -52,18 +52,18 @@ function newDynamicList(): Extract<LocaleBlock, { kind: "dynamicList" }> {
   }
 }
 
-function BlockRegionEditor({
+function SectionRegionEditor({
   title,
-  blocks,
+  sections,
   locale,
   onChange,
   canEditStructure,
   columns,
 }: {
   title: string
-  blocks: LocaleBlock[]
+  sections: LocalePanelSection[]
   locale: string
-  onChange: (blocks: LocaleBlock[]) => void
+  onChange: (sections: LocalePanelSection[]) => void
   canEditStructure: boolean
   columns: 1 | 2 | 3 | 4
 }) {
@@ -71,8 +71,8 @@ function BlockRegionEditor({
   const tItems = useTranslations("menus.items")
   const confirm = useConfirm()
   const { dragHandlers, handle, feedback } = useMenuReorder(
-    (from, to) => onChange(moveItem(blocks, from, to)),
-    blocks.map((block) => block.heading || tItems(`blockKinds.${block.kind}`))
+    (from, to) => onChange(moveItem(sections, from, to)),
+    sections.map((section) => section.heading || tItems(`sectionKinds.${section.kind}`))
   )
 
   return (
@@ -81,45 +81,45 @@ function BlockRegionEditor({
       <div className="flex items-center justify-between gap-3">
         <h4 className="text-sm font-medium">{title}</h4>
         <span className="text-xs text-muted-foreground">
-          {t("blockCount", { count: blocks.length })}
+          {t("sectionCount", { count: sections.length })}
         </span>
       </div>
-      {blocks.length === 0 && (
+      {sections.length === 0 && (
         <p className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-          {t("noBlocks")}
+          {t("noSections")}
         </p>
       )}
       <div className="space-y-2">
-        {blocks.map((block, index) => (
+        {sections.map((section, index) => (
           <div
-            key={block.id}
+            key={section.id}
             {...(canEditStructure ? dragHandlers(index) : {})}
           >
-            <CanonicalBlockEditor
-              block={block}
+            <CanonicalSectionEditor
+              section={section}
               columns={columns}
               dragHandle={canEditStructure ? handle(index) : undefined}
               locale={locale}
               onChange={(updated) =>
                 onChange(
-                  blocks.map((current) =>
-                    current.id === block.id ? updated : current
+                  sections.map((current) =>
+                    current.id === section.id ? updated : current
                   )
                 )
               }
               onDelete={async () => {
                 if (
                   await confirm({
-                    title: tItems("deleteBlockConfirm"),
+                    title: tItems("deleteSectionConfirm"),
                     destructive: true,
                   })
                 )
-                  onChange(blocks.filter((current) => current.id !== block.id))
+                  onChange(sections.filter((current) => current.id !== section.id))
               }}
-              onMoveUp={() => onChange(moveItem(blocks, index, index - 1))}
-              onMoveDown={() => onChange(moveItem(blocks, index, index + 1))}
+              onMoveUp={() => onChange(moveItem(sections, index, index - 1))}
+              onMoveDown={() => onChange(moveItem(sections, index, index + 1))}
               isFirst={index === 0}
-              isLast={index === blocks.length - 1}
+              isLast={index === sections.length - 1}
               canEditStructure={canEditStructure}
             />
           </div>
@@ -139,7 +139,7 @@ function BlockRegionEditor({
               action: t("addLinkGroup"),
               region: title,
             })}
-            onClick={() => onChange([...blocks, newLinkGroup()])}
+            onClick={() => onChange([...sections, newLinkGroup()])}
           >
             <Plus className="size-4" />
             {t("addLinkGroup")}
@@ -149,17 +149,17 @@ function BlockRegionEditor({
             variant="outline"
             size="sm"
             aria-label={t("addInRegion", {
-              action: t("addFeaturedBlock"),
+              action: t("addFeaturedSection"),
               region: title,
             })}
             title={t("addInRegion", {
-              action: t("addFeaturedBlock"),
+              action: t("addFeaturedSection"),
               region: title,
             })}
-            onClick={() => onChange([...blocks, newFeatured()])}
+            onClick={() => onChange([...sections, newFeatured()])}
           >
             <Plus className="size-4" />
-            {t("addFeaturedBlock")}
+            {t("addFeaturedSection")}
           </Button>
           <Button
             type="button"
@@ -173,7 +173,7 @@ function BlockRegionEditor({
               action: t("addDynamicList"),
               region: title,
             })}
-            onClick={() => onChange([...blocks, newDynamicList()])}
+            onClick={() => onChange([...sections, newDynamicList()])}
           >
             <Plus className="size-4" />
             {t("addDynamicList")}
@@ -193,11 +193,11 @@ export function CanonicalPanelEditor({
   const t = useTranslations("menus.panel")
   const columnsId = useId()
   if (isColumnPanel(panel)) return null
-  function clamp(blocks: LocaleBlock[], columns: number) {
-    return blocks.map((block) =>
-      block.span && block.span > columns
-        ? { ...block, span: columns as 1 | 2 | 3 | 4 }
-        : block
+  function clamp(sections: LocalePanelSection[], columns: number) {
+    return sections.map((section) =>
+      section.span && section.span > columns
+        ? { ...section, span: columns as 1 | 2 | 3 | 4 }
+        : section
     )
   }
   return (
@@ -214,11 +214,11 @@ export function CanonicalPanelEditor({
             onChange({
               ...panel,
               columns: Number(event.target.value) as 1 | 2 | 3 | 4,
-              blocks: clamp(panel.blocks, Number(event.target.value)),
+              sections: clamp(panel.sections, Number(event.target.value)),
               footer: panel.footer
                 ? {
-                    blocks: clamp(
-                      panel.footer.blocks,
+                    sections: clamp(
+                      panel.footer.sections,
                       Number(event.target.value)
                     ),
                   }
@@ -236,23 +236,23 @@ export function CanonicalPanelEditor({
         </select>
       </div>
 
-      <BlockRegionEditor
-        title={t("panelBlocks")}
-        blocks={panel.blocks}
+      <SectionRegionEditor
+        title={t("panelSections")}
+        sections={panel.sections}
         locale={locale}
-        onChange={(blocks) => onChange({ ...panel, blocks })}
+        onChange={(sections) => onChange({ ...panel, sections })}
         canEditStructure={canEditStructure}
         columns={panel.columns}
       />
 
-      <BlockRegionEditor
-        title={t("footerBlocks")}
-        blocks={panel.footer?.blocks ?? []}
+      <SectionRegionEditor
+        title={t("footerSections")}
+        sections={panel.footer?.sections ?? []}
         locale={locale}
-        onChange={(blocks) =>
+        onChange={(sections) =>
           onChange({
             ...panel,
-            footer: blocks.length > 0 ? { blocks } : undefined,
+            footer: sections.length > 0 ? { sections } : undefined,
           })
         }
         canEditStructure={canEditStructure}

@@ -3,12 +3,12 @@ import {
   occurrenceUsageInternalMutation as internalMutation,
   occurrenceUsageMutation as mutation,
 } from "../lib/publishing/staging"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlock } from "@/convex/lib/blocks/identity"
 import type { Infer } from "convex/values"
 import {
   writePageContent,
   writeFieldMap,
-  writeSliceFields,
+  writeBlockFields,
   type WriteOptions,
 } from "../lib/richtext/write"
 import { ConvexError, v } from "convex/values"
@@ -29,12 +29,12 @@ import {
   resolveEffectiveHomePageId,
 } from "../lib/pages/home"
 import {
-  assertSliceMutationIntegrity,
-  diffSliceMutations,
-  requireSliceMutationsPermitted,
-} from "../lib/slices/permissions"
-import { readEffectiveSlicePresentationCatalog } from "../lib/slices/presentations"
-import { hasExplicitSlicePresentations } from "../lib/slices/presentationMutations"
+  assertBlockMutationIntegrity,
+  diffBlockMutations,
+  requireBlockMutationsPermitted,
+} from "../lib/blocks/permissions"
+import { readEffectiveBlockPresentationCatalog } from "../lib/blocks/presentations"
+import { hasExplicitBlockPresentations } from "../lib/blocks/presentationMutations"
 import {
   clearPageReferences,
   refreshPageReferences,
@@ -52,8 +52,8 @@ import {
   type PublicRelationCard,
 } from "../lib/domains/publication"
 import {
-  hasSliceBody,
-  type SliceBodyContent,
+  hasBlockBody,
+  type BlockBodyContent,
   assertStagingFresh,
   deleteStagingByPageId,
   enrichWithStagingOverlay,
@@ -184,21 +184,21 @@ const boundedPilotEnvelopeValidator = v.object({
   totalPagesAtOrAboveWarningThreshold: v.boolean(),
   publishedPagesAtOrAboveWarningThreshold: v.boolean(),
 })
-import { resolveRelations } from "../lib/slices/resolve"
+import { resolveRelations } from "../lib/blocks/resolve"
 import {
   validateFieldMapRichText,
-  validateSlicesRichText,
-  validateUniqueSliceIds,
-} from "../lib/slices/validate"
-import { repairLocalizedSliceIdsForPublish } from "../lib/slices/identity"
+  validateBlocksRichText,
+  validateUniqueBlockIds,
+} from "../lib/blocks/validate"
+import { repairLocalizedBlockIdsForPublish } from "../lib/blocks/identity"
 import {
   CONTENT_TYPES,
   contentTypeDefs,
   isActiveContentType,
   contentDraftInputValidator,
 } from "../lib/domains/contentModel"
-import { sliceValidator, type Slice } from "../lib/slices"
-import { image as imagePrimitive } from "../lib/slices/primitives"
+import { blockValidator, type Block } from "../lib/blocks"
+import { image as imagePrimitive } from "../lib/blocks/primitives"
 import {
   buildInitialLocalizedContent,
   copyDescriptorSharedFields,
@@ -207,6 +207,7 @@ import {
   SYSTEM_OWNED_SHARED_FIELDS,
 } from "../lib/domains/contentModel"
 import { ensureTagsForLabels } from "./tags"
+import { publicPageValidator } from "../lib/contentTypes/publicValidator"
 import {
   planDraftBackfill,
   sanitizeLocalizedSeo,
@@ -221,165 +222,6 @@ const statusValidator = v.union(
   v.literal("draft"),
   v.literal("published"),
   v.literal("archived")
-)
-
-/** Strict system-field allowlist for anonymous page responses. */
-const publicSeoValidator = v.object({
-  metaTitle: v.optional(v.string()),
-  metaDescription: v.optional(v.string()),
-  ogImage: v.optional(v.string()),
-  ogTitle: v.optional(v.string()),
-  ogDescription: v.optional(v.string()),
-  twitterCard: v.optional(
-    v.union(v.literal("summary"), v.literal("summary_large_image"))
-  ),
-  noIndex: v.optional(v.boolean()),
-  noFollow: v.optional(v.boolean()),
-  structuredData: v.optional(v.string()),
-})
-
-const publicPageSystemFields = {
-  _id: v.id("pages"),
-  updatedAt: v.number(),
-  publishedAt: v.optional(v.number()),
-  seo: v.optional(publicSeoValidator),
-} as const
-
-const publicSliceBodyContentValidator = v.object({
-  title: v.string(),
-  metaTitle: v.optional(v.string()),
-  metaDescription: v.optional(v.string()),
-  slices: v.array(sliceValidator),
-})
-
-/** The post category is written in each language (ADR-0037 amendment, 2026-11-17). */
-const publicPostContentValidator = v.object({
-  title: v.string(),
-  metaTitle: v.optional(v.string()),
-  metaDescription: v.optional(v.string()),
-  category: v.optional(v.string()),
-  slices: v.array(sliceValidator),
-})
-
-/**
- * The response schema for `getPublicPageById`. Keep this separate from the
- * `pages` storage validator: a new storage field must not become public by
- * being added to a union arm.
- */
-const publicPageValidator = v.union(
-  v.object({
-    ...publicPageSystemFields,
-    pageType: v.literal("landing-page"),
-    content: v.record(v.string(), publicSliceBodyContentValidator),
-  }),
-  v.object({
-    ...publicPageSystemFields,
-    pageType: v.literal("page"),
-    content: v.record(v.string(), publicSliceBodyContentValidator),
-  }),
-  v.object({
-    ...publicPageSystemFields,
-    pageType: v.literal("post"),
-    authorIds: v.optional(
-      v.array(
-        v.object({
-          pageId: v.optional(v.id("pages")),
-          itemId: v.optional(v.string()),
-        })
-      )
-    ),
-    featured: v.boolean(),
-    promoteToFront: v.boolean(),
-    content: v.record(v.string(), publicPostContentValidator),
-  }),
-  v.object({
-    ...publicPageSystemFields,
-    pageType: v.literal("author"),
-    name: v.string(),
-    socials: contentTypeDefs.author.sharedFields.socials.validator,
-    content: v.record(
-      v.string(),
-      v.object({
-        title: v.string(),
-        metaTitle: v.optional(v.string()),
-        metaDescription: v.optional(v.string()),
-        roleTitle: v.optional(v.string()),
-        slices: v.array(sliceValidator),
-      })
-    ),
-  }),
-  v.object({
-    ...publicPageSystemFields,
-    pageType: v.literal("testimonial"),
-    personName: v.string(),
-    personRole: v.optional(v.string()),
-    personCompany: v.optional(v.string()),
-    personImage: v.optional(imagePrimitive().validator),
-    sourceUrl: v.optional(v.string()),
-    content: v.record(v.string(), v.object({ quote: v.string() })),
-  }),
-  v.object({
-    ...publicPageSystemFields,
-    pageType: v.literal("job"),
-    department: v.optional(v.string()),
-    location: v.optional(v.string()),
-    remoteType: v.union(
-      v.literal("remote"),
-      v.literal("hybrid"),
-      v.literal("onsite")
-    ),
-    employmentType: v.union(
-      v.literal("full-time"),
-      v.literal("part-time"),
-      v.literal("contract"),
-      v.literal("internship"),
-      v.literal("temporary")
-    ),
-    salaryCurrency: v.union(
-      v.literal("USD"),
-      v.literal("EUR"),
-      v.literal("GBP"),
-      v.literal("CAD"),
-      v.literal("AUD")
-    ),
-    salaryMin: v.number(),
-    salaryMax: v.number(),
-    applyUrl: v.optional(
-      v.object({
-        type: v.union(
-          v.literal("internal"),
-          v.literal("external"),
-          v.literal("anchor"),
-          v.literal("media"),
-          v.literal("none")
-        ),
-        pageId: v.optional(v.id("pages")),
-        mediaId: v.optional(v.id("media")),
-        storageId: v.optional(v.id("_storage")),
-        url: v.optional(v.string()),
-        anchor: v.optional(v.string()),
-        openInNewTab: v.optional(v.boolean()),
-        noFollow: v.optional(v.boolean()),
-        sponsored: v.optional(v.boolean()),
-        ugc: v.optional(v.boolean()),
-      })
-    ),
-    applyEmail: v.optional(v.string()),
-    closingDate: v.optional(v.string()),
-    jobStatus: v.union(
-      v.literal("open"),
-      v.literal("closed"),
-      v.literal("filled")
-    ),
-    content: v.record(
-      v.string(),
-      v.object({
-        title: v.string(),
-        summary: v.optional(v.string()),
-        slices: v.array(sliceValidator),
-      })
-    ),
-  })
 )
 
 const pagePickerRowValidator = v.object({
@@ -415,7 +257,7 @@ const localizedContentInput = v.object({
   // Accept every registered shape so stored disabled content reaches the
   // located installed-profile guard in the handler instead of failing Convex
   // argument validation without a content path.
-  slices: v.optional(v.array(sliceValidator)),
+  blocks: v.optional(v.array(blockValidator)),
 })
 
 const pageEditorLockStateValidator = v.union(
@@ -741,8 +583,8 @@ async function autoUnsetOtherPromoteToFront(
   )
 }
 
-function sliceLabel(slice: Slice): string {
-  return `${readSlice(slice).type}:${readSlice(slice).id}`
+function blockLabel(block: Block): string {
+  return `${readBlock(block).type}:${readBlock(block).id}`
 }
 
 function summarizePageChange(
@@ -773,33 +615,33 @@ function summarizePageChange(
     if (oldContent.title !== newContent.title) {
       summary.push(`Title changed in ${label}`)
     }
-    // Meta/slice-specific summaries only apply to slice-body arms. Pure-
+    // Meta/block-specific summaries only apply to block-body arms. Pure-
     // form arms (testimonial) don't carry `metaTitle` / `metaDescription`
-    // / `slices` — descriptor-field summary would come from the C10
+    // / `blocks` — descriptor-field summary would come from the C10
     // descriptor walker if needed; the current revision summary is
-    // slice-body-oriented and it's safe to skip here.
-    if (hasSliceBody(before)) {
-      const oldC = oldContent as SliceBodyContent
-      const newC = newContent as SliceBodyContent
+    // block-body-oriented and it's safe to skip here.
+    if (hasBlockBody(before)) {
+      const oldC = oldContent as BlockBodyContent
+      const newC = newContent as BlockBodyContent
       if (oldC.metaTitle !== newC.metaTitle) {
         summary.push(`Meta title changed in ${label}`)
       }
       if (oldC.metaDescription !== newC.metaDescription) {
         summary.push(`Meta description changed in ${label}`)
       }
-      const oldSlices = oldC.slices ?? []
-      const newSlices = newC.slices ?? []
-      const oldLabels = oldSlices.map(sliceLabel)
-      const newLabels = newSlices.map(sliceLabel)
+      const oldBlocks = oldC.blocks ?? []
+      const newBlocks = newC.blocks ?? []
+      const oldLabels = oldBlocks.map(blockLabel)
+      const newLabels = newBlocks.map(blockLabel)
       if (oldLabels.join("|") !== newLabels.join("|")) {
-        if (oldSlices.length !== newSlices.length) {
+        if (oldBlocks.length !== newBlocks.length) {
           summary.push(
-            `${label} blocks changed from ${oldSlices.length} to ${newSlices.length}`
+            `${label} blocks changed from ${oldBlocks.length} to ${newBlocks.length}`
           )
         } else {
           summary.push(`${label} block order changed`)
         }
-      } else if (JSON.stringify(oldSlices) !== JSON.stringify(newSlices)) {
+      } else if (JSON.stringify(oldBlocks) !== JSON.stringify(newBlocks)) {
         summary.push(`${label} block content changed`)
       }
     }
@@ -897,43 +739,43 @@ async function getDeleteImpact(ctx: QueryCtx | MutationCtx, id: Id<"pages">) {
   }
 }
 
-/** Run the rich-text write-path gate over every locale's slices (ADR-0009). */
+/** Run the rich-text write-path gate over every locale's blocks (ADR-0009). */
 function validateContentRichText(
-  content: Record<string, { slices?: Slice[] | undefined }> | undefined
+  content: Record<string, { blocks?: Block[] | undefined }> | undefined
 ): void {
   if (!content) return
   for (const locale of Object.values(content)) {
-    if (locale?.slices) validateSlicesRichText(locale.slices)
+    if (locale?.blocks) validateBlocksRichText(locale.blocks)
   }
 }
 
-/** Enforce Slice identity independently within each Localized Content. */
-function validateContentSliceIds(
-  content: Record<string, { slices?: readonly Slice[] | undefined }> | undefined
+/** Enforce Block identity independently within each Localized Content. */
+function validateContentBlockIds(
+  content: Record<string, { blocks?: readonly Block[] | undefined }> | undefined
 ): void {
   if (!content) return
   for (const locale of Object.values(content)) {
-    if (locale?.slices) validateUniqueSliceIds(locale.slices)
+    if (locale?.blocks) validateUniqueBlockIds(locale.blocks)
   }
 }
 
 /** Build a transition-safe staging view without mutating the stored document. */
-function withRepairedStagingSliceIds(
+function withRepairedStagingBlockIds(
   staging: Doc<"pageStaging">
 ): Doc<"pageStaging"> {
-  const content = repairLocalizedSliceIdsForPublish(
+  const content = repairLocalizedBlockIdsForPublish(
     staging.content as
-      Record<string, { slices?: Slice[]; [key: string]: unknown }> | undefined
+      Record<string, { blocks?: Block[]; [key: string]: unknown }> | undefined
   )
   if (content === staging.content) return staging
   return { ...staging, content } as Doc<"pageStaging">
 }
 
 /** Build a transition-safe live-row view while preserving revision history. */
-function withRepairedPageSliceIds(page: Doc<"pages">): Doc<"pages"> {
-  const content = repairLocalizedSliceIdsForPublish(
+function withRepairedPageBlockIds(page: Doc<"pages">): Doc<"pages"> {
+  const content = repairLocalizedBlockIdsForPublish(
     page.content as
-      Record<string, { slices?: Slice[]; [key: string]: unknown }> | undefined
+      Record<string, { blocks?: Block[]; [key: string]: unknown }> | undefined
   )
   if (content === page.content) return page
   return { ...page, content } as Doc<"pages">
@@ -1505,7 +1347,7 @@ export const getPublicPageById = query({
       const cfg = await getLocaleConfig(ctx)
       if (!cfg.enabledLocales.includes(locale)) return null
       const projection = await readCurrentSnapshotProjection(ctx, id, locale)
-      return (projection?.publicPage ?? null) as never
+      return projection?.publicPage ?? null
     }
     if (authority === "invalid") return null
     const page = await ctx.db.get("pages", id)
@@ -2134,7 +1976,7 @@ export const list = query({
  * pushdown: the handler below still reads full `pages` documents, so this
  * validator does NOT reduce database I/O. What it reduces is the payload
  * streamed to the client, which bills against the separate data-egress limit
- * (also 1 GB/mo on the free plan). A full page document carries every slice
+ * (also 1 GB/mo on the free plan). A full page document carries every block
  * body for every locale; these six fields are a fraction of that.
  *
  * Reducing the *database* I/O of these callers is a separate lever, applied at
@@ -2160,7 +2002,7 @@ const pageSummaryRowValidator = v.object({
  *
  * Same permission model and same staging overlay as `list` — only the returned
  * shape differs (see `pageSummaryRowValidator` for what that does and does not
- * save). Callers that need slice bodies must keep using `list`.
+ * save). Callers that need block bodies must keep using `list`.
  */
 export const listSummaries = query({
   args: {
@@ -2839,7 +2681,7 @@ export const listByPageType = query({
   handler: async (ctx, { pageType, status, hasLocale }) => {
     if (!isActiveContentType(pageType)) return []
     await requirePagePermission(ctx, pageType, "list")
-    // Bounded: this returns full page documents (every slice body, every
+    // Bounded: this returns full page documents (every block body, every
     // locale), so an unbounded `.collect()` grew without limit as a type
     // filled up — a few hundred posts is tens of MB of database I/O per call.
     // `MAX_PAGE_LIST_LIMIT` matches the ceiling the other list endpoints use.
@@ -4428,9 +4270,9 @@ export const create = mutation({
         throw new ConvexError("New Authors must be created as drafts.")
       }
     }
-    await requireSliceMutationsPermitted(
+    await requireBlockMutationsPermitted(
       ctx,
-      diffSliceMutations(undefined, args.content),
+      diffBlockMutations(undefined, args.content),
       {
         content: args.content,
         operation: "create",
@@ -4438,7 +4280,7 @@ export const create = mutation({
           args.expectedPresentationCatalogRevision,
       }
     )
-    validateContentSliceIds(args.content)
+    validateContentBlockIds(args.content)
     validateContentRichText(args.content)
     const now = Date.now()
     const defaultLocale = args.defaultLocale ?? "en"
@@ -4479,20 +4321,20 @@ export const create = mutation({
     if (publicationAuthority === "snapshot_active") {
       const seoValues = sanitizeLocalizedSeo(args.seo)
       const excerpt = args.cardExcerpt ? stripHtml(args.cardExcerpt) : undefined
-      for (const block of Object.values(initialContent)) {
-        if (seoValues) block.seo = { ...seoValues }
-        if (excerpt) block.cardExcerpt = excerpt
+      for (const localeContent of Object.values(initialContent)) {
+        if (seoValues) localeContent.seo = { ...seoValues }
+        if (excerpt) localeContent.cardExcerpt = excerpt
         if (args.pageType === "post" && args.category)
-          block.category = args.category
+          localeContent.category = args.category
         // The legacy shared meta text fills the language's empty meta.
         for (const key of ["metaTitle", "metaDescription"] as const) {
           const legacy = args.seo?.[key]
           if (
             legacy &&
-            !block[key] &&
+            !localeContent[key] &&
             Object.prototype.hasOwnProperty.call(descriptor.localizedFields, key)
           )
-            block[key] = legacy
+            localeContent[key] = legacy
         }
       }
     }
@@ -4584,7 +4426,7 @@ export const create = mutation({
     // below so TS sees a concrete arm at each `ctx.db.insert` call — no
     // cast needed.
     // `content` is added per-arm below (its shape differs between
-    // sliceBody arms and pure-form arms); everything else stays common.
+    // blockBody arms and pure-form arms); everything else stays common.
     const commonInsertFields = {
       slug,
       status: args.status,
@@ -4695,7 +4537,7 @@ export const create = mutation({
 })
 
 /**
- * Clone a single page (all locales + slices) into a new **draft** with a fresh,
+ * Clone a single page (all locales + blocks) into a new **draft** with a fresh,
  * unique base slug (`<slug>-copy`). Child pages are not recursively copied, and
  * `localizedSlugs` are dropped (they'd collide) — localized URLs fall back to
  * the unique base slug until the editor re-sets per-locale slugs.
@@ -4758,23 +4600,23 @@ export const duplicate = mutation({
     if (!titleLocale) {
       throw new ConvexError("Page has no localized content to duplicate")
     }
-    await assertSliceMutationIntegrity(
+    await assertBlockMutationIntegrity(
       ctx,
-      diffSliceMutations(rawSrc.content, rawSrc.content),
+      diffBlockMutations(rawSrc.content, rawSrc.content),
       { existingContent: rawSrc.content, operation: "duplicate" }
     )
-    await requireSliceMutationsPermitted(
+    await requireBlockMutationsPermitted(
       ctx,
-      diffSliceMutations(undefined, src.content),
+      diffBlockMutations(undefined, src.content),
       {
         content: src.content,
         operation: "duplicate",
         // Entirely server-copied source content: new Page assignments still
         // require active eligibility, using the transaction-effective revision.
-        expectedPresentationCatalogRevision: hasExplicitSlicePresentations([
+        expectedPresentationCatalogRevision: hasExplicitBlockPresentations([
           src.content,
         ])
-          ? (await readEffectiveSlicePresentationCatalog(ctx)).revision
+          ? (await readEffectiveBlockPresentationCatalog(ctx)).revision
           : undefined,
       }
     )
@@ -4817,7 +4659,7 @@ export const duplicate = mutation({
       createdBy: auth.tokenIdentifier,
     }
 
-    // Deep-copy content (JSON round-trip detaches slices from the source), use
+    // Deep-copy content (JSON round-trip detaches blocks from the source), use
     // the confirmed title for the default (or first available) locale, and
     // append " (Copy)" to the remaining locale titles.
     const copyContentWithSuffix = <T>(
@@ -4988,7 +4830,7 @@ export const update = mutation({
     const writeOptions: WriteOptions = {}
     await requireOperationAccess(ctx)
     await assertLegacyPublicationWriterBlocked(ctx, "pages.update")
-    validateContentSliceIds(updates.content)
+    validateContentBlockIds(updates.content)
     const existing = await ctx.db.get("pages", id)
     if (!existing) throw new ConvexError("Page not found")
     updates.content = writePageContent(
@@ -5015,11 +4857,11 @@ export const update = mutation({
       )
     }
     if (updates.content !== undefined) {
-      await requireSliceMutationsPermitted(
+      await requireBlockMutationsPermitted(
         ctx,
-        diffSliceMutations(existing.content, updates.content),
+        diffBlockMutations(existing.content, updates.content),
         {
-          // Deliberately retain cross-locale strictness: a disabled slice in
+          // Deliberately retain cross-locale strictness: a disabled block in
           // any stored locale blocks an ordinary Page edit until its code is
           // restored or the content is migrated.
           content: { ...(existing.content ?? {}), ...(updates.content ?? {}) },
@@ -5394,7 +5236,7 @@ export const processScheduledTransitions = internalMutation({
     const cfg = await getLocaleConfig(ctx)
 
     for (const storedStaging of dueStaging) {
-      const staging = withRepairedStagingSliceIds(storedStaging)
+      const staging = withRepairedStagingBlockIds(storedStaging)
       const page = await ctx.db.get("pages", staging.pageId)
       // Orphaned staging (page hard-deleted between queue and here) — drop
       // the row so the abandoned sweep doesn't have to chase it and the
@@ -5669,7 +5511,7 @@ export const remove = mutation({
     await Promise.all(redirects.map((redirect) => ctx.db.delete("redirects", redirect._id)))
     await clearPageReferences(ctx, id)
     // Cascade the page's revision history (F6) — otherwise revisions are
-    // orphaned forever and, once they hold a retired slice type, become
+    // orphaned forever and, once they hold a retired block type, become
     // unreachable by any cleanup. The index makes this a bounded scan.
     const revisions = await ctx.db
       .query("pageRevisions")
@@ -5860,7 +5702,7 @@ export const releasePageEditorLock = mutation({
  *
  * The editor previously beat `touchPagePresence` AND `acquirePageEditorLock`
  * on every tick. Each did its own `ctx.db.get(pageId)`, and a `pages` document
- * carries every slice body for every locale — so a beat read the full page
+ * carries every block body for every locale — so a beat read the full page
  * twice just to reach `pageType` and `createdBy` for the permission check.
  * Convex has no projection on `db.get`, so the only levers are reading less
  * often (the client raised the interval and now skips hidden tabs) and reading
@@ -5941,7 +5783,7 @@ async function requireHeldPageEditorLock(
 function buildLocaleBlockFromDraft(
   descriptor: (typeof contentTypeDefs)[keyof typeof contentTypeDefs],
   localizedBag: Record<string, unknown>,
-  nextSlices: readonly Slice[] | undefined
+  nextBlocks: readonly Block[] | undefined
 ): Record<string, unknown> {
   const localeBlock: Record<string, unknown> = {}
   for (const [key, def] of Object.entries(descriptor.localizedFields)) {
@@ -5950,8 +5792,8 @@ function buildLocaleBlockFromDraft(
     if (isOptional && (value === undefined || value === "")) continue
     localeBlock[key] = value
   }
-  if (nextSlices !== undefined) {
-    localeBlock.slices = nextSlices
+  if (nextBlocks !== undefined) {
+    localeBlock.blocks = nextBlocks
   }
   return localeBlock
 }
@@ -6053,7 +5895,7 @@ export const updateDraft = mutation({
     }
 
     const descriptor = contentTypeDefs[page.pageType]
-    const sliceBody = descriptor.capabilities.sliceBody
+    const blockBody = descriptor.capabilities.blockBody
     const staging = await getStagingByPageId(ctx, args.pageId)
     assertStagingFresh(staging, args.expectedUpdatedAt)
     const changesWorkingDraft = Object.entries(args).some(
@@ -6114,7 +5956,7 @@ export const updateDraft = mutation({
       }
     }
 
-    // Rich-text and slice-identity validation run per locale. The full slice
+    // Rich-text and block-identity validation run per locale. The full block
     // diff remains necessary to reject archived types from a draft save.
     const nextContentByLocale: Record<string, Record<string, unknown>> = {}
     let anyContentWrite = false
@@ -6123,7 +5965,7 @@ export const updateDraft = mutation({
         string,
         unknown
       >
-      const nextContentForDiff: Record<string, { slices: readonly Slice[] }> =
+      const nextContentForDiff: Record<string, { blocks: readonly Block[] }> =
         {}
       const priorContentForDiff: Record<string, unknown> = {}
       for (const [locale, draft] of Object.entries(args.content)) {
@@ -6134,39 +5976,39 @@ export const updateDraft = mutation({
           writeOptions
         )
         validateFieldMapRichText(descriptor.localizedFields, localizedBag)
-        const nextSlices: readonly Slice[] | undefined =
-          sliceBody && "slices" in draft
-            ? draft.slices.map(
-                (slice) => writeSliceFields(slice, locale, writeOptions).value
+        const nextBlocks: readonly Block[] | undefined =
+          blockBody && "blocks" in draft
+            ? draft.blocks.map(
+                (block) => writeBlockFields(block, locale, writeOptions).value
               )
             : undefined
-        if (nextSlices !== undefined) {
-          validateUniqueSliceIds(nextSlices)
-          validateSlicesRichText(nextSlices)
+        if (nextBlocks !== undefined) {
+          validateUniqueBlockIds(nextBlocks)
+          validateBlocksRichText(nextBlocks)
         }
         nextContentByLocale[locale] = buildLocaleBlockFromDraft(
           descriptor,
           localizedBag,
-          nextSlices
+          nextBlocks
         )
-        if (nextSlices !== undefined) {
-          nextContentForDiff[locale] = { slices: nextSlices }
+        if (nextBlocks !== undefined) {
+          nextContentForDiff[locale] = { blocks: nextBlocks }
           priorContentForDiff[locale] = priorContent[locale]
         }
       }
       if (Object.keys(nextContentForDiff).length > 0) {
-        await requireSliceMutationsPermitted(
+        await requireBlockMutationsPermitted(
           ctx,
-          diffSliceMutations(
+          diffBlockMutations(
             priorContentForDiff as Record<
               string,
-              { slices?: readonly Slice[] } | undefined
+              { blocks?: readonly Block[] } | undefined
             >,
             nextContentForDiff
           ),
           {
             // Keep the same cross-locale rule as pages.update. A save cannot
-            // bypass an unavailable slice by addressing a different locale.
+            // bypass an unavailable block by addressing a different locale.
             content: { ...priorContent, ...nextContentByLocale },
             existingContent: priorContent,
             operation: "edit",
@@ -6393,8 +6235,8 @@ export const updateDraft = mutation({
         staging?.content !== undefined ? staging.content : page.content
       const prior = (priorSource ?? {}) as Record<string, unknown>
       mergedContent = { ...prior }
-      for (const [locale, block] of Object.entries(nextContentByLocale)) {
-        mergedContent[locale] = block
+      for (const [locale, localeContent] of Object.entries(nextContentByLocale)) {
+        mergedContent[locale] = localeContent
       }
       stagingPatch.content = mergedContent
     }
@@ -6483,7 +6325,7 @@ async function performPublish(
   const { page, checklist, reason, actorUserId, cfg } = args
   assertContentTypeIsActive(page.pageType, "publish")
   await assertBoundedPilotCanPublish(ctx, page.status === "published")
-  const repairedStaging = withRepairedStagingSliceIds(args.staging)
+  const repairedStaging = withRepairedStagingBlockIds(args.staging)
   const staging = {
     ...repairedStaging,
     ...(repairedStaging.content
@@ -6507,7 +6349,7 @@ async function performPublish(
       page,
       staging: args.staging,
     }))
-  const repairedSourcePage = withRepairedPageSliceIds(page)
+  const repairedSourcePage = withRepairedPageBlockIds(page)
   const repairedPage = {
     ...repairedSourcePage,
     content: writePageContent(page.pageType, repairedSourcePage.content, {
@@ -6524,14 +6366,14 @@ async function performPublish(
   const nextPage = overlayStagingOnPage(repairedPage, staging)
   // Existing legacy publication retains stored Working Draft choices. Inspect
   // the live bag too so a draft cannot hide malformed or absent-Type content.
-  await assertSliceMutationIntegrity(
+  await assertBlockMutationIntegrity(
     ctx,
-    diffSliceMutations(page.content, page.content),
+    diffBlockMutations(page.content, page.content),
     { existingContent: page.content, operation: "publish" }
   )
-  await assertSliceMutationIntegrity(
+  await assertBlockMutationIntegrity(
     ctx,
-    diffSliceMutations(nextPage.content, nextPage.content),
+    diffBlockMutations(nextPage.content, nextPage.content),
     {
       existingContent: nextPage.content,
       content: nextPage.content,
@@ -6712,7 +6554,7 @@ export const publish = mutation({
         "Nothing to publish — no staged changes for this page."
       )
     }
-    const staging = withRepairedStagingSliceIds(storedStaging)
+    const staging = withRepairedStagingBlockIds(storedStaging)
 
     const cfg = await getLocaleConfig(ctx)
     const nextPage = overlayStagingOnPage(page, staging)

@@ -16,7 +16,7 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts")
 const allowLocalIpImageOptimization = allowsLocalIpImageOptimization()
 
 const tweakLocLoader = fileURLToPath(
-  new URL("./lib/slices/visual-tweak/tweak-loc-loader.cjs", import.meta.url)
+  new URL("./lib/blocks/visual-tweak/tweak-loc-loader.cjs", import.meta.url)
 )
 
 const nextConfig: NextConfig = {
@@ -25,7 +25,7 @@ const nextConfig: NextConfig = {
   // Keep the TypeScript compiler out of the server bundle. Next already lists
   // `typescript` as a server external, but it matches the resolved path
   // (`node_modules/<name>/`), and package.json aliases `typescript` to
-  // `@typescript/typescript6`. Without this entry the slice-authoring server
+  // `@typescript/typescript6`. Without this entry the block-authoring server
   // actions that the admin shell references (deletion overlay) bundle the
   // compiler (about 9 MB) into every admin route. Measured once per config on
   // an 8 GB host (2026-11-04): about 11% less total first-visit compile time
@@ -62,9 +62,9 @@ const nextConfig: NextConfig = {
     // stays explicitly true for as long as that callback exists.
     webpackBuildWorker: true,
     serverActions: {
-      // Slice reference ingestion uploads the design at full resolution — the
+      // Block reference ingestion uploads the design at full resolution — the
       // comparison baseline is derived from those exact bytes, and the upload
-      // itself is preserved (slice-fidelity plan §5 B2). The 1 MB default would
+      // itself is preserved (block-fidelity plan §5 B2). The 1 MB default would
       // force a downscale before the file ever reached the server, which is the
       // fidelity loss that model exists to remove.
       //
@@ -90,7 +90,7 @@ const nextConfig: NextConfig = {
     )
     if (dev)
       config.module.rules.push({
-        test: /components[\\/]slices[\\/](?:presentations[\\/])?[^\\/]+\.tsx$/,
+        test: /components[\\/]blocks[\\/](?:presentations[\\/])?[^\\/]+\.tsx$/,
         resourceQuery: /^\?tweak-loc$/,
         use: [{ loader: tweakLocLoader }],
       })
@@ -150,7 +150,7 @@ function turbopackDevelopmentConfig(): NextConfig {
             all: [
               "development",
               {
-                path: /^components\/slices\/(?:presentations\/)?[^/]+\.tsx$/,
+                path: /^components\/blocks\/(?:presentations\/)?[^/]+\.tsx$/,
                 query: "?tweak-loc",
               },
             ],

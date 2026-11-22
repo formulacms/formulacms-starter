@@ -1,4 +1,4 @@
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlock } from "@/convex/lib/blocks/identity"
 import { removedTitleLinksValidator } from "@/convex/lib/richtext/write"
 import {
   adoptHeroTitles,
@@ -7,14 +7,14 @@ import {
 import type { Id } from "@/convex/_generated/dataModel"
 import { validate } from "convex-helpers/validators"
 import { contentTypeDefs } from "@/convex/lib/contentTypes"
-import { sliceValidator, type Primitive } from "@/convex/lib/slices"
-import { hasValidSliceOccurrencePresentation } from "@/convex/lib/slices/occurrencePresentation"
+import { blockValidator, type Primitive } from "@/convex/lib/blocks"
+import { hasValidBlockOccurrencePresentation } from "@/convex/lib/blocks/occurrencePresentation"
 import {
   validateFieldMapRichText,
-  validateSlicesRichText,
-  validateUniqueSliceIds,
-  convertSliceFields,
-} from "@/convex/lib/slices/validate"
+  validateBlocksRichText,
+  validateUniqueBlockIds,
+  convertBlockFields,
+} from "@/convex/lib/blocks/validate"
 import type { Locale } from "@/lib/i18n/config"
 import type { RecoveryBase } from "./publication-base"
 import type { PageEditorRecoveryDraft } from "./types"
@@ -22,7 +22,7 @@ import {
   SYSTEM_OWNED_LOCALIZED_FIELDS,
   SYSTEM_OWNED_SHARED_FIELDS,
 } from "./system-owned-fields"
-import { sliceDefs, type Slice } from "@/convex/lib/slices"
+import { blockDefs, type Block } from "@/convex/lib/blocks"
 
 /**
  * Recovery-payload schema version (plan 029 C8 Phase 3a).
@@ -76,7 +76,7 @@ function hasRecoveryShape(value: unknown): value is PageEditorRecoveryDraft {
     ) &&
     (value.removedTitleLinks === undefined ||
       validate(removedTitleLinksValidator, value.removedTitleLinks)) &&
-    Array.isArray(value.slices) &&
+    Array.isArray(value.blocks) &&
     isRecord(value.sharedFieldValues) &&
     isRecord(value.localizedFieldValues)
   )
@@ -111,8 +111,8 @@ export function isCurrentSourceRecovery(
     )
   }
   try {
-    if (!draft.slices.every(hasValidSliceOccurrencePresentation)) return false
-    if (!draft.slices.every((slice) => validate(sliceValidator, slice)))
+    if (!draft.blocks.every(hasValidBlockOccurrencePresentation)) return false
+    if (!draft.blocks.every((block) => validate(blockValidator, block)))
       return false
     if (
       !validBag(
@@ -127,8 +127,8 @@ export function isCurrentSourceRecovery(
       )
     )
       return false
-    validateUniqueSliceIds(draft.slices)
-    validateSlicesRichText(draft.slices, "legacy")
+    validateUniqueBlockIds(draft.blocks)
+    validateBlocksRichText(draft.blocks, "legacy")
     validateFieldMapRichText(
       descriptor.sharedFields,
       draft.sharedFieldValues,
@@ -206,31 +206,31 @@ export function readRecoveryDraft(
     // Keep an unreadable buffer available for explicit recovery refusal/copy.
     // Never replace failed conversion with an empty document or drop its bytes.
     let adopted = {
-      value: parsed.slices,
+      value: parsed.blocks,
       reports: parsed.removedTitleLinks ?? [],
     }
     try {
       const titles = adoptHeroTitles(
-        parsed.slices,
+        parsed.blocks,
         locale,
         parsed.removedTitleLinks
       )
       let reports = titles.reports
-      const value = titles.value.map((slice) => {
+      const value = titles.value.map((block) => {
         if (
-          !slice ||
-          typeof slice !== "object" ||
-          !(readSlice(slice).type in sliceDefs)
+          !block ||
+          typeof block !== "object" ||
+          !(readBlock(block).type in blockDefs)
         )
-          return slice
-        const converted = convertSliceFields(slice as Slice)
+          return block
+        const converted = convertBlockFields(block as Block)
         reports = mergeTitleReports(
           reports,
           converted.reports
             .filter((report) => report.removedLinks.length > 0)
             .map((report) => ({
               locale,
-              sliceId: readSlice(slice).id,
+              blockId: readBlock(block).id,
               fieldPath: report.fieldPath,
               removedLinks: report.removedLinks,
             }))
@@ -251,7 +251,7 @@ export function readRecoveryDraft(
     return {
       ...parsed,
       base: parsed.base === null ? null : parseRecoveryBase(parsed.base),
-      slices: adopted.value,
+      blocks: adopted.value,
       ...(adopted.reports.length ? { removedTitleLinks: adopted.reports } : {}),
     }
   } catch {

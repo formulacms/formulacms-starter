@@ -1,5 +1,5 @@
 import { v } from "convex/values"
-import { group, list, text } from "../slices/primitives"
+import { group, list, text } from "../blocks/primitives"
 import type { ContentTypeDescriptor } from "./types"
 
 /**
@@ -9,11 +9,11 @@ import type { ContentTypeDescriptor } from "./types"
  * SEO opts into `Person` / `profile` so JSON-LD + OG tags match the semantic
  * type.
  *
- * ADR-0038 §Slices-as-body: `bio` was retired in plan 029 C10 (task 6).
- * Formatted author intros now live as a `rich-text-body` slice on the
- * author's slice canvas — `sliceBody: true`. JSON-LD `Person.description` and
- * reference-card excerpts derive from the first-slice text extract via the
- * search extractor's slice walk. Adding a `bio` field back requires editing
+ * ADR-0038 §Blocks-as-body: `bio` was retired in plan 029 C10 (task 6).
+ * Formatted author intros now live as a `rich-text-body` block on the
+ * author's block canvas — `blockBody: true`. JSON-LD `Person.description` and
+ * reference-card excerpts derive from the first-block text extract via the
+ * search extractor's block walk. Adding a `bio` field back requires editing
  * this file AND removing the corresponding line from the plan 029 addendum
  * classification table.
  *
@@ -63,7 +63,7 @@ export const authorContentType: ContentTypeDescriptor<
   routing: { pathPrefix: "authors" },
   seo: { schemaOrgType: "Person", ogType: "profile" },
   capabilities: {
-    sliceBody: true,
+    blockBody: true,
     revisions: true,
     scheduling: true,
     presence: true,

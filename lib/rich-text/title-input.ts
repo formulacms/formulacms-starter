@@ -1,7 +1,7 @@
 import { Extension } from "@tiptap/core"
 import {
   Fragment,
-  Slice,
+  Slice as PmSlice,
   type Node as PMNode,
   type Schema,
 } from "@tiptap/pm/model"
@@ -21,12 +21,12 @@ import { Plugin, PluginKey } from "@tiptap/pm/state"
  */
 
 /**
- * A title has no blocks. Take the slice ProseMirror's own parser built (it keeps
+ * A title has no blocks. Take the PmSlice that ProseMirror's parser built (it keeps
  * every word of any paste, HTML or plain) and join it into one line: each
  * block boundary or break becomes one space, whitespace runs collapse and both
  * ends are trimmed. Inline nodes and marks that survive the schema stay.
  */
-export function flattenTitleSlice(slice: Slice, schema: Schema): Slice {
+export function flattenTitlePmSlice(pmSlice: PmSlice, schema: Schema): PmSlice {
   const pieces: PMNode[] = []
   const space = () => void pieces.push(schema.text(" "))
   const walk = (content: Fragment) => {
@@ -41,7 +41,7 @@ export function flattenTitleSlice(slice: Slice, schema: Schema): Slice {
       }
     })
   }
-  walk(slice.content)
+  walk(pmSlice.content)
   const out: PMNode[] = []
   let lastWasSpace = true
   for (const piece of pieces) {
@@ -62,7 +62,7 @@ export function flattenTitleSlice(slice: Slice, schema: Schema): Slice {
     out.pop()
     if (trimmed) out.push(schema.text(trimmed, last.marks))
   }
-  return new Slice(Fragment.from(out), 0, 0)
+  return new PmSlice(Fragment.from(out), 0, 0)
 }
 
 const breakCount = (doc: PMNode) => {
@@ -94,14 +94,14 @@ export const TitleInput = Extension.create({
           clipboardTextParser: (text, _context, _plain, view) => {
             const line = text.replace(/\s+/g, " ").trim()
             const { schema } = view.state
-            return new Slice(
+            return new PmSlice(
               Fragment.from(line ? [schema.text(line)] : []),
               0,
               0
             )
           },
-          transformPasted: (slice, view) =>
-            flattenTitleSlice(slice, view.state.schema),
+          transformPasted: (pmSlice, view) =>
+            flattenTitlePmSlice(pmSlice, view.state.schema),
         },
         // Stands in for the schema on input that bypasses key handlers.
         filterTransaction: (tr) =>

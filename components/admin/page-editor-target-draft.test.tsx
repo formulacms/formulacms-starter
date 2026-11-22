@@ -169,8 +169,8 @@ vi.mock("./page-editor/components/settings-panel", () => ({
     />
   ),
 }))
-vi.mock("./page-editor/components/slices-panel", () => ({
-  SlicesPanel: () => null,
+vi.mock("./page-editor/components/blocks-panel", () => ({
+  BlocksPanel: () => null,
 }))
 
 import { PageEditor } from "./page-editor"
@@ -222,7 +222,7 @@ function renderTargetEditor(pageType: Page["pageType"] = "page") {
   return render(
     <PageEditor
       page={page(
-        { en: { title: "About", slices: [] } } as Page["content"],
+        { en: { title: "About", blocks: [] } } as Page["content"],
         "published",
         pageType
       )}
@@ -451,8 +451,8 @@ describe("PageEditor new-language version during a replacement", () => {
       <PageEditor
         page={{
           ...page({
-            en: { title: "About", slices: [] },
-            fr: { title: "About (copied)", slices: [] },
+            en: { title: "About", blocks: [] },
+            fr: { title: "About (copied)", blocks: [] },
           } as Page["content"]),
           localizedSlugs: { fr: "about-fr" },
         }}
@@ -523,8 +523,8 @@ describe("PageEditor new-language version during a replacement", () => {
     render(
       <PageEditor
         page={page({
-          fr: { title: "À propos", slices: [] },
-          en: { title: "About", slices: [] },
+          fr: { title: "À propos", blocks: [] },
+          en: { title: "About", blocks: [] },
         } as Page["content"])}
         hasStaging={false}
         stagingUpdatedAt={undefined}
@@ -563,8 +563,8 @@ describe("PageEditor new-language version during a replacement", () => {
     render(
       <PageEditor
         page={page({
-          en: { title: "About", slices: [] },
-          fr: { title: "Brouillon conserve", slices: [] },
+          en: { title: "About", blocks: [] },
+          fr: { title: "Brouillon conserve", blocks: [] },
         } as Page["content"])}
         hasStaging
         stagingUpdatedAt={undefined}
@@ -607,7 +607,7 @@ function renderSourceEditorInFrench() {
   return renderWithProvider(
     <NextIntlClientProvider locale="es" messages={fr}>
       <PageEditor
-        page={page({ en: { title: "About", slices: [] } } as Page["content"])}
+        page={page({ en: { title: "About", blocks: [] } } as Page["content"])}
         hasStaging
         stagingUpdatedAt={undefined}
         publication={publication()}
@@ -622,7 +622,7 @@ function renderSourceEditorWithStatus(status: Page["status"] = "published") {
     <NextIntlClientProvider locale="en" messages={fr}>
       <PageEditor
         page={page(
-          { en: { title: "About", slices: [] } } as Page["content"],
+          { en: { title: "About", blocks: [] } } as Page["content"],
           status
         )}
         hasStaging
@@ -921,7 +921,7 @@ describe("PageEditor effective-dictionary publish and language notices", () => {
   test("target replacement notice renders French privacy and reconfirmation without publication controls", () => {
     render(
       <PageEditor
-        page={page({ en: { title: "About", slices: [] } } as Page["content"])}
+        page={page({ en: { title: "About", blocks: [] } } as Page["content"])}
         hasStaging={false}
         stagingUpdatedAt={undefined}
         publication={publication()}

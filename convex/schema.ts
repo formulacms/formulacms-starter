@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from "convex/server"
-import { v } from "convex/values"
-import { sliceValidator, installedSliceValidator } from "./lib/slices"
+import { v, type Infer } from "convex/values"
+import { blockValidator, installedBlockValidator } from "./lib/blocks"
 import { navItemValidator } from "./lib/menu"
 import {
   disclosureItemValidator,
@@ -8,6 +8,13 @@ import {
 } from "./lib/language/disclosure"
 import { contactPayloadValidator } from "./lib/formPayloads"
 import { pageTypeValidator } from "./lib/pages/types"
+import {
+  seoValidator,
+  statusValidator,
+  stagingBookkeepingFields,
+  stagingSystemFields,
+  systemPageFields,
+} from "./lib/pages/storageFields"
 // @content-type-codegen:schema-content-type-imports:start
 import { landingPageContentType } from "./lib/contentTypes/landingPage"
 import { pageContentType } from "./lib/contentTypes/page"
@@ -19,7 +26,9 @@ import { jobContentType } from "./lib/contentTypes/job"
 import { contentDraftInputValidator } from "./lib/contentTypes/inputShapes"
 import {
   armLocalizedContentValidator,
-  armLocalizedContentValidatorNoSlices,
+  armLocalizedContentValidatorNoBlocks,
+  buildPageLocaleDraftsValidator,
+  buildPageSharedDraftsValidator,
   buildRevisionLocalizedContentValidator,
   buildRevisionSharedFieldsValidator,
 } from "./lib/contentTypes/schemaShapes"
@@ -63,7 +72,7 @@ export const aiPageJobContentValidator = v.object({
   ogTitle: v.optional(v.string()),
   ogDescription: v.optional(v.string()),
   cardExcerpt: v.optional(v.string()),
-  slices: v.array(sliceValidator),
+  blocks: v.array(blockValidator),
   translatables: v.array(
     v.object({
       path: v.string(),
@@ -81,23 +90,8 @@ export const aiPageJobStateValidator = v.union(
   v.literal("capped"),
   v.literal("expired")
 )
-export const seoValidator = v.object({
-  metaTitle: v.optional(v.string()),
-  metaDescription: v.optional(v.string()),
-  focusKeyword: v.optional(v.string()),
-  keywords: v.optional(v.array(v.string())),
-  ogImage: v.optional(v.string()),
-  ogTitle: v.optional(v.string()),
-  ogDescription: v.optional(v.string()),
-  twitterCard: v.optional(
-    v.union(v.literal("summary"), v.literal("summary_large_image"))
-  ),
-  canonicalUrl: v.optional(v.string()),
-  noIndex: v.optional(v.boolean()),
-  noFollow: v.optional(v.boolean()),
-  structuredData: v.optional(v.string()),
-  seoScore: v.optional(v.number()),
-})
+
+export { seoValidator, statusValidator }
 
 /**
  * Permissive superset for revision-return validators only (ADR-0029). Live
@@ -123,67 +117,6 @@ export const pageRevisionLocalizedContentValidator =
  */
 export const pageRevisionSharedFieldsValidator =
   buildRevisionSharedFieldsValidator()
-
-export const statusValidator = v.union(
-  v.literal("draft"),
-  v.literal("published"),
-  v.literal("archived")
-)
-
-/**
- * System row fields — appear on every content-type arm of the pages-table
- * union. NOT a junk drawer: every field here is intrinsically cross-type
- * (identity, status/timestamps, hierarchy, SEO, and the
- * post-listing card surface which any type may participate in per
- * ADR-0037 §4). Type-specific row-level fields come from each descriptor's
- * `sharedValidator` (author `name`/`socials`, post `authorId`/`tags`/…) —
- * see the arm builders below. The `pageType` discriminator lives on each
- * arm (`v.literal(<type>)`), NOT here. `content` is per-arm and derived
- * from the descriptor's `localizedValidator` (schemaShapes.ts).
- */
-const systemPageFields = {
-  slug: v.string(),
-  status: statusValidator,
-  createdAt: v.number(),
-  updatedAt: v.number(),
-  deletedAt: v.optional(v.number()),
-  localizedSlugs: v.optional(v.record(v.string(), v.string())),
-  parentId: v.optional(v.id("pages")),
-  ancestryPath: v.optional(v.string()),
-  localizedAncestryPaths: v.optional(v.record(v.string(), v.string())),
-  hierarchyDepth: v.optional(v.number()),
-  siblingOrder: v.optional(v.number()),
-  parentSectionIds: v.optional(v.array(v.id("pages"))),
-  seo: v.optional(seoValidator),
-  publishedAt: v.optional(v.number()),
-  // `expiresAt` lives on every arm today because all four current content
-  // types have `capabilities.scheduling: true`. A future non-scheduling
-  // type will drop it (and the `by_status_and_expiresAt` index needs
-  // revisiting at that point).
-  //
-  // `scheduledAt` was removed here in ADR-0041 Deploy 2 PR B — scheduling
-  // is now a staging concern, held on `pageStaging.scheduledAt` and read
-  // by the scheduled-publish cron via `pageStaging.by_scheduledAt`.
-  // Existing rows are cleared by the `moveScheduledAtToStaging` migration
-  // (convex/migrations.ts entry 012), which must run before this narrow
-  // ships in production.
-  expiresAt: v.optional(v.number()),
-  template: v.optional(v.string()),
-  createdBy: v.optional(v.string()),
-  // Post-listing card surface — semantically post-oriented, but kept shared
-  // per ADR-0037 §4: any content type may participate in a card surface
-  // (relation cards, homepage tiles), so structurally forbidding these on
-  // non-post arms would trade an unused constraint for read-time narrowing
-  // ripple. Reference to a media asset (not a raw URL) — editors replace
-  // a media asset without breaking page card images, and a deleted media
-  // row is detectable instead of silently 404ing.
-  showOnHomepage: v.optional(v.boolean()),
-  displayMode: v.optional(
-    v.union(v.literal("card"), v.literal("full"), v.literal("both"))
-  ),
-  cardImageMediaId: v.optional(v.id("media")),
-  cardExcerpt: v.optional(v.string()),
-} as const
 
 /**
  * Descriptor-derived arm fields (plan 028 C7). Each arm =
@@ -237,7 +170,7 @@ export const testimonialArmFields = {
   ...testimonialContentType.sharedValidator.fields,
   pageType: v.literal("testimonial"),
   content: v.optional(
-    v.record(v.string(), armLocalizedContentValidatorNoSlices(testimonialContentType))
+    v.record(v.string(), armLocalizedContentValidatorNoBlocks(testimonialContentType))
   ),
 } as const
 
@@ -328,37 +261,6 @@ function optionalizeSharedFieldsForStaging(
   }
   return out
 }
-const stagingSystemFields = {
-  slug: v.optional(v.string()),
-  localizedSlugs: v.optional(v.record(v.string(), v.string())),
-  seo: v.optional(seoValidator),
-  scheduledAt: v.optional(v.number()),
-  template: v.optional(v.string()),
-  showOnHomepage: v.optional(v.boolean()),
-  displayMode: v.optional(
-    v.union(v.literal("card"), v.literal("full"), v.literal("both"))
-  ),
-  cardImageMediaId: v.optional(v.id("media")),
-  cardExcerpt: v.optional(v.string()),
-} as const
-
-/**
- * Staging bookkeeping fields — one row per page holding an in-flight
- * edit set. `pageId` targets the live row; `updatedAt` drives freshness
- * (the ADR §4 concurrency token) and the abandoned-staging TTL sweep
- * (§9); `createdBy` records the auth subject that opened this staging
- * session; `effectiveTitles` is the §8 admin-discoverability
- * denormalization (option b) — one string per locale mirroring the
- * editable title so admin lists and search can prefer staged titles at
- * query time without a second index.
- */
-const stagingBookkeepingFields = {
-  pageId: v.id("pages"),
-  updatedAt: v.number(),
-  createdBy: v.optional(v.string()),
-  effectiveTitles: v.optional(v.record(v.string(), v.string())),
-} as const
-
 // @content-type-codegen:schema-staging-arms:start
 export const landingPageStagingArmFields = {
   ...stagingBookkeepingFields,
@@ -406,7 +308,7 @@ export const testimonialStagingArmFields = {
   ...optionalizeSharedFieldsForStaging(testimonialContentType.sharedValidator.fields),
   pageType: v.literal("testimonial"),
   content: v.optional(
-    v.record(v.string(), armLocalizedContentValidatorNoSlices(testimonialContentType))
+    v.record(v.string(), armLocalizedContentValidatorNoBlocks(testimonialContentType))
   ),
 } as const
 
@@ -531,40 +433,10 @@ const publicationSharedBookkeepingFields = {
   updatedAt: v.number(),
 } as const
 
-// Keep the new draft validators descriptor-derived. A new content type must
-// widen these arms alongside the existing pages/pageStaging codegen markers;
-// publication never accepts an untyped JSON bag as fresh authoring input.
-export const pageSharedDraftsTableValidator = v.union(
-  v.object({
-    ...publicationSharedBookkeepingFields,
-    pageType: v.literal("landing-page"),
-    descriptor: landingPageContentType.sharedValidator,
-  }),
-  v.object({
-    ...publicationSharedBookkeepingFields,
-    pageType: v.literal("page"),
-    descriptor: pageContentType.sharedValidator,
-  }),
-  v.object({
-    ...publicationSharedBookkeepingFields,
-    pageType: v.literal("post"),
-    descriptor: postContentType.sharedValidator,
-  }),
-  v.object({
-    ...publicationSharedBookkeepingFields,
-    pageType: v.literal("author"),
-    descriptor: authorContentType.sharedValidator,
-  }),
-  v.object({
-    ...publicationSharedBookkeepingFields,
-    pageType: v.literal("testimonial"),
-    descriptor: testimonialContentType.sharedValidator,
-  }),
-  v.object({
-    ...publicationSharedBookkeepingFields,
-    pageType: v.literal("job"),
-    descriptor: jobContentType.sharedValidator,
-  })
+// The draft validators are derived from the content-type registry: a new
+// content type widens them with no edit here (see schemaShapes.ts).
+export const pageSharedDraftsTableValidator = buildPageSharedDraftsValidator(
+  publicationSharedBookkeepingFields
 )
 
 const publicationLocaleDraftBookkeepingFields = {
@@ -580,38 +452,10 @@ const publicationLocaleDraftBookkeepingFields = {
   updatedAt: v.number(),
 } as const
 
-export const pageLocaleDraftsTableValidator = v.union(
-  v.object({
-    ...publicationLocaleDraftBookkeepingFields,
-    pageType: v.literal("landing-page"),
-    content: armLocalizedContentValidator(landingPageContentType),
-  }),
-  v.object({
-    ...publicationLocaleDraftBookkeepingFields,
-    pageType: v.literal("page"),
-    content: armLocalizedContentValidator(pageContentType),
-  }),
-  v.object({
-    ...publicationLocaleDraftBookkeepingFields,
-    pageType: v.literal("post"),
-    content: armLocalizedContentValidator(postContentType),
-  }),
-  v.object({
-    ...publicationLocaleDraftBookkeepingFields,
-    pageType: v.literal("author"),
-    content: armLocalizedContentValidator(authorContentType),
-  }),
-  v.object({
-    ...publicationLocaleDraftBookkeepingFields,
-    pageType: v.literal("testimonial"),
-    content: armLocalizedContentValidatorNoSlices(testimonialContentType),
-  }),
-  v.object({
-    ...publicationLocaleDraftBookkeepingFields,
-    pageType: v.literal("job"),
-    content: armLocalizedContentValidator(jobContentType),
-  })
-)
+export const pageLocaleDraftsTableValidator = buildPageLocaleDraftsValidator<
+  typeof publicationLocaleDraftBookkeepingFields,
+  Infer<typeof pagesTableValidator>
+>(publicationLocaleDraftBookkeepingFields)
 
 /**
  * Document validator for a `pages` row (return-value validators, cache-side
@@ -781,7 +625,7 @@ export const pageRevisionDocValidator = v.object({
     v.record(v.string(), pageRevisionLocalizedContentValidator)
   ),
   // Archived content remains readable even when the current installed
-  // profile no longer has the slice code. Restore exposes these exact paths
+  // profile no longer has the block code. Restore exposes these exact paths
   // as blockers rather than silently dropping records.
   contentBlockers: v.optional(
     v.array(
@@ -849,12 +693,12 @@ export const mediaFields = {
   filename: v.string(),
   storageId: v.id("_storage"),
   url: v.string(),
-  // Legacy only. Accessible alt text belongs on page/slice image fields,
+  // Legacy only. Accessible alt text belongs on page/block image fields,
   // where the editor knows the image's context.
   alt: v.optional(v.record(v.string(), v.string())),
   width: v.optional(v.number()),
   height: v.optional(v.number()),
-  // Default image framing for new usages. Page/slice image fields can
+  // Default image framing for new usages. Page/block image fields can
   // override this contextually without creating another media asset.
   focal: v.optional(v.object({ x: v.number(), y: v.number() })),
   crop: v.optional(
@@ -943,16 +787,16 @@ export const siteSettingsFields = {
    *  call. Empty/absent ⇒ no voice injection. Capped at 400 chars in the
    *  updater to keep prompt cost predictable. */
   brandVoice: v.optional(v.string()),
-  // Slice types the owner has retired from the authoring picker + the catalog's
-  // "Active" view (curation, not deletion — ADR archive-vs-delete). The slice
+  // Block types the owner has retired from the authoring picker + the catalog's
+  // "Active" view (curation, not deletion — ADR archive-vs-delete). The block
   // code stays registered and existing pages keep rendering; an archived type
   // just stops being offered for new placements. Toggled via
-  // cms/slices.setSliceArchived (settings:update). Lenient: a stale entry for a
-  // later-deleted slice simply matches nothing.
-  archivedSliceTypes: v.optional(v.array(v.string())),
+  // cms/blocks.setBlockArchived (settings:update). Lenient: a stale entry for a
+  // later-deleted block simply matches nothing.
+  archivedBlockTypes: v.optional(v.array(v.string())),
   // Presentation curation restricts new assignments without rewriting retained
   // Page occurrences or their source renderers. Missing means source defaults.
-  archivedSlicePresentationsV1: v.optional(
+  archivedBlockPresentationsV1: v.optional(
     v.array(v.object({ type: v.string(), presentationId: v.string() }))
   ),
   // Content types the owner has operationally archived from ordinary creation
@@ -1057,7 +901,7 @@ const publicationDocumentReferenceFields = {
   referenceKind: v.union(
     v.literal("shared-field"),
     v.literal("localized-field"),
-    v.literal("slice-body"),
+    v.literal("block-body"),
     v.literal("ancestry")
   ),
   targetLocale: v.optional(v.string()),
@@ -1071,8 +915,8 @@ const publicationMediaReferenceFields = {
   storageId: v.id("_storage"),
   sourcePath: v.string(),
   referenceKind: v.union(
-    v.literal("slice-image"),
-    v.literal("slice-media-link"),
+    v.literal("block-image"),
+    v.literal("block-media-link"),
     v.literal("card-image"),
     v.literal("descriptor-image"),
     // An image inserted into a rich-text field by its library URL (PERMANENT-
@@ -1083,9 +927,9 @@ const publicationMediaReferenceFields = {
   updatedAt: v.number(),
 } as const
 
-const publicationSliceReferenceFields = {
+const publicationBlockReferenceFields = {
   pageId: v.id("pages"),
-  sliceType: v.string(),
+  blockType: v.string(),
   count: v.number(),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -1129,21 +973,21 @@ const publicationMediaReferenceValidator = v.union(
   })
 )
 
-const publicationSliceReferenceValidator = v.union(
+const publicationBlockReferenceValidator = v.union(
   v.object({
-    ...publicationSliceReferenceFields,
+    ...publicationBlockReferenceFields,
     ...publicationReferenceSourceValidators.sharedDraft,
   }),
   v.object({
-    ...publicationSliceReferenceFields,
+    ...publicationBlockReferenceFields,
     ...publicationReferenceSourceValidators.localeDraft,
   }),
   v.object({
-    ...publicationSliceReferenceFields,
+    ...publicationBlockReferenceFields,
     ...publicationReferenceSourceValidators.candidate,
   }),
   v.object({
-    ...publicationSliceReferenceFields,
+    ...publicationBlockReferenceFields,
     ...publicationReferenceSourceValidators.currentPublic,
   })
 )
@@ -1198,7 +1042,7 @@ export default defineSchema({
 
   // Denormalized full-text search rows — one per (page, locale). Convex
   // search indexes read a single top-level string field, so the localized
-  // titles + slice text inside `pages.content` are flattened here by
+  // titles + block text inside `pages.content` are flattened here by
   // `syncPageSearch` (convex/lib/publishing/search.ts) on every page write.
   // Rows exist iff the page exists and is not soft-deleted.
   pageSearch: defineTable({
@@ -1226,10 +1070,10 @@ export default defineSchema({
     slug: v.string(),
     pageType: pageTypeValidator,
     // ADR-0029: revision content is an *archival snapshot* stored as serialized
-    // JSON, deliberately NOT validated against the live closed slice union — so
-    // deleting/shrinking a slice type never retroactively invalidates history
+    // JSON, deliberately NOT validated against the live closed block union — so
+    // deleting/shrinking a block type never retroactively invalidates history
     // and blocks deploys. `contentJson` is the source of truth (written by
-    // createPageRevision; unavailable slice types remain visible and block
+    // createPageRevision; unavailable block types remain visible and block
     // restore rather than being silently dropped). ADR-003 (no v.any() for live content) still
     // governs `pages.content`. The legacy `content` record has been narrowed
     // out (backfilled → unset → removed here); readers derive `content` from
@@ -1297,13 +1141,13 @@ export default defineSchema({
   //     required on every row).
   // ==========================================
   // Derived retained-occurrence accounting. Source bodies remain authoritative.
-  sliceOccurrenceUsage: defineTable({
+  blockOccurrenceUsage: defineTable({
     key: v.string(),
     pageId: v.string(),
     locale: v.string(),
     type: v.string(),
     presentationId: v.string(),
-    sliceId: v.string(),
+    blockId: v.string(),
     references: v.object({
       saved: v.number(),
       staging: v.number(),
@@ -1317,7 +1161,7 @@ export default defineSchema({
     .index("by_key", ["key"])
     .index("by_type_and_presentationId", ["type", "presentationId"]),
 
-  sliceOccurrenceSources: defineTable({
+  blockOccurrenceSources: defineTable({
     key: v.string(),
     table: v.union(
       v.literal("pages"),
@@ -1335,14 +1179,14 @@ export default defineSchema({
     lastIntegrityRun: v.optional(v.number()),
   }).index("by_key", ["key"]),
 
-  sliceOccurrenceSourceMembers: defineTable({
-    sourceId: v.id("sliceOccurrenceSources"),
-    occurrenceId: v.id("sliceOccurrenceUsage"),
+  blockOccurrenceSourceMembers: defineTable({
+    sourceId: v.id("blockOccurrenceSources"),
+    occurrenceId: v.id("blockOccurrenceUsage"),
   })
     .index("by_sourceId_and_occurrenceId", ["sourceId", "occurrenceId"])
     .index("by_occurrenceId", ["occurrenceId"]),
 
-  sliceOccurrenceCounts: defineTable({
+  blockOccurrenceCounts: defineTable({
     type: v.string(),
     presentationId: v.string(),
     count: v.number(),
@@ -1357,8 +1201,8 @@ export default defineSchema({
     verificationInvalidSources: v.optional(v.number()),
   }).index("by_type_and_presentationId", ["type", "presentationId"]),
 
-  sliceOccurrenceCountState: defineTable({
-    key: v.literal("slice-occurrences-v1"),
+  blockOccurrenceCountState: defineTable({
+    key: v.literal("block-occurrences-v1"),
     epoch: v.number(),
     status: v.union(
       v.literal("uninitialized"),
@@ -1643,8 +1487,8 @@ export default defineSchema({
     .index("by_mediaId_and_sourceKind", ["mediaId", "sourceKind"])
     .index("by_storageId", ["storageId"]),
 
-  pagePublicationSliceReferences: defineTable(
-    publicationSliceReferenceValidator
+  pagePublicationBlockReferences: defineTable(
+    publicationBlockReferenceValidator
   )
     .index("by_pageId_and_sourceKind", ["pageId", "sourceKind"])
     .index("by_pageId_and_locale_and_sourceKind", [
@@ -1653,7 +1497,7 @@ export default defineSchema({
       "sourceKind",
     ])
     .index("by_sourceKind_and_sourceId", ["sourceKind", "sourceId"])
-    .index("by_sliceType", ["sliceType"]),
+    .index("by_blockType", ["blockType"]),
 
   pageHistoricalLocaleRoutes: defineTable({
     pageId: v.id("pages"),
@@ -1904,15 +1748,15 @@ export default defineSchema({
     .index("by_candidateId", ["candidateId"])
     .index("by_targetId", ["targetId"]),
 
-  pageCandidateSliceReferences: defineTable({
+  pageCandidateBlockReferences: defineTable({
     candidateId: v.id("pagePublicationCandidates"),
     pageId: v.id("pages"),
-    sliceType: v.string(),
+    blockType: v.string(),
     count: v.number(),
     createdAt: v.number(),
   })
     .index("by_candidateId", ["candidateId"])
-    .index("by_sliceType", ["sliceType"]),
+    .index("by_blockType", ["blockType"]),
 
   // ==========================================
   // CMS: Menus
@@ -1957,8 +1801,8 @@ export default defineSchema({
     locale: v.optional(v.string()),
     path: v.string(),
     source: v.union(
-      v.literal("slice-image"),
-      v.literal("slice-media-link"),
+      v.literal("block-image"),
+      v.literal("block-media-link"),
       v.literal("card-image"),
       // Plan 029 C10 — descriptor-level `image()` fields on shared /
       // localized field maps (e.g. testimonial.personImage). Emitted by
@@ -1983,9 +1827,9 @@ export default defineSchema({
   //   - Uniqueness sanity via `by_target_and_source`
   //
   // `path` is the descriptor-level dotted address of the source field
-  // (e.g. `authorId`, or `content.en.slices[3].primary.relatedPost`). `source`
+  // (e.g. `authorId`, or `content.en.blocks[3].primary.relatedPost`). `source`
   // enumerates coarse origin buckets (top-level `sharedFields`, per-locale
-  // `localizedFields`, slice body) so admin surfaces can group fan-out.
+  // `localizedFields`, block body) so admin surfaces can group fan-out.
   // ==========================================
   documentReferences: defineTable({
     sourceId: v.id("pages"),
@@ -1996,7 +1840,7 @@ export default defineSchema({
     source: v.union(
       v.literal("shared-field"),
       v.literal("localized-field"),
-      v.literal("slice-body")
+      v.literal("block-body")
     ),
     updatedAt: v.number(),
   })
@@ -2138,8 +1982,8 @@ export default defineSchema({
     agent: v.union(
       v.literal("translation"),
       v.literal("content"),
-      v.literal("slice-author"),
-      v.literal("slice-renderer"),
+      v.literal("block-author"),
+      v.literal("block-renderer"),
       v.literal("help-assistant")
     ),
     model: v.optional(v.string()),
@@ -2340,12 +2184,12 @@ export default defineSchema({
     jobId: v.id("aiJobs"),
     index: v.number(),
     kind: v.union(v.literal("write"), v.literal("translation")),
-    sliceType: v.optional(v.string()),
+    blockType: v.optional(v.string()),
     purpose: v.optional(v.string()),
     address: v.optional(v.string()),
     segmentKind: v.optional(v.union(v.literal("text"), v.literal("richText"))),
     input: v.optional(v.string()),
-    output: v.optional(v.union(installedSliceValidator, v.string())),
+    output: v.optional(v.union(installedBlockValidator, v.string())),
     state: v.union(
       v.literal("waiting"),
       v.literal("inProgress"),
@@ -2431,8 +2275,8 @@ export default defineSchema({
       v.literal("field-translate"),
       v.literal("field-generate"),
       v.literal("field-refine"),
-      v.literal("slice-generate"),
-      v.literal("slice-author-propose")
+      v.literal("block-generate"),
+      v.literal("block-author-propose")
     ),
     runId: v.optional(v.string()),
     unitId: v.optional(v.string()),
@@ -2441,7 +2285,7 @@ export default defineSchema({
     currency: v.optional(v.literal("USD")),
     costSource: v.optional(aiCostSourceValidator),
     briefHash: v.optional(v.string()),
-    sliceCount: v.number(),
+    blockCount: v.number(),
     modelId: v.string(),
     profile: v.optional(taskProfileValidator),
     selectedLane: v.optional(executionLaneValidator),
@@ -2545,7 +2389,7 @@ export default defineSchema({
   // ==========================================
   // Shared tag pool for pages and media. Stored on `pages.tags` / `media.tags`
   // as denormalized canonical slugs (descriptor code references slugs, see
-  // `relation({ tag })` in convex/lib/slices/primitives.ts). No unique
+  // `relation({ tag })` in convex/lib/blocks/primitives.ts). No unique
   // constraint at the DB level — `ensureMany` looks up `by_slug` before
   // inserting; Convex OCC makes the read-then-insert race-safe within one
   // mutation.

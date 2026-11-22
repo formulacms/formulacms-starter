@@ -1,6 +1,6 @@
 import {
   isColumnPanel,
-  panelBlocks,
+  panelSections,
   type LocaleNavItem,
   type NavItem,
   type Target,
@@ -12,7 +12,7 @@ export type TargetIntent = Target["type"] | "none"
 export type MenuFieldError = {
   key: string
   itemId: string
-  blockId?: string
+  sectionId?: string
   code: "url" | "page" | "image"
 }
 
@@ -39,27 +39,27 @@ export function menuErrors(
 ): MenuFieldError[] {
   const errors: MenuFieldError[] = []
   for (const item of nav) {
-    function check(key: string, target: Target | undefined, blockId?: string) {
+    function check(key: string, target: Target | undefined, sectionId?: string) {
       const code = targetError(target, intents[key])
-      if (code) errors.push({ key, itemId: item.id, blockId, code })
+      if (code) errors.push({ key, itemId: item.id, sectionId, code })
     }
     check(item.id, item.target)
-    for (const { block } of panelBlocks(item.panel)) {
-      if (block.kind === "linkGroup") {
-        for (const link of block.links) check(link.id, link.target, block.id)
-      } else if (block.kind === "dynamicList") {
-        if (block.seeAll)
-          check(`${block.id}-seeAll`, block.seeAll.target, block.id)
+    for (const { section } of panelSections(item.panel)) {
+      if (section.kind === "linkGroup") {
+        for (const link of section.links) check(link.id, link.target, section.id)
+      } else if (section.kind === "dynamicList") {
+        if (section.seeAll)
+          check(`${section.id}-seeAll`, section.seeAll.target, section.id)
       } else {
-        if (block.image && !block.image.url && !block.image.storageId)
+        if (section.image && !section.image.url && !section.image.storageId)
           errors.push({
-            key: `${block.id}-image`,
+            key: `${section.id}-image`,
             itemId: item.id,
-            blockId: block.id,
+            sectionId: section.id,
             code: "image",
           })
-        check(block.id, block.target, block.id)
-        if (block.link) check(`${block.id}-link`, block.link.target, block.id)
+        check(section.id, section.target, section.id)
+        if (section.link) check(`${section.id}-link`, section.link.target, section.id)
       }
     }
   }
@@ -73,23 +73,23 @@ export function hasMenuText(nav: LocaleNavItem[]): boolean {
       (item.panel &&
         isColumnPanel(item.panel) &&
         Boolean(item.panel.title?.trim() || item.panel.description?.trim())) ||
-      panelBlocks(item.panel)
-        .map((entry) => entry.block)
+      panelSections(item.panel)
+        .map((entry) => entry.section)
         .some(
-          (block) =>
-            Boolean(block.heading?.trim()) ||
-            (block.kind === "featured" &&
+          (section) =>
+            Boolean(section.heading?.trim()) ||
+            (section.kind === "featured" &&
               Boolean(
-                block.description?.trim() ||
-                block.image?.alt.trim() ||
-                block.link?.label.trim()
+                section.description?.trim() ||
+                section.image?.alt.trim() ||
+                section.link?.label.trim()
               )) ||
-            (block.kind === "linkGroup" &&
-              block.links.some((link) =>
+            (section.kind === "linkGroup" &&
+              section.links.some((link) =>
                 Boolean(link.label.trim() || link.description?.trim())
               )) ||
-            (block.kind === "dynamicList" &&
-              Boolean(block.seeAll?.label.trim()))
+            (section.kind === "dynamicList" &&
+              Boolean(section.seeAll?.label.trim()))
         )
   )
 }

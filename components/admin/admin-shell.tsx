@@ -33,7 +33,7 @@ import {
 import { cn } from "@/lib/utils"
 import type { AdminContributionRouteData } from "./contributions/types"
 
-// Slice deletion progress belongs to the source-only slice library (D-6).
+// Block deletion progress belongs to the source-only block library (D-6).
 const DeletionOverlay =
   ADMIN_AUTHORING_TOOLS_BROWSER_BINDING?.DeletionOverlay ?? Fragment
 

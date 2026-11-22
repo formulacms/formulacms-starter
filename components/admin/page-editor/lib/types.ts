@@ -3,12 +3,12 @@ import { api } from "@/convex/_generated/api"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
 import type { FunctionReturnType } from "convex/server"
 import type { PrePublishChecklistParams } from "@/convex/lib/publishing/checklist"
-import { type Slice } from "@/convex/lib/slices"
+import { type Block } from "@/convex/lib/blocks"
 import { type Locale } from "@/lib/i18n/config"
 
 // Re-exported: the editor's own modules and tests treat this file as the
-// page-editor type surface and import `Slice` from here.
-export type { Slice }
+// page-editor type surface and import `Block` from here.
+export type { Block }
 
 /**
  * The page shape the editor consumes. Wraps `Doc<"pages">` with the
@@ -25,7 +25,7 @@ export type Page = Doc<"pages"> & { scheduledAt?: number }
 export type PageSummaryRow = FunctionReturnType<
   typeof api.cms.pages.listSummaries
 >[number]
-export type ActivePanel = "slices" | "seo" | "settings" | "history"
+export type ActivePanel = "blocks" | "seo" | "settings" | "history"
 export type TranslateMode = "translate" | "copy"
 export type { PrePublishChecklistParams } from "@/convex/lib/publishing/checklist"
 
@@ -67,7 +67,7 @@ export type LocaleDraft = Buffered<{
   addressWasTyped?: boolean
   metaTitle: string
   metaDescription: string
-  slices: Slice[]
+  blocks: Block[]
   /** Descriptor-localized fields cached with the system-owned page fields. */
   localizedFieldValues: Record<string, unknown>
   /** The language's own search and social values (absent: the stored ones). */
@@ -98,7 +98,7 @@ export type PageEditorRecoveryDraft = {
   tags: string[]
   metaTitle: string
   metaDescription: string
-  slices: Slice[]
+  blocks: Block[]
   seoNoIndex: boolean
   seoNoFollow: boolean
   seoOgTitle: string

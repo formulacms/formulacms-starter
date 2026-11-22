@@ -1,5 +1,5 @@
 vi.mock("@/lib/preview-build-id", () => ({ PREVIEW_BUILD_ID: "test-build" }))
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { act, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
@@ -11,12 +11,12 @@ import { getContentTypeRenderer } from "@/components/content-types"
 import { getFunctionName } from "convex/server"
 import type { Id } from "@/convex/_generated/dataModel"
 import { usePresentationLocale } from "@/components/public/presentation-locale"
-import type { SliceRenderContext } from "@/lib/slices/links"
+import type { BlockRenderContext } from "@/lib/blocks/links"
 import { render } from "@/test-utils/admin-i18n"
-import type { SliceBodyDoc } from "@/convex/lib/pages/sliceBodyContent"
+import type { BlockBodyDoc } from "@/convex/lib/pages/blockBodyContent"
 import type { PublicByline } from "@/components/content-types"
-import type { Slice } from "@/convex/lib/slices"
-import { captureSliceOccurrence } from "./page-editor/lib/slice-occurrence"
+import type { Block } from "@/convex/lib/blocks"
+import { captureBlockOccurrence } from "./page-editor/lib/block-occurrence"
 import {
   LivePreviewFrame,
   type PageLivePreviewProps,
@@ -41,7 +41,7 @@ const controls = vi.hoisted(() => ({
   crash: false,
   change: null as ((commit: PreviewInlineEditCommit | null) => void) | null,
   renderPage: null as
-    | ((slices: Slice[], context: SliceRenderContext) => ReactNode)
+    | ((blocks: Block[], context: BlockRenderContext) => ReactNode)
     | null,
 }))
 vi.mock("convex/react", () => ({
@@ -66,16 +66,16 @@ vi.mock(
   "@/app/(live-preview)/admin/pages/[id]/live-frame/[locale]/actions",
   () => ({ resolveLiveFrameContext: controls.resolve })
 )
-// Only the relation-ID collector seam is synthetic: no registered shipped Slice
+// Only the relation-ID collector seam is synthetic: no registered shipped Block
 // currently has a relation leaf. The ordinary path calls the actual collector.
-vi.mock("@/convex/lib/slices/resolve", async () => {
+vi.mock("@/convex/lib/blocks/resolve", async () => {
   const actual = await vi.importActual<
-    typeof import("@/convex/lib/slices/resolve")
-  >("@/convex/lib/slices/resolve")
+    typeof import("@/convex/lib/blocks/resolve")
+  >("@/convex/lib/blocks/resolve")
   return {
     ...actual,
-    collectRelationIds: (slices: Slice[]) =>
-      controls.relations ?? actual.collectRelationIds(slices),
+    collectRelationIds: (blocks: Block[]) =>
+      controls.relations ?? actual.collectRelationIds(blocks),
   }
 })
 vi.mock("@/components/theme-provider", () => ({
@@ -91,15 +91,15 @@ vi.mock("./page-live-preview-canvas", () => ({
     title,
     renderContext,
     onActiveEditChange,
-    renderSlicesTransform,
+    renderBlocksTransform,
     renderPage,
-    slices,
+    blocks,
   }: {
-    renderPage(slices: Slice[], context: SliceRenderContext): ReactNode
+    renderPage(blocks: Block[], context: BlockRenderContext): ReactNode
     title: string
-    renderContext: SliceRenderContext
-    renderSlicesTransform(slices: Slice[]): Slice[]
-    slices: Slice[]
+    renderContext: BlockRenderContext
+    renderBlocksTransform(blocks: Block[]): Block[]
+    blocks: Block[]
     onActiveEditChange: (commit: PreviewInlineEditCommit | null) => void
   }) => {
     const presentationLocale = usePresentationLocale()
@@ -112,7 +112,7 @@ vi.mock("./page-live-preview-canvas", () => ({
         data-relations={JSON.stringify(renderContext.relationCards)}
         data-catalog={renderContext.presentationCatalog?.revision}
         data-public-path={presentationLocale.publicPath ?? ""}
-        data-media={JSON.stringify(renderSlicesTransform(slices))}
+        data-media={JSON.stringify(renderBlocksTransform(blocks))}
       >
         {title}
       </main>
@@ -126,7 +126,7 @@ const pm = (text: string) =>
     type: "doc",
     content: [{ type: "paragraph", content: [{ type: "text", text }] }],
   })
-const slice: Slice = {
+const block: Block = {
   id: "hero",
   type: "hero-agency",
   enabled: true,
@@ -142,8 +142,8 @@ const input: LiveFrameInput = {
   languageVersion: 2,
   pageType: "landing-page",
   title: "Title",
-  slices: [slice],
-  selectedSliceId: null,
+  blocks: [block],
+  selectedBlockId: null,
   inlineEditingEnabled: true,
   mode: "light",
 }
@@ -186,7 +186,7 @@ function setup(
   pageType: "landing-page" | "page" | "post" | "author" = "landing-page"
 ) {
   const callbacks = {
-    selectSlice: vi.fn(),
+    selectBlock: vi.fn(),
     selectField: vi.fn(),
     commit: vi.fn(),
     change: vi.fn(),
@@ -195,7 +195,7 @@ function setup(
     unavailable: vi.fn(),
     context: vi.fn(),
   } satisfies LiveFrameCallbacks
-  const page = { pageType } as SliceBodyDoc
+  const page = { pageType } as BlockBodyDoc
   const props = {
     identity: runtimeInput,
     page,
@@ -228,7 +228,7 @@ function setup(
   return { ...view, bridge, callbacks, props, input: runtimeInput }
 }
 describe("child frame context and generation", () => {
-  it("NEW keeps the existing bridge live when pagehide retains the document in BFCache", sliceProfile([]), () => {
+  it("NEW keeps the existing bridge live when pagehide retains the document in BFCache", blockProfile([]), () => {
     const view = setup()
     const postMessage = vi.spyOn(window.parent, "postMessage")
 
@@ -248,7 +248,7 @@ describe("child frame context and generation", () => {
     expect(view.callbacks.change).not.toHaveBeenCalled()
   })
 
-  it("NEW retires locally on pagehide and ignores late parent bridge calls", sliceProfile([]), () => {
+  it("NEW retires locally on pagehide and ignores late parent bridge calls", blockProfile([]), () => {
     const view = setup()
     const title = view.getByText("Title")
     const disconnect = vi.spyOn(view.bridge, "disconnect")
@@ -297,7 +297,7 @@ describe("child frame context and generation", () => {
     expect(view.callbacks.save).not.toHaveBeenCalled()
   })
 
-  it("NEW delivers the runtime's unloading notice to the mounted parent and re-arms Retry", sliceProfile([]), async () => {
+  it("NEW delivers the runtime's unloading notice to the mounted parent and re-arms Retry", blockProfile([]), async () => {
     const posted: unknown[] = []
     const postMessage = vi
       .spyOn(window.parent, "postMessage")
@@ -309,20 +309,20 @@ describe("child frame context and generation", () => {
       disconnect() {}
     }
     vi.stubGlobal("ResizeObserver", ResizeObserverStub)
-    const draftSlice = {
-      ...slice,
-      primary: { ...slice.primary, title: pm("Parent draft remains") },
+    const draftBlock = {
+      ...block,
+      primary: { ...block.primary, title: pm("Parent draft remains") },
     }
     const parentProps: PageLivePreviewProps = {
       pageId: "page-id",
       pageType: "landing-page",
       languageVersion: 2,
       title: "Draft Page",
-      slices: [draftSlice],
+      blocks: [draftBlock],
       locale: "fr",
       defaultLocale: "en",
-      selectedSliceId: null,
-      onSelectSlice: vi.fn(),
+      selectedBlockId: null,
+      onSelectBlock: vi.fn(),
       onSelectField: vi.fn(),
       onInlineEditCommit: vi.fn(),
       onOpenSavedPreview: vi.fn(),
@@ -339,7 +339,7 @@ describe("child frame context and generation", () => {
       pageId: "page-id",
       locale: "fr",
       title: "Draft Page",
-      slices: [draftSlice],
+      blocks: [draftBlock],
     }
     const runtimeView = setup(
       { defaultLocale: "en", enabledLocales: ["en", "fr"], languageVersion: 2 },
@@ -427,7 +427,7 @@ describe("child frame context and generation", () => {
         "Preparing the page preview"
       )
       expect(frame.style.visibility).toBe("hidden")
-      expect(parentProps.slices).toEqual([draftSlice])
+      expect(parentProps.blocks).toEqual([draftBlock])
       expect(parentProps.onInlineEditCommit).not.toHaveBeenCalled()
       expect(parentProps.onActiveEditConflict).not.toHaveBeenCalled()
 
@@ -455,7 +455,7 @@ describe("child frame context and generation", () => {
     }
   })
 
-  it("waits for resolved context and does not refetch or replace text DOM on typing", sliceProfile([]), async () => {
+  it("waits for resolved context and does not refetch or replace text DOM on typing", blockProfile([]), async () => {
     const view = setup()
     await waitFor(() =>
       expect(view.callbacks.context).toHaveBeenLastCalledWith(true)
@@ -464,7 +464,7 @@ describe("child frame context and generation", () => {
     const initialQueryArgs = activeQueryArgs()
     controls.query.mockClear()
     const commit = {
-      ...captureSliceOccurrence(input.slices, "en", "hero")!,
+      ...captureBlockOccurrence(input.blocks, "en", "hero")!,
       fieldPath: "primary.title",
       kind: "richText" as const,
       value: pm("First x"),
@@ -474,8 +474,8 @@ describe("child frame context and generation", () => {
     act(() =>
       view.bridge.replaceInput({
         ...input,
-        slices: [
-          { ...slice, primary: { ...slice.primary, title: pm("First xy") } },
+        blocks: [
+          { ...block, primary: { ...block.primary, title: pm("First xy") } },
         ],
       })
     )
@@ -486,10 +486,10 @@ describe("child frame context and generation", () => {
       expect.objectContaining({ value: pm("First xy") })
     )
   })
-  it("ignores obsolete dependency results and never displays stale maps as current", sliceProfile([]), () => {
+  it("ignores obsolete dependency results and never displays stale maps as current", blockProfile([]), () => {
     const view = setup()
-    const linked = (id: string): Slice => ({
-      ...slice,
+    const linked = (id: string): Block => ({
+      ...block,
       items: [
         {
           id: "link",
@@ -513,7 +513,7 @@ describe("child frame context and generation", () => {
       queryKey("cms/pages:getLocalizedPathsByIds", pathArgs("old")),
       { old: "/old" }
     )
-    act(() => view.bridge.replaceInput({ ...input, slices: [linked("old")] }))
+    act(() => view.bridge.replaceInput({ ...input, blocks: [linked("old")] }))
     expect(view.getByText("Title")).toHaveAttribute(
       "data-paths",
       JSON.stringify({ old: "/old" })
@@ -522,7 +522,7 @@ describe("child frame context and generation", () => {
       queryKey("cms/pages:getLocalizedPathsByIds", pathArgs("new")),
       undefined
     )
-    act(() => view.bridge.replaceInput({ ...input, slices: [linked("new")] }))
+    act(() => view.bridge.replaceInput({ ...input, blocks: [linked("new")] }))
     expect(view.callbacks.context).toHaveBeenLastCalledWith(false)
     expect(view.getByText("Title")).toHaveAttribute("data-paths", "{}")
     controls.overrides.set(
@@ -543,8 +543,8 @@ describe("child frame context and generation", () => {
     expect(view.callbacks.context).toHaveBeenLastCalledWith(true)
   })
   it.each(["landing-page", "page", "post", "author"] as const)(
-    "NEW renders a %s row through the slice-body renderer registered for its own type",
-    sliceProfile([]),
+    "NEW renders a %s row through the block-body renderer registered for its own type",
+    blockProfile([]),
     async (pageType) => {
       controls.overrides.set(queryKey("cms/pages:getForEdit", { id: "page" }), {
         page: { pageType },
@@ -559,17 +559,17 @@ describe("child frame context and generation", () => {
       )
       expect(view.callbacks.unavailable).not.toHaveBeenCalled()
       const registered = getContentTypeRenderer(pageType)
-      const element = controls.renderPage!([slice], {} as SliceRenderContext)
+      const element = controls.renderPage!([block], {} as BlockRenderContext)
       expect(isValidElement(element)).toBe(true)
       expect((element as ReactElement).type).toBe(
-        registered.kind === "sliceBody" ? registered.Component : null
+        registered.kind === "blockBody" ? registered.Component : null
       )
       expect((element as ReactElement<{ page: unknown }>).props.page).toEqual(
         view.props.page
       )
     }
   )
-  it("refuses incompatible config/locale input and retires its bridge on unmount", sliceProfile([]), () => {
+  it("refuses incompatible config/locale input and retires its bridge on unmount", blockProfile([]), () => {
     const view = setup()
     expect(view.bridge.replaceInput({ ...input, languageVersion: 3 })).toBe(
       false
@@ -596,7 +596,7 @@ describe("child frame context and generation", () => {
 })
 
 describe("Unit A NEW locale dependency regressions", () => {
-  it("NEW preserves bridge generation and callbacks for equal locale values in a fresh array", sliceProfile([]), async () => {
+  it("NEW preserves bridge generation and callbacks for equal locale values in a fresh array", blockProfile([]), async () => {
     const view = setup({
       defaultLocale: "en",
       enabledLocales: ["en", "fr"],
@@ -619,7 +619,7 @@ describe("Unit A NEW locale dependency regressions", () => {
   })
 
   it.each(["order", "membership", "defaultLocale", "languageVersion"])(
-    "NEW replaces generation on a real %s configuration change", sliceProfile([]),
+    "NEW replaces generation on a real %s configuration change", blockProfile([]),
     (change) => {
       const view = setup({
         defaultLocale: "en",
@@ -642,14 +642,14 @@ describe("Unit A NEW locale dependency regressions", () => {
   )
 })
 
-it("NEW refuses a different build even when Page, locale and language authority match", sliceProfile([]), () => {
+it("NEW refuses a different build even when Page, locale and language authority match", blockProfile([]), () => {
   const view = setup()
   expect(view.bridge.replaceInput({ ...input, buildId: "new-build" })).toBe(
     false
   )
 })
 
-it("NEW catches renderer failure in the frame while retaining the supplied parent draft", sliceProfile([]), () => {
+it("NEW catches renderer failure in the frame while retaining the supplied parent draft", blockProfile([]), () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {})
   controls.crash = true
   const before = JSON.stringify(input)
@@ -663,7 +663,7 @@ it("NEW catches renderer failure in the frame while retaining the supplied paren
     error.mockRestore()
   }
 })
-it("NEW child keyboard Save ignores repeats and dispatches exactly once", sliceProfile([]), () => {
+it("NEW child keyboard Save ignores repeats and dispatches exactly once", blockProfile([]), () => {
   const view = setup()
   act(() => {
     window.dispatchEvent(
@@ -686,7 +686,7 @@ it("NEW child keyboard Save ignores repeats and dispatches exactly once", sliceP
 })
 
 // B2 fail-first: the real runtime must reach query hooks; action mocks alone cannot satisfy this.
-it("NEW B2 subscribes to authorized current Page/config without a Server Action read", sliceProfile([]), async () => {
+it("NEW B2 subscribes to authorized current Page/config without a Server Action read", blockProfile([]), async () => {
   controls.query.mockClear()
   controls.resolve.mockClear()
   setup()
@@ -694,8 +694,8 @@ it("NEW B2 subscribes to authorized current Page/config without a Server Action 
   expect(controls.resolve).not.toHaveBeenCalled()
 })
 
-const linkedSlice = (id: string): Slice => ({
-  ...slice,
+const linkedBlock = (id: string): Block => ({
+  ...block,
   items: [
     {
       id: "link",
@@ -707,7 +707,7 @@ const linkedSlice = (id: string): Slice => ({
     },
   ],
 })
-const imageSlice = (id: string): Slice => ({
+const imageBlock = (id: string): Block => ({
   id,
   type: "hero-with-image",
   enabled: true,
@@ -730,7 +730,7 @@ const setQuery = (name: string, args: unknown, value: unknown) =>
   controls.overrides.set(queryKey(name, args), value)
 
 describe("NEW B2 query safety", () => {
-  it("NEW B2 waits for authenticated provider readiness, then scopes the Page read", sliceProfile([]), () => {
+  it("NEW B2 waits for authenticated provider readiness, then scopes the Page read", blockProfile([]), () => {
     controls.auth = { isLoading: true, isAuthenticated: false }
     const view = setup()
     expect(activeQueryArgs()).toEqual([])
@@ -744,7 +744,7 @@ describe("NEW B2 query safety", () => {
     ])
     expect(view.callbacks.context).toHaveBeenLastCalledWith(true)
   })
-  it("NEW B2 retains the draft and bridge when authenticated access is lost", sliceProfile([]), () => {
+  it("NEW B2 retains the draft and bridge when authenticated access is lost", blockProfile([]), () => {
     const view = setup()
     const title = view.getByText("Title")
     controls.auth = { isLoading: false, isAuthenticated: false }
@@ -757,7 +757,7 @@ describe("NEW B2 query safety", () => {
     expect((window as LiveFrameWindow).__formulacmsLiveFrame).toBe(view.bridge)
   })
   it.each(["pageLoading", "configLoading"])(
-    "NEW B2 keeps %s distinct from access refusal", sliceProfile([]),
+    "NEW B2 keeps %s distinct from access refusal", blockProfile([]),
     (kind) => {
       setQuery(
         kind === "pageLoading"
@@ -780,7 +780,7 @@ describe("NEW B2 query safety", () => {
     "defaultLocale",
     "languageVersion",
   ])(
-    "NEW B2 stops context on live %s invalidation of a valid parent input", sliceProfile([]),
+    "NEW B2 stops context on live %s invalidation of a valid parent input", blockProfile([]),
     (kind) => {
       const view = setup()
       const before = JSON.stringify(input)
@@ -813,17 +813,17 @@ describe("NEW B2 query safety", () => {
       )
     }
   )
-  it("NEW B2 updates preview paths/media/cards without replacing parent title or public path ownership", sliceProfile([]), () => {
+  it("NEW B2 updates preview paths/media/cards without replacing parent title or public path ownership", blockProfile([]), () => {
     const view = setup()
     const title = view.getByText("Title")
     controls.relations = ["related" as Id<"pages">]
     act(() =>
       view.bridge.replaceInput({
         ...input,
-        slices: [
-          linkedSlice("draft"),
-          imageSlice("asset"),
-          { ...imageSlice("asset"), id: "duplicate-image" },
+        blocks: [
+          linkedBlock("draft"),
+          imageBlock("asset"),
+          { ...imageBlock("asset"), id: "duplicate-image" },
         ],
       })
     )
@@ -887,15 +887,15 @@ describe("NEW B2 query safety", () => {
     expect(title).toHaveAttribute("data-relations", "{}")
   })
   it.each([100, 101])(
-    "NEW B2 handles %s distinct storage IDs without silently truncating context", sliceProfile([]),
+    "NEW B2 handles %s distinct storage IDs without silently truncating context", blockProfile([]),
     (count) => {
       const view = setup()
       controls.query.mockClear()
       act(() =>
         view.bridge.replaceInput({
           ...input,
-          slices: Array.from({ length: count }, (_, i) =>
-            imageSlice(`asset_${i}`)
+          blocks: Array.from({ length: count }, (_, i) =>
+            imageBlock(`asset_${i}`)
           ),
         })
       )
@@ -925,7 +925,7 @@ describe("NEW B2 query safety", () => {
     "cms/pages:getLocalizedPathsByIds",
     "cms/pages:getRelationCardsByIds",
   ])(
-    "NEW B2 catches %s error while retaining bridge and draft for parent Retry", sliceProfile([]),
+    "NEW B2 catches %s error while retaining bridge and draft for parent Retry", blockProfile([]),
     (name) => {
       const view = setup()
       controls.relations = ["related" as Id<"pages">]
@@ -946,7 +946,7 @@ describe("NEW B2 query safety", () => {
         act(() =>
           view.bridge.replaceInput({
             ...input,
-            slices: [linkedSlice("draft"), imageSlice("asset")],
+            blocks: [linkedBlock("draft"), imageBlock("asset")],
           })
         )
         expect(view.callbacks.unavailable).toHaveBeenCalled()
@@ -967,10 +967,10 @@ describe("NEW B2 query safety", () => {
       }
     }
   )
-  it("NEW B2 carries only the pinned server presentation catalog into display context", sliceProfile([]), () => {
+  it("NEW B2 carries only the pinned server presentation catalog into display context", blockProfile([]), () => {
     const view = setup()
     const catalog = {
-      version: "slice-presentations-v1" as const,
+      version: "block-presentations-v1" as const,
       revision: "pinned-source-contract",
       installedTypes: ["hero-agency"],
       contractDigests: {},
@@ -997,17 +997,17 @@ type RenderedPage = ReactElement<{
   bylines: PublicByline[]
 }>
 const renderedPage = () =>
-  controls.renderPage!([slice], {} as SliceRenderContext) as RenderedPage
+  controls.renderPage!([block], {} as BlockRenderContext) as RenderedPage
 
 it.each(REGISTERED_CONTENT_TYPES.filter(supportsLivePreviewFrame))(
   "gives the previewed type %s a block-body renderer",
   (type) => {
-    expect(getContentTypeRenderer(type).kind).toBe("sliceBody")
+    expect(getContentTypeRenderer(type).kind).toBe("blockBody")
   }
 )
 
 describe("unsaved content-type fields in the live frame", () => {
-  it("shows an author's unsaved name, socials and role title, dropping invalid values", sliceProfile([]), async () => {
+  it("shows an author's unsaved name, socials and role title, dropping invalid values", blockProfile([]), async () => {
     setQuery("cms/pages:getForEdit", { id: "page" }, { page: { pageType: "author" } })
     const socials = [{ platform: "GitHub", url: "https://github.com/ada" }]
     const view = setup(
@@ -1046,7 +1046,7 @@ describe("unsaved content-type fields in the live frame", () => {
     expect(next.props.content.roleTitle).toBe("Lead")
   })
 
-  it("resolves a Post's unsaved authors in order with the public byline rules", sliceProfile([]), async () => {
+  it("resolves a Post's unsaved authors in order with the public byline rules", blockProfile([]), async () => {
     setQuery("cms/pages:getForEdit", { id: "page" }, { page: { pageType: "post" } })
     const args = (authorPageId: string) => ({
       authorPageId,

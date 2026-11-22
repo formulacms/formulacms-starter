@@ -1,25 +1,25 @@
 // Tests for the *pure* assembly half of the content writer agent — given a
-// model response, build a same-type Slice with the editorial text in place
+// model response, build a same-type Block with the editorial text in place
 // and the structural fields at their schema defaults. The LLM call itself
 // isn't exercised here; that's the smoke pass.
 //
 // The ADR-013 trust claim depends on two assertions being load-bearing:
 //   1. The output surface contains ONLY editorial text — no href, no image
 //      URL/id, no pageId.
-//   2. The result is a valid `Slice` (closed-union; rich-text fields validate
+//   2. The result is a valid `Block` (closed-union; rich-text fields validate
 //      against their profile).
 import { describe, expect, test } from "vitest"
 import { ConvexError } from "convex/values"
 import {
   assembleOutline,
-  assembleSlice,
-  OUTLINE_MAX_SLICES,
+  assembleBlock,
+  OUTLINE_MAX_BLOCKS,
   refineRichTextSegments,
 } from "../lib/agents/contentWriterContract"
-import { validateSlicesRichText } from "../lib/slices/validate"
-import { SLICE_TYPES, type Slice } from "../lib/slices"
+import { validateBlocksRichText } from "../lib/blocks/validate"
+import { BLOCK_TYPES, type Block } from "../lib/blocks"
 
-const SLICE_RESPONSE = [
+const BLOCK_RESPONSE = [
   "[eyebrow]",
   "Montréal, QC — Digital Agency",
   "[/eyebrow]",
@@ -67,21 +67,21 @@ function assertNoLinksOrImages(value: unknown): void {
   walk(value, "$")
 }
 
-describe("assembleSlice", () => {
+describe("assembleBlock", () => {
   test("every rich-text field validates against its declared profile", () => {
-    // validateSlicesRichText throws ConvexError on failure — passing through
+    // validateBlocksRichText throws ConvexError on failure — passing through
     // is the assertion. Cover every registered content shape in one pass.
-    const slices: Slice[] = SLICE_TYPES.map((type) =>
-      assembleSlice(type, SLICE_RESPONSE)
+    const blocks: Block[] = BLOCK_TYPES.map((type) =>
+      assembleBlock(type, BLOCK_RESPONSE)
     )
-    expect(() => validateSlicesRichText(slices)).not.toThrow()
+    expect(() => validateBlocksRichText(blocks)).not.toThrow()
   })
 
   test("never carries `marks` on text nodes (agent can't sneak in a link)", () => {
-    const slices: Slice[] = SLICE_TYPES.map((type) =>
-      assembleSlice(type, SLICE_RESPONSE)
+    const blocks: Block[] = BLOCK_TYPES.map((type) =>
+      assembleBlock(type, BLOCK_RESPONSE)
     )
-    for (const s of slices) {
+    for (const s of blocks) {
       const json = JSON.stringify(s)
       expect(json.includes('"marks"')).toBe(false)
       expect(json.includes('"type":"link"')).toBe(false)
@@ -89,26 +89,26 @@ describe("assembleSlice", () => {
     }
   })
 
-  test("ignores noise/unknown fenced blocks; uses only declared keys", () => {
-    const noisy = `${SLICE_RESPONSE}\n\n[href]\nhttps://evil.example.com\n[/href]\n[image]\nhttps://x.png\n[/image]`
-    for (const type of SLICE_TYPES) {
-      const slice = assembleSlice(type, noisy)
-      // The bogus blocks are not declared keys for assembleSlice — they must not
-      // leak into the slice.
-      assertNoLinksOrImages(slice)
-      expect(JSON.stringify(slice).includes("evil.example.com")).toBe(false)
-      expect(JSON.stringify(slice).includes("x.png")).toBe(false)
+  test("ignores noise/unknown tagged fields; uses only declared keys", () => {
+    const noisy = `${BLOCK_RESPONSE}\n\n[href]\nhttps://evil.example.com\n[/href]\n[image]\nhttps://x.png\n[/image]`
+    for (const type of BLOCK_TYPES) {
+      const block = assembleBlock(type, noisy)
+      // The bogus blocks are not declared keys for assembleBlock — they must not
+      // leak into the block.
+      assertNoLinksOrImages(block)
+      expect(JSON.stringify(block).includes("evil.example.com")).toBe(false)
+      expect(JSON.stringify(block).includes("x.png")).toBe(false)
     }
   })
 
   test("tolerates a model that returns no labeled blocks at all", () => {
-    // Worst case: model ignored the format. assembleSlice should still return
-    // a valid Slice — just with empty editorial fields, no exception thrown.
-    for (const type of SLICE_TYPES) {
-      const slice = assembleSlice(type, "lorem ipsum free-form prose, no tags")
-      expect(slice.type).toBe(type)
-      expect(() => validateSlicesRichText([slice])).not.toThrow()
-      assertNoLinksOrImages(slice)
+    // Worst case: model ignored the format. assembleBlock should still return
+    // a valid Block — just with empty editorial fields, no exception thrown.
+    for (const type of BLOCK_TYPES) {
+      const block = assembleBlock(type, "lorem ipsum free-form prose, no tags")
+      expect(block.type).toBe(type)
+      expect(() => validateBlocksRichText([block])).not.toThrow()
+      assertNoLinksOrImages(block)
     }
   })
 })
@@ -264,13 +264,13 @@ A family-friendly clinic offering bilingual, same-day care across the city.
     expect(o.outline[0]?.purpose).toMatch(/value proposition/)
   })
 
-  test("drops unknown slice types silently", () => {
+  test("drops unknown block types silently", () => {
     const raw = `${OK_RESPONSE.replace(
       "- hero-agency | Set the value proposition and the primary action.",
       "- newsletter | Capture emails\n- hero-agency | Set the value proposition and the primary action."
     )}`
     const o = assembleOutline(raw)
-    // newsletter not in SLICE_TYPES -> dropped; hero-agency still present.
+    // newsletter not in BLOCK_TYPES -> dropped; hero-agency still present.
     expect(o.outline.map((r) => r.type)).toEqual(["hero-agency"])
   })
 
@@ -289,14 +289,14 @@ A family-friendly clinic offering bilingual, same-day care across the city.
     expect(() => assembleOutline(raw)).toThrow(/OUTLINE_EMPTY/)
   })
 
-  test("caps the outline at OUTLINE_MAX_SLICES", () => {
+  test("caps the outline at OUTLINE_MAX_BLOCKS", () => {
     const lines = Array.from(
       { length: 15 },
       (_, i) => `- hero-agency | row ${i}`
     ).join("\n")
     const raw = `[title]x[/title][slug]x[/slug][metaTitle]x[/metaTitle][metaDescription]x[/metaDescription][outline]\n${lines}\n[/outline]`
     const o = assembleOutline(raw)
-    expect(o.outline.length).toBe(OUTLINE_MAX_SLICES)
+    expect(o.outline.length).toBe(OUTLINE_MAX_BLOCKS)
   })
 
   test("tolerates em-dash / hyphen as the type|purpose separator", () => {

@@ -130,7 +130,7 @@ async function createPage(owner: Caller, slug: string, locales: string[]) {
     content: Object.fromEntries(
       locales.map((locale) => [
         locale,
-        { title: `${slug} ${locale}`, slices: [] },
+        { title: `${slug} ${locale}`, blocks: [] },
       ])
     ),
   })

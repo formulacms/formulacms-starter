@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { richTextToHtml } from "./render"
-import type { SliceRenderContext } from "@/lib/slices/links"
+import type { BlockRenderContext } from "@/lib/blocks/links"
 
 /**
  * Renderer guard for the link-mark contract. The upstream Link extension ships
@@ -70,7 +70,7 @@ describe("richTextToHtml — link mark rendering", () => {
   })
 
   test("pageId resolves to the current path href when ctx provides one", () => {
-    const ctx: SliceRenderContext = {
+    const ctx: BlockRenderContext = {
       locale: "fr",
       defaultLocale: "fr",
       pagePaths: { abc123: "/renamed-page" },
@@ -85,7 +85,7 @@ describe("richTextToHtml — link mark rendering", () => {
   })
 
   test("pageId with no path in ctx falls back to cached href", () => {
-    const ctx: SliceRenderContext = {
+    const ctx: BlockRenderContext = {
       locale: "fr",
       defaultLocale: "fr",
       pagePaths: {},
@@ -99,7 +99,7 @@ describe("richTextToHtml — link mark rendering", () => {
   })
 
   test("resolved href is the full localized path (prefix + ancestry)", () => {
-    const ctx: SliceRenderContext = {
+    const ctx: BlockRenderContext = {
       locale: "en",
       defaultLocale: "fr",
       pagePaths: { abc123: "/en/company/about" },

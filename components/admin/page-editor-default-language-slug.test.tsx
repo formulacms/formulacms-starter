@@ -127,8 +127,8 @@ vi.mock("./page-editor/components/settings-panel", () => ({
     />
   ),
 }))
-vi.mock("./page-editor/components/slices-panel", () => ({
-  SlicesPanel: () => null,
+vi.mock("./page-editor/components/blocks-panel", () => ({
+  BlocksPanel: () => null,
 }))
 
 vi.mock("./contributions/history", () => ({
@@ -183,7 +183,7 @@ beforeEach(() => {
   window.sessionStorage.clear()
 })
 
-type Content = Record<string, { title: string; slices: never[] }>
+type Content = Record<string, { title: string; blocks: never[] }>
 
 // A snapshot-authority page as the editor receives it: `slug` is the default
 // language's address (or the legacy base address), `localizedSlugs` the others.
@@ -248,7 +248,7 @@ function liveAddress(view: ReturnType<typeof render>): string {
   return (view.getByTestId("address") as HTMLInputElement).value
 }
 
-const frOnly: Content = { fr: { title: "À propos", slices: [] } }
+const frOnly: Content = { fr: { title: "À propos", blocks: [] } }
 
 async function saveAndReadWrites(save: HTMLElement) {
   await act(async () => {
@@ -305,7 +305,7 @@ test("the untranslated default language keeps following the title until the addr
 
 test("a page created in the current default keeps its base address", () => {
   const { view, input } = mount({
-    content: { en: { title: "About us", slices: [] } },
+    content: { en: { title: "About us", blocks: [] } },
     slug: "about-us",
     requestedLocale: "en",
   })
@@ -320,8 +320,8 @@ test("a default language that already has its own address keeps it after a defau
   mocks.defaultLocale = "en"
   const { view, input } = mount({
     content: {
-      en: { title: "About", slices: [] },
-      fr: { title: "À propos", slices: [] },
+      en: { title: "About", blocks: [] },
+      fr: { title: "À propos", blocks: [] },
     },
     slug: "company",
     localizedSlugs: { fr: "a-propos" },
@@ -334,8 +334,8 @@ test("a default language that already has its own address keeps it after a defau
 test("a non-default language with no address of its own still generates one from its title", () => {
   const { view, input } = mount({
     content: {
-      en: { title: "My products", slices: [] },
-      fr: { title: "Mes produits", slices: [] },
+      en: { title: "My products", blocks: [] },
+      fr: { title: "Mes produits", blocks: [] },
     },
     slug: "my-products",
     requestedLocale: "fr",
@@ -374,7 +374,7 @@ test("on a cold load the route's home page id already protects the home address"
 })
 
 
-const bilingual: Content = { en: { title: "English", slices: [] }, fr: { title: "French", slices: [] } }
+const bilingual: Content = { en: { title: "English", blocks: [] }, fr: { title: "French", blocks: [] } }
 
 test("A10 accepted locale update replaces only locale and ignores its own route echo", () => {
   window.history.replaceState(null, "", "/admin/pages/page-1?locale=en&keep=yes#field")
@@ -459,7 +459,7 @@ test("A13 Preview reuses a named window and detaches its opener", () => {
 })
 
 test("A9 an empty conflict array renders no stray numeric text", () => {
-  writeRecoveryDraft("page-1" as Id<"pages">, { base: null, ...{ locale: "en", savedAt: 500, title: "Recover", slug: "recover", pageType: "page", parentId: "", authorIds: [], tags: [], metaTitle: "", metaDescription: "", slices: [], seoNoIndex: false, seoNoFollow: false, seoOgTitle: "", seoOgDescription: "", seoOgImage: "", sharedFieldValues: {}, localizedFieldValues: {}, inlineConflicts: [] } })
+  writeRecoveryDraft("page-1" as Id<"pages">, { base: null, ...{ locale: "en", savedAt: 500, title: "Recover", slug: "recover", pageType: "page", parentId: "", authorIds: [], tags: [], metaTitle: "", metaDescription: "", blocks: [], seoNoIndex: false, seoNoFollow: false, seoOgTitle: "", seoOgDescription: "", seoOgImage: "", sharedFieldValues: {}, localizedFieldValues: {}, inlineConflicts: [] } })
   const { view } = mount({ content: bilingual, slug: "english", requestedLocale: "en" })
   const walker = document.createTreeWalker(view.container, NodeFilter.SHOW_TEXT)
   const zeros: Node[] = []

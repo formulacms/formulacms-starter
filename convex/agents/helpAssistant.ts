@@ -4,7 +4,7 @@
 // Sibling of convex/agents/localizer.ts and contentWriter.ts. Where those
 // *change* content, the help assistant only *explains*: it answers an editor's
 // "how do I…" question, grounded ONLY on a small curated corpus
-// (convex/lib/help/corpus.ts) plus the live slice catalog. There is no vector
+// (convex/lib/help/corpus.ts) plus the live block catalog. There is no vector
 // store, no conversation memory, and no write path to content.
 //
 // Trust shape:
@@ -174,12 +174,12 @@ async function gate(ctx: ActionCtx): Promise<HelpConfig> {
 
 /**
  * Public: answer one editor "how do I…" question, grounded on the help corpus +
- * the live slice catalog. Explains only — no content is written. `route` is the
+ * the live block catalog. Explains only — no content is written. `route` is the
  * admin screen the editor is on, used for situational phrasing.
  *
  * Writes one `aiAuditLog` row with `kind: "help-answer"` (model + token usage
- * only, never the question or the answer). `sliceCount` is 0: this action does
- * not produce slices. A failed model call still logs `success:false` then
+ * only, never the question or the answer). `blockCount` is 0: this action does
+ * not produce blocks. A failed model call still logs `success:false` then
  * rethrows.
  */
 export const answer = action({
@@ -280,7 +280,7 @@ export const answer = action({
             : {}),
           authId: cfg.authId,
           kind: "help-answer",
-          sliceCount: 0,
+          blockCount: 0,
           modelId: resolvedModelId,
           ...auditGenerationFields(toAuditGeneration(result, "help-answer")),
           tokenUsage,
@@ -313,7 +313,7 @@ export const answer = action({
             : {}),
           authId: cfg.authId,
           kind: "help-answer",
-          sliceCount: 0,
+          blockCount: 0,
           modelId: resolvedModelId,
           tokenUsage,
           success: false,

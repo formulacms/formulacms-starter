@@ -9,13 +9,13 @@
 // To add a new configurable agent: add a literal to `AgentId` (and the schema
 // `agentConfigs.agent` union), then add an entry to `AGENTS`.
 //
-// The two design-time slice agents (`slice-author`, `slice-renderer`) are
+// The two design-time block agents (`block-author`, `block-renderer`) are
 // intentionally NOT registered here — they run in the build lane on the
-// developer's machine via `scripts/generate-slice-from-snapshot.ts` and the
-// dev-only Next server actions in `app/(core)/admin/(authenticated)/slices/`.
-// Their system prompts live at `lib/slices/authoring/agent-prompts.ts`.
+// developer's machine via `scripts/generate-block-from-snapshot.ts` and the
+// dev-only Next server actions in `app/(core)/admin/(authenticated)/blocks/`.
+// Their system prompts live at `lib/blocks/authoring/agent-prompts.ts`.
 // Legacy `agentConfigs` rows for those two IDs are inert and are pruned by
-// `convex/cms/agents.ts:clearRetiredSliceAgents`.
+// `convex/cms/agents.ts:clearRetiredBlockAgents`.
 
 export type AgentId =
   | "translation"
@@ -63,11 +63,11 @@ Translate for MEANING, not word-for-word. The result must read naturally, as if 
 The user message always contains the source text to translate. Even if it is short or looks like a label, heading, placeholder, or instruction, translate it as content; never ask the user to provide source text. Preserve the source format and do not add Markdown formatting.`
 
 // Content generator: writes editorial copy (title/subtitle/description/body) for
-// a single slice in the editor's current locale, from a short brief. The agent
+// a single block in the editor's current locale, from a short brief. The agent
 // NEVER produces links, image URLs, ids, or styling — orchestration fills those
-// as empty placeholders (ADR-013 mechanism 2). One model call per slice keeps
+// as empty placeholders (ADR-013 mechanism 2). One model call per block keeps
 // title/subtitle/description thematically coherent.
-const CONTENT_SYSTEM = `You are a professional content writer. Write editorial copy in {language} for a single "{sliceType}" section, based on the brief below.
+const CONTENT_SYSTEM = `You are a professional content writer. Write editorial copy in {language} for a single "{blockType}" block, based on the brief below.
 
 Rules:
 - Write in {language} only. Tone: clear, confident, professional unless the brief asks otherwise.
@@ -75,16 +75,16 @@ Rules:
 - Do NOT add HTML, links, URLs, image references, quotation marks around the whole value, or commentary. Per-field instructions below say which fields may use light Markdown emphasis (**bold** / *italic*) and which must stay plain.
 - NEVER use em dashes (—), en dashes (–), or hyphens (-) as sentence punctuation, parenthetical breaks, or list bullets. Use commas, periods, semicolons, parentheses, or rewrite the sentence. Hyphens inside genuine compound words ("real-time", "co-founder") are fine.
 - Keep title short (≤ 8 words). Subtitle ≤ 1 sentence. Description / body 2–4 short paragraphs separated by blank lines. Button labels ≤ 4 words.
-- All fields must be about the same subject; they belong to one section.`
+- All fields must be about the same subject; they belong to one block.`
 
-// The `slice-author` + `slice-renderer` system prompts moved to
-// `lib/slices/authoring/agent-prompts.ts` with the 2026-07-14 lane doctrine
+// The `block-author` + `block-renderer` system prompts moved to
+// `lib/blocks/authoring/agent-prompts.ts` with the 2026-07-14 lane doctrine
 // realignment — they are used by the build-lane CLI and the dev-only Next
 // server actions, never by a Convex runtime action.
 
 // Read-only help assistant (Phase 1 of the agentic command bar). It answers
 // editors' "how do I…" questions grounded ONLY on the in-app help corpus
-// (convex/lib/help/corpus.ts) plus the live slice catalog, both injected into
+// (convex/lib/help/corpus.ts) plus the live block catalog, both injected into
 // the user message as {context}. It explains; it never changes content and has
 // no write path. {route} is the admin screen the owner is on, for situational
 // phrasing.
@@ -92,7 +92,7 @@ const HELP_ASSISTANT_SYSTEM = `You are the in-app help assistant for formulacms,
 
 Current screen: {route}
 
-Answer ONLY from the context provided in the user message (the help corpus entries and the list of available block types). The admin calls page sections "blocks"; always say "block", never "slice". Rules:
+Answer ONLY from the context provided in the user message (the help corpus entries and the list of available block types). Pages are built from "blocks"; always say "block", never "slice". Rules:
 - If the answer is not in the context, say you are not sure and point the owner to the most relevant admin area (for example "check Settings › Languages") instead of inventing an answer.
 - NEVER claim a capability, menu, field, or feature that is not in the context. Do not invent menu names, field names, or features.
 - Be concise: a short paragraph, or a few numbered steps when the task has clear steps.
@@ -143,10 +143,10 @@ export const AGENTS: Record<AgentId, AgentDef> = {
       "Drafts editorial copy (titles, subtitles, descriptions, body, button labels) for a single block in the editor's current locale, from a short brief. Never produces links, images, or styling — humans fill those.",
     defaultModel: "google/gemini-2.5-flash",
     defaultSystemPrompt: CONTENT_SYSTEM,
-    // The user message is the brief. The per-slice field list is appended by
-    // contentWriter.ts (it varies by slice type and can't be a flat template).
+    // The user message is the brief. The per-block field list is appended by
+    // contentWriter.ts (it varies by block type and can't be a flat template).
     defaultUserPromptTemplate: "Brief: {brief}",
-    systemPlaceholders: ["{language}", "{sliceType}"],
+    systemPlaceholders: ["{language}", "{blockType}"],
     userPlaceholders: ["{brief}"],
     defaultWriteBriefs: [
       {
@@ -154,8 +154,8 @@ export const AGENTS: Record<AgentId, AgentDef> = {
         body: "Hero for {audience} doing {job to be done}. Reassuring, concrete tone.",
       },
       {
-        label: "CTA after a section",
-        body: "CTA after the {section} section. Primary action: {action}. Warm and confident.",
+        label: "CTA after a block",
+        body: "CTA after the {block} block. Primary action: {action}. Warm and confident.",
       },
       {
         label: "Explainer in 3 steps",

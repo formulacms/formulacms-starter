@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest"
 import { api } from "./_generated/api"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import schema from "./schema"
-import { sliceProfile } from "../test-utils/slice-profile"
+import { blockProfile } from "../test-utils/block-profile"
 import {
   checkPageAddress,
   allocatePageAddress,
@@ -44,7 +44,7 @@ async function fixture() {
       slug,
       title: slug,
       parentId,
-      content: { en: { title: slug, slices: [] } },
+      content: { en: { title: slug, blocks: [] } },
     })
   const home = await create("home")
   await t.run((ctx) =>
@@ -95,7 +95,7 @@ async function fixture() {
         draft: {
           pageType: "page",
           localized: { title: extra.title ?? slug },
-          slices: [],
+          blocks: [],
         },
       },
       ...(extra.parentId || extra.clearParent
@@ -218,8 +218,8 @@ describe("review round1 address identity regressions", () => {
             slug: "parent",
             title: "Parent",
             content: {
-              en: { title: "Parent", slices: [] },
-              fr: { title: "Parent", slices: [] },
+              en: { title: "Parent", blocks: [] },
+              fr: { title: "Parent", blocks: [] },
             },
           })
         : undefined
@@ -232,7 +232,7 @@ describe("review round1 address identity regressions", () => {
             slug: input.slug,
             title: input.slug,
             parentId,
-            content: { [input.locale]: { title: input.slug, slices: [] } },
+            content: { [input.locale]: { title: input.slug, blocks: [] } },
           })
       await f.t.run(async (ctx) => {
         const cache = new Map<string, Promise<unknown>>()
@@ -302,8 +302,8 @@ describe("review round1 address identity regressions", () => {
           title: slug,
           parentId,
           content: {
-            en: { title: slug, slices: [] },
-            fr: { title: slug, slices: [] },
+            en: { title: slug, blocks: [] },
+            fr: { title: slug, blocks: [] },
           },
         })
       const p = await create("p"),
@@ -325,7 +325,7 @@ describe("review round1 address identity regressions", () => {
             locale: language,
             slug,
             expectedGeneration: state.draftGeneration,
-            draft: { pageType: "page", localized: { title: slug }, slices: [] },
+            draft: { pageType: "page", localized: { title: slug }, blocks: [] },
           },
           ...(parentId
             ? {
@@ -407,8 +407,8 @@ describe("round4 durable allocation provenance", () => {
         parentId,
         title: "Contact",
         content: {
-          en: { title: "Contact", slices: [] },
-          fr: { title: "Contact", slices: [] },
+          en: { title: "Contact", blocks: [] },
+          fr: { title: "Contact", blocks: [] },
         },
       })
     const holder = await create("contact"),
@@ -432,7 +432,7 @@ describe("round4 durable allocation provenance", () => {
       const draft = {
         pageType: "page" as const,
         localized: { title: "Contact", metaDescription: "Content-only update" },
-        slices: [],
+        blocks: [],
       }
       return writer === "locale"
         ? f.owner.mutation(api.cms.publication.saveLocaleDraft, {
@@ -757,8 +757,8 @@ describe("unique page address: transactional policies", () => {
       slug: "localized-holder",
       title: "English title",
       content: {
-        en: { title: "English title", slices: [] },
-        fr: { title: "Titre français conservé", slices: [] },
+        en: { title: "English title", blocks: [] },
+        fr: { title: "Titre français conservé", blocks: [] },
       },
     })
     await f.publish(a, "fr")
@@ -1020,8 +1020,8 @@ describe("unique page address: transactional policies", () => {
       slug: "events",
       title: "Events",
       content: {
-        en: { title: "Events", slices: [] },
-        fr: { title: "Événements", slices: [] },
+        en: { title: "Events", blocks: [] },
+        fr: { title: "Événements", blocks: [] },
       },
     })
     await f.publish(a)
@@ -1234,8 +1234,8 @@ describe("unique page address: transactional policies", () => {
       slug: "events",
       title: "Events",
       content: {
-        en: { title: "Events", slices: [] },
-        fr: { title: "Événements", slices: [] },
+        en: { title: "Events", blocks: [] },
+        fr: { title: "Événements", blocks: [] },
       },
     })
     await f.publish(a)
@@ -1263,8 +1263,8 @@ describe("unique page address: transactional policies", () => {
       slug: "agenda",
       title: "Agenda",
       content: {
-        en: { title: "Agenda", slices: [] },
-        fr: { title: "Agenda", slices: [] },
+        en: { title: "Agenda", blocks: [] },
+        fr: { title: "Agenda", blocks: [] },
       },
     })
     const op = await f.clocks(other)
@@ -1279,7 +1279,7 @@ describe("unique page address: transactional policies", () => {
         draft: {
           pageType: "page",
           localized: { title: "Agenda" },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -1311,7 +1311,7 @@ describe("unique page address: transactional policies", () => {
     'plain JSON {"page":true} and Markdown **text**',
   ])(
     "round trip preserves every word and mark: %s",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async (words) => {
       const f = await fixture(),
         a = await f.create("round-trip")
@@ -1328,7 +1328,7 @@ describe("unique page address: transactional policies", () => {
             draft: {
               pageType: "page",
               localized: { title: "Round trip" },
-              slices: [
+              blocks: [
                 {
                   id: "body-1",
                   type: "rich-text-body",
@@ -1377,9 +1377,9 @@ describe("unique page address: transactional policies", () => {
       const localized = (await f.owner.query(api.cms.pages.getForEdit, {
         id: a,
       }))!.page.content!.en!
-      if (!("slices" in localized))
-        throw new Error("Expected the page slice body")
-      const loaded = localized.slices
+      if (!("blocks" in localized))
+        throw new Error("Expected the page block body")
+      const loaded = localized.blocks
       const body = JSON.parse(
         (loaded[0] as { primary: { body: string } }).primary.body
       ) as { content: Array<{ content?: Array<{ text: string }> }> }
@@ -1526,7 +1526,7 @@ async function literalSplitFixture(locale: "en" | "fr") {
       slug: path.slice(split + 1),
       title: "Parent",
       parentId,
-      content: { [locale]: { title: "Parent", slices: [] } },
+      content: { [locale]: { title: "Parent", blocks: [] } },
     })
     await f.publish(id, locale)
     parents.set(path, id)
@@ -1540,7 +1540,7 @@ async function literalSplitFixture(locale: "en" | "fr") {
       title: "Split page",
       ...(shape.type === "author" ? { name: "Split author" } : {}),
       parentId: await parent(shape.parent),
-      content: { [locale]: { title: "Split page", slices: [] } },
+      content: { [locale]: { title: "Split page", blocks: [] } },
     })
   }
   async function save(id: Id<"pages">, shape: LiteralSplit, slug = shape.slug) {
@@ -1557,7 +1557,7 @@ async function literalSplitFixture(locale: "en" | "fr") {
         draft: {
           pageType: shape.type ?? "page",
           localized: { title: "Split page" },
-          slices: [],
+          blocks: [],
         },
       },
     })

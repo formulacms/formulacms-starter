@@ -5,8 +5,8 @@ import { useTranslations } from "next-intl";
 import { ImagePlus, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 import { MediaPicker } from "../media-picker";
 import { ImageTransformEditorDialog } from "../media-image-editor";
-import { SliceImage } from "@/components/slices/render-helpers";
-import type { ImageField } from "@/convex/lib/slices";
+import { BlockImage } from "@/components/blocks/render-helpers";
+import type { ImageField } from "@/convex/lib/blocks";
 
 const ImageFieldLocaleContext = createContext<string | undefined>(undefined);
 
@@ -82,7 +82,7 @@ export function ImageFieldEditor({
       {value?.url ? (
         <div className="flex items-start gap-3">
           <div className="relative w-28 h-20 rounded-md border overflow-hidden bg-muted shrink-0">
-            <SliceImage
+            <BlockImage
               image={value}
               className="size-full object-cover"
               frame="cover"

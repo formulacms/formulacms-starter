@@ -4,6 +4,7 @@ import {
   type ContentType,
   type DescriptorFieldMap,
 } from "@/convex/lib/contentTypes"
+import { STARTER_CONTENT_TYPES } from "@/convex/lib/contentTypes/starterSelection"
 
 /**
  * Admin-surface facade over the content-type descriptor registry (plan 028 C4).
@@ -36,7 +37,7 @@ export type AdminContentTypeField = {
 export type AdminContentTypeDetail = AdminContentType & {
   pathPrefix: string | null
   capabilities: {
-    sliceBody: boolean
+    blockBody: boolean
     revisions: boolean
     scheduling: boolean
     presence: boolean
@@ -55,45 +56,33 @@ type AdminContentTypeDictionaryKey = Extract<
 type AdminContentTypeSingularMessageKey =
   `${AdminContentTypeDictionaryKey}.singular`
 
-const ADMIN_CONTENT_TYPE_SINGULAR_MESSAGE_KEYS = {
-  author: "author.singular",
-  "landing-page": "landing-page.singular",
-  page: "page.singular",
-  post: "post.singular",
-} as const satisfies Record<
-  AdminContentTypeDictionaryKey,
-  AdminContentTypeSingularMessageKey
->
+/**
+ * Content types with reviewed admin copy: the active selection. The type
+ * annotation checks every selected type against `sidebar.contentType` in
+ * `messages/admin/en.json`, so `content-type:new` (which writes both) needs no
+ * edit here. `content-type:verify` checks the other locales, and the starter
+ * release prunes `sidebar.contentType` to the same selection.
+ */
+const TYPES_WITH_ADMIN_COPY: ReadonlySet<string> = new Set<
+  AdminContentTypeDictionaryKey
+>(STARTER_CONTENT_TYPES)
+
+function hasAdminCopy(type: string): type is AdminContentTypeDictionaryKey {
+  return TYPES_WITH_ADMIN_COPY.has(type)
+}
 
 /** Return a typed next-intl key only when that content type has reviewed copy. */
 export function adminContentTypeSingularMessageKey(
   type: string
 ): AdminContentTypeSingularMessageKey | null {
-  switch (type) {
-    case "author":
-      return ADMIN_CONTENT_TYPE_SINGULAR_MESSAGE_KEYS.author
-    case "landing-page":
-      return ADMIN_CONTENT_TYPE_SINGULAR_MESSAGE_KEYS["landing-page"]
-    case "page":
-      return ADMIN_CONTENT_TYPE_SINGULAR_MESSAGE_KEYS.page
-    case "post":
-      return ADMIN_CONTENT_TYPE_SINGULAR_MESSAGE_KEYS.post
-    default:
-      return null
-  }
+  return hasAdminCopy(type) ? `${type}.singular` : null
 }
 
 /** The plural twin of {@link adminContentTypeSingularMessageKey}. */
 export function adminContentTypePluralMessageKey(
   type: string
 ): `${AdminContentTypeDictionaryKey}.plural` | null {
-  const singular = adminContentTypeSingularMessageKey(type)
-  return singular
-    ? (singular.replace(
-        /\.singular$/,
-        ".plural"
-      ) as `${AdminContentTypeDictionaryKey}.plural`)
-    : null
+  return hasAdminCopy(type) ? `${type}.plural` : null
 }
 
 export type MenuContentTypeOptionKey =
@@ -186,10 +175,10 @@ export function adminContentTypeLocalizedFields(
 }
 
 export function adminContentTypeCapabilities(type: ContentType): {
-  sliceBody: boolean
+  blockBody: boolean
 } {
-  const { sliceBody } = contentTypeDefs[type].capabilities
-  return { sliceBody }
+  const { blockBody } = contentTypeDefs[type].capabilities
+  return { blockBody }
 }
 
 function fieldLabel(key: string): string {

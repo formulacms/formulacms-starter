@@ -1,15 +1,15 @@
 import { expectLegacyPanel as legacyPanel } from "@/test-utils/menu-panel"
 import { mergeLocale, projectLocale, withAuthoredAlt } from "@/lib/admin/menu/locale-projection"
 import type { NavItem } from "./lib/menu"
-import { createSampleSlice } from "@/convex/lib/slices/sample"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
 /// <reference types="vite/client" />
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import { expect, test, describe, vi } from "vitest"
 import { api, internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import type { FunctionArgs } from "convex/server"
-import type { Slice } from "./lib/slices"
+import type { Block } from "./lib/blocks"
 import { CONTENT_TYPES, isActiveContentType } from "./lib/contentTypes"
 import schema from "./schema"
 import actionRetrierTest from "@convex-dev/action-retrier/test"
@@ -139,7 +139,7 @@ async function insertPilotFixturePages(
           updatedAt: now,
           ...(options.status === "published" ? { publishedAt: now } : {}),
           content: {
-            en: { title: `Pilot fixture ${index}`, slices: [] },
+            en: { title: `Pilot fixture ${index}`, blocks: [] },
           },
         })
       )
@@ -190,7 +190,7 @@ async function callUpdateLocaleContent(
     pageId: Id<"pages">
     locale: string
     title: string
-    slices?: Slice[]
+    blocks?: Block[]
     slug?: string
     metaTitle?: string
     metaDescription?: string
@@ -199,7 +199,7 @@ async function callUpdateLocaleContent(
 ) {
   const stored = await asUser.query(api.cms.pages.getById, { id: args.pageId })
   if (!stored) throw new Error(`page ${args.pageId} not found`)
-  const sliceBodyPageType = stored.pageType as Exclude<
+  const blockBodyPageType = stored.pageType as Exclude<
     typeof stored.pageType,
     "testimonial"
   >
@@ -229,7 +229,7 @@ async function callUpdateLocaleContent(
     ...slugArgs,
     content: {
       [args.locale]: {
-        pageType: sliceBodyPageType,
+        pageType: blockBodyPageType,
         localized: {
           title: args.title,
           ...(args.metaTitle !== undefined
@@ -239,7 +239,7 @@ async function callUpdateLocaleContent(
             ? { metaDescription: args.metaDescription }
             : {}),
         },
-        slices: args.slices ?? [],
+        blocks: args.blocks ?? [],
       },
     },
   })
@@ -248,7 +248,7 @@ async function callUpdateLocaleContent(
 }
 
 describe("pages — slug uniqueness", () => {
-  test("two pages cannot share the same slug", sliceProfile([]), async () => {
+  test("two pages cannot share the same slug", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -271,7 +271,7 @@ describe("pages — slug uniqueness", () => {
 
   test(
     "create keeps today's address for ASCII and Latin-accented titles",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const t = pageTest()
       const asUser = t.withIdentity(TEST_USER)
@@ -297,7 +297,7 @@ describe("pages — slug uniqueness", () => {
 
   test(
     "create gives a non-Latin title a stable page-<hash> address",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const t = pageTest()
       const asUser = t.withIdentity(TEST_USER)
@@ -321,7 +321,7 @@ describe("pages — slug uniqueness", () => {
 
   test(
     "two pages with the same non-Latin title collide like two ASCII pages do",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const t = pageTest()
       const asUser = t.withIdentity(TEST_USER)
@@ -356,7 +356,7 @@ describe("pages — slug uniqueness", () => {
   // regressed: a localized slug colliding with another page, and two locales
   // on the SAME page colliding with each other (only reachable once the checks
   // share a pass).
-  test("publish rejects a localized slug that collides with another page", sliceProfile([]), async () => {
+  test("publish rejects a localized slug that collides with another page", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -370,7 +370,7 @@ describe("pages — slug uniqueness", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Mine",
-      content: { en: { title: "Mine", slices: [] } },
+      content: { en: { title: "Mine", blocks: [] } },
     })
 
     await asUser.mutation(api.cms.pages.heartbeatPageEditor, { pageId })
@@ -384,7 +384,7 @@ describe("pages — slug uniqueness", () => {
     ).rejects.toThrow("already taken")
   })
 
-  test("publish rejects two locales staging the same slug", sliceProfile([]), async () => {
+  test("publish rejects two locales staging the same slug", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -392,7 +392,7 @@ describe("pages — slug uniqueness", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Dup locales",
-      content: { en: { title: "Dup locales", slices: [] } },
+      content: { en: { title: "Dup locales", blocks: [] } },
     })
 
     await asUser.mutation(api.cms.pages.heartbeatPageEditor, { pageId })
@@ -406,7 +406,7 @@ describe("pages — slug uniqueness", () => {
     ).rejects.toThrow("already taken")
   })
 
-  test("publish accepts distinct localized slugs", sliceProfile([]), async () => {
+  test("publish accepts distinct localized slugs", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -414,7 +414,7 @@ describe("pages — slug uniqueness", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Distinct locales",
-      content: { en: { title: "Distinct locales", slices: [] } },
+      content: { en: { title: "Distinct locales", blocks: [] } },
     })
 
     await asUser.mutation(api.cms.pages.heartbeatPageEditor, { pageId })
@@ -428,7 +428,7 @@ describe("pages — slug uniqueness", () => {
     expect(published?.status).toBe("published")
   })
 
-  test("slug is auto-generated from title if not provided", sliceProfile([]), async () => {
+  test("slug is auto-generated from title if not provided", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -444,7 +444,7 @@ describe("pages — slug uniqueness", () => {
 })
 
 describe("pages — duplicate", () => {
-  test("uses the confirmed title for the default locale without flattening translations", sliceProfile([]), async () => {
+  test("uses the confirmed title for the default locale without flattening translations", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -453,8 +453,8 @@ describe("pages — duplicate", () => {
       status: "draft",
       title: "About",
       content: {
-        en: { title: "About", slices: [] },
-        fr: { title: "À propos", slices: [] },
+        en: { title: "About", blocks: [] },
+        fr: { title: "À propos", blocks: [] },
       },
     })
 
@@ -470,7 +470,7 @@ describe("pages — duplicate", () => {
     expect(duplicate?.page.content?.fr.title).toBe("À propos (Copy)")
   })
 
-  test("rejects a blank confirmed title", sliceProfile([]), async () => {
+  test("rejects a blank confirmed title", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const sourceId = await asUser.mutation(api.cms.pages.create, {
@@ -489,7 +489,7 @@ describe("pages — duplicate", () => {
 })
 
 describe("pages — homepage locale resolution", () => {
-  test("serves a published home/homepage landing page at default-locale root", sliceProfile([]), async () => {
+  test("serves a published home/homepage landing page at default-locale root", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -499,7 +499,7 @@ describe("pages — homepage locale resolution", () => {
       status: "published",
       title: "Home",
       content: {
-        en: { title: "Home", slices: [] },
+        en: { title: "Home", blocks: [] },
       },
     })
 
@@ -527,7 +527,7 @@ describe("pages — homepage locale resolution", () => {
     )
   })
 
-  test("ignores a stale configured homePageId and falls back to the published homepage", sliceProfile([]), async () => {
+  test("ignores a stale configured homePageId and falls back to the published homepage", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -537,7 +537,7 @@ describe("pages — homepage locale resolution", () => {
       status: "draft",
       title: "Old home",
       content: {
-        en: { title: "Old home", slices: [] },
+        en: { title: "Old home", blocks: [] },
       },
     })
     const homeId = await asUser.mutation(api.cms.pages.create, {
@@ -546,7 +546,7 @@ describe("pages — homepage locale resolution", () => {
       status: "published",
       title: "Home",
       content: {
-        en: { title: "Home", slices: [] },
+        en: { title: "Home", blocks: [] },
       },
     })
 
@@ -579,7 +579,7 @@ describe("pages — homepage locale resolution", () => {
     })
   })
 
-  test("serves a locale-specific home slug at the locale root", sliceProfile([]), async () => {
+  test("serves a locale-specific home slug at the locale root", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -597,8 +597,8 @@ describe("pages — homepage locale resolution", () => {
       status: "published",
       title: "Accueil",
       content: {
-        en: { title: "Accueil", slices: [] },
-        fr: { title: "Accueil", slices: [] },
+        en: { title: "Accueil", blocks: [] },
+        fr: { title: "Accueil", blocks: [] },
       },
     })
 
@@ -620,7 +620,7 @@ describe("pages — homepage locale resolution", () => {
     )
   })
 
-  test("hides default-locale Home content from an unavailable enabled locale", sliceProfile([]), async () => {
+  test("hides default-locale Home content from an unavailable enabled locale", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -629,7 +629,7 @@ describe("pages — homepage locale resolution", () => {
       pageType: "landing-page",
       status: "published",
       title: "Home",
-      content: { en: { title: "Home", slices: [] } },
+      content: { en: { title: "Home", blocks: [] } },
     })
     await t.run((ctx) =>
       ctx.db.insert("siteSettings", {
@@ -663,7 +663,7 @@ describe("pages — homepage locale resolution", () => {
 })
 
 describe("pages — public sitemap listing", () => {
-  test("legacy authority lists published pages per locale without auth and exposes only sitemap fields", sliceProfile([]), async () => {
+  test("legacy authority lists published pages per locale without auth and exposes only sitemap fields", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -673,8 +673,8 @@ describe("pages — public sitemap listing", () => {
       status: "published",
       title: "Services",
       content: {
-        en: { title: "Services", slices: [] },
-        fr: { title: "Services FR", slices: [] },
+        en: { title: "Services", blocks: [] },
+        fr: { title: "Services FR", blocks: [] },
       },
     })
     await asUser.mutation(api.cms.pages.create, {
@@ -683,7 +683,7 @@ describe("pages — public sitemap listing", () => {
       status: "draft",
       title: "Draft",
       content: {
-        en: { title: "Draft", slices: [] },
+        en: { title: "Draft", blocks: [] },
       },
     })
     const deletedId = await asUser.mutation(api.cms.pages.create, {
@@ -692,7 +692,7 @@ describe("pages — public sitemap listing", () => {
       status: "published",
       title: "Deleted",
       content: {
-        en: { title: "Deleted", slices: [] },
+        en: { title: "Deleted", blocks: [] },
       },
     })
     await t.run((ctx) => ctx.db.patch("pages", deletedId, { deletedAt: Date.now() }))
@@ -740,7 +740,7 @@ describe("pages — public sitemap listing", () => {
 })
 
 describe("pages — bounded pilot envelope", () => {
-  test("signals the 80% capacity warning before the 499-page maximum", sliceProfile([]), async () => {
+  test("signals the 80% capacity warning before the 499-page maximum", blockProfile([]), async () => {
     const t = pageTest()
     await insertPilotFixturePages(t, {
       start: 0,
@@ -775,7 +775,7 @@ describe("pages — bounded pilot envelope", () => {
     })
   })
 
-  test("reports the exact 500-row sentinel without exposing catalog counts", sliceProfile([]), async () => {
+  test("reports the exact 500-row sentinel without exposing catalog counts", blockProfile([]), async () => {
     const t = pageTest()
     await insertPilotFixturePages(t, {
       start: 0,
@@ -809,7 +809,7 @@ describe("pages — bounded pilot envelope", () => {
     })
   })
 
-  test("ordinary creation cannot make a bounded read reach 500 rows", sliceProfile([]), async () => {
+  test("ordinary creation cannot make a bounded read reach 500 rows", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     await insertPilotFixturePages(t, {
@@ -836,7 +836,7 @@ describe("pages — bounded pilot envelope", () => {
     ).rejects.toThrow(/Bounded pilot envelope reached.*499 pages/)
   })
 
-  test("ordinary promotion refuses a legacy tree that already reaches the sentinel", sliceProfile([]), async () => {
+  test("ordinary promotion refuses a legacy tree that already reaches the sentinel", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     await insertPilotFixturePages(t, {
@@ -855,7 +855,7 @@ describe("pages — bounded pilot envelope", () => {
         pageType: "page",
         createdBy: TEST_USER.subject,
         updatedAt: Date.now(),
-        content: { en: { title: "Legacy draft", slices: [] } },
+        content: { en: { title: "Legacy draft", blocks: [] } },
       })
     })
 
@@ -864,14 +864,14 @@ describe("pages — bounded pilot envelope", () => {
     ).rejects.toThrow(/Bounded pilot envelope reached.*499 pages/)
   })
 
-  test("hard deletion releases the transactionally reserved page slot", sliceProfile([]), async () => {
+  test("hard deletion releases the transactionally reserved page slot", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const pageId = await asUser.mutation(api.cms.pages.create, {
       pageType: "page",
       status: "published",
       title: "Disposable pilot page",
-      content: { en: { title: "Disposable pilot page", slices: [] } },
+      content: { en: { title: "Disposable pilot page", blocks: [] } },
     })
 
     await asUser.mutation(api.cms.pages.remove, { id: pageId })
@@ -886,7 +886,7 @@ describe("pages — bounded pilot envelope", () => {
 })
 
 describe("pages — public read boundaries", () => {
-  test("anonymous raw page reads stay private while the public reader admits only live rows", sliceProfile([]), async () => {
+  test("anonymous raw page reads stay private while the public reader admits only live rows", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -895,28 +895,28 @@ describe("pages — public read boundaries", () => {
       pageType: "page",
       status: "published",
       title: "Public page",
-      content: { en: { title: "Public page", slices: [] } },
+      content: { en: { title: "Public page", blocks: [] } },
     })
     const draftId = await asUser.mutation(api.cms.pages.create, {
       slug: "private-draft",
       pageType: "page",
       status: "draft",
       title: "Private Draft",
-      content: { en: { title: "Private Draft", slices: [] } },
+      content: { en: { title: "Private Draft", blocks: [] } },
     })
     const archivedId = await asUser.mutation(api.cms.pages.create, {
       slug: "private-archived",
       pageType: "page",
       status: "archived",
       title: "Private Archived",
-      content: { en: { title: "Private Archived", slices: [] } },
+      content: { en: { title: "Private Archived", blocks: [] } },
     })
     const deletedId = await asUser.mutation(api.cms.pages.create, {
       slug: "private-deleted",
       pageType: "page",
       status: "published",
       title: "Private Deleted",
-      content: { en: { title: "Private Deleted", slices: [] } },
+      content: { en: { title: "Private Deleted", blocks: [] } },
     })
     await t.run((ctx) => ctx.db.patch("pages", deletedId, { deletedAt: Date.now() }))
 
@@ -972,7 +972,7 @@ describe("pages — public read boundaries", () => {
     ).resolves.toMatchObject({ status: "draft" })
   })
 
-  test("public page projection is exact, locale-strict, and excludes private system fields", sliceProfile([]), async () => {
+  test("public page projection is exact, locale-strict, and excludes private system fields", blockProfile([]), async () => {
     const t = pageTest()
     const pageId = await t.run(async (ctx) => {
       const now = Date.now()
@@ -1002,13 +1002,13 @@ describe("pages — public read boundaries", () => {
             title: "Public English title",
             metaTitle: "Public English meta",
             metaDescription: "Public English description",
-            slices: [],
+            blocks: [],
           },
           fr: {
             title: "French title must not cross an English response",
             metaTitle: "French secret meta",
             metaDescription: "French secret description",
-            slices: [],
+            blocks: [],
           },
         },
       })
@@ -1029,7 +1029,7 @@ describe("pages — public read boundaries", () => {
           title: "Public English title",
           metaTitle: "Public English meta",
           metaDescription: "Public English description",
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -1055,7 +1055,7 @@ describe("pages — public read boundaries", () => {
     ).resolves.toBeNull()
   })
 
-  test("anonymous callers cannot opt into draft route resolution", sliceProfile([]), async () => {
+  test("anonymous callers cannot opt into draft route resolution", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1064,7 +1064,7 @@ describe("pages — public read boundaries", () => {
       pageType: "page",
       status: "draft",
       title: "Draft Route",
-      content: { en: { title: "Draft Route", slices: [] } },
+      content: { en: { title: "Draft Route", blocks: [] } },
     })
 
     await expect(
@@ -1085,7 +1085,7 @@ describe("pages — public read boundaries", () => {
     ).resolves.toBeNull()
   })
 
-  test("public route resolution requires requested-locale content while preview may fall back", sliceProfile([]), async () => {
+  test("public route resolution requires requested-locale content while preview may fall back", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1101,7 +1101,7 @@ describe("pages — public read boundaries", () => {
       slug: "english-only",
       pageType: "page",
       status: "published",
-      content: { en: { title: "English only", slices: [] } },
+      content: { en: { title: "English only", blocks: [] } },
     })
 
     await expect(
@@ -1134,7 +1134,7 @@ describe("pages — public read boundaries", () => {
     ).resolves.toBeNull()
   })
 
-  test("public route resolution hides content for a disabled locale", sliceProfile([]), async () => {
+  test("public route resolution hides content for a disabled locale", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1143,8 +1143,8 @@ describe("pages — public read boundaries", () => {
       pageType: "page",
       status: "published",
       content: {
-        en: { title: "English", slices: [] },
-        fr: { title: "Français", slices: [] },
+        en: { title: "English", blocks: [] },
+        fr: { title: "Français", blocks: [] },
       },
     })
 
@@ -1171,7 +1171,7 @@ describe("pages — public read boundaries", () => {
     ).resolves.toBeNull()
   })
 
-  test("anonymous helper reads keep raw documents private and expose only public route metadata", sliceProfile([]), async () => {
+  test("anonymous helper reads keep raw documents private and expose only public route metadata", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1180,28 +1180,28 @@ describe("pages — public read boundaries", () => {
       pageType: "page",
       status: "published",
       title: "Published Helper",
-      content: { en: { title: "Published Helper", slices: [] } },
+      content: { en: { title: "Published Helper", blocks: [] } },
     })
     const draftId = await asUser.mutation(api.cms.pages.create, {
       slug: "draft-helper",
       pageType: "page",
       status: "draft",
       title: "Draft Helper",
-      content: { en: { title: "Draft Helper", slices: [] } },
+      content: { en: { title: "Draft Helper", blocks: [] } },
     })
     const archivedId = await asUser.mutation(api.cms.pages.create, {
       slug: "archived-helper",
       pageType: "page",
       status: "archived",
       title: "Archived Helper",
-      content: { en: { title: "Archived Helper", slices: [] } },
+      content: { en: { title: "Archived Helper", blocks: [] } },
     })
     const deletedId = await asUser.mutation(api.cms.pages.create, {
       slug: "deleted-helper",
       pageType: "page",
       status: "published",
       title: "Deleted Helper",
-      content: { en: { title: "Deleted Helper", slices: [] } },
+      content: { en: { title: "Deleted Helper", blocks: [] } },
     })
     await t.run((ctx) => ctx.db.patch("pages", deletedId, { deletedAt: Date.now() }))
 
@@ -1257,7 +1257,7 @@ describe("pages — public read boundaries", () => {
     ).resolves.toEqual([])
   })
 
-  test("authorized helper reads can access draft pages", sliceProfile([]), async () => {
+  test("authorized helper reads can access draft pages", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1266,7 +1266,7 @@ describe("pages — public read boundaries", () => {
       pageType: "page",
       status: "draft",
       title: "Authorized Draft Helper",
-      content: { en: { title: "Authorized Draft Helper", slices: [] } },
+      content: { en: { title: "Authorized Draft Helper", blocks: [] } },
     })
 
     await expect(
@@ -1288,7 +1288,7 @@ describe("pages — public read boundaries", () => {
     expect(paths).toEqual({ [draftId]: "/authorized-draft-helper" })
   })
 
-  test("anonymous callers cannot probe slug availability", sliceProfile([]), async () => {
+  test("anonymous callers cannot probe slug availability", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1311,7 +1311,7 @@ describe("pages — public read boundaries", () => {
 })
 
 describe("pages — soft delete", () => {
-  test("soft-deleted pages do not appear in list", sliceProfile([]), async () => {
+  test("soft-deleted pages do not appear in list", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1329,7 +1329,7 @@ describe("pages — soft delete", () => {
     expect(pages.find((p) => p._id === id)).toBeUndefined()
   })
 
-  test("non-archived pages cannot be moved to trash", sliceProfile([]), async () => {
+  test("non-archived pages cannot be moved to trash", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1344,7 +1344,7 @@ describe("pages — soft delete", () => {
     ).rejects.toThrow(/archived/i)
   })
 
-  test("soft-deleted pages can be restored", sliceProfile([]), async () => {
+  test("soft-deleted pages can be restored", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1364,7 +1364,7 @@ describe("pages — soft delete", () => {
 })
 
 describe("pages — permanent delete impact", () => {
-  test("remove blocks a trashed page with a child page", sliceProfile([]), async () => {
+  test("remove blocks a trashed page with a child page", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1395,7 +1395,7 @@ describe("pages — permanent delete impact", () => {
     expect(page).toBeDefined()
   })
 
-  test("remove deletes redirects pointing to a trashed page", sliceProfile([]), async () => {
+  test("remove deletes redirects pointing to a trashed page", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1427,7 +1427,7 @@ describe("pages — permanent delete impact", () => {
     ).toBeUndefined()
   })
 
-  test("remove blocks a live menu reference and succeeds after the link is removed", sliceProfile([]), async () => {
+  test("remove blocks a live menu reference and succeeds after the link is removed", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1484,7 +1484,7 @@ describe("pages — permanent delete impact", () => {
     expect(await asUser.query(api.cms.pages.getById, { id: pageId })).toBeNull()
   })
 
-  test("remove succeeds after the referencing menu is soft-deleted", sliceProfile([]), async () => {
+  test("remove succeeds after the referencing menu is soft-deleted", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1535,7 +1535,7 @@ describe("pages — permanent delete impact", () => {
     ).resolves.toBeNull()
   })
 
-  test("deleteImpact reports children, redirects, and menu slugs", sliceProfile([]), async () => {
+  test("deleteImpact reports children, redirects, and menu slugs", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1579,7 +1579,7 @@ describe("pages — permanent delete impact", () => {
           label: { en: "Panel" },
           panel: {
             columns: 1,
-            blocks: [
+            sections: [
               {
                 id: "links",
                 kind: "linkGroup",
@@ -1612,7 +1612,7 @@ describe("pages — permanent delete impact", () => {
   // exists and deletes none, so the targeting rule is created while enabled,
   // the refused disable is proven, and the retained row is then re-seeded
   // after the owner removes it and disables.
-  test("deleteImpact and remove still count and delete targeting redirects while Redirects is disabled", sliceProfile([]), async () => {
+  test("deleteImpact and remove still count and delete targeting redirects while Redirects is disabled", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1682,7 +1682,7 @@ describe("pages — permanent delete impact", () => {
     expect(await targeting()).toEqual([])
   })
 
-  test("deleteImpact is empty for an unreferenced page", sliceProfile([]), async () => {
+  test("deleteImpact is empty for an unreferenced page", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1703,7 +1703,7 @@ describe("pages — permanent delete impact", () => {
 })
 
 describe("pages — hierarchy", () => {
-  test("child page gets ancestry path from parent", sliceProfile([]), async () => {
+  test("child page gets ancestry path from parent", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1727,7 +1727,7 @@ describe("pages — hierarchy", () => {
     expect(child?.hierarchyDepth).toBe(1)
   })
 
-  test("hierarchy depth is capped at 10 levels", sliceProfile([]), async () => {
+  test("hierarchy depth is capped at 10 levels", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1754,7 +1754,7 @@ describe("pages — hierarchy", () => {
 })
 
 describe("pages — relation cards", () => {
-  test("projects published pages and hides drafts unless preview is enabled", sliceProfile(["hero-agency"]), async () => {
+  test("projects published pages and hides drafts unless preview is enabled", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -1767,7 +1767,7 @@ describe("pages — relation cards", () => {
       content: {
         en: {
           title: "Published Post",
-          slices: [createSampleSlice("hero-agency")],
+          blocks: [createSampleBlock("hero-agency")],
         },
       },
     })
@@ -1805,7 +1805,7 @@ describe("pages — relation cards", () => {
     expect(previewCards[draftId]?.title).toBe("Draft Post")
   })
 
-  test("public relation cards respect active selection and descriptor exposure fields", sliceProfile([]), async () => {
+  test("public relation cards respect active selection and descriptor exposure fields", blockProfile([]), async () => {
     const t = pageTest()
     const testimonialId = await t.run(async (ctx) => {
       const now = Date.now()
@@ -1862,7 +1862,7 @@ describe("pages — relation cards", () => {
     ).resolves.toEqual({ [testimonialId]: null })
   })
 
-  test("recent public relation cards are bounded, newest-first, and locale-strict", sliceProfile([]), async () => {
+  test("recent public relation cards are bounded, newest-first, and locale-strict", blockProfile([]), async () => {
     const t = pageTest()
     await t.run(async (ctx) => {
       await ctx.db.insert("siteSettings", {
@@ -1887,8 +1887,8 @@ describe("pages — relation cards", () => {
           featured: false,
           promoteToFront: false,
           content: {
-            en: { title: page.en, slices: [] },
-            ...(page.fr ? { fr: { title: page.fr, slices: [] } } : {}),
+            en: { title: page.en, blocks: [] },
+            ...(page.fr ? { fr: { title: page.fr, blocks: [] } } : {}),
           },
         })
       }
@@ -1942,7 +1942,7 @@ describe("pages — localized ancestry", () => {
     return asUser
   }
 
-  test("create populates a child's per-locale ancestry from its parent", sliceProfile([]), async () => {
+  test("create populates a child's per-locale ancestry from its parent", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = await siteWithFr(t)
 
@@ -1966,7 +1966,7 @@ describe("pages — localized ancestry", () => {
     expect(child?.localizedAncestryPaths?.fr).toBe("/my-products")
   })
 
-  test("changing a parent's FR slug cascades to descendant localizedAncestryPaths", sliceProfile([]), async () => {
+  test("changing a parent's FR slug cascades to descendant localizedAncestryPaths", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = await siteWithFr(t)
 
@@ -2014,7 +2014,7 @@ describe("pages — localized ancestry", () => {
 })
 
 describe("pages — pre-publish checklist", () => {
-  test("reports blockers and warnings with stable codes", sliceProfile([]), async () => {
+  test("reports blockers and warnings with stable codes", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2022,7 +2022,7 @@ describe("pages — pre-publish checklist", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Untitled draft",
-      content: { en: { title: "", slices: [] } },
+      content: { en: { title: "", blocks: [] } },
     })
 
     const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
@@ -2040,7 +2040,7 @@ describe("pages — pre-publish checklist", () => {
     ])
   })
 
-  test("checks the unpublished working draft of a published page", sliceProfile(["hero-agency"]), async () => {
+  test("checks the unpublished working draft of a published page", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2051,7 +2051,7 @@ describe("pages — pre-publish checklist", () => {
       content: {
         en: {
           title: "Published title",
-          slices: [
+          blocks: [
             {
               id: "hero-1",
               type: "hero-agency",
@@ -2078,7 +2078,7 @@ describe("pages — pre-publish checklist", () => {
         en: {
           pageType: "landing-page",
           localized: { title: "" },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -2098,7 +2098,7 @@ describe("pages — pre-publish checklist", () => {
     })
   })
 
-  test("warns when default locale has no content sections", sliceProfile([]), async () => {
+  test("warns when default locale has no content sections", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2106,7 +2106,7 @@ describe("pages — pre-publish checklist", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Title only",
-      content: { en: { title: "Title only", slices: [] } },
+      content: { en: { title: "Title only", blocks: [] } },
     })
 
     const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
@@ -2119,7 +2119,7 @@ describe("pages — pre-publish checklist", () => {
     )
   })
 
-  test("does not warn when default locale has content sections", sliceProfile(["hero-agency"]), async () => {
+  test("does not warn when default locale has content sections", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2130,7 +2130,7 @@ describe("pages — pre-publish checklist", () => {
       content: {
         en: {
           title: "With content",
-          slices: [
+          blocks: [
             {
               id: "hero-1",
               type: "hero-agency",
@@ -2156,7 +2156,7 @@ describe("pages — pre-publish checklist", () => {
     )
   })
 
-  test("warns when enabled locale content is missing", sliceProfile([]), async () => {
+  test("warns when enabled locale content is missing", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2172,7 +2172,7 @@ describe("pages — pre-publish checklist", () => {
       pageType: "landing-page",
       status: "draft",
       title: "English only",
-      content: { en: { title: "English only", slices: [] } },
+      content: { en: { title: "English only", blocks: [] } },
     })
 
     const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
@@ -2184,18 +2184,18 @@ describe("pages — pre-publish checklist", () => {
     )
   })
 
-  test("blocks publish when enabled slices have missing required fields", sliceProfile(["hero-agency"]), async () => {
+  test("blocks publish when enabled blocks have missing required fields", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
     const pageId = await asUser.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
-      title: "Incomplete slice",
+      title: "Incomplete block",
       content: {
         en: {
-          title: "Incomplete slice",
-          slices: [
+          title: "Incomplete block",
+          blocks: [
             {
               id: "hero-1",
               type: "hero-agency",
@@ -2218,11 +2218,11 @@ describe("pages — pre-publish checklist", () => {
 
     expect(checklist.canPublish).toBe(false)
     expect(checklist.blockers.map((item) => item.code)).toContain(
-      "missing_required_slice_field"
+      "missing_required_block_field"
     )
   })
 
-  test("blocks publish when a real slice image has no alt text", sliceProfile(["hero-with-image"]), async () => {
+  test("blocks publish when a real block image has no alt text", blockProfile(["hero-with-image"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2233,7 +2233,7 @@ describe("pages — pre-publish checklist", () => {
       content: {
         en: {
           title: "Image without alt",
-          slices: [
+          blocks: [
             {
               id: "hero-1",
               type: "hero-with-image",
@@ -2262,7 +2262,7 @@ describe("pages — pre-publish checklist", () => {
     )
   })
 
-  test("blocks publish when slices link to unavailable pages", sliceProfile(["hero-agency"]), async () => {
+  test("blocks publish when blocks link to unavailable pages", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2278,7 +2278,7 @@ describe("pages — pre-publish checklist", () => {
       content: {
         en: {
           title: "Linked page",
-          slices: [
+          blocks: [
             {
               id: "hero-1",
               type: "hero-agency",
@@ -2312,7 +2312,7 @@ describe("pages — pre-publish checklist", () => {
     )
   })
 
-  test("warnings do not block publish", sliceProfile([]), async () => {
+  test("warnings do not block publish", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2320,7 +2320,7 @@ describe("pages — pre-publish checklist", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Publishable",
-      content: { en: { title: "Publishable", slices: [] } },
+      content: { en: { title: "Publishable", blocks: [] } },
     })
     // ADR-0041 Deploy 2 PR B item 3 — `create({status:"draft"})` seeds
     // staging; use `pages.publish` (promotes the seeded staging) instead
@@ -2332,7 +2332,7 @@ describe("pages — pre-publish checklist", () => {
     )
   })
 
-  test("hard blockers prevent immediate publish", sliceProfile([]), async () => {
+  test("hard blockers prevent immediate publish", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2340,7 +2340,7 @@ describe("pages — pre-publish checklist", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Untitled draft",
-      content: { en: { title: "", slices: [] } },
+      content: { en: { title: "", blocks: [] } },
     })
 
     // ADR-0041 Deploy 2 PR B item 3 — publish via `pages.publish`;
@@ -2354,7 +2354,7 @@ describe("pages — pre-publish checklist", () => {
     ).resolves.toMatchObject({ status: "draft" })
   })
 
-  test("scheduled publish rechecks blockers before going live", sliceProfile([]), async () => {
+  test("scheduled publish rechecks blockers before going live", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const now = Date.now()
@@ -2363,7 +2363,7 @@ describe("pages — pre-publish checklist", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Scheduled",
-      content: { en: { title: "Scheduled", slices: [] } },
+      content: { en: { title: "Scheduled", blocks: [] } },
     })
     await scheduleViaDraft(asUser, pageId, now - 1_000)
     // Stage an empty-title content edit — the cron's publish call must
@@ -2380,7 +2380,7 @@ describe("pages — pre-publish checklist", () => {
         en: {
           pageType: "landing-page",
           localized: { title: "" },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -2406,7 +2406,7 @@ describe("pages — pre-publish checklist", () => {
     expect(stagedAfter).toBeNull()
   })
 
-  test("requiresBodyContent (post): empty slices is a blocker, not a warning", sliceProfile([]), async () => {
+  test("requiresBodyContent (post): empty blocks is a blocker, not a warning", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2415,7 +2415,7 @@ describe("pages — pre-publish checklist", () => {
       status: "draft",
       title: "Empty post",
       content: {
-        en: { title: "Empty post", slices: [] },
+        en: { title: "Empty post", blocks: [] },
       },
     })
 
@@ -2438,7 +2438,7 @@ describe("pages — pre-publish checklist", () => {
     )
   })
 
-  test("requiresBodyContent (post): disabled-only slices still trip the blocker", sliceProfile(["hero-agency"]), async () => {
+  test("requiresBodyContent (post): disabled-only blocks still trip the blocker", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2449,7 +2449,7 @@ describe("pages — pre-publish checklist", () => {
       content: {
         en: {
           title: "Disabled-only post",
-          slices: [
+          blocks: [
             {
               id: "hero-1",
               type: "hero-agency",
@@ -2476,7 +2476,7 @@ describe("pages — pre-publish checklist", () => {
     expect(bodyBlocker).toBeDefined()
   })
 
-  test("requiresBodyContent (post): one enabled slice clears the blocker", sliceProfile(["hero-agency"]), async () => {
+  test("requiresBodyContent (post): one enabled block clears the blocker", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2487,7 +2487,7 @@ describe("pages — pre-publish checklist", () => {
       content: {
         en: {
           title: "Filled post",
-          slices: [
+          blocks: [
             {
               id: "hero-1",
               type: "hero-agency",
@@ -2514,7 +2514,7 @@ describe("pages — pre-publish checklist", () => {
     expect(bodyBlocker).toBeUndefined()
   })
 
-  test("requiresBodyContent (landing-page): empty slices stays a warning", sliceProfile([]), async () => {
+  test("requiresBodyContent (landing-page): empty blocks stays a warning", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2523,7 +2523,7 @@ describe("pages — pre-publish checklist", () => {
       status: "draft",
       title: "Empty landing",
       content: {
-        en: { title: "Empty landing", slices: [] },
+        en: { title: "Empty landing", blocks: [] },
       },
     })
 
@@ -2544,7 +2544,7 @@ describe("pages — pre-publish checklist", () => {
 })
 
 describe("pages — revisions and restore", () => {
-  test("saving content creates a recoverable previous revision", sliceProfile([]), async () => {
+  test("saving content creates a recoverable previous revision", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2558,7 +2558,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "published",
       title: "Original",
-      content: { en: { title: "Original", slices: [] } },
+      content: { en: { title: "Original", blocks: [] } },
     })
     const page = await asUser.query(api.cms.pages.getById, { id: pageId })
 
@@ -2566,7 +2566,7 @@ describe("pages — revisions and restore", () => {
       pageId,
       locale: "en",
       title: "Changed",
-      slices: [],
+      blocks: [],
       expectedUpdatedAt: page?.updatedAt,
     })
 
@@ -2581,7 +2581,7 @@ describe("pages — revisions and restore", () => {
     expect(revisions[0].metadata.summary).toContain("Title changed in EN")
   })
 
-  test("publishing snapshots the previous draft state", sliceProfile([]), async () => {
+  test("publishing snapshots the previous draft state", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2589,7 +2589,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Draft",
-      content: { en: { title: "Draft", slices: [] } },
+      content: { en: { title: "Draft", blocks: [] } },
     })
 
     // ADR-0041 Deploy 2 PR B item 3 — `create` seeded staging; publish
@@ -2618,7 +2618,7 @@ describe("pages — revisions and restore", () => {
   // `siteSettings` and can scan up to ~20 full page documents looking for a
   // default homepage. The guard is what keeps a doing-nothing tick at ~2
   // index reads instead of ~100 KB.
-  test("an idle tick returns without doing any work", sliceProfile([]), async () => {
+  test("an idle tick returns without doing any work", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -2627,7 +2627,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Not scheduled",
-      content: { en: { title: "Not scheduled", slices: [] } },
+      content: { en: { title: "Not scheduled", blocks: [] } },
     })
 
     await expect(
@@ -2635,7 +2635,7 @@ describe("pages — revisions and restore", () => {
     ).resolves.toEqual({ published: 0, expired: 0, hasMore: false })
   })
 
-  test("scheduled publish flips due drafts and records a revision", sliceProfile([]), async () => {
+  test("scheduled publish flips due drafts and records a revision", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const now = Date.now()
@@ -2644,7 +2644,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Scheduled Draft",
-      content: { en: { title: "Scheduled Draft", slices: [] } },
+      content: { en: { title: "Scheduled Draft", blocks: [] } },
     })
     await scheduleViaDraft(asUser, pageId, now - 1_000)
 
@@ -2681,7 +2681,7 @@ describe("pages — revisions and restore", () => {
     ])
   })
 
-  test("scheduled transitions make bounded progress on large due pages", sliceProfile([]), async () => {
+  test("scheduled transitions make bounded progress on large due pages", blockProfile([]), async () => {
     const t = convexTest({
       schema,
       modules,
@@ -2697,7 +2697,7 @@ describe("pages — revisions and restore", () => {
         status: "draft",
         title: `Scheduled large page ${index}`,
         content: {
-          en: { title: `Scheduled large page ${index}`, slices: [] },
+          en: { title: `Scheduled large page ${index}`, blocks: [] },
         },
       })
       await scheduleViaDraft(asUser, id, Date.now() - 1_000)
@@ -2728,7 +2728,7 @@ describe("pages — revisions and restore", () => {
   // create, update, publish, or the scheduled-transition cron. The retrier is
   // registered so a regression fails on these delivery rows, not on a
   // missing component.
-  test("legacy writers stop emitting page webhooks", sliceProfile([]), async () => {
+  test("legacy writers stop emitting page webhooks", blockProfile([]), async () => {
     const t = pageTest()
     actionRetrierTest.register(t)
     const asUser = t.withIdentity(TEST_USER)
@@ -2755,7 +2755,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "published",
       title: "Published on create",
-      content: { en: { title: "Published on create", slices: [] } },
+      content: { en: { title: "Published on create", blocks: [] } },
     })
     eventsAfter.create = await deliveredEvents()
 
@@ -2769,7 +2769,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Published by publish",
-      content: { en: { title: "Published by publish", slices: [] } },
+      content: { en: { title: "Published by publish", blocks: [] } },
     })
     await asUser.mutation(api.cms.pages.publish, { pageId: draftId })
     eventsAfter.publish = await deliveredEvents()
@@ -2778,14 +2778,14 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Published by schedule",
-      content: { en: { title: "Published by schedule", slices: [] } },
+      content: { en: { title: "Published by schedule", blocks: [] } },
     })
     await scheduleViaDraft(asUser, scheduledId, Date.now() - 1_000)
     const expiringId = await asUser.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "published",
       title: "Archived by expiry",
-      content: { en: { title: "Archived by expiry", slices: [] } },
+      content: { en: { title: "Archived by expiry", blocks: [] } },
     })
     await asUser.mutation(api.cms.pages.update, {
       id: expiringId,
@@ -2805,7 +2805,7 @@ describe("pages — revisions and restore", () => {
     })
   })
 
-  test("scheduled transition continuation drains the due backlog", sliceProfile([]), async () => {
+  test("scheduled transition continuation drains the due backlog", blockProfile([]), async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-12T21:00:00Z"))
     try {
@@ -2824,7 +2824,7 @@ describe("pages — revisions and restore", () => {
           status: "draft",
           title: `Scheduled continuation page ${index}`,
           content: {
-            en: { title: `Scheduled continuation page ${index}`, slices: [] },
+            en: { title: `Scheduled continuation page ${index}`, blocks: [] },
           },
         })
         await scheduleViaDraft(asUser, id, Date.now() - 1_000)
@@ -2847,7 +2847,7 @@ describe("pages — revisions and restore", () => {
     }
   })
 
-  test("scheduled expiry archives due published pages and records a revision", sliceProfile([]), async () => {
+  test("scheduled expiry archives due published pages and records a revision", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const now = Date.now()
@@ -2856,7 +2856,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "published",
       title: "Expiring Page",
-      content: { en: { title: "Expiring Page", slices: [] } },
+      content: { en: { title: "Expiring Page", blocks: [] } },
     })
     const page = await asUser.query(api.cms.pages.getById, { id: pageId })
     await asUser.mutation(api.cms.pages.update, {
@@ -2876,7 +2876,7 @@ describe("pages — revisions and restore", () => {
     expect(revisions[0].status).toBe("published")
   })
 
-  test("scheduled transitions ignore future publish and expiry times", sliceProfile([]), async () => {
+  test("scheduled transitions ignore future publish and expiry times", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const future = Date.now() + 60_000
@@ -2885,7 +2885,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Future Draft",
-      content: { en: { title: "Future Draft", slices: [] } },
+      content: { en: { title: "Future Draft", blocks: [] } },
     })
     await scheduleViaDraft(asUser, draftId, future)
 
@@ -2893,7 +2893,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "published",
       title: "Future Expiry",
-      content: { en: { title: "Future Expiry", slices: [] } },
+      content: { en: { title: "Future Expiry", blocks: [] } },
     })
     const published = await asUser.query(api.cms.pages.getById, {
       id: publishedId,
@@ -2920,7 +2920,7 @@ describe("pages — revisions and restore", () => {
     expect(result).toMatchObject({ published: 0, expired: 0 })
   })
 
-  test("scheduled transitions clear staged scheduledAt on non-draft pages (cron runaway guard)", sliceProfile([]), async () => {
+  test("scheduled transitions clear staged scheduledAt on non-draft pages (cron runaway guard)", blockProfile([]), async () => {
     // ADR-0041 Deploy 2 PR B — `pageStaging.by_scheduledAt` has no status
     // filter (the old `by_status_and_scheduledAt` on `pages` did). Any
     // matched staging row on a non-draft page (published, archived, or
@@ -2939,7 +2939,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "published",
       title: "Published",
-      content: { en: { title: "Published", slices: [] } },
+      content: { en: { title: "Published", blocks: [] } },
     })
     await t.run(async (ctx) => {
       await ctx.db.insert("pageStaging", {
@@ -2977,7 +2977,7 @@ describe("pages — revisions and restore", () => {
     // single row we prove the batch drained by seeing the cleared field.
   })
 
-  test("stale updates are rejected", sliceProfile([]), async () => {
+  test("stale updates are rejected", blockProfile([]), async () => {
     // ADR-0041 Deploy 3 (Narrow): the OCC token now gates against
     // `pageStaging.updatedAt` (via `assertStagingFresh`), not the live
     // `pages.updatedAt`. The rejection path is exercised by holding
@@ -2989,7 +2989,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Draft",
-      content: { en: { title: "Draft", slices: [] } },
+      content: { en: { title: "Draft", blocks: [] } },
     })
     // Draft create seeds staging; capture the seeded staging updatedAt
     // as the "opened-at" token — this is what an editor session would
@@ -3011,7 +3011,7 @@ describe("pages — revisions and restore", () => {
         en: {
           pageType: "landing-page",
           localized: { title: "Newer save" },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -3026,14 +3026,14 @@ describe("pages — revisions and restore", () => {
           en: {
             pageType: "landing-page",
             localized: { title: "Stale save" },
-            slices: [],
+            blocks: [],
           },
         },
       })
     ).rejects.toThrow(/took over editing/i)
   })
 
-  test("page updates persist updatedAt for stale-save checks", sliceProfile([]), async () => {
+  test("page updates persist updatedAt for stale-save checks", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -3041,7 +3041,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Draft",
-      content: { en: { title: "Draft", slices: [] } },
+      content: { en: { title: "Draft", blocks: [] } },
     })
     const opened = await asUser.query(api.cms.pages.getById, { id: pageId })
     await new Promise((resolve) => setTimeout(resolve, 2))
@@ -3063,7 +3063,7 @@ describe("pages — revisions and restore", () => {
     ).rejects.toThrow(/changed since you opened it/i)
   })
 
-  test("revision history retains only the newest fifty snapshots", sliceProfile([]), async () => {
+  test("revision history retains only the newest fifty snapshots", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -3071,7 +3071,7 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "draft",
       title: "Draft 0",
-      content: { en: { title: "Draft 0", slices: [] } },
+      content: { en: { title: "Draft 0", blocks: [] } },
     })
 
     for (let i = 1; i <= 55; i++) {
@@ -3080,7 +3080,7 @@ describe("pages — revisions and restore", () => {
         pageId,
         locale: "en",
         title: `Draft ${i}`,
-        slices: [],
+        blocks: [],
         expectedUpdatedAt: page?.updatedAt,
       })
     }
@@ -3091,7 +3091,7 @@ describe("pages — revisions and restore", () => {
     expect(revisions.at(-1)?.revisionNumber).toBe(6)
   })
 
-  test("hard page delete cascades its pageRevisions (no orphans)", sliceProfile([]), async () => {
+  test("hard page delete cascades its pageRevisions (no orphans)", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -3099,14 +3099,14 @@ describe("pages — revisions and restore", () => {
       pageType: "landing-page",
       status: "published",
       title: "First",
-      content: { en: { title: "First", slices: [] } },
+      content: { en: { title: "First", blocks: [] } },
     })
     const first = await asUser.query(api.cms.pages.getById, { id: pageId })
     await callUpdateLocaleContent(asUser, {
       pageId,
       locale: "en",
       title: "Second",
-      slices: [],
+      blocks: [],
       expectedUpdatedAt: first?.updatedAt,
     })
 
@@ -3135,7 +3135,7 @@ describe("pages — revisions and restore", () => {
 })
 
 describe("pages — owner presence and locks", () => {
-  test("heartbeat refreshes one row per user", sliceProfile([]), async () => {
+  test("heartbeat refreshes one row per user", blockProfile([]), async () => {
     const t = pageTest()
     const asOwner = t.withIdentity(TEST_USER)
 
@@ -3156,7 +3156,7 @@ describe("pages — owner presence and locks", () => {
     expect(editors[0].email).toBeUndefined()
   })
 
-  test("active editors expire quickly by heartbeat age", sliceProfile([]), async () => {
+  test("active editors expire quickly by heartbeat age", blockProfile([]), async () => {
     const t = pageTest()
     const asOwner = t.withIdentity(TEST_USER)
 
@@ -3179,7 +3179,7 @@ describe("pages — owner presence and locks", () => {
     expect(expired).toEqual([])
   })
 
-  test("leaving the editor removes the user's presence", sliceProfile([]), async () => {
+  test("leaving the editor removes the user's presence", blockProfile([]), async () => {
     const t = pageTest()
     const asOwner = t.withIdentity(TEST_USER)
 
@@ -3198,10 +3198,10 @@ describe("pages — owner presence and locks", () => {
   })
 
   // The editor beats ONE mutation, not two. Each beat reads the whole page
-  // document to permission-check, and `pages` rows carry every slice body for
+  // document to permission-check, and `pages` rows carry every block body for
   // every locale — so merging halves the database I/O of an open editor tab,
   // which is the tightest Convex free-plan limit.
-  test("one heartbeat establishes both presence and the lock", sliceProfile([]), async () => {
+  test("one heartbeat establishes both presence and the lock", blockProfile([]), async () => {
     const t = pageTest()
     const asOwner = t.withIdentity(TEST_USER)
 
@@ -3228,7 +3228,7 @@ describe("pages — owner presence and locks", () => {
     ).resolves.toMatchObject({ status: "locked", isMine: true })
   })
 
-  test("soft lock can be acquired and refreshed by the owner", sliceProfile([]), async () => {
+  test("soft lock can be acquired and refreshed by the owner", blockProfile([]), async () => {
     const t = pageTest()
     const asOwner = t.withIdentity(TEST_USER)
 
@@ -3260,7 +3260,7 @@ describe("pages — owner presence and locks", () => {
     expect(lock.lock?.email).toBeUndefined()
   })
 
-  test("soft lock expires by last active time", sliceProfile([]), async () => {
+  test("soft lock expires by last active time", blockProfile([]), async () => {
     const t = pageTest()
     const asOwner = t.withIdentity(TEST_USER)
 
@@ -3283,7 +3283,7 @@ describe("pages — owner presence and locks", () => {
     ).toEqual({ status: "available", lock: null, isMine: false })
   })
 
-  test("releasing a soft lock clears only the owner lock", sliceProfile([]), async () => {
+  test("releasing a soft lock clears only the owner lock", blockProfile([]), async () => {
     const t = pageTest()
     const asOwner = t.withIdentity(TEST_USER)
 
@@ -3411,7 +3411,7 @@ describe.skip("pages — multi-editor presence", () => {
 })
 
 describe("redirects — resolution", () => {
-  test("redirect is resolved before page lookup", sliceProfile([]), async () => {
+  test("redirect is resolved before page lookup", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -3431,7 +3431,7 @@ describe("redirects — resolution", () => {
     expect(redirect?.statusCode).toBe(301)
   })
 
-  test("returns null for unknown paths", sliceProfile([]), async () => {
+  test("returns null for unknown paths", blockProfile([]), async () => {
     const t = pageTest()
     await enableRedirectsForTest(t.withIdentity(TEST_USER))
 
@@ -3445,7 +3445,7 @@ describe("redirects — resolution", () => {
 })
 
 describe("locale URLs — honor configured default locale", () => {
-  test("default locale is unprefixed, other locales are prefixed", sliceProfile([]), async () => {
+  test("default locale is unprefixed, other locales are prefixed", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -3481,7 +3481,7 @@ describe("locale URLs — honor configured default locale", () => {
     expect(urls.en).toBe("/en/about")
   })
 
-  test("a sole non-English locale resolves and stays unprefixed", sliceProfile([]), async () => {
+  test("a sole non-English locale resolves and stays unprefixed", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -3497,7 +3497,7 @@ describe("locale URLs — honor configured default locale", () => {
       slug: "a-propos",
       pageType: "page",
       status: "published",
-      content: { fr: { title: "À propos", slices: [] } },
+      content: { fr: { title: "À propos", blocks: [] } },
       defaultLocale: "fr",
     })
 
@@ -3524,7 +3524,7 @@ describe("locale URLs — honor configured default locale", () => {
   })
 })
 
-function legacyIdentityHeroSlice(id: string, title: string): Slice {
+function legacyIdentityHeroBlock(id: string, title: string): Block {
   return {
     id,
     type: "hero-agency",
@@ -3534,22 +3534,22 @@ function legacyIdentityHeroSlice(id: string, title: string): Slice {
   }
 }
 
-function identityHeroSlice(id: string, title: string): Slice {
-  const raw = legacyIdentityHeroSlice(id, title)
+function identityHeroBlock(id: string, title: string): Block {
+  const raw = legacyIdentityHeroBlock(id, title)
   return {
     ...raw,
     primary: { ...raw.primary, description: canonicalBody("Copy") },
-  } as Slice
+  } as Block
 }
 
-const INVALID_SLICE_IDENTITY_ERROR =
+const INVALID_BLOCK_IDENTITY_ERROR =
   "Each block on a page must have its own non-empty ID. Refresh the editor and save again."
 
-describe("pages — sibling Slice identity", () => {
-  test("allows the same Slice ID in independent locale lists", sliceProfile(["hero-agency"]), async () => {
+describe("pages — sibling Block identity", () => {
+  test("allows the same Block ID in independent locale lists", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
-    const localizedSlice = identityHeroSlice("locale-local", "Localized")
+    const localizedBlock = identityHeroBlock("locale-local", "Localized")
 
     await expect(
       asUser.mutation(api.cms.pages.create, {
@@ -3557,41 +3557,41 @@ describe("pages — sibling Slice identity", () => {
         status: "draft",
         title: "Localized identity",
         content: {
-          en: { title: "English", slices: [localizedSlice] },
-          fr: { title: "Français", slices: [localizedSlice] },
+          en: { title: "English", blocks: [localizedBlock] },
+          fr: { title: "Français", blocks: [localizedBlock] },
         },
       })
     ).resolves.toEqual(expect.any(String))
   })
 
-  test("rejects duplicate sibling Slice IDs on create", sliceProfile(["hero-agency"]), async () => {
+  test("rejects duplicate sibling Block IDs on create", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
-    const duplicateSlice = identityHeroSlice("duplicate-slice", "Duplicate")
+    const duplicateBlock = identityHeroBlock("duplicate-block", "Duplicate")
 
     await expect(
       asUser.mutation(api.cms.pages.create, {
         pageType: "landing-page",
         status: "draft",
-        title: "Duplicate slices",
+        title: "Duplicate blocks",
         content: {
           en: {
-            title: "Duplicate slices",
-            slices: [duplicateSlice, duplicateSlice],
+            title: "Duplicate blocks",
+            blocks: [duplicateBlock, duplicateBlock],
           },
         },
       })
-    ).rejects.toThrow(INVALID_SLICE_IDENTITY_ERROR)
+    ).rejects.toThrow(INVALID_BLOCK_IDENTITY_ERROR)
   })
 
-  test("rejects empty sibling Slice IDs on the live editor save path", sliceProfile([]), async () => {
+  test("rejects empty sibling Block IDs on the live editor save path", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const pageId = await asUser.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
       title: "Editor identity",
-      content: { en: { title: "Editor identity", slices: [] } },
+      content: { en: { title: "Editor identity", blocks: [] } },
     })
     await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
       pageId,
@@ -3605,23 +3605,23 @@ describe("pages — sibling Slice identity", () => {
           en: {
             pageType: "landing-page",
             localized: { title: "Editor identity" },
-            slices: [identityHeroSlice("   ", "Editor identity")],
+            blocks: [identityHeroBlock("   ", "Editor identity")],
           },
         },
       })
-    ).rejects.toThrow(INVALID_SLICE_IDENTITY_ERROR)
+    ).rejects.toThrow(INVALID_BLOCK_IDENTITY_ERROR)
   })
 
-  test("rejects duplicate sibling Slice IDs on the legacy update path", sliceProfile([]), async () => {
+  test("rejects duplicate sibling Block IDs on the legacy update path", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const pageId = await asUser.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
       title: "Legacy identity",
-      content: { en: { title: "Legacy identity", slices: [] } },
+      content: { en: { title: "Legacy identity", blocks: [] } },
     })
-    const duplicateSlice = identityHeroSlice(
+    const duplicateBlock = identityHeroBlock(
       "legacy-duplicate",
       "Legacy identity"
     )
@@ -3632,32 +3632,32 @@ describe("pages — sibling Slice identity", () => {
         content: {
           en: {
             title: "Legacy identity",
-            slices: [duplicateSlice, duplicateSlice],
+            blocks: [duplicateBlock, duplicateBlock],
           },
         },
       })
-    ).rejects.toThrow(INVALID_SLICE_IDENTITY_ERROR)
+    ).rejects.toThrow(INVALID_BLOCK_IDENTITY_ERROR)
   })
 
-  test("repairs legacy staging IDs before interactive publish", sliceProfile(["hero-agency"]), async () => {
+  test("repairs legacy staging IDs before interactive publish", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const pageId = await asUser.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
       title: "Publish identity",
-      content: { en: { title: "Publish identity", slices: [] } },
+      content: { en: { title: "Publish identity", blocks: [] } },
     })
-    const duplicateSlice = legacyIdentityHeroSlice(
+    const duplicateBlock = legacyIdentityHeroBlock(
       "staged-duplicate",
       "Publish identity"
     )
     const legacyRows = [
-      duplicateSlice,
+      duplicateBlock,
       {
-        ...duplicateSlice,
+        ...duplicateBlock,
         primary: {
-          ...duplicateSlice.primary,
+          ...duplicateBlock.primary,
           description: JSON.stringify({
             type: "doc",
             content: [
@@ -3677,10 +3677,10 @@ describe("pages — sibling Slice identity", () => {
         },
       },
       {
-        ...duplicateSlice,
+        ...duplicateBlock,
         id: "",
         primary: {
-          ...duplicateSlice.primary,
+          ...duplicateBlock.primary,
           description: JSON.stringify({
             type: "doc",
             content: [
@@ -3699,7 +3699,7 @@ describe("pages — sibling Slice identity", () => {
           }),
         },
       },
-    ] as Slice[]
+    ] as Block[]
     const sourceBytes = JSON.stringify(legacyRows)
     await t.run(async (ctx) => {
       const staging = await ctx.db
@@ -3711,7 +3711,7 @@ describe("pages — sibling Slice identity", () => {
         content: {
           en: {
             title: "Publish identity",
-            slices: legacyRows,
+            blocks: legacyRows,
           },
         },
       })
@@ -3723,13 +3723,13 @@ describe("pages — sibling Slice identity", () => {
     if (published?.pageType !== "landing-page") {
       throw new Error("Expected a published landing page")
     }
-    const ids = published.content?.en.slices.map((slice) => slice.id) ?? []
+    const ids = published.content?.en.blocks.map((block) => block.id) ?? []
     expect(ids[0]).toBe("staged-duplicate")
     expect(ids[1]).toEqual(expect.any(String))
     expect(new Set(ids).size).toBe(ids.length)
     expect(ids).toHaveLength(3)
     expect(
-      published.content?.en.slices.map(
+      published.content?.en.blocks.map(
         (row) => (row.primary as { description: string }).description
       )
     ).toEqual(
@@ -3740,25 +3740,25 @@ describe("pages — sibling Slice identity", () => {
     expect(JSON.stringify(legacyRows)).toBe(sourceBytes)
   })
 
-  test("repairs legacy live IDs when publishing unrelated staged fields", sliceProfile(["hero-agency"]), async () => {
+  test("repairs legacy live IDs when publishing unrelated staged fields", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const pageId = await asUser.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
       title: "Legacy live identity",
-      content: { en: { title: "Legacy live identity", slices: [] } },
+      content: { en: { title: "Legacy live identity", blocks: [] } },
     })
-    const duplicateSlice = legacyIdentityHeroSlice(
+    const duplicateBlock = legacyIdentityHeroBlock(
       "live-duplicate",
       "Legacy live identity"
     )
     const legacyRows = [
-      duplicateSlice,
+      duplicateBlock,
       {
-        ...duplicateSlice,
+        ...duplicateBlock,
         primary: {
-          ...duplicateSlice.primary,
+          ...duplicateBlock.primary,
           description: JSON.stringify({
             type: "doc",
             content: [
@@ -3778,10 +3778,10 @@ describe("pages — sibling Slice identity", () => {
         },
       },
       {
-        ...duplicateSlice,
+        ...duplicateBlock,
         id: "",
         primary: {
-          ...duplicateSlice.primary,
+          ...duplicateBlock.primary,
           description: JSON.stringify({
             type: "doc",
             content: [
@@ -3800,14 +3800,14 @@ describe("pages — sibling Slice identity", () => {
           }),
         },
       },
-    ] as Slice[]
+    ] as Block[]
     const sourceBytes = JSON.stringify(legacyRows)
     await t.run(async (ctx) => {
       await ctx.db.patch("pages", pageId, {
         content: {
           en: {
             title: "Legacy live identity",
-            slices: legacyRows,
+            blocks: legacyRows,
           },
         },
       })
@@ -3828,13 +3828,13 @@ describe("pages — sibling Slice identity", () => {
     if (published?.pageType !== "landing-page") {
       throw new Error("Expected a published landing page")
     }
-    const ids = published.content?.en.slices.map((slice) => slice.id) ?? []
+    const ids = published.content?.en.blocks.map((block) => block.id) ?? []
     expect(ids[0]).toBe("live-duplicate")
     expect(ids[1]).toEqual(expect.any(String))
     expect(new Set(ids).size).toBe(ids.length)
     expect(ids).toHaveLength(3)
     expect(
-      published.content?.en.slices.map(
+      published.content?.en.blocks.map(
         (row) => (row.primary as { description: string }).description
       )
     ).toEqual(
@@ -3845,25 +3845,25 @@ describe("pages — sibling Slice identity", () => {
     expect(JSON.stringify(legacyRows)).toBe(sourceBytes)
   })
 
-  test("repairs legacy staging IDs before scheduled publish", sliceProfile(["hero-agency"]), async () => {
+  test("repairs legacy staging IDs before scheduled publish", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const pageId = await asUser.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
       title: "Scheduled identity",
-      content: { en: { title: "Scheduled identity", slices: [] } },
+      content: { en: { title: "Scheduled identity", blocks: [] } },
     })
-    const duplicateSlice = legacyIdentityHeroSlice(
+    const duplicateBlock = legacyIdentityHeroBlock(
       "scheduled-duplicate",
       "Scheduled identity"
     )
     const legacyRows = [
-      duplicateSlice,
+      duplicateBlock,
       {
-        ...duplicateSlice,
+        ...duplicateBlock,
         primary: {
-          ...duplicateSlice.primary,
+          ...duplicateBlock.primary,
           description: JSON.stringify({
             type: "doc",
             content: [
@@ -3883,10 +3883,10 @@ describe("pages — sibling Slice identity", () => {
         },
       },
       {
-        ...duplicateSlice,
+        ...duplicateBlock,
         id: "",
         primary: {
-          ...duplicateSlice.primary,
+          ...duplicateBlock.primary,
           description: JSON.stringify({
             type: "doc",
             content: [
@@ -3905,7 +3905,7 @@ describe("pages — sibling Slice identity", () => {
           }),
         },
       },
-    ] as Slice[]
+    ] as Block[]
     const sourceBytes = JSON.stringify(legacyRows)
     await t.run(async (ctx) => {
       const staging = await ctx.db
@@ -3918,7 +3918,7 @@ describe("pages — sibling Slice identity", () => {
         content: {
           en: {
             title: "Scheduled identity",
-            slices: legacyRows,
+            blocks: legacyRows,
           },
         },
       })
@@ -3933,13 +3933,13 @@ describe("pages — sibling Slice identity", () => {
     if (published?.pageType !== "landing-page") {
       throw new Error("Expected a published landing page")
     }
-    const ids = published.content?.en.slices.map((slice) => slice.id) ?? []
+    const ids = published.content?.en.blocks.map((block) => block.id) ?? []
     expect(ids[0]).toBe("scheduled-duplicate")
     expect(ids[1]).toEqual(expect.any(String))
     expect(new Set(ids).size).toBe(ids.length)
     expect(ids).toHaveLength(3)
     expect(
-      published.content?.en.slices.map(
+      published.content?.en.blocks.map(
         (row) => (row.primary as { description: string }).description
       )
     ).toEqual(
@@ -3967,7 +3967,7 @@ describe("pages — rich-text write-path gate", () => {
     items: [],
   })
 
-  test("accepts an inline-profile document", sliceProfile(["hero-agency"]), async () => {
+  test("accepts an inline-profile document", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -3978,7 +3978,7 @@ describe("pages — rich-text write-path gate", () => {
       content: {
         en: {
           title: "Valid",
-          slices: [
+          blocks: [
             heroAgency({
               type: "doc",
               content: [
@@ -3992,7 +3992,7 @@ describe("pages — rich-text write-path gate", () => {
     expect(id).toBeDefined()
   })
 
-  test("rejects a slice with a node disallowed by the inline profile", sliceProfile([]), async () => {
+  test("rejects a block with a node disallowed by the inline profile", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -4004,7 +4004,7 @@ describe("pages — rich-text write-path gate", () => {
         content: {
           en: {
             title: "Bad",
-            slices: [
+            blocks: [
               heroAgency({
                 type: "doc",
                 content: [
@@ -4031,7 +4031,7 @@ describe("pages — rich-text write-path gate", () => {
     ).rejects.toThrow("Invalid rich-text content")
   })
 
-  test("refuses raw authored HTML and saves parent-prepared historical content", sliceProfile(["hero-agency"]), async () => {
+  test("refuses raw authored HTML and saves parent-prepared historical content", blockProfile(["hero-agency"]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const raw = heroAgency("<p>old content</p>")
@@ -4039,7 +4039,7 @@ describe("pages — rich-text write-path gate", () => {
       pageType: "landing-page" as const,
       status: "draft" as const,
       title: "Legacy",
-      content: { en: { title: "Legacy", slices: [raw] } },
+      content: { en: { title: "Legacy", blocks: [raw] } },
     }
     const before = await t.run((ctx) => ctx.db.query("pages").collect())
     await expect(
@@ -4050,7 +4050,7 @@ describe("pages — rich-text write-path gate", () => {
     )
     const pageId = await asUser.mutation(api.cms.pages.create, {
       ...authored,
-      content: { en: { title: "Legacy", slices: [] } },
+      content: { en: { title: "Legacy", blocks: [] } },
     })
     // Historical bytes enter through the documented mock DB boundary, never create.
     await t.run(async (ctx) => {
@@ -4067,7 +4067,7 @@ describe("pages — rich-text write-path gate", () => {
       await import("../lib/rich-text/adopt-hero-titles")
     if (opened?.page.pageType !== "landing-page")
       throw new Error("Expected a landing page")
-    const prepared = adoptHeroTitles(opened.page.content!.en.slices, "en")
+    const prepared = adoptHeroTitles(opened.page.content!.en.blocks, "en")
     await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
       pageId,
       force: true,
@@ -4078,7 +4078,7 @@ describe("pages — rich-text write-path gate", () => {
         en: {
           pageType: "landing-page",
           localized: { title: "Legacy" },
-          slices: prepared.value,
+          blocks: prepared.value,
         },
       },
     })
@@ -4087,7 +4087,7 @@ describe("pages — rich-text write-path gate", () => {
     })
     if (saved?.page.pageType !== "landing-page")
       throw new Error("Expected a landing page")
-    expect(saved.page.content!.en.slices[0].primary).toMatchObject({
+    expect(saved.page.content!.en.blocks[0].primary).toMatchObject({
       description: canonicalBody("old content"),
     })
     expect(raw.primary.description).toBe("<p>old content</p>")
@@ -4103,7 +4103,7 @@ describe("pages — rich-text write-path gate", () => {
  * (ADR-0037 §4). These tests turn that browser gate into a deterministic one.
  */
 describe("pages — getPublicByline (C7)", () => {
-  test("published author with locale roleTitle → {name, roleTitle, avatarUrl}", sliceProfile([]), async () => {
+  test("published author with locale roleTitle → {name, roleTitle, avatarUrl}", blockProfile([]), async () => {
     const t = pageTest()
     const authorId = await t.run(async (ctx) => {
       const now = Date.now()
@@ -4116,12 +4116,12 @@ describe("pages — getPublicByline (C7)", () => {
           en: {
             title: "Jean Dupont",
             roleTitle: "Senior Editor",
-            slices: [],
+            blocks: [],
           },
           fr: {
             title: "Jean Dupont",
             roleTitle: "Rédacteur en chef",
-            slices: [],
+            blocks: [],
           },
         },
         createdAt: now,
@@ -4140,7 +4140,7 @@ describe("pages — getPublicByline (C7)", () => {
     })
   })
 
-  test("[locale] roleTitle missing stays absent instead of borrowing another locale", sliceProfile([]), async () => {
+  test("[locale] roleTitle missing stays absent instead of borrowing another locale", blockProfile([]), async () => {
     const t = pageTest()
     await t.run(async (ctx) => {
       await ctx.db.insert("siteSettings", {
@@ -4162,9 +4162,9 @@ describe("pages — getPublicByline (C7)", () => {
           fr: {
             title: "Jean Dupont",
             roleTitle: "Rédacteur en chef",
-            slices: [],
+            blocks: [],
           },
-          de: { title: "Jean Dupont", slices: [] },
+          de: { title: "Jean Dupont", blocks: [] },
         },
         createdAt: now,
         updatedAt: now,
@@ -4180,7 +4180,7 @@ describe("pages — getPublicByline (C7)", () => {
     expect(result?.avatarUrl).toBeNull()
   })
 
-  test("draft author → null (no draft leaks through a published post's byline)", sliceProfile([]), async () => {
+  test("draft author → null (no draft leaks through a published post's byline)", blockProfile([]), async () => {
     const t = pageTest()
     const authorId = await t.run(async (ctx) => {
       const now = Date.now()
@@ -4189,7 +4189,7 @@ describe("pages — getPublicByline (C7)", () => {
         pageType: "author",
         status: "draft",
         name: "Draft Author",
-        content: { en: { title: "Draft Author", slices: [] } },
+        content: { en: { title: "Draft Author", blocks: [] } },
         createdAt: now,
         updatedAt: now,
       })
@@ -4202,7 +4202,7 @@ describe("pages — getPublicByline (C7)", () => {
     expect(result).toBeNull()
   })
 
-  test("soft-deleted author → null", sliceProfile([]), async () => {
+  test("soft-deleted author → null", blockProfile([]), async () => {
     const t = pageTest()
     const authorId = await t.run(async (ctx) => {
       const now = Date.now()
@@ -4211,7 +4211,7 @@ describe("pages — getPublicByline (C7)", () => {
         pageType: "author",
         status: "published",
         name: "Trashed Author",
-        content: { en: { title: "Trashed Author", slices: [] } },
+        content: { en: { title: "Trashed Author", blocks: [] } },
         deletedAt: now,
         createdAt: now,
         updatedAt: now,
@@ -4225,7 +4225,7 @@ describe("pages — getPublicByline (C7)", () => {
     expect(result).toBeNull()
   })
 
-  test("non-author target → null", sliceProfile([]), async () => {
+  test("non-author target → null", blockProfile([]), async () => {
     const t = pageTest()
     const postId = await t.run(async (ctx) => {
       const now = Date.now()
@@ -4233,7 +4233,7 @@ describe("pages — getPublicByline (C7)", () => {
         slug: "not-an-author",
         pageType: "post",
         status: "published",
-        content: { en: { title: "Not An Author", slices: [] } },
+        content: { en: { title: "Not An Author", blocks: [] } },
         featured: false,
         promoteToFront: false,
         createdAt: now,
@@ -4250,14 +4250,14 @@ describe("pages — getPublicByline (C7)", () => {
 })
 
 describe("pages — updateDraft descriptor-shaped save (C8)", () => {
-  test("rejects a cross-arm draft (draft.pageType !== stored)", sliceProfile([]), async () => {
+  test("rejects a cross-arm draft (draft.pageType !== stored)", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const pageId = await asUser.mutation(api.cms.pages.create, {
       pageType: "page",
       status: "draft",
       title: "Regular page",
-      content: { en: { title: "Regular page", slices: [] } },
+      content: { en: { title: "Regular page", blocks: [] } },
     })
     const opened = await asUser.query(api.cms.pages.getById, { id: pageId })
     // Acquire lock BEFORE probing the cross-arm guard — `updateDraft`
@@ -4279,18 +4279,18 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
           en: {
             pageType: "post",
             localized: { title: "Wrong arm" },
-            slices: [],
+            blocks: [],
           },
         },
       })
     ).rejects.toThrow(/Cannot save post content on a page/)
   })
 
-  test("clearing an optional localized field round-trips (author roleTitle: '' → omitted from stored bag)", sliceProfile([]), async () => {
+  test("clearing an optional localized field round-trips (author roleTitle: '' → omitted from stored bag)", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     // `pages.create`'s `localizedContentInput` validator only accepts
-    // title/meta/slices today; descriptor fields (roleTitle/bio) can only
+    // title/meta/blocks today; descriptor fields (roleTitle/bio) can only
     // be set via `pages.updateDraft` (C8) until C10 widens `create`.
     const authorId = await createTestAuthor(t, asUser, {
       status: "draft",
@@ -4318,7 +4318,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
             title: "Ada Lovelace",
             roleTitle: "Mathematician",
           },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -4345,7 +4345,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
             title: "Ada Lovelace",
             roleTitle: "",
           },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -4360,7 +4360,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
     ).toBeUndefined()
   })
 
-  test("persists a non-empty descriptor localized field (author roleTitle sets, reloads)", sliceProfile([]), async () => {
+  test("persists a non-empty descriptor localized field (author roleTitle sets, reloads)", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const authorId = await createTestAuthor(t, asUser, {
@@ -4386,7 +4386,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
             title: "Grace Hopper",
             roleTitle: "Rear Admiral",
           },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -4400,11 +4400,11 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
       }
     ).content?.en
     expect(en?.roleTitle).toBe("Rear Admiral")
-    // Plan 029 C10 task 6: `bio` deleted per ADR-0038 §Slices-as-body —
-    // formatted intros are now a `rich-text-body` slice on the canvas.
+    // Plan 029 C10 task 6: `bio` deleted per ADR-0038 §Blocks-as-body —
+    // formatted intros are now a `rich-text-body` block on the canvas.
   })
 
-  test("author name / socials round-trip through pages.update (C8 shared-field save wiring)", sliceProfile([]), async () => {
+  test("author name / socials round-trip through pages.update (C8 shared-field save wiring)", blockProfile([]), async () => {
     // Discriminating check for the advisor-flagged data-loss risk: the
     // generic Content panel edits `sharedFieldValues` which must reach
     // `pages.update`. If the wiring is missing, the toast says "Saved" but
@@ -4443,7 +4443,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
     ])
   })
 
-  test("post category round-trips through pages.update", sliceProfile([]), async () => {
+  test("post category round-trips through pages.update", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const postId = await asUser.mutation(api.cms.pages.create, {
@@ -4462,7 +4462,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
     expect((reloaded as { category?: string })?.category).toBe("engineering")
   })
 
-  test("null on pages.update clears optional descriptor sharedFields (category, socials)", sliceProfile([]), async () => {
+  test("null on pages.update clears optional descriptor sharedFields (category, socials)", blockProfile([]), async () => {
     // Plan 029 C9a — the "cleared shared field is a no-op" C8 follow-up.
     // Convex serializes `undefined` args as omitted, so the generic panel's
     // spread of `{ ...changedSharedFields, id }` with a cleared key never
@@ -4506,7 +4506,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
     expect((author as { socials?: unknown[] }).socials).toBeUndefined()
   })
 
-  test("post byline add-then-clear-then-add lifecycle keeps documentReferences honest", sliceProfile([]), async () => {
+  test("post byline add-then-clear-then-add lifecycle keeps documentReferences honest", blockProfile([]), async () => {
     // Plan 029 C9a — the references refresh coverage test. authorId is
     // the only live descriptor `relation()` today; each save should
     // emit exactly one shared-field row while the byline is set and
@@ -4575,7 +4575,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
     expect(afterReadd[0].targetId).toBe(author2)
   })
 
-  test("checklist blocks publish on empty required descriptor shared field (author.name)", sliceProfile([]), async () => {
+  test("checklist blocks publish on empty required descriptor shared field (author.name)", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const authorId = await createTestAuthor(t, asUser, {
@@ -4601,7 +4601,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
     expect(nameBlocker?.locales).toBeUndefined()
   })
 
-  test("scheduling a publish with a draft byline is caught by the scheduled-publish cron (intent='publish' fires)", sliceProfile(["hero-agency"]), async () => {
+  test("scheduling a publish with a draft byline is caught by the scheduled-publish cron (intent='publish' fires)", blockProfile(["hero-agency"]), async () => {
     // Plan 029 C9a — advisor-flagged scheduled-publish bug. The v1 gate
     // read `page.status === "published"` which is always false when
     // scheduling a draft AND when `processScheduledTransitions` fires
@@ -4632,7 +4632,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
       content: {
         en: {
           title: "Scheduled post",
-          slices: [
+          blocks: [
             {
               id: "hero-1",
               type: "hero-agency",
@@ -4671,10 +4671,10 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
     expect(after?.status).toBe("draft")
   })
 
-  test("descriptor byline relation blocker uses descriptor-aware wording, not slice-worded", sliceProfile(["hero-agency"]), async () => {
+  test("descriptor byline relation blocker uses descriptor-aware wording, not block-worded", blockProfile(["hero-agency"]), async () => {
     // Plan 029 C9a — advisor-flagged post-C9a bug: descriptor byline
-    // relations were feeding through the slice walk's shared referenced-
-    // page loop, so a draft-author byline emitted "A slice references …"
+    // relations were feeding through the block walk's shared referenced-
+    // page loop, so a draft-author byline emitted "A block references …"
     // Fixed by running descriptor relations through their own loop with
     // descriptor wording + field/locales metadata + publish-state gate.
     const t = pageTest()
@@ -4696,7 +4696,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
       content: {
         en: {
           title: "Live post",
-          slices: [
+          blocks: [
             {
               id: "hero-1",
               type: "hero-agency",
@@ -4714,7 +4714,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
     })
     // Attempt to publish → the owner-facing refusal should identify the
     // unpublished related page without exposing the internal field name or
-    // calling it "a slice".
+    // calling it "a block".
     // ADR-0041 Deploy 3 (Narrow): publish is `pages.publish` exclusively,
     // and it requires a staging row (assertPrePublishAllowed runs after
     // the staging load). Seed staging via updateDraft so publish reaches
@@ -4729,7 +4729,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
         en: {
           pageType: "post",
           localized: { title: "Live post" },
-          slices: [
+          blocks: [
             {
               id: "hero-1",
               type: "hero-agency",
@@ -4749,8 +4749,8 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
       asUser.mutation(api.cms.pages.publish, { pageId: postId })
     ).rejects.toThrow(/isn't published/i)
     // The checklist itself should surface the descriptor-wording blocker
-    // with `field` metadata rather than the anonymous slice message.
-    // Also confirm we did not double-fire the slice-worded variant.
+    // with `field` metadata rather than the anonymous block message.
+    // Also confirm we did not double-fire the block-worded variant.
     const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
       pageId: postId,
     })
@@ -4767,10 +4767,10 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
       severity: "blocker",
       field: "authorIds[0]",
     })
-    expect(bylineBlockers[0]?.message).not.toContain("A slice")
+    expect(bylineBlockers[0]?.message).not.toContain("A block")
   })
 
-  test("saves the localized bag independently per locale (≥3 locales, no leakage)", sliceProfile([]), async () => {
+  test("saves the localized bag independently per locale (≥3 locales, no leakage)", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     await asUser.mutation(api.cms.settings.completeOnboarding, {
@@ -4808,7 +4808,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
               title: `Author (${locale})`,
               roleTitle: `role-${locale}`,
             },
-            slices: [],
+            blocks: [],
           },
         },
       })
@@ -4837,7 +4837,7 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
  * field absent restore safely.
  */
 describe("pages — post.promoteToFront sticky auto-unset (C10 task 10)", () => {
-  test("updating a second post to sticky demotes the first", sliceProfile([]), async () => {
+  test("updating a second post to sticky demotes the first", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -4872,7 +4872,7 @@ describe("pages — post.promoteToFront sticky auto-unset (C10 task 10)", () => 
     expect((afterB as { promoteToFront?: boolean }).promoteToFront).toBe(true)
   })
 
-  test("creating a sticky post demotes an existing sticky post", sliceProfile([]), async () => {
+  test("creating a sticky post demotes an existing sticky post", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -4901,7 +4901,7 @@ describe("pages — post.promoteToFront sticky auto-unset (C10 task 10)", () => 
     expect((newRow as { promoteToFront?: boolean }).promoteToFront).toBe(true)
   })
 
-  test("clearing sticky on the current post does not demote anyone else", sliceProfile([]), async () => {
+  test("clearing sticky on the current post does not demote anyone else", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
 
@@ -4932,7 +4932,7 @@ describe("pages — testimonial pure-form editor (C10 task 13)", () => {
       const asUser = t.withIdentity(TEST_USER)
       // `pages.create` widens to accept testimonial (task 13 fix). Title
       // seeds `personName` on the row; content bag carries `{title, quote:
-      // ""}` per locale — no `slices` field on the pure-form arm.
+      // ""}` per locale — no `blocks` field on the pure-form arm.
       const id = await asUser.mutation(api.cms.pages.create, {
         pageType: "testimonial",
         status: "draft",
@@ -4952,17 +4952,17 @@ describe("pages — testimonial pure-form editor (C10 task 13)", () => {
       expect(
         (
           created as {
-            content?: Record<string, { quote?: string; slices?: unknown }>
+            content?: Record<string, { quote?: string; blocks?: unknown }>
           }
         ).content?.en?.quote
       ).toBe("")
       expect(
-        (created as { content?: Record<string, { slices?: unknown }> }).content
-          ?.en?.slices
+        (created as { content?: Record<string, { blocks?: unknown }> }).content
+          ?.en?.blocks
       ).toBeUndefined()
 
       // Save the descriptor localized bag — pure-form arm carries no
-      // slices, no metaTitle/metaDescription. ADR-0041 Deploy 3 (Narrow)
+      // blocks, no metaTitle/metaDescription. ADR-0041 Deploy 3 (Narrow)
       // Bucket A: publish so `pages.content` reflects the save.
       await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
         pageId: id,
@@ -5034,7 +5034,7 @@ describe("pages — testimonial pure-form editor (C10 task 13)", () => {
     }
   )
 
-  test("shared-field cross-arm gate: personName rejected on non-testimonial rows", sliceProfile([]), async () => {
+  test("shared-field cross-arm gate: personName rejected on non-testimonial rows", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
     const pageId = await asUser.mutation(api.cms.pages.create, {
@@ -5210,7 +5210,7 @@ describe("pages — testimonial pure-form editor (C10 task 13)", () => {
 })
 
 
-test.each([0, -1, 13, 1.5])("snapshot recent cards reject invalid limit %s before index reads", sliceProfile([]), async (limit) => {
+test.each([0, -1, 13, 1.5])("snapshot recent cards reject invalid limit %s before index reads", blockProfile([]), async (limit) => {
   const t = pageTest()
   await t.run(async (ctx) => {
     const authority = await ctx.db.query("pagePublicationCutover").unique()
@@ -5283,7 +5283,7 @@ describe("menu picker successor writer seam", () => {
         draft: {
           pageType: "landing-page",
           localized: { title: `Titre ${slug}` },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -5297,7 +5297,7 @@ describe("menu picker successor writer seam", () => {
         draft: {
           pageType: "landing-page",
           localized: { title: `English ${slug}` },
-          slices: [],
+          blocks: [],
         },
       })
     return pageId
@@ -5329,7 +5329,7 @@ describe("menu picker successor writer seam", () => {
           draft: {
             pageType: "landing-page",
             localized: { title: "   " },
-            slices: [],
+            blocks: [],
           },
         })
         const rows = endpoint === "list"
@@ -5403,7 +5403,7 @@ describe("menu picker successor writer seam", () => {
           draft: {
             pageType: "landing-page",
             localized: { title: "Titre modifié" },
-            slices: [],
+            blocks: [],
           },
         },
       })
@@ -5619,7 +5619,7 @@ describe("menu picker successor writer seam", () => {
       status: "published",
       slug: "legacy",
       defaultLocale: "fr",
-      content: { fr: { title: "Publié FR", slices: [] } },
+      content: { fr: { title: "Publié FR", blocks: [] } },
     })
     await owner.mutation(api.cms.pages.acquirePageEditorLock, {
       pageId,
@@ -5631,12 +5631,12 @@ describe("menu picker successor writer seam", () => {
         fr: {
           pageType: "landing-page",
           localized: { title: "Brouillon FR" },
-          slices: [],
+          blocks: [],
         },
         en: {
           pageType: "landing-page",
           localized: { title: "English staged" },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -5674,7 +5674,7 @@ describe("menu picker successor writer seam", () => {
       const featured = (
         id: string
       ): Extract<
-        Extract<NonNullable<NavItem["panel"]>, { columns: number }>["blocks"][number],
+        Extract<NonNullable<NavItem["panel"]>, { columns: number }>["sections"][number],
         { kind: "featured" }
       > => ({
         id,
@@ -5689,8 +5689,8 @@ describe("menu picker successor writer seam", () => {
           label: { fr: "Images" },
           panel: {
             columns: 1,
-            blocks: [featured("main")],
-            footer: { blocks: [featured("footer")] },
+            sections: [featured("main")],
+            footer: { sections: [featured("footer")] },
           },
         },
       ]
@@ -5705,16 +5705,16 @@ describe("menu picker successor writer seam", () => {
         "fr"
       )
       translation[0]!.label = "Images EN"
-      for (const block of [
-        ...legacyPanel(translation[0]!.panel!).blocks,
-        ...translation[0]!.panel!.footer!.blocks,
+      for (const section of [
+        ...legacyPanel(translation[0]!.panel!).sections,
+        ...translation[0]!.panel!.footer!.sections,
       ]) {
-        block.heading = "Heading"
-        if (mode === "cleared" && block.kind === "featured")
-          block.image!.alt = "Authored"
-        if (mode === "typed-cleared" && block.kind === "featured") {
-          Object.assign(block, withAuthoredAlt(block, "Typed before first EN save"))
-          Object.assign(block, withAuthoredAlt(block, ""))
+        section.heading = "Heading"
+        if (mode === "cleared" && section.kind === "featured")
+          section.image!.alt = "Authored"
+        if (mode === "typed-cleared" && section.kind === "featured") {
+          Object.assign(section, withAuthoredAlt(section, "Typed before first EN save"))
+          Object.assign(section, withAuthoredAlt(section, ""))
         }
       }
       await owner.mutation(api.cms.menus.saveCanonical, {
@@ -5731,12 +5731,12 @@ describe("menu picker successor writer seam", () => {
         "fr"
       )
       edited[0]!.label = "An unrelated EN edit"
-      for (const block of [
-        ...legacyPanel(edited[0]!.panel!).blocks,
-        ...edited[0]!.panel!.footer!.blocks,
+      for (const section of [
+        ...legacyPanel(edited[0]!.panel!).sections,
+        ...edited[0]!.panel!.footer!.sections,
       ]) {
-        if (mode === "cleared" && block.kind === "featured")
-          block.image!.alt = ""
+        if (mode === "cleared" && section.kind === "featured")
+          section.image!.alt = ""
       }
       await owner.mutation(api.cms.menus.saveCanonical, {
         slug: "primary",
@@ -5754,14 +5754,14 @@ describe("menu picker successor writer seam", () => {
       const persisted = (await owner.query(api.cms.menus.getCanonical, {
         slug: "primary",
       }))!.nav
-      for (const block of [
-        ...legacyPanel(persisted[0]!.panel!).blocks,
-        ...persisted[0]!.panel!.footer!.blocks,
+      for (const section of [
+        ...legacyPanel(persisted[0]!.panel!).sections,
+        ...persisted[0]!.panel!.footer!.sections,
       ]) {
-        if (block.kind !== "featured") throw new Error("Expected featured")
-        expect(Object.hasOwn(block.image!.alt, "en")).toBe(mode !== "missing")
-        expect(block.image!.alt.fr).toBe("")
-        if (mode !== "missing") expect(block.image!.alt.en).toBe("")
+        if (section.kind !== "featured") throw new Error("Expected featured")
+        expect(Object.hasOwn(section.image!.alt, "en")).toBe(mode !== "missing")
+        expect(section.image!.alt.fr).toBe("")
+        if (mode !== "missing") expect(section.image!.alt.en).toBe("")
       }
       const config = await owner.query(api.cms.settings.getSiteConfig, {})
       const result = await t.query(api.cms.menus.getWithResolvedLinks, {
@@ -5769,10 +5769,10 @@ describe("menu picker successor writer seam", () => {
         locale: "en",
         languageVersion: config.languageVersion,
       })
-      expect(legacyPanel(result?.nav[0]?.panel).blocks).toHaveLength(
+      expect(legacyPanel(result?.nav[0]?.panel).sections).toHaveLength(
         mode === "missing" ? 0 : 1
       )
-      expect(result?.nav[0]?.panel?.footer?.blocks).toHaveLength(
+      expect(result?.nav[0]?.panel?.footer?.sections).toHaveLength(
         mode === "missing" ? 0 : 1
       )
     }
@@ -5792,7 +5792,7 @@ describe("menu picker successor writer seam", () => {
           locale: "fr",
           slug: "renamed",
           expectedGeneration,
-          draft: { pageType, localized: { title }, slices: [] },
+          draft: { pageType, localized: { title }, blocks: [] },
         },
       })
 

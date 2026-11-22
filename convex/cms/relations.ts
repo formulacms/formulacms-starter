@@ -99,7 +99,7 @@ function snapshotReferenceCard(
         ? ("published" as const)
         : ("draft" as const),
     slug: row.localizedSlugs?.[locale] ?? row.slug,
-    content: title ? { [locale]: { title, slices: [] } } : {},
+    content: title ? { [locale]: { title, blocks: [] } } : {},
   } as unknown as Doc<"pages">
   const card = resolveReferenceCardForDoc(projected, locale)
   if (card && !title && card.title === "Untitled") {

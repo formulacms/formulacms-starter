@@ -100,7 +100,7 @@ export function EditorSplit({
   /** Renders the preview with the "Hide preview" button for its toolbar. */
   preview(hideButton: ReactNode): ReactNode
 }) {
-  const t = useTranslations("editor.slicesPanel.split")
+  const t = useTranslations("editor.blocksPanel.split")
   const [initial] = useState(readSplitLayout)
   const [hidden, setHidden] = useState<HiddenSide>(initial.hidden)
   const [view, setView] = useState<NarrowView>(initial.view)

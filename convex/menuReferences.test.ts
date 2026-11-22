@@ -38,7 +38,7 @@ describe("Plan 035 C3 canonical target references", () => {
         target: { type: "internal", pageId: pageId("root") },
         panel: {
           columns: 2,
-          blocks: [
+          sections: [
             {
               id: "links",
               kind: "linkGroup",
@@ -52,7 +52,7 @@ describe("Plan 035 C3 canonical target references", () => {
             },
           ],
           footer: {
-            blocks: [
+            sections: [
               {
                 id: "feature",
                 kind: "featured",
@@ -70,11 +70,11 @@ describe("Plan 035 C3 canonical target references", () => {
       { targetId: pageId("root"), path: "nav/id:root%2Fmenu/target" },
       {
         targetId: pageId("child"),
-        path: "nav/id:root%2Fmenu/panel/blocks/id:links/links/id:child%25link/target",
+        path: "nav/id:root%2Fmenu/panel/sections/id:links/links/id:child%25link/target",
       },
       {
         targetId: pageId("feature"),
-        path: "nav/id:root%2Fmenu/panel/footer/blocks/id:feature/target",
+        path: "nav/id:root%2Fmenu/panel/footer/sections/id:feature/target",
       },
     ])
   })
@@ -628,7 +628,7 @@ describe("default menu first save", () => {
         ...canonicalNavItem("products", targetId),
         panel: {
           columns: 1,
-          blocks: [
+          sections: [
             {
               id: "recent",
               kind: "dynamicList",

@@ -57,7 +57,7 @@ const items: Parameters<typeof MainNav>[0]["items"] = [
     },
     panel: {
       columns: 3,
-      blocks: [
+      sections: [
         {
           id: "discover",
           kind: "linkGroup",
@@ -84,7 +84,7 @@ const items: Parameters<typeof MainNav>[0]["items"] = [
         },
       ],
       footer: {
-        blocks: [
+        sections: [
           {
             id: "learn",
             kind: "linkGroup",
@@ -310,8 +310,8 @@ for (const withLink of [true, false]) {
               : undefined,
             panel: {
               columns: 2,
-              blocks: [empty],
-              footer: { blocks: [{ ...empty, id: "bottom" }] },
+              sections: [empty],
+              footer: { sections: [{ ...empty, id: "bottom" }] },
             },
           },
         ]}
@@ -350,10 +350,10 @@ test.each([1, 2, 3, 4] as const)(
   }
 )
 
-test.each([MainNav])("R1a column panels render stacked blocks and a featured Link (%#)", Nav => {
+test.each([MainNav])("R1a column panels render stacked sections and a featured Link (%#)", Nav => {
   render(<Nav items={[{ id: "products", label: "Produits", panel: { layout: "columns", columns: [
-    { id: "left", blocks: [{ id: "feature", kind: "featured", heading: "Card heading", link: { label: "Read feature", target: { type: "placeholder", url: "#" } } }] },
-    { id: "right", blocks: [{ id: "links", kind: "linkGroup", links: [{ id: "child", label: "Child", target: { type: "placeholder", url: "#" } }] }] },
+    { id: "left", sections: [{ id: "feature", kind: "featured", heading: "Card heading", link: { label: "Read feature", target: { type: "placeholder", url: "#" } } }] },
+    { id: "right", sections: [{ id: "links", kind: "linkGroup", links: [{ id: "child", label: "Child", target: { type: "placeholder", url: "#" } }] }] },
   ] } }]} />)
   const panel = getOpenPanel(openProductsPanel())
   expect(screen.getByRole("link", { name: "Read feature" })).toHaveAttribute("href", "#")

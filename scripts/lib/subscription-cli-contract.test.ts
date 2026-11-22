@@ -32,7 +32,7 @@ describe("subscription CLI normalized contract", () => {
     const error = makeSubscriptionCliError("AUTH_REQUIRED", {
       selected,
       attempts: 1,
-      phase: "slice-spec",
+      phase: "block-spec",
     })
 
     expect(error).toBeInstanceOf(SubscriptionCliGenerationError)
@@ -41,7 +41,7 @@ describe("subscription CLI normalized contract", () => {
       message: "The selected local AI CLI requires authentication.",
       selected,
       attempts: 1,
-      phase: "slice-spec",
+      phase: "block-spec",
       retryable: false,
       nextAction: "authenticate-provider",
     })

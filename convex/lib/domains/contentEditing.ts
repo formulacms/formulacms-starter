@@ -1,5 +1,5 @@
 /** Required draft-editing boundary over the existing staging/lock helpers. */
-export { hasSliceBody, type SliceBodyContent } from "../pages/sliceBodyContent"
+export { hasBlockBody, type BlockBodyContent } from "../pages/blockBodyContent"
 export {
   assertStagingFresh,
   deleteStagingByPageId,

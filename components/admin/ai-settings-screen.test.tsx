@@ -37,14 +37,14 @@ vi.mock("convex/react", () => ({
   useQuery: (reference: Parameters<typeof getFunctionName>[0], args: unknown) => {
     const name = getFunctionName(reference)
     mocks.queries.push([name, args])
-    if (name === "cms/aiSettings:sliceCreator") return args === "skip" ? undefined : mocks.creator
+    if (name === "cms/aiSettings:blockCreator") return args === "skip" ? undefined : mocks.creator
     expect(name).toBe("cms/aiSettings:status")
     if (mocks.failStatus) throw new Error("Status unavailable")
     return mocks.status
   },
   useMutation: (reference: Parameters<typeof getFunctionName>[0]) => {
     const name = getFunctionName(reference)
-    if (name === "cms/aiSettings:setSliceCreator") return mocks.saveCreator
+    if (name === "cms/aiSettings:setBlockCreator") return mocks.saveCreator
     if (name === "cms/vendorModelCatalog:refreshModelCatalogs") return mocks.refreshLists
     expect(name).toBe("cms/aiSettings:setAssistant")
     return mocks.save
@@ -81,7 +81,7 @@ function fixture(): Status {
     })),
   }
 }
-type Creator = FunctionReturnType<typeof api.cms.aiSettings.sliceCreator>
+type Creator = FunctionReturnType<typeof api.cms.aiSettings.blockCreator>
 function creatorFixture(): Creator {
   const anthropic = { mode: "catalog", provider: "anthropic", model: "claude-opus-5-5", reasoning: { kind: "effort", effort: "high" } } as const
   const openrouter = { mode: "catalog", provider: "openrouter", model: "creator/default", reasoning: { kind: "effort", effort: "medium" } } as const
@@ -320,7 +320,7 @@ test.each(["en", "fr"] as const)("no provider set up in %s: one line links to Yo
   expect(screen.queryAllByTestId(/^assistant-status-/)).toEqual([])
   expect(writing().getByRole("button", { name: new RegExp(`${messages.model}$`) })).toBeDisabled()
   expect(effort()).toBeDisabled()
-  expect(within(screen.getByTestId("assistant-sliceCreator")).getByRole("button", { name: new RegExp(`${messages.model}$`) })).toBeDisabled()
+  expect(within(screen.getByTestId("assistant-blockCreator")).getByRole("button", { name: new RegExp(`${messages.model}$`) })).toBeDisabled()
   fireEvent.click(screen.getByTestId("no-provider-link"))
   expect(screen.getAllByTestId(/^row-status-/).map((row) => row.textContent)).toEqual(Array(3).fill(messages.words.notSetUp))
 })
@@ -335,7 +335,7 @@ test.each(["en", "fr"] as const)("only a Block creator file key in %s: no no-pro
     expect(screen.getByTestId(`assistant-status-${id}`)).toHaveTextContent(messages.words.notSetUp)
     expect(screen.getByTestId(`providers-link-${id}`)).toHaveTextContent(messages.yourProviders)
   }
-  expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent(messages.words.ready)
+  expect(screen.getByTestId("assistant-status-blockCreator")).toHaveTextContent(messages.words.ready)
 })
 
 test("live site with no key: the provider menu is disabled, as on main", async () => {
@@ -488,7 +488,7 @@ test.each(["en", "fr"] as const)("S3 saved absent reasoning shows disabled Trans
 test("every card is open: badge, summary, provider, model, effort and Instructions; no top line or newer-model line", async () => {
   assistant().newerModel = { provider: "anthropic", model: "new/medium", name: "Medium only" }
   await mount()
-  for (const id of ["writing", "translation", "help", "sliceCreator"]) {
+  for (const id of ["writing", "translation", "help", "blockCreator"]) {
     const card = within(screen.getByTestId(`assistant-${id}`))
     expect(card.getByLabelText("Instructions")).toBeInTheDocument()
     expect(screen.getByTestId(`assistant-status-${id}`)).toHaveTextContent("Ready")
@@ -550,35 +550,35 @@ test("switching Provider back restores the saved API choice, not the first row",
   expect(effort()).toHaveValue("low")
 })
 
-function creator() { return within(screen.getByTestId("assistant-sliceCreator")) }
+function creator() { return within(screen.getByTestId("assistant-blockCreator")) }
 
-test("Slice creator is absent and its query skipped outside local development", async () => {
+test("Block creator is absent and its query skipped outside local development", async () => {
   await mount("en", { local: false })
-  expect(screen.queryByTestId("assistant-sliceCreator")).not.toBeInTheDocument()
-  expect(mocks.queries.filter(([name]) => name === "cms/aiSettings:sliceCreator").every(([, args]) => args === "skip")).toBe(true)
+  expect(screen.queryByTestId("assistant-blockCreator")).not.toBeInTheDocument()
+  expect(mocks.queries.filter(([name]) => name === "cms/aiSettings:blockCreator").every(([, args]) => args === "skip")).toBe(true)
 })
 
-test("Slice creator is absent when the page passes no local keys", async () => {
+test("Block creator is absent when the page passes no local keys", async () => {
   render(<NextIntlClientProvider locale="en" messages={en}>{await ADMIN_AI_SETTINGS_SERVER_BINDING!.renderSettingsPage({ isLocal: true })}</NextIntlClientProvider>)
   expect(screen.getByTestId("assistants")).toBeInTheDocument()
-  expect(screen.queryByTestId("assistant-sliceCreator")).not.toBeInTheDocument()
-  expect(mocks.queries.filter(([name]) => name === "cms/aiSettings:sliceCreator").every(([, args]) => args === "skip")).toBe(true)
+  expect(screen.queryByTestId("assistant-blockCreator")).not.toBeInTheDocument()
+  expect(mocks.queries.filter(([name]) => name === "cms/aiSettings:blockCreator").every(([, args]) => args === "skip")).toBe(true)
 })
 
-test("Slice creator with its local key: Ready, after Help", async () => {
+test("Block creator with its local key: Ready, after Help", async () => {
   await mount()
   const rows = [...screen.getByTestId("assistants").querySelectorAll("[data-testid^=assistant-]")].map((row) => row.getAttribute("data-testid"))
-  expect(rows.filter((id) => !id!.startsWith("assistant-status"))).toEqual(["assistant-writing", "assistant-translation", "assistant-help", "assistant-sliceCreator"])
-  expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent("Ready")
-  expect(screen.getByTestId("provider-sliceCreator")).toHaveTextContent("Anthropic")
+  expect(rows.filter((id) => !id!.startsWith("assistant-status"))).toEqual(["assistant-writing", "assistant-translation", "assistant-help", "assistant-blockCreator"])
+  expect(screen.getByTestId("assistant-status-blockCreator")).toHaveTextContent("Ready")
+  expect(screen.getByTestId("provider-blockCreator")).toHaveTextContent("Anthropic")
   expect(creator().getByRole("button", { name: "Block creator Model" })).toHaveTextContent("Claude Opus 5.5")
 })
 
-test("Slice creator with nothing saved uses the first provider that has a local key", async () => {
+test("Block creator with nothing saved uses the first provider that has a local key", async () => {
   setLocalKeys({ openai: true })
   await mount()
-  expect(screen.getByTestId("provider-sliceCreator")).toHaveTextContent("OpenAI")
-  expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent("Ready")
+  expect(screen.getByTestId("provider-blockCreator")).toHaveTextContent("OpenAI")
+  expect(screen.getByTestId("assistant-status-blockCreator")).toHaveTextContent("Ready")
 })
 
 // The Block creator runs on its .env.local key; the assistants and the provider rows read the Convex key.
@@ -592,17 +592,17 @@ test.each([
   // OpenRouter and OpenAI stay set up on Convex, so the no-provider line never hides the badges.
   status().connections[0].state = convex ? "connected" : "missing"
   await mount()
-  expect(screen.getByTestId("provider-sliceCreator")).toHaveTextContent(/^Anthropic$/)
-  const badge = screen.getByTestId("assistant-status-sliceCreator")
+  expect(screen.getByTestId("provider-blockCreator")).toHaveTextContent(/^Anthropic$/)
+  const badge = screen.getByTestId("assistant-status-blockCreator")
   expect(badge).toHaveAttribute("data-word", creatorWord)
   expect(badge).toHaveTextContent(creatorWord === "ready" ? "Ready" : "Not set up")
   expect(badge).toHaveAttribute("data-tone", creatorWord === "ready" ? "ok" : "warn")
   const model = creator().getByRole("button", { name: "Block creator Model" })
   if (creatorWord === "ready") {
-    expect(screen.queryByTestId("providers-link-sliceCreator")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("providers-link-blockCreator")).not.toBeInTheDocument()
     expect(model).toBeEnabled()
   } else {
-    expect(screen.getByTestId("providers-link-sliceCreator")).toHaveTextContent("Your AI providers")
+    expect(screen.getByTestId("providers-link-blockCreator")).toHaveTextContent("Your AI providers")
     expect(model).toBeDisabled()
   }
   // Writing, on Anthropic too, keeps the Convex word.
@@ -611,28 +611,28 @@ test.each([
   expect(screen.getByTestId("row-anthropic")).toHaveAttribute("data-word", rowWord)
 })
 
-test("Slice creator with nothing saved and two local keys: the first in connection order, Ready from its file key", async () => {
+test("Block creator with nothing saved and two local keys: the first in connection order, Ready from its file key", async () => {
   setLocalKeys({ openai: true, openrouter: true })
   status().connections[1].state = "missing"
   await mount()
-  expect(screen.getByTestId("provider-sliceCreator")).toHaveTextContent(/^OpenRouter$/)
+  expect(screen.getByTestId("provider-blockCreator")).toHaveTextContent(/^OpenRouter$/)
   expect(creator().getByRole("button", { name: "Block creator Model" })).toHaveTextContent("Creator default")
-  expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveAttribute("data-word", "ready")
+  expect(screen.getByTestId("assistant-status-blockCreator")).toHaveAttribute("data-word", "ready")
 })
 
-test("Slice creator on a provider with a problem: its word, no key lines, and model and effort wait", async () => {
+test("Block creator on a provider with a problem: its word, no key lines, and model and effort wait", async () => {
   mocks.creator = { ...creatorFixture(), tuple: { mode: "catalog", provider: "openrouter", model: "creator/default", reasoning: { kind: "effort", effort: "medium" } } }
   status().connections[1].state = "missing"
   await mount()
-  expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent("Not set up")
+  expect(screen.getByTestId("assistant-status-blockCreator")).toHaveTextContent("Not set up")
   expect(creator().queryByText(/API_KEY|\.env\.local|restart/)).not.toBeInTheDocument()
   expect(creator().getByRole("button", { name: "Block creator Model" })).toBeDisabled()
-  expect(effort("sliceCreator")).toBeDisabled()
+  expect(effort("blockCreator")).toBeDisabled()
   // As on main: the Block creator's API services stay selectable.
-  expect((await providerMenu("sliceCreator")).getByTestId("option-anthropic")).toBeEnabled()
+  expect((await providerMenu("blockCreator")).getByTestId("option-anthropic")).toBeEnabled()
 })
 
-test("Slice creator Save sends its tuple and instructions together, once, and never setAssistant", async () => {
+test("Block creator Save sends its tuple and instructions together, once, and never setAssistant", async () => {
   await mount()
   fireEvent.click(creator().getByRole("button", { name: "Block creator Model" }))
   fireEvent.click(await screen.findByRole("button", { name: "Claude Sonnet 5.5claude-sonnet-5-5" }))
@@ -646,19 +646,19 @@ test("Slice creator Save sends its tuple and instructions together, once, and ne
   expect(mocks.save).not.toHaveBeenCalled()
 })
 
-test("Slice creator keeps a saved choice and Reset clears saved instructions", async () => {
+test("Block creator keeps a saved choice and Reset clears saved instructions", async () => {
   mocks.creator = { ...creatorFixture(), tuple: { mode: "catalog", provider: "openrouter", model: "creator/default", reasoning: { kind: "effort", effort: "medium" } }, instructions: "Saved words" }
   await mount()
-  expect(screen.getByTestId("provider-sliceCreator")).toHaveTextContent("OpenRouter")
+  expect(screen.getByTestId("provider-blockCreator")).toHaveTextContent("OpenRouter")
   expect(creator().getByRole("textbox")).toHaveValue("Saved words")
   fireEvent.click(creator().getByRole("button", { name: "Reset to default" }))
   expect(creator().getByRole("textbox")).toHaveValue("")
-  expect(creator().getByRole("textbox")).toHaveAttribute("placeholder", en.settings.aiScreen.sliceCreator.prompt)
+  expect(creator().getByRole("textbox")).toHaveAttribute("placeholder", en.settings.aiScreen.blockCreator.prompt)
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(mocks.saveCreator).toHaveBeenCalledWith({ tuple: mocks.creator && (mocks.creator as Creator).tuple }))
 })
 
-test("the assistant badges are the same with and without the Slice creator", async () => {
+test("the assistant badges are the same with and without the Block creator", async () => {
   const badges = () => ["assistant-status-writing", "assistant-status-translation", "assistant-status-help"].map((id) => screen.getByTestId(id).textContent)
   status().connections[1].state = "missing"
   const live = await mount("en", { local: false })
@@ -666,7 +666,7 @@ test("the assistant badges are the same with and without the Slice creator", asy
   live.unmount()
   setLocalKeys({})
   await mount()
-  expect(screen.getByTestId("assistant-sliceCreator")).toBeInTheDocument()
+  expect(screen.getByTestId("assistant-blockCreator")).toBeInTheDocument()
   expect(badges()).toEqual(without)
 })
 

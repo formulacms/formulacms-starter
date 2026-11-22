@@ -217,21 +217,21 @@ describe("draftInputFromContent: every common per-language field survives", () =
     category: "News",
     seo: seoValues,
     cardExcerpt: "Excerpt",
-    slices: [{ id: "s1" }],
+    blocks: [{ id: "s1" }],
   }
   const build = (pageType: keyof typeof contentTypeDefs) => {
     const def = contentTypeDefs[pageType]
     return draftInputFromContent({
       pageType,
       localizedKeys: Object.keys(def.localizedFields),
-      sliceBody: def.capabilities.sliceBody,
+      blockBody: def.capabilities.blockBody,
       content,
     }) as {
       pageType: string
       localized: Record<string, unknown>
       seo?: Record<string, unknown>
       cardExcerpt?: string
-      slices?: unknown[]
+      blocks?: unknown[]
     }
   }
 
@@ -261,9 +261,9 @@ describe("draftInputFromContent: every common per-language field survives", () =
       expect(draft.cardExcerpt).toBe("Excerpt")
       for (const key of PER_LANGUAGE_DRAFT_KEYS)
         expect(draft.localized).not.toHaveProperty(key)
-      expect(draft.localized).not.toHaveProperty("slices")
-      // Slices travel only for a type with a slice body.
-      expect("slices" in draft).toBe(contentTypeDefs[pageType].capabilities.sliceBody)
+      expect(draft.localized).not.toHaveProperty("blocks")
+      // Blocks travel only for a type with a block body.
+      expect("blocks" in draft).toBe(contentTypeDefs[pageType].capabilities.blockBody)
     }
   )
 

@@ -15,7 +15,11 @@ import type {
 } from "convex/server"
 import { internal } from "../_generated/api"
 import type { Doc, Id } from "../_generated/dataModel"
-import { internalMutation, mutation, query } from "../_generated/server"
+import { query } from "../_generated/server"
+import {
+  occurrenceUsageInternalMutation as internalMutation,
+  occurrenceUsageMutation as mutation,
+} from "../lib/publishing/staging"
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 import { SUPPORTED_LOCALES } from "../../lib/i18n/config"
 import { transitionSiteDescriptionFields } from "../../lib/i18n/site-description"

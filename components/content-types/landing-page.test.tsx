@@ -11,7 +11,7 @@ const page = {
   status: "published",
   createdAt: 0,
   updatedAt: 0,
-  content: { en: { title: "Landing title", slices: [] } },
+  content: { en: { title: "Landing title", blocks: [] } },
 } as unknown as Doc<"pages">
 
 describe("LandingPageRenderer", () => {
@@ -20,7 +20,7 @@ describe("LandingPageRenderer", () => {
       <LandingPageRenderer
         page={page as never}
         content={page.content!.en! as never}
-        slices={[]}
+        blocks={[]}
         ctx={{ locale: "en", defaultLocale: "en", pagePaths: {} }}
         locale="en"
         renderLocale="en"

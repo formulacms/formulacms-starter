@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { api, internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
@@ -32,7 +32,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const bodySlice = (id: string, text: string) => ({
+const bodyBlock = (id: string, text: string) => ({
   id,
   type: "rich-text-body" as const,
   enabled: true,
@@ -84,7 +84,7 @@ async function activeApp() {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   await t.run((ctx) =>
     ctx.db.insert("siteSettings", {
@@ -150,7 +150,7 @@ async function insertIntent(
 }
 
 describe("F08c required revalidation worker", () => {
-  test("a real withdrawal purges its path, then only same-locale current referrers", sliceProfile(["rich-text-body"]), async () => {
+  test("a real withdrawal purges its path, then only same-locale current referrers", blockProfile(["rich-text-body"]), async () => {
     const { t, owner } = await activeApp()
     const authorId = await owner.mutation(api.cms.pages.create, {
       pageType: "author",
@@ -159,8 +159,8 @@ describe("F08c required revalidation worker", () => {
       title: "Ada",
       name: "Ada",
       content: {
-        en: { title: "Ada", slices: [] },
-        fr: { title: "Ada", slices: [] },
+        en: { title: "Ada", blocks: [] },
+        fr: { title: "Ada", blocks: [] },
       },
     })
     const postId = await owner.mutation(api.cms.pages.create, {
@@ -170,8 +170,8 @@ describe("F08c required revalidation worker", () => {
       title: "Proof",
       authorIds: [authorId],
       content: {
-        en: { title: "Proof", slices: [bodySlice("en", "English proof")] },
-        fr: { title: "Preuve", slices: [bodySlice("fr", "Preuve")] },
+        en: { title: "Proof", blocks: [bodyBlock("en", "English proof")] },
+        fr: { title: "Preuve", blocks: [bodyBlock("fr", "Preuve")] },
       },
     })
     for (const locale of ["en", "fr"]) {
@@ -233,14 +233,14 @@ describe("F08c required revalidation worker", () => {
       status: "draft",
       slug: "parent",
       title: "Parent",
-      content: { en: { title: "Parent", slices: [] } },
+      content: { en: { title: "Parent", blocks: [] } },
     })
     const childId = await owner.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
       slug: "child",
       title: "Child",
-      content: { en: { title: "Child", slices: [] } },
+      content: { en: { title: "Child", blocks: [] } },
     })
     await owner.mutation(
       api.cms.publication.publishLocale,
@@ -306,7 +306,7 @@ describe("F08c required revalidation worker", () => {
       status: "draft",
       slug: "retry",
       title: "Retry",
-      content: { en: { title: "Retry", slices: [] } },
+      content: { en: { title: "Retry", blocks: [] } },
     })
     await owner.mutation(
       api.cms.publication.publishLocale,
@@ -414,8 +414,8 @@ describe("F08c required revalidation worker", () => {
       slug: "instant",
       title: "Instant",
       content: {
-        en: { title: "Instant", slices: [] },
-        fr: { title: "Instant", slices: [] },
+        en: { title: "Instant", blocks: [] },
+        fr: { title: "Instant", blocks: [] },
       },
     })
     const before = (await drainJobs(t)).length
@@ -450,7 +450,7 @@ describe("F08c required revalidation worker", () => {
       status: "draft",
       slug: "claims",
       title: "Claims",
-      content: { en: { title: "Claims", slices: [] } },
+      content: { en: { title: "Claims", blocks: [] } },
     })
     const ids: Id<"pagePublicationRevalidationIntents">[] = []
     for (let i = 0; i < 5; i += 1) ids.push(await insertIntent(t, pageId, "/claims"))
@@ -484,7 +484,7 @@ describe("F08c required revalidation worker", () => {
       status: "draft",
       slug: "throws",
       title: "Throws",
-      content: { en: { title: "Throws", slices: [] } },
+      content: { en: { title: "Throws", blocks: [] } },
     })
     const first = await insertIntent(t, pageId, "/throws-a")
     const second = await insertIntent(t, pageId, "/throws-b")
@@ -515,7 +515,7 @@ describe("F08c required revalidation worker", () => {
       status: "draft",
       slug: "quiet",
       title: "Quiet",
-      content: { en: { title: "Quiet", slices: [] } },
+      content: { en: { title: "Quiet", blocks: [] } },
     })
     await owner.mutation(
       api.cms.publication.publishLocale,
@@ -608,7 +608,7 @@ describe("drain loop error handling", () => {
       status: "draft",
       slug: "throws",
       title: "Throws",
-      content: { en: { title: "Throws", slices: [] } },
+      content: { en: { title: "Throws", blocks: [] } },
     })
     const bad = await insertIntent(t, pageId, "/bad", { updatedAt: 1 })
     await t.run((ctx) =>

@@ -23,7 +23,7 @@ export const MODULE_CONTRIBUTION_IDS = [
   "admin.ai-help",
   "admin.list-search",
   "admin.sidebar-status",
-  "content.slice",
+  "content.block",
   "public.action",
   "public.routing",
 ] as const

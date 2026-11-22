@@ -523,9 +523,10 @@ describe("local tool spawn sites", () => {
     // source), so the list keeps the sites this tree has. Every importer
     // found below must still be listed.
     const otherSites = [
-      "lib/slices/authoring/gate.ts",
+      "lib/blocks/authoring/gate.ts",
       "scripts/lib/empirical-runner.ts",
       "scripts/lib/local-setup.ts",
+      "scripts/lib/pre-rename-source.ts",
       "scripts/lib/stored-module-state.ts",
     ].filter((file) => existsSync(join(root, file)))
     const importers = ["app", "lib", "scripts/lib"].flatMap((dir) =>

@@ -1,7 +1,7 @@
 /**
  * Plain text → paragraph PM-JSON for AI-generated content (ADR-013).
  *
- * The content writer agent emits plain text (one model call per slice, labeled
+ * The content writer agent emits plain text (one model call per block, labeled
  * fields). Rich-text fields receive their value through this helper so that
  * what reaches the editor / write-path is always a valid PM doc — never an
  * HTML string the model invented. With `emphasis: true` the builder also
@@ -147,8 +147,8 @@ export function buildFieldDoc(
   const contract = resolveFieldContract(effective)
   if (contract.contract !== "title") {
     if (options.markdown) {
-      const blocks = buildMarkdownDoc(text, contract.contract)
-      if (blocks) return blocks as unknown as ReturnType<typeof buildPMDocForContract>
+      const nodes = buildMarkdownDoc(text, contract.contract)
+      if (nodes) return nodes as unknown as ReturnType<typeof buildPMDocForContract>
     }
     return buildPMDoc(text, contract.contract, options)
   }
@@ -243,19 +243,19 @@ function markdownList(list: Tokens.List, spec: ProfileSpec): MarkdownBlock[] {
   const items: MarkdownBlock[] = []
   const flat: MarkdownBlock[] = []
   for (const item of list.items) {
-    const blocks: MarkdownBlock[] = []
+    const nodes: MarkdownBlock[] = []
     for (const child of item.tokens) {
-      if (child.type === "list") blocks.push(...markdownList(child as Tokens.List, spec))
+      if (child.type === "list") nodes.push(...markdownList(child as Tokens.List, spec))
       else if (child.type === "space") continue
       else {
         const inline = markdownInline(plainBlockText(child))
-        if (inline.length) blocks.push({ type: "paragraph", content: inline })
+        if (inline.length) nodes.push({ type: "paragraph", content: inline })
       }
     }
-    if (blocks.length === 0) continue
-    if (blocks[0]!.type !== "paragraph") blocks.unshift({ type: "paragraph" })
-    flat.push(...blocks)
-    items.push({ type: "listItem", content: blocks })
+    if (nodes.length === 0) continue
+    if (nodes[0]!.type !== "paragraph") nodes.unshift({ type: "paragraph" })
+    flat.push(...nodes)
+    items.push({ type: "listItem", content: nodes })
   }
   if (!allowed) return flat
   if (items.length === 0) return []

@@ -144,7 +144,7 @@ const page = {
   slug: "old-page",
   pageType: "landing-page",
   status: "archived",
-  content: { en: { title: "Old page", slices: [] } },
+  content: { en: { title: "Old page", blocks: [] } },
   createdAt: 1,
   updatedAt: 1,
   deletedAt: 2,
@@ -1189,7 +1189,7 @@ test.each(trashScenarios)(
     mocks.authority = "legacy"
     const contentLocale = titleKind === 2 ? "zh" : locale
     mocks.defaultLocale = contentLocale
-    const content = { [contentLocale]: { title, slices: [] } }
+    const content = { [contentLocale]: { title, blocks: [] } }
     // Trash needs no module-state subscription; exercise legacy and localized-title payloads.
     mocks.pages = [
       {

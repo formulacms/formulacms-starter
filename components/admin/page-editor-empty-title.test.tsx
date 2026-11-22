@@ -111,8 +111,8 @@ vi.mock("./page-editor/components/settings-panel", () => ({
     />
   ),
 }))
-vi.mock("./page-editor/components/slices-panel", () => ({
-  SlicesPanel: () => null,
+vi.mock("./page-editor/components/blocks-panel", () => ({
+  BlocksPanel: () => null,
 }))
 
 vi.mock("./contributions/history", () => ({
@@ -188,8 +188,8 @@ function mount(
     createdAt: 100,
     updatedAt: 100,
     content: {
-      en: { title: savedTitle, slices: [] },
-      ...(twoLocales ? { fr: { title: "À propos", slices: [] } } : {}),
+      en: { title: savedTitle, blocks: [] },
+      ...(twoLocales ? { fr: { title: "À propos", blocks: [] } } : {}),
     },
     tags: [],
     createdBy: "owner-1",

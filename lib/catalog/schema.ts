@@ -1,7 +1,7 @@
 import * as z from "zod/v4"
 
 export const catalogAssetKindSchema = z.enum([
-  "slice",
+  "block",
   "starter",
   "pack",
   "theme",

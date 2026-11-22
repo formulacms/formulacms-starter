@@ -119,6 +119,23 @@ export function routableContentTypeSlugs(
   return routableContentTypes(defs).map((d) => d.type)
 }
 
+/** First URL segments that belong to the app itself, never to a page. */
+export const SYSTEM_FIRST_SEGMENTS = ["admin", "setup", "sign-in", "api"] as const
+
+/**
+ * First URL segments that a page address may not claim: the app's own
+ * routes plus the `pathPrefix` of every registered content type. A new
+ * routable type reserves its prefix with no edit here. The selection
+ * (`isActiveContentType`) does not apply: a registered type keeps its prefix
+ * reserved even when the release does not expose it.
+ */
+export function reservedFirstSegments(defs: DefsMap = defaultDefs): string[] {
+  const prefixes = Object.values(defs)
+    .map((d) => d.routing?.pathPrefix ?? "")
+    .filter((prefix) => prefix.length > 0)
+  return [...new Set([...SYSTEM_FIRST_SEGMENTS, ...prefixes])]
+}
+
 /** True when the descriptor for `pageType` opts in to public routing. */
 export function isRoutableContentType(
   pageType: string,

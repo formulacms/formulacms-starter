@@ -101,8 +101,8 @@ vi.mock("./page-editor/components/settings-panel", () => ({
     </button>
   ),
 }))
-vi.mock("./page-editor/components/slices-panel", () => ({
-  SlicesPanel: () => null,
+vi.mock("./page-editor/components/blocks-panel", () => ({
+  BlocksPanel: () => null,
 }))
 
 import { PageEditor } from "./page-editor"
@@ -120,8 +120,8 @@ function page(pageType: "page" | "author"): Page {
     createdAt: 100,
     updatedAt: 100,
     content: {
-      en: { title: "Fixture", slices: [] },
-      fr: { title: "Fixture", slices: [] },
+      en: { title: "Fixture", blocks: [] },
+      fr: { title: "Fixture", blocks: [] },
     },
     tags: [],
     createdBy: "owner-1",
@@ -172,14 +172,14 @@ describe("PageEditor destructive refusals", () => {
       code: "PAGE_SOFT_DELETE_PUBLISHED_POST_REFERENCE",
       pageType: "author" as const,
       expected:
-        "This Author is still used by a published Post. Remove it from the Post and publish that change, then try again.",
+        "A published page still uses this one. Remove it from that page and publish the change, then try again.",
     },
     {
       locale: "fr" as const,
       code: "PAGE_SOFT_DELETE_PUBLISHED_POST_REFERENCE",
       pageType: "author" as const,
       expected:
-        "Cet Auteur est encore utilisé par un Article publié. Retirez-le de l’Article, publiez la modification, puis réessayez.",
+        "Une page publiée utilise encore celle-ci. Retirez-la de cette page, publiez la modification, puis réessayez.",
     },
   ])("maps $code to $locale plain copy", async (fixture) => {
     mocks.refusalCode = fixture.code

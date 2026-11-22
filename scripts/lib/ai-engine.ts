@@ -1,6 +1,6 @@
 import type { GenerationAccounting } from "@/lib/ai/accounting-contract"
 import { assertLocalToolRoute } from "@/lib/assert-local-dev"
-// AIEngine seam for the build-lane slice-authoring scripts (ADR-0032, Plan 026).
+// AIEngine seam for the build-lane block-authoring scripts (ADR-0032, Plan 026).
 //
 // Two lanes exist in formulacms. The RUNTIME lane (Convex actions) is BYOK-only and
 // lives elsewhere; it never imports this file. This is the BUILD lane: local

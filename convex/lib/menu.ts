@@ -2,7 +2,7 @@ import { v, Infer } from "convex/values"
 import type { GenericValidator } from "convex/values"
 import type { Id } from "../_generated/dataModel"
 import type { PublicRelationCard } from "./contentTypes/publicProjection"
-import { imageField } from "./slices/fields"
+import { imageField } from "./blocks/fields"
 
 export const DEFAULT_MENU_SLUGS = ["primary", "footer", "mobile"] as const
 
@@ -81,7 +81,7 @@ export const menuImageValidator = imageField
   .extend({ alt: l10nValidator })
 export type MenuImage = Infer<typeof menuImageValidator>
 
-const blockSpanValidator = v.union(
+const sectionSpanValidator = v.union(
   v.literal(1),
   v.literal(2),
   v.literal(3),
@@ -106,18 +106,18 @@ export function buildNavTree<
     target,
     isDisabled: v.optional(v.boolean()),
   })
-  const block = v.union(
+  const section = v.union(
     v.object({
       id: v.string(),
       kind: v.literal("linkGroup"),
-      span: v.optional(blockSpanValidator),
+      span: v.optional(sectionSpanValidator),
       heading: v.optional(label),
       links: v.array(link),
     }),
     v.object({
       id: v.string(),
       kind: v.literal("featured"),
-      span: v.optional(blockSpanValidator),
+      span: v.optional(sectionSpanValidator),
       image: v.optional(image),
       heading: label,
       description: v.optional(label),
@@ -127,7 +127,7 @@ export function buildNavTree<
     v.object({
       id: v.string(),
       kind: v.literal("dynamicList"),
-      span: v.optional(blockSpanValidator),
+      span: v.optional(sectionSpanValidator),
       heading: v.optional(label),
       source: v.object({
         pageType: v.string(),
@@ -141,7 +141,7 @@ export function buildNavTree<
       ),
     })
   )
-  const blockRegion = v.object({ blocks: v.array(block) })
+  const sectionRegion = v.object({ sections: v.array(section) })
 
   return v.object({
     id: v.string(),
@@ -150,19 +150,19 @@ export function buildNavTree<
     panel: v.optional(
       v.union(
         v.object({
-          columns: blockSpanValidator,
-          blocks: v.array(block),
-          footer: v.optional(blockRegion),
+          columns: sectionSpanValidator,
+          sections: v.array(section),
+          footer: v.optional(sectionRegion),
         }),
         v.object({
           layout: v.literal("columns"),
           columns: v.array(
             v.object({
               id: v.string(),
-              blocks: v.array(block),
+              sections: v.array(section),
             })
           ),
-          footer: v.optional(blockRegion),
+          footer: v.optional(sectionRegion),
           title: v.optional(label),
           description: v.optional(label),
         })
@@ -181,10 +181,10 @@ export type NavItem = Infer<typeof navItemValidator>
 export type Panel = NonNullable<NavItem["panel"]>
 export type LegacyPanel = Extract<Panel, { columns: number }>
 export type ColumnPanel = Extract<Panel, { layout: "columns" }>
-export type Block = LegacyPanel["blocks"][number]
-export type NavLink = Extract<Block, { kind: "linkGroup" }>["links"][number]
+export type PanelSection = LegacyPanel["sections"][number]
+export type NavLink = Extract<PanelSection, { kind: "linkGroup" }>["links"][number]
 export type DynamicListSource = Extract<
-  Block,
+  PanelSection,
   { kind: "dynamicList" }
 >["source"]
 
@@ -197,10 +197,10 @@ export const localeNavItemValidator = buildNavTree(
   localeMenuImageValidator
 )
 export type LocaleNavItem = Infer<typeof localeNavItemValidator>
-export type LocaleBlock = Extract<
+export type LocalePanelSection = Extract<
   NonNullable<LocaleNavItem["panel"]>,
   { columns: number }
->["blocks"][number]
+>["sections"][number]
 
 export const canonicalResolvedTargetValidator = v.union(
   v.object({
@@ -228,10 +228,10 @@ export type CanonicalResolvedNavItem = Infer<
   typeof canonicalResolvedNavItemValidator
 >
 
-export type ResolvedBlock = Extract<
+export type ResolvedPanelSection = Extract<
   NonNullable<CanonicalResolvedNavItem["panel"]>,
   { columns: number }
->["blocks"][number]
+>["sections"][number]
 
 export type MenuCardsBySource = Record<string, PublicRelationCard[]>
 
@@ -245,9 +245,9 @@ export function collectDynamicListSources(
   const sources = new Map<string, DynamicListSource>()
   for (const nav of navTrees) {
     for (const item of nav) {
-      for (const { block } of panelBlocks<Block | ResolvedBlock>(item.panel)) {
-        if (block.kind === "dynamicList")
-          sources.set(dynamicListSourceKey(block.source), block.source)
+      for (const { section } of panelSections<PanelSection | ResolvedPanelSection>(item.panel)) {
+        if (section.kind === "dynamicList")
+          sources.set(dynamicListSourceKey(section.source), section.source)
       }
     }
   }
@@ -267,26 +267,26 @@ export function walkCanonicalMenuTargets(
   nav: readonly NavItem[]
 ): MenuReferenceTarget[] {
   const targets: MenuReferenceTarget[] = []
-  const visitBlock = (block: Block, blockPath: string) => {
-    if (block.kind === "featured") {
-      const target = block.link?.target ?? block.target
+  const visitSection = (section: PanelSection, sectionPath: string) => {
+    if (section.kind === "featured") {
+      const target = section.link?.target ?? section.target
       if (target?.type === "internal")
         targets.push({
           targetId: target.pageId,
-          path: `${blockPath}/${block.link ? "link/target" : "target"}`,
+          path: `${sectionPath}/${section.link ? "link/target" : "target"}`,
         })
-    } else if (block.kind === "dynamicList") {
-      if (block.seeAll?.target.type === "internal")
+    } else if (section.kind === "dynamicList") {
+      if (section.seeAll?.target.type === "internal")
         targets.push({
-          targetId: block.seeAll.target.pageId,
-          path: `${blockPath}/seeAll/target`,
+          targetId: section.seeAll.target.pageId,
+          path: `${sectionPath}/seeAll/target`,
         })
     } else {
-      for (const link of block.links) {
+      for (const link of section.links) {
         if (link.target.type === "internal")
           targets.push({
             targetId: link.target.pageId,
-            path: `${blockPath}/links/${menuNodeSegment(link.id)}/target`,
+            path: `${sectionPath}/links/${menuNodeSegment(link.id)}/target`,
           })
       }
     }
@@ -301,8 +301,8 @@ export function walkCanonicalMenuTargets(
       })
     }
     if (!item.panel) continue
-    for (const { block, path } of panelBlocks(item.panel)) {
-      visitBlock(block, `${itemPath}/panel/${path}`)
+    for (const { section, path } of panelSections(item.panel)) {
+      visitSection(section, `${itemPath}/panel/${path}`)
     }
   }
   return targets
@@ -314,11 +314,11 @@ export function generateMenuId(): string {
 
 /** The two persisted layouts share one traversal and mapping boundary. */
 export type PanelTree<B, L = unknown> =
-  | { columns: 1 | 2 | 3 | 4; blocks: B[]; footer?: { blocks: B[] } }
+  | { columns: 1 | 2 | 3 | 4; sections: B[]; footer?: { sections: B[] } }
   | {
       layout: "columns"
-      columns: { id: string; blocks: B[] }[]
-      footer?: { blocks: B[] }
+      columns: { id: string; sections: B[] }[]
+      footer?: { sections: B[] }
       title?: L
       description?: L
     }
@@ -330,76 +330,76 @@ export function isColumnPanel<P extends { columns: unknown }>(
 }
 
 /** Panel-relative location for references; never a translation identity. */
-export function panelBlocks<B extends { id: string }>(
+export function panelSections<B extends { id: string }>(
   panel: PanelTree<B> | undefined
 ) {
-  const entries: { block: B; path: string }[] = []
+  const entries: { section: B; path: string }[] = []
   if (!panel) return entries
-  const add = (blocks: B[], path: string) => {
-    for (const block of blocks)
+  const add = (sections: B[], path: string) => {
+    for (const section of sections)
       entries.push({
-        block,
-        path: `${path}/${menuNodeSegment(block.id)}`,
+        section,
+        path: `${path}/${menuNodeSegment(section.id)}`,
       })
   }
   if (isColumnPanel(panel)) {
     for (const col of panel.columns)
       add(
-        col.blocks,
-        `columns/${menuNodeSegment(col.id)}/blocks`
+        col.sections,
+        `columns/${menuNodeSegment(col.id)}/sections`
       )
-  } else add(panel.blocks, "blocks")
-  add(panel.footer?.blocks ?? [], "footer/blocks")
+  } else add(panel.sections, "sections")
+  add(panel.footer?.sections ?? [], "footer/sections")
   return entries
 }
 
-/** Transform block values without changing their region, order or column metadata. */
-export function mapPanelBlocks<B, R, L>(
+/** Transform section values without changing their region, order or column metadata. */
+export function mapPanelSections<B, R, L>(
   panel: PanelTree<B, L>,
-  map: (blocks: B[]) => R[]
+  map: (sections: B[]) => R[]
 ): PanelTree<R, L> {
-  const footer = panel.footer ? { blocks: map(panel.footer.blocks) } : undefined
+  const footer = panel.footer ? { sections: map(panel.footer.sections) } : undefined
   return isColumnPanel(panel)
     ? {
         ...panel,
         columns: panel.columns.map((col) => ({
           ...col,
-          blocks: map(col.blocks),
+          sections: map(col.sections),
         })),
         footer,
       }
-    : { ...panel, blocks: map(panel.blocks), footer }
+    : { ...panel, sections: map(panel.sections), footer }
 }
 
 /** Explicit editor conversion only: legacy rows keep their start-column ownership. */
 export function legacyToColumns(panel: LegacyPanel): ColumnPanel {
   const copy = structuredClone(panel)
-  const convertBlock = (block: Block): Block => {
-    delete block.span
-    if (block.kind === "featured" && block.target) {
-      block.link = { label: { ...block.heading }, target: block.target }
-      delete block.target
+  const convertSection = (section: PanelSection): PanelSection => {
+    delete section.span
+    if (section.kind === "featured" && section.target) {
+      section.link = { label: { ...section.heading }, target: section.target }
+      delete section.target
     }
-    return block
+    return section
   }
   const completeRow =
-    panel.blocks.reduce((sum, block) => sum + (block.span ?? 1), 0) ===
+    panel.sections.reduce((sum, section) => sum + (section.span ?? 1), 0) ===
     panel.columns
   const columns: ColumnPanel["columns"] = completeRow
-    ? copy.blocks.map((block, index) => ({
+    ? copy.sections.map((section, index) => ({
         id: `column-${index + 1}`,
-        blocks: [convertBlock(block)],
+        sections: [convertSection(section)],
       }))
     : Array.from({ length: panel.columns }, (_, index) => ({
         id: `column-${index + 1}`,
-        blocks: [],
+        sections: [],
       }))
   if (!completeRow) {
     let start = 0
-    for (const block of copy.blocks) {
-      const span = block.span ?? 1
+    for (const section of copy.sections) {
+      const span = section.span ?? 1
       if (start + span > panel.columns) start = 0
-      columns[start]!.blocks.push(convertBlock(block))
+      columns[start]!.sections.push(convertSection(section))
       start += span
       if (start >= panel.columns) start = 0
     }
@@ -408,7 +408,7 @@ export function legacyToColumns(panel: LegacyPanel): ColumnPanel {
     layout: "columns",
     columns,
     ...(copy.footer
-      ? { footer: { blocks: copy.footer.blocks.map(convertBlock) } }
+      ? { footer: { sections: copy.footer.sections.map(convertSection) } }
       : {}),
   }
 }
@@ -419,33 +419,33 @@ export function menuConversionBaseline(
   next: readonly { id: string; panel?: PanelTree<{ id: string }> }[]
 ): NavItem[] {
   const nextItems = new Map(next.map((item) => [item.id, item]))
-  const nextColumnBlocks = new Set(
+  const nextColumnSections = new Set(
     next.flatMap((item) =>
       item.panel && isColumnPanel(item.panel)
-        ? panelBlocks(item.panel).map(({ block }) => block.id)
+        ? panelSections(item.panel).map(({ section }) => section.id)
         : []
     )
   )
   return existing.map((item) => {
     if (!item.panel || isColumnPanel(item.panel)) return item
-    const originalBlocks = new Map(
-      panelBlocks(item.panel).map(({ block }) => [block.id, block])
+    const originalSections = new Map(
+      panelSections(item.panel).map(({ section }) => [section.id, section])
     )
     const converted = legacyToColumns(item.panel)
-    const convertedBlocks = new Map(
-      panelBlocks(converted).map(({ block }) => [block.id, block])
+    const convertedSections = new Map(
+      panelSections(converted).map(({ section }) => [section.id, section])
     )
-    // Item identity owns panel layout; only destination block identity seeds text.
+    // Item identity owns panel layout; only destination section identity seeds text.
     const nextPanel = nextItems.get(item.id)?.panel
     return {
       ...item,
-      panel: mapPanelBlocks(
+      panel: mapPanelSections(
         nextPanel && isColumnPanel(nextPanel) ? converted : item.panel,
-        (blocks) =>
-          blocks.map((block) =>
-            nextColumnBlocks.has(block.id)
-              ? convertedBlocks.get(block.id)!
-              : originalBlocks.get(block.id)!
+        (sections) =>
+          sections.map((section) =>
+            nextColumnSections.has(section.id)
+              ? convertedSections.get(section.id)!
+              : originalSections.get(section.id)!
           )
       ),
     }

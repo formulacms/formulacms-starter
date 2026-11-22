@@ -32,7 +32,7 @@ const page = {
   status: "draft",
   createdAt: 100,
   updatedAt: 100,
-  content: { en: { title: "Home", slices: [] } },
+  content: { en: { title: "Home", blocks: [] } },
   tags: [],
   createdBy: "user_1",
 } as Extract<Page, { pageType: "page" }>
@@ -45,7 +45,7 @@ const draft: PageSaveDraft = {
   tags: [],
   metaTitle: "",
   metaDescription: "",
-  slices: [],
+  blocks: [],
   seoNoIndex: false,
   seoNoFollow: false,
   seoOgTitle: "",
@@ -83,7 +83,7 @@ it.each([
                 ...page,
                 content: {
                   ...page.content,
-                  fr: { title: "Accueil", slices: [] },
+                  fr: { title: "Accueil", blocks: [] },
                 },
               }
             : page,

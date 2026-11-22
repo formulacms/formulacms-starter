@@ -1,44 +1,44 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, test } from "vitest"
-import { sliceDefs, type Slice } from "./lib/slices"
-import { diffSliceMutations } from "./lib/slices/permissions"
+import { blockDefs, type Block } from "./lib/blocks"
+import { diffBlockMutations } from "./lib/blocks/permissions"
 import { toDescriptorComparisonForm } from "./lib/richtext/comparison"
-import { convertSliceFields } from "./lib/slices/validate"
+import { convertBlockFields } from "./lib/blocks/validate"
 
-function faq(question: string): Slice {
+function faq(question: string): Block {
   return {
     id: "faq-1",
     type: "faq-simple",
     enabled: true,
     primary: { heading: "FAQ", eyebrow: "", body: "" },
     items: [{ question, answer: "Answer", itemId: "row-1" }],
-  } as unknown as Slice
+  } as unknown as Block
 }
 
-function comparison(slice: Slice): Slice {
-  const def = sliceDefs[slice.type]
-  const converted = convertSliceFields(slice).value
+function comparison(block: Block): Block {
+  const def = blockDefs[block.type]
+  const converted = convertBlockFields(block).value
   const next = {
     ...converted,
     primary: toDescriptorComparisonForm(def.primary, converted.primary, {
-      sliceType: slice.type,
+      blockType: block.type,
       fieldPath: "primary",
     }),
   } as Record<string, unknown>
   if ("items" in def && "items" in converted)
     next.items = toDescriptorComparisonForm(def.items, converted.items, {
-      sliceType: slice.type,
+      blockType: block.type,
       fieldPath: "items",
     })
-  return next as unknown as Slice
+  return next as unknown as Block
 }
 
-function content(slice: Slice) {
-  return { en: { slices: [slice] } }
+function content(block: Block) {
+  return { en: { blocks: [block] } }
 }
 
 describe("RF2a revision comparison seam", () => {
-  test("shape-only FAQ heading restore has an empty mutation diff", sliceProfile([]), () => {
+  test("shape-only FAQ heading restore has an empty mutation diff", blockProfile([]), () => {
     const title = JSON.stringify({
       type: "doc",
       content: [
@@ -50,14 +50,14 @@ describe("RF2a revision comparison seam", () => {
       ],
     })
     expect(
-      diffSliceMutations(
+      diffBlockMutations(
         content(comparison(faq("Question"))),
         content(comparison(faq(title)))
       )
     ).toEqual({ add: new Set(), edit: new Set(), delete: new Set() })
   })
 
-  test("a changed word remains an edit after comparison projection", sliceProfile([]), () => {
+  test("a changed word remains an edit after comparison projection", blockProfile([]), () => {
     const title = JSON.stringify({
       type: "doc",
       content: [
@@ -69,15 +69,15 @@ describe("RF2a revision comparison seam", () => {
       ],
     })
     expect(
-      diffSliceMutations(
+      diffBlockMutations(
         content(comparison(faq("Question"))),
         content(comparison(faq(title)))
       ).edit
     ).toContain("faq-simple")
   })
 
-  test("new itemId initialization is ignored while existing identity changes are not", sliceProfile([]), () => {
-    const before = faq("Question") as Slice & {
+  test("new itemId initialization is ignored while existing identity changes are not", blockProfile([]), () => {
+    const before = faq("Question") as Block & {
       items: Array<Record<string, unknown>>
     }
     delete before.items[0]!.itemId
@@ -86,9 +86,9 @@ describe("RF2a revision comparison seam", () => {
     }
     initialized.items[0] = { ...initialized.items[0]!, itemId: "created" }
     expect(
-      diffSliceMutations(
+      diffBlockMutations(
         content(comparison(before)),
-        content(comparison(initialized as unknown as Slice))
+        content(comparison(initialized as unknown as Block))
       ).edit.size
     ).toBe(0)
     const changed = faq("Question") as unknown as {
@@ -100,14 +100,14 @@ describe("RF2a revision comparison seam", () => {
     }
     existing.items[0] = { ...existing.items[0], itemId: "original" }
     expect(
-      diffSliceMutations(
-        content(existing as unknown as Slice),
-        content(changed as unknown as Slice)
+      diffBlockMutations(
+        content(existing as unknown as Block),
+        content(changed as unknown as Block)
       ).edit
     ).toContain("faq-simple")
   })
 
-  test("restore conversion leaves its frozen source object untouched", sliceProfile([]), () => {
+  test("restore conversion leaves its frozen source object untouched", blockProfile([]), () => {
     const title = JSON.stringify({
       type: "doc",
       content: [
@@ -120,7 +120,7 @@ describe("RF2a revision comparison seam", () => {
     })
     const frozenFixture = faq(title)
     const before = structuredClone(frozenFixture)
-    convertSliceFields(frozenFixture)
+    convertBlockFields(frozenFixture)
     expect(frozenFixture).toEqual(before)
   })
 })

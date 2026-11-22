@@ -2,7 +2,7 @@
 
 import { MediaBrowser, type Media } from "./media-browser"
 import { useTranslations } from "next-intl"
-import type { ImageField } from "@/convex/lib/slices"
+import type { ImageField } from "@/convex/lib/blocks"
 import {
   Dialog,
   DialogContent,
@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-/** Map a media doc to the `imageField` shape stored on slices. */
+/** Map a media doc to the `imageField` shape stored on blocks. */
 function toImageField(m: Media): ImageField {
   return {
     url: m.url,
@@ -25,7 +25,7 @@ function toImageField(m: Media): ImageField {
 
 /**
  * Modal that lets an editor browse/upload media and pick one. `onSelect`
- * receives the `imageField` shape ready to store on a slice, plus the source
+ * receives the `imageField` shape ready to store on a block, plus the source
  * media doc for flows that need to persist the media-library record itself.
  */
 export function MediaPicker({

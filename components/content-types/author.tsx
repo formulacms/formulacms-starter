@@ -1,13 +1,13 @@
 import {
   resolvePageOutline,
   pageHeadingModeFor,
-} from "@/lib/slices/page-outline"
+} from "@/lib/blocks/page-outline"
 import { getPublicMessages } from "@/lib/i18n/public-messages"
-import { SliceZone } from "@/components/slices/slice-zone"
+import { BlockList } from "@/components/blocks/block-list"
 import type { Doc } from "@/convex/_generated/dataModel"
 import { authorContentType } from "@/convex/lib/contentTypes/author"
 import { publicFieldsOf } from "@/convex/lib/contentTypes/exposure"
-import type { SliceBodyRendererProps } from "./types"
+import type { BlockBodyRendererProps } from "./types"
 
 type AuthorArm = Doc<"pages"> & { pageType: "author" }
 type AuthorContent = NonNullable<AuthorArm["content"]>[string]
@@ -15,7 +15,7 @@ type AuthorContent = NonNullable<AuthorArm["content"]>[string]
 /**
  * Public renderer for `author` — a routable content type whose top-of-page
  * surface is the author's own identity block (name / role / socials),
- * followed by the descriptor's shared slice canvas.
+ * followed by the descriptor's shared block canvas.
  *
  * ADR-0038 exposure enforcement is done by lookup — the renderer never
  * hand-lists descriptor keys. `publicFieldsOf` returns the descriptor's
@@ -26,13 +26,13 @@ type AuthorContent = NonNullable<AuthorArm["content"]>[string]
 export function AuthorRenderer({
   page,
   content,
-  slices,
+  blocks,
   ctx,
   locale,
-}: SliceBodyRendererProps) {
+}: BlockBodyRendererProps) {
   if (page.pageType !== "author") return null
   // `page` narrows on the guard above. `content` cannot — it arrives as its
-  // own prop, typed as the union across every slice-body arm, and `roleTitle`
+  // own prop, typed as the union across every block-body arm, and `roleTitle`
   // exists only on this one. That cast is load-bearing; the one on `page` was
   // not, and hid future type errors on the author arm.
   const authorContent = content as AuthorContent
@@ -47,7 +47,7 @@ export function AuthorRenderer({
   const heading = name && name.length > 0 ? name : authorContent.title
 
   const outline = resolvePageOutline({
-    slices,
+    blocks,
     locale: ctx.locale,
     mode: pageHeadingModeFor("author"),
   })
@@ -73,8 +73,8 @@ export function AuthorRenderer({
           </ul>
         )}
       </header>
-      {slices.length > 0 ? (
-        <SliceZone slices={slices} ctx={ctx} outline={outline} />
+      {blocks.length > 0 ? (
+        <BlockList blocks={blocks} ctx={ctx} outline={outline} />
       ) : (
         <p className="mx-auto max-w-content px-gutter py-section text-muted-foreground">
           {getPublicMessages(locale).chrome.noContent}

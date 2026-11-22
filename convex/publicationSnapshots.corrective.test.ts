@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import migrationsTest from "@convex-dev/migrations/test"
 import {
   finishMediaUsageBackfill,
@@ -13,7 +13,7 @@ import type { Id } from "./_generated/dataModel"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import { enableRedirectsForTest } from "../redirectsTestHelpers"
 import schema from "./schema"
-import { heroWithImageDef } from "./lib/slices/heroWithImage"
+import { heroWithImageDef } from "./lib/blocks/heroWithImage"
 
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
@@ -21,7 +21,7 @@ const OWNER = {
   tokenIdentifier: "f08a-corrective-owner",
 }
 
-const bodySlice = (id: string, text: string) => ({
+const bodyBlock = (id: string, text: string) => ({
   id,
   type: "rich-text-body" as const,
   enabled: true,
@@ -76,7 +76,7 @@ async function activeFixture() {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   const pageId = await owner.mutation(api.cms.pages.create, {
     pageType: "landing-page",
@@ -84,8 +84,8 @@ async function activeFixture() {
     slug: "café",
     title: "Café",
     content: {
-      en: { title: "Café ☕", slices: [] },
-      fr: { title: "Café français", slices: [] },
+      en: { title: "Café ☕", blocks: [] },
+      fr: { title: "Café français", blocks: [] },
     },
   })
   await t.run(async (ctx) => {
@@ -124,7 +124,7 @@ afterEach(() => {
 describe("F08a corrective authority and ownership proof", () => {
   test.each(["mediaId", "storageId"] as const)(
     "primary link by %s survives editor saves, publication and clearing the draft",
-    sliceProfile(["hero-with-image"]),
+    blockProfile(["hero-with-image"]),
     async (identity) => {
       const { t, owner, pageId } = await activeFixture()
       const media = await t.run(async (ctx) => {
@@ -139,7 +139,7 @@ describe("F08a corrective authority and ownership proof", () => {
         })
         return { mediaId, storageId }
       })
-      const slice = {
+      const block = {
         id: "primary-download",
         type: "hero-with-image" as const,
         enabled: true,
@@ -149,7 +149,7 @@ describe("F08a corrective authority and ownership proof", () => {
         },
         items: [],
       }
-      const save = (generation: number, slices: (typeof slice)[]) =>
+      const save = (generation: number, blocks: (typeof block)[]) =>
         owner.mutation(api.cms.publication.saveEditorDraft, {
           pageId,
           expectedLifecycleGeneration: 1,
@@ -160,7 +160,7 @@ describe("F08a corrective authority and ownership proof", () => {
             draft: {
               pageType: "landing-page",
               localized: { title: "Download" },
-              slices,
+              blocks,
             },
           },
         })
@@ -181,19 +181,19 @@ describe("F08a corrective authority and ownership proof", () => {
             .unique()
         )
       const frenchBefore = await draft("fr")
-      await save(1, [slice])
+      await save(1, [block])
       expect(await refs()).toEqual([
         expect.objectContaining({
           sourceKind: "locale_draft",
           locale: "en",
           mediaId: media.mediaId,
           storageId: media.storageId,
-          sourcePath: "content.en.slices[0].primary.eyebrowLink",
+          sourcePath: "content.en.blocks[0].primary.eyebrowLink",
         }),
       ])
       const saved = await draft("en")
-      await save(2, [slice])
-      expect(saved).toMatchObject({ content: { slices: [slice] } })
+      await save(2, [block])
+      expect(saved).toMatchObject({ content: { blocks: [block] } })
       expect((await draft("en"))?.content).toEqual(saved?.content)
       expect(await refs()).toHaveLength(1)
       expect(await draft("fr")).toEqual(frenchBefore)
@@ -268,9 +268,9 @@ describe("F08a corrective authority and ownership proof", () => {
       await expect(
         save(4, [
           {
-            ...slice,
+            ...block,
             primary: {
-              ...slice.primary,
+              ...block.primary,
               eyebrowLink: { type: "media", mediaId: brokenMediaId },
             },
           },
@@ -556,7 +556,7 @@ describe("F08a corrective authority and ownership proof", () => {
       status: "draft",
       slug: "parent",
       title: "Parent",
-      content: { en: { title: "Parent", slices: [] } },
+      content: { en: { title: "Parent", blocks: [] } },
     })
     const combined = await owner.mutation(api.cms.publication.saveEditorDraft, {
       pageId,
@@ -569,7 +569,7 @@ describe("F08a corrective authority and ownership proof", () => {
         draft: {
           pageType: "landing-page",
           localized: { title: "Atomic edit" },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -603,7 +603,7 @@ describe("F08a corrective authority and ownership proof", () => {
           draft: {
             pageType: "landing-page",
             localized: { title: "Locale only" },
-            slices: [],
+            blocks: [],
           },
         },
       }
@@ -641,7 +641,7 @@ describe("F08a corrective authority and ownership proof", () => {
           draft: {
             pageType: "landing-page",
             localized: { title: "Must roll back" },
-            slices: [],
+            blocks: [],
           },
         },
       })
@@ -685,7 +685,7 @@ describe("F08a corrective authority and ownership proof", () => {
 
   test(
     "saving a draft keeps a removed required image as an empty image",
-    sliceProfile(["hero-with-image"]),
+    blockProfile(["hero-with-image"]),
     async () => {
       const { t, owner, pageId } = await activeFixture()
       // The editor writes `{}` when the owner removes a required image; the
@@ -700,7 +700,7 @@ describe("F08a corrective authority and ownership proof", () => {
           draft: {
             pageType: "landing-page",
             localized: { title: "No image" },
-            slices: [
+            blocks: [
               {
                 id: "hero",
                 type: "hero-with-image" as const,
@@ -721,7 +721,7 @@ describe("F08a corrective authority and ownership proof", () => {
           .unique()
       )
       expect(draft?.content).toMatchObject({
-        slices: [{ primary: { image: {} } }],
+        blocks: [{ primary: { image: {} } }],
       })
     }
   )
@@ -749,7 +749,7 @@ describe("F08a corrective authority and ownership proof", () => {
       draft: {
         pageType: "landing-page",
         localized: { title: "Edited" },
-        slices: [],
+        blocks: [],
       },
       expectedDraftGeneration: 1,
       expectedLifecycleGeneration: 1,
@@ -768,7 +768,7 @@ describe("F08a corrective authority and ownership proof", () => {
 
   test(
     "retained admin preview reads current drafts and never overlays legacy staging",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async () => {
       const { t, owner, pageId, homeId } = await activeFixture()
       await publishEn(owner, pageId)
@@ -783,7 +783,7 @@ describe("F08a corrective authority and ownership proof", () => {
         draft: {
           pageType: "landing-page",
           localized: { title: "Current Working Draft" },
-          slices: [bodySlice("current", "Current draft copy")],
+          blocks: [bodyBlock("current", "Current draft copy")],
         },
         expectedDraftGeneration: generation,
         expectedLifecycleGeneration: 1,
@@ -791,14 +791,14 @@ describe("F08a corrective authority and ownership proof", () => {
       await t.run(async (ctx) => {
         await ctx.db.patch("pages", pageId, {
           parentId: homeId,
-          content: { en: { title: "Retained legacy Page", slices: [] } },
+          content: { en: { title: "Retained legacy Page", blocks: [] } },
         })
         await ctx.db.insert("pageStaging", {
           pageId,
           pageType: "landing-page",
           slug: "legacy-staging",
           updatedAt: 999,
-          content: { en: { title: "Retained legacy staging", slices: [] } },
+          content: { en: { title: "Retained legacy staging", blocks: [] } },
         })
       })
       const publicBefore = await t.run((ctx) =>
@@ -1207,7 +1207,7 @@ describe("F08a corrective authority and ownership proof", () => {
 
   test(
     "document references own every source arm and failed same-locale capture rolls back",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async () => {
       const { t, owner } = await activeFixture()
       const authorId = await owner.mutation(api.cms.pages.create, {
@@ -1216,7 +1216,7 @@ describe("F08a corrective authority and ownership proof", () => {
         slug: "ada",
         title: "Ada",
         name: "Ada",
-        content: { en: { title: "Ada", slices: [] } },
+        content: { en: { title: "Ada", blocks: [] } },
       })
       const postId = await owner.mutation(api.cms.pages.create, {
         pageType: "post",
@@ -1227,11 +1227,11 @@ describe("F08a corrective authority and ownership proof", () => {
         content: {
           en: {
             title: "Proof",
-            slices: [bodySlice("proof-en", "English proof")],
+            blocks: [bodyBlock("proof-en", "English proof")],
           },
           fr: {
             title: "Preuve",
-            slices: [bodySlice("proof-fr", "Preuve française")],
+            blocks: [bodyBlock("proof-fr", "Preuve française")],
           },
         },
       })
@@ -1486,7 +1486,7 @@ async function reproCreate(owner: ReproOwner, slug: string) {
     status: "draft",
     slug,
     title: slug,
-    content: { en: { title: slug, slices: [] } },
+    content: { en: { title: slug, blocks: [] } },
   })
 }
 async function reproStage(
@@ -1511,7 +1511,7 @@ async function reproStage(
       draft: {
         pageType: "landing-page",
         localized: { title: "Edited" },
-        slices: [bodySlice("body", "[plain] <text> {value}")],
+        blocks: [bodyBlock("body", "[plain] <text> {value}")],
       },
     },
   })
@@ -1526,7 +1526,7 @@ async function reproRows(t: ReproApp) {
     drafts: await ctx.db.query("pageLocaleDrafts").collect(),
     refs: await ctx.db.query("pagePublicationDocumentReferences").collect(),
     mediaRefs: await ctx.db.query("pagePublicationMediaReferences").collect(),
-    sliceRefs: await ctx.db.query("pagePublicationSliceReferences").collect(),
+    blockRefs: await ctx.db.query("pagePublicationBlockReferences").collect(),
     intents: await ctx.db.query("pagePublicationRevalidationIntents").collect(),
     shared: await ctx.db.query("pageSharedDrafts").collect(),
   }))
@@ -1535,7 +1535,7 @@ async function reproRows(t: ReproApp) {
 describe("CVX-REPRO-1 ordinary publication", () => {
   test.each(["self", "child", "grandchild"] as const)(
     "F02 refuses %s parent atomically",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async (kind) => {
       const { t, owner, pageId } = await activeFixture()
       await reproPublish(t, owner, pageId)
@@ -1587,7 +1587,7 @@ describe("CVX-REPRO-1 ordinary publication", () => {
 
   test(
     "F02 valid reparent and unchanged parent still publish",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async () => {
       const { t, owner, pageId } = await activeFixture()
       const parent = await reproCreate(owner, "parent")
@@ -1617,7 +1617,7 @@ describe("CVX-REPRO-1 ordinary publication", () => {
   ] as const) {
     test.each([profileRow])(
       "F03 publishes %s edit with immutable base and other locale",
-      sliceProfile(profileRow === "descriptor" ? [] : ["rich-text-body"]),
+      blockProfile(profileRow === "descriptor" ? [] : ["rich-text-body"]),
       async (kind) => {
         const { t, owner, pageId: landing } = await activeFixture()
         const pageId =
@@ -1629,8 +1629,8 @@ describe("CVX-REPRO-1 ordinary publication", () => {
                 title: "Author",
                 name: "Before",
                 content: {
-                  en: { title: "Author", slices: [] },
-                  fr: { title: "Auteur", slices: [] },
+                  en: { title: "Author", blocks: [] },
+                  fr: { title: "Auteur", blocks: [] },
                 },
               })
             : landing
@@ -1677,7 +1677,7 @@ describe("CVX-REPRO-1 ordinary publication", () => {
                   draft: {
                     pageType: "landing-page" as const,
                     localized: { title: "Changed" },
-                    slices: [],
+                    blocks: [],
                   },
                 },
               }
@@ -1901,7 +1901,7 @@ describe("CVX-REPRO-1 prepared publication siblings", () => {
         draft: {
           pageType: "landing-page",
           localized: { title: "Prepared" },
-          slices: [],
+          blocks: [],
         },
       })
       const clocks = await reproClocks(t, pageId, "fr")

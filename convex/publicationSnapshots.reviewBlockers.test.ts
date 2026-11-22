@@ -48,7 +48,7 @@ const PUBLICATION_TABLES = [
   "pagePublishedSnapshots",
   "pagePublicationDocumentReferences",
   "pagePublicationMediaReferences",
-  "pagePublicationSliceReferences",
+  "pagePublicationBlockReferences",
   "pageHistoricalLocaleRoutes",
   "pagePublicationRevalidationIntents",
   "pagePublicationMigrationPages",
@@ -73,7 +73,7 @@ async function activeFixture() {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   const pageId = await owner.mutation(api.cms.pages.create, {
     pageType: "landing-page",
@@ -81,8 +81,8 @@ async function activeFixture() {
     slug: "cafe",
     title: "Café",
     content: {
-      en: { title: "Café", slices: [] },
-      fr: { title: "Café français", slices: [] },
+      en: { title: "Café", blocks: [] },
+      fr: { title: "Café français", blocks: [] },
     },
   })
   await t.run(async (ctx) => {
@@ -113,7 +113,7 @@ describe("F08a review blockers on e181c632", () => {
       status: "draft",
       slug: "early",
       title: "Early",
-      content: { en: { title: "Early", slices: [] } },
+      content: { en: { title: "Early", blocks: [] } },
     })
     const before = await dumpPublicationState(t)
     await expect(
@@ -155,7 +155,7 @@ describe("F08a review blockers on e181c632", () => {
       status: "draft",
       slug: "parent",
       title: "Parent",
-      content: { en: { title: "Parent", slices: [] } },
+      content: { en: { title: "Parent", blocks: [] } },
     })
     // The retained legacy row still carries a hierarchy value.
     await t.run((ctx) => ctx.db.patch("pages", pageId, { parentId }))

@@ -3,7 +3,7 @@ import { NewPageWritingSlot } from "../ai-writing/new-page-participant"
 
 import type { Id } from "@/convex/_generated/dataModel"
 import type { ContentType } from "@/convex/lib/contentTypes"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 import type { Locale } from "@/lib/i18n/config"
 import type { AdminCommand } from "../command-palette"
 import type { FieldGenerate } from "../fields/field-editor"
@@ -46,7 +46,7 @@ export type AdminAiWritingPageEditorHostInput = Readonly<{
   page: Page
   locale: Locale
   ensureSaved: () => Promise<boolean>
-  slices: readonly Slice[]
+  blocks: readonly Block[]
   title: string
   setMetaTitle: (value: string) => void
   setMetaDescription: (value: string) => void

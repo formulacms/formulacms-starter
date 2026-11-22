@@ -36,8 +36,8 @@ import {
   recordLocalJobUnitAudit,
 } from "../agents/localGeneration"
 import {
-  assembleSlice,
-  assertSliceType,
+  assembleBlock,
+  assertBlockType,
 } from "../lib/agents/contentWriterContract"
 import { prependAssistantInstructions } from "../../lib/ai/task-profiles"
 import {
@@ -252,7 +252,7 @@ export const localClaimUnit = mutation({
       jobKind: jobKindValidator,
       instructions: v.string(),
       prompt: v.string(),
-      sliceType: v.optional(v.string()),
+      blockType: v.optional(v.string()),
       // The frozen route, read here in the same transaction: the runner keeps
       // none in memory, so it survives a restart of the dev server (Resume).
       localRoute: localJobRouteValidator,
@@ -310,7 +310,7 @@ export const localClaimUnit = mutation({
         generation.instructions
       ),
       prompt: generation.prompt,
-      ...(next.sliceType ? { sliceType: next.sliceType } : {}),
+      ...(next.blockType ? { blockType: next.blockType } : {}),
       // authorizeRunner returns only jobs that have a local route.
       localRoute: job.localRoute!,
     }
@@ -383,7 +383,7 @@ async function failClaimedUnit(
 
 /**
  * The runner saves the raw text of one claimed unit. A write unit's text is
- * assembled into a slice here; a translation unit's text is stored as is
+ * assembled into a block here; a translation unit's text is stored as is
  * (assembly in `finish` trims it and restores the source whitespace). Text
  * that does not assemble, is empty, or is over 200,000 characters fails the
  * unit and stops the job, as a Workpool worker failure does.
@@ -406,7 +406,7 @@ export const localSaveUnit = mutation({
         throw new Error("Unusable text.")
       output =
         job.kind === "write"
-          ? assembleSlice(assertSliceType(unit.sliceType!), args.text)
+          ? assembleBlock(assertBlockType(unit.blockType!), args.text)
           : args.text
     } catch {
       await failClaimedUnit(ctx, job, unit, "INVALID_OUTPUT", args.audit.funding)
@@ -490,22 +490,22 @@ export const checkLocalRunner = internalMutation({
   handler: async (ctx, { jobId }): Promise<null> => {
     const job = await ctx.db.get("aiJobs", jobId)
     if (!job || !job.localRoute || !job.runner || !active(job)) return null
-    if (expired(job)) {
-      await expire(ctx, job)
+    if (!expired(job) && job.runner.leaseExpiresAt > Date.now()) return null
+    // This check is the one running: do not cancel it.
+    await ctx.db.patch("aiJobs", jobId, {
+      runner: { ...job.runner, checkId: undefined },
+    })
+    const fresh = await reread(ctx, job)
+    if (expired(fresh)) {
+      await expire(ctx, fresh)
       return null
     }
-    if (job.runner.leaseExpiresAt > Date.now()) return null
     for (const unit of await unitsFor(ctx, jobId))
       if (unit.state === "inProgress")
         await ctx.db.patch("aiJobUnits", unit._id, {
           state: "waiting",
           claimToken: undefined,
         })
-    // This check is the one running: do not cancel it.
-    await ctx.db.patch("aiJobs", jobId, {
-      runner: { ...job.runner, checkId: undefined },
-    })
-    const fresh = await reread(ctx, job)
     if (job.state === "running") {
       await finish(ctx, fresh, "failed")
       await ctx.db.patch("aiJobs", jobId, { stopDetail: "local-app-stopped" })

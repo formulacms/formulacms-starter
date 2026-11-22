@@ -6,7 +6,7 @@ const request: GenerateRequest = {
   prompt: "TEXT",
   images: [],
   profile: "vision-spec",
-  phase: "slice-spec",
+  phase: "block-spec",
 }
 const fakes = () => ({
   readCatalog: vi.fn(async () => {

@@ -54,9 +54,13 @@ decision, 2026-11-19: 0.3.0 supports fresh installs only; start a new site
 from v0.3.0. Release 0.3.1 declares no path from 0.3.0: it supports fresh
 installs only, and `starter.transitions.json` declares the 0.3.0 to 0.3.1 hop
 `unsupported`. Owner decision, 2026-11-20: breaking changes are accepted until
-0.5; start a new site from v0.3.1. Per-hop transitions may be non-composable.
+0.5; start a new site from v0.3.1. Release 0.4.0 declares no path from 0.3.1:
+it supports fresh installs only, and `starter.transitions.json` declares the
+0.3.1 to 0.4.0 hop `unsupported`; start a new site and a new Convex deployment
+from v0.4.0. From 1.0.0 on, the checker refuses an `unsupported` hop that keeps
+the major version. Per-hop transitions may be non-composable.
 
-`engine.manifest.json` records schema version 5 as the fresh-install baseline. It supports no upgrade from schema version 4 (release 0.2.0), and schema version 3 or older is unsupported.
+`engine.manifest.json` records schema version 6 (release 0.4.0) as the fresh-install baseline. It supports no upgrade from schema version 5 (releases 0.3.0 and 0.3.1) or schema version 4 (release 0.2.0), and schema version 3 or older is unsupported.
 The separate `starter.transitions.json` is the
 machine-readable authority for exact tagged source-to-target paths. Validate a
 named hop before merging it:
@@ -81,7 +85,7 @@ formulacms entries; follow the shared-registry rule in step 4 of the
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Fresh starter generation                                                   | Shipped for new projects. It creates a new artifact only.                                                                                        |
 | Engine fixes and compatible dependency changes                             | May be proposed through a reviewed manual fork upgrade after the target release declares its transition. They are never silently applied.        |
-| New presentation, Pages, media, and reference Slice Types                  | New-install or optional adoption only. They do not enter existing forks automatically.                                                           |
+| New presentation, Pages, media, and reference Block Types                  | New-install or optional adoption only. They do not enter existing forks automatically.                                                           |
 | Migrations and required administrator actions                              | Only part of a declared guided or breaking upgrade. Never run on deploy. A declared repeat-safe backfill may start by itself from a cron job or from a save, publish or purge after the push; its upgrade file names it. |
 | Owner code, dependencies, integrations, content, assets, and configuration | Owner-controlled. formulacms never silently replaces them.                                                                                       |
 | Release tags and exact transition manifests                                | Shipped for declared Community hops. The manual workflow rehearses a clean fork and records evidence; it never deploys or updates an owner fork. |
@@ -591,9 +595,9 @@ blocker, and use **Delete {language} Working Draft** only if the guarded action
 is offered. That action deletes the named private draft, not a Published
 Snapshot.
 
-To offer several public languages, enable **Multilingual** in **Settings →
-Modules**, then adopt it in **Settings → Languages**. There the owner can add a
-language, review the impact before revealing a previously used language,
+To offer several public languages, turn on **Multilingual** in **Settings →
+Modules**. Then open **Settings → Languages**, choose a language in **Add a language…** and select **Add**.
+In **Languages** the owner can also review the impact before revealing a previously used language,
 publish each Page language separately, and review the impact before removing a
 non-default language. Use **Make default** to start the guarded Default Locale
 Migration; the default language cannot simply be disabled or removed. Removing
@@ -641,9 +645,10 @@ node --import tsx scripts/check-release-transition.ts \
   --target-tag <target-tag>
 ```
 
-`engine.manifest.json` separately says schema version 5 is the fresh-install
-baseline and supports no upgrade from schema version 4 (release 0.2.0), while
-schema version 3 or older is unsupported.
+`engine.manifest.json` separately says schema version 6 is the fresh-install
+baseline and supports no upgrade from schema version 5 (releases 0.3.0 and
+0.3.1) or schema version 4 (release 0.2.0), while schema version 3 or older is
+unsupported.
 
 1. Create an upgrade branch from the fork's main branch:
 
@@ -687,7 +692,7 @@ error. Every other engine path keeps the rule "prefer upstream".
    `manual integration`, or `blocked`. A customized fork can require manual
    integration without changing an upstream update into an upgrade.
 
-6. Treat new presentation, Pages, media, and reference Slice Types as
+6. Treat new presentation, Pages, media, and reference Block Types as
    optional adoption. They never enter an existing fork automatically.
 
 7. Verify the upgraded fork; do not regenerate it:
@@ -696,7 +701,7 @@ error. Every other engine path keeps the rule "prefer upstream".
 pnpm typecheck
 pnpm lint
 pnpm test:run
-pnpm slices:sync --check
+pnpm blocks:sync --check
 pnpm check:tokens
 ```
 

@@ -56,7 +56,7 @@ const MIN_PASSWORD_LENGTH = 10
 
 /**
  * Admin dictionaries the wizard can switch to, as `{ setup, caughtErrors }`
- * message slices keyed by locale. Only these two namespaces are shipped to the
+ * message blocks keyed by locale. Only these two namespaces are shipped to the
  * wizard; the page builds the record on the server.
  */
 export type SetupWizardMessages = Record<
@@ -342,7 +342,7 @@ export function SetupWizard({
   initialSetup?: SetupBootstrapHandoff | null
   /** Built on the server: which "Make a new code" block this site shows. */
   ownerCodeTarget?: OwnerCodeTarget
-  /** Setup message slices per admin dictionary; without them the wizard uses the surrounding provider. */
+  /** Setup message blocks per admin dictionary; without them the wizard uses the surrounding provider. */
   messages?: SetupWizardMessages
 }) {
   const { isAuthenticated } = useConvexAuth()

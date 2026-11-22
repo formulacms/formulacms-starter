@@ -5,11 +5,11 @@ import { NextIntlClientProvider } from "next-intl"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { fetchAuthQuery } from "@/lib/auth/server"
-import { loadPublicSiteShell } from "@/lib/slices/public-site-shell.server"
+import { loadPublicSiteShell } from "@/lib/blocks/public-site-shell.server"
 import { withVersionPinnedConfig } from "@/lib/cms/versioned-read"
 import { isLivePreviewPage } from "@/components/admin/live-preview-page-type"
 import { LivePreviewFrameRuntime } from "@/components/admin/live-preview-frame-runtime"
-import { readSlicePresentationCatalog } from "@/convex/lib/slices/presentations"
+import { readBlockPresentationCatalog } from "@/convex/lib/blocks/presentations"
 
 export const dynamic = "force-dynamic"
 
@@ -51,7 +51,7 @@ export default async function LiveFramePage({
             config={config}
             shell={shell}
             publicPath={publicPaths[id] ?? null}
-            presentationCatalog={await readSlicePresentationCatalog()}
+            presentationCatalog={await readBlockPresentationCatalog()}
           />
         </NextIntlClientProvider>
       )

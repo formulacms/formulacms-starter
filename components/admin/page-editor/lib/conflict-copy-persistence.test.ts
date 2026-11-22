@@ -41,8 +41,8 @@ test.each(["en", "fr"])(
       pageType: "post",
       status: "draft",
       content: {
-        en: { title: "Original", slices: [] },
-        fr: { title: "Original français", slices: [] },
+        en: { title: "Original", blocks: [] },
+        fr: { title: "Original français", blocks: [] },
       },
       category: "Original category",
     })
@@ -69,7 +69,7 @@ test.each(["en", "fr"])(
         draft: {
           pageType: "post",
           localized: { title: "Original dirty title" },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -99,7 +99,7 @@ test.each(["en", "fr"])(
       slug: "original-recovered",
       pageType: "post",
       status: "draft",
-      content: { [locale]: { title: "Recovered", slices: [] } },
+      content: { [locale]: { title: "Recovered", blocks: [] } },
     })
     const target = await owner.query(api.cms.pages.getForEdit, { id: newId })
     const state = target!.publication!
@@ -124,7 +124,7 @@ test.each(["en", "fr"])(
             // The category is written in each language (ADR-0037 amendment).
             category: "Recovered category",
           },
-          slices: [],
+          blocks: [],
         },
       },
     })
@@ -140,7 +140,7 @@ test.each(["en", "fr"])(
           title: "Recovered",
           category: "Recovered category",
           metaDescription: `Recovered ${locale} descriptor`,
-          slices: [],
+          blocks: [],
         },
       },
     })

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { toDescriptorComparisonForm } from "./comparison"
-import { group, list, richText } from "../slices/primitives"
+import { group, list, richText } from "../blocks/primitives"
 import type { RichTextContractConfig } from "./contracts"
 
 const configs: { name: string; config: RichTextContractConfig; contract: "title" | "inline" | "basic" | "full" }[] = [
@@ -24,14 +24,14 @@ describe("RES1 comparison contract resolver", () => {
     const input = { rows: [{ itemId: "stable-row", copy: value }], extra: "retained" }
     const before = structuredClone(input)
     const descriptor = group({ rows })
-    const projected = toDescriptorComparisonForm(descriptor, input, { sliceType: "res1-probe", fieldPath: "primary" }) as typeof input
+    const projected = toDescriptorComparisonForm(descriptor, input, { blockType: "res1-probe", fieldPath: "primary" }) as typeof input
     expect(JSON.parse(projected.rows[0]!.copy)).toEqual(["title", "inline"].includes(contract) ? paragraph : heading)
     expect(projected.rows[0]!.itemId).toBe("stable-row")
     expect(projected.extra).toBe("retained")
     const changed = structuredClone(input)
     changed.rows[0]!.copy = value.replace("bold", "italic")
-    expect(toDescriptorComparisonForm(descriptor, changed, { sliceType: "res1-probe", fieldPath: "primary" })).not.toEqual(projected)
-    expect(toDescriptorComparisonForm(field, null, { sliceType: "res1-probe", fieldPath: "copy" })).toBeNull()
+    expect(toDescriptorComparisonForm(descriptor, changed, { blockType: "res1-probe", fieldPath: "primary" })).not.toEqual(projected)
+    expect(toDescriptorComparisonForm(field, null, { blockType: "res1-probe", fieldPath: "copy" })).toBeNull()
     expect(input).toEqual(before)
   })
 

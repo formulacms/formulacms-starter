@@ -6,12 +6,12 @@ import { notFound, redirect } from "next/navigation"
 import { cookies, draftMode } from "next/headers"
 import type { Metadata } from "next"
 import type { Id } from "@/convex/_generated/dataModel"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 import {
   collectImageStorageIds,
   applyFreshImageUrls,
-} from "@/lib/slices/media-urls"
-import { buildSliceRenderContext } from "@/lib/slices/render-context"
+} from "@/lib/blocks/media-urls"
+import { buildBlockRenderContext } from "@/lib/blocks/render-context"
 import { toPublicPath } from "@/lib/pages/url"
 import {
   isRoutableContentType,
@@ -30,7 +30,7 @@ import {
 } from "@/lib/cms/versioned-read"
 import { fetchAuthMutation } from "@/lib/auth/server"
 import { PREVIEW_SESSION_COOKIE } from "@/lib/preview-session"
-import { hasSliceBody } from "@/convex/lib/pages/sliceBodyContent"
+import { hasBlockBody } from "@/convex/lib/pages/blockBodyContent"
 import { postContentType } from "@/convex/lib/contentTypes/post"
 import { publicFieldsOf } from "@/convex/lib/contentTypes/exposure"
 import { selectPublicLocaleContent } from "@/lib/pages/public-locale-content"
@@ -209,14 +209,14 @@ function normalizeRoutePath(
   return path
 }
 
-async function refreshSliceImageUrls(slices: Slice[]): Promise<Slice[]> {
+async function refreshBlockImageUrls(blocks: Block[]): Promise<Block[]> {
   const ids = new Set<Id<"_storage">>()
-  collectImageStorageIds(slices, ids)
-  if (ids.size === 0) return slices
+  collectImageStorageIds(blocks, ids)
+  if (ids.size === 0) return blocks
 
   const urls = await loadStorageUrls([...ids])
-  if (Object.keys(urls).length === 0) return slices
-  return applyFreshImageUrls(slices, urls) as Slice[]
+  if (Object.keys(urls).length === 0) return blocks
+  return applyFreshImageUrls(blocks, urls) as Block[]
 }
 
 // Keep a complete route inventory for builds/tools. Published rendering remains
@@ -282,11 +282,11 @@ async function generateMetadataForConfig(
   // Plan 028 C3: non-routable content types have no public web presence —
   // don't leak metadata for them even if a caller somehow lands on the URL.
   if (!isRoutableContentType(page.pageType)) return {}
-  // Every routable content type is slice-bodied today (only testimonial is
+  // Every routable content type is block-bodied today (only testimonial is
   // pure-form and it's non-routable). The narrow makes the closed-union
   // `metaTitle` / `metaDescription` access below statically visible;
   // treat the impossible case as "no metadata to publish".
-  if (!hasSliceBody(page)) return {}
+  if (!hasBlockBody(page)) return {}
 
   // `getPublicPageById` supplies a selected snapshot after cutover. Keep
   // metadata locale-strict at this final consumer too: it must never invoke
@@ -436,11 +436,11 @@ async function renderCmsPage(
   if (!isRoutableContentType(page.pageType)) {
     notFound()
   }
-  // Every routable content type is slice-bodied today (only testimonial
-  // is pure-form and it's non-routable). Narrows `page` to the slice-body
-  // arm union so `content[locale].slices` / `.metaTitle` /
+  // Every routable content type is block-bodied today (only testimonial
+  // is pure-form and it's non-routable). Narrows `page` to the block-body
+  // arm union so `content[locale].blocks` / `.metaTitle` /
   // `.metaDescription` reads below are statically visible.
-  if (!hasSliceBody(page)) {
+  if (!hasBlockBody(page)) {
     notFound()
   }
 
@@ -490,7 +490,7 @@ async function renderCmsPage(
     }
   }
 
-  const slices = await refreshSliceImageUrls(content.slices ?? [])
+  const blocks = await refreshBlockImageUrls(content.blocks ?? [])
 
   // Public bylines: only for posts with assigned authors. `getPublicByline`
   // returns `null` for draft/archived/soft-deleted author pages, so drafts
@@ -519,8 +519,8 @@ async function renderCmsPage(
   )
   const bylines = resolvedBylines.filter((b) => b !== null)
 
-  const ctx = await buildSliceRenderContext({
-    slices,
+  const ctx = await buildBlockRenderContext({
+    blocks,
     renderLocale,
     presentationLocale: locale,
     defaultLocale: config.defaultLocale,
@@ -566,10 +566,10 @@ async function renderCmsPage(
       }).url
     : undefined
   // Plan 029 C10 task 12: descriptor-driven renderer registry. The catch-all
-  // route only reaches this line for `hasSliceBody` types, so the entry is
-  // always `kind: "sliceBody"` — asserted below for TS narrowing.
+  // route only reaches this line for `hasBlockBody` types, so the entry is
+  // always `kind: "blockBody"` — asserted below for TS narrowing.
   const renderer = getContentTypeRenderer(page.pageType as ContentType)
-  if (renderer.kind !== "sliceBody") notFound()
+  if (renderer.kind !== "blockBody") notFound()
   const RenderContentType = renderer.Component
 
   return (
@@ -604,7 +604,7 @@ async function renderCmsPage(
       <RenderContentType
         page={page}
         content={content}
-        slices={slices}
+        blocks={blocks}
         ctx={ctx}
         locale={locale}
         renderLocale={renderLocale}

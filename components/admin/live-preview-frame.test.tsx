@@ -1,12 +1,12 @@
 vi.mock("@/lib/preview-build-id", () => ({ PREVIEW_BUILD_ID: "test-build" }))
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { capturePageField } from "./page-editor/lib/page-inline-draft"
 import { useEffect, useLayoutEffect } from "react"
 import { act, fireEvent } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { render } from "@/test-utils/admin-i18n"
 import type { PreviewActiveEditHandle } from "./visual-editing-types"
-import { createSampleSlice } from "@/lib/slices/sample"
+import { createSampleBlock } from "@/lib/blocks/sample"
 import {
   LivePreviewFrame,
   type PageLivePreviewProps,
@@ -17,8 +17,8 @@ import { PageLivePreview } from "./page-live-preview"
 vi.mock("./page-live-preview-canvas", () => {
   throw new Error("Parent loaded Canvas")
 })
-vi.mock("@/components/slices/slice-zone", () => {
-  throw new Error("Parent loaded slice renderers")
+vi.mock("@/components/blocks/block-list", () => {
+  throw new Error("Parent loaded block renderers")
 })
 
 import {
@@ -43,11 +43,11 @@ function setup(
     pageType: "landing-page",
     languageVersion: 2,
     title: "Draft Page",
-    slices: [],
+    blocks: [],
     locale: "fr",
     defaultLocale: "en",
-    selectedSliceId: null,
-    onSelectSlice: vi.fn(),
+    selectedBlockId: null,
+    onSelectBlock: vi.fn(),
     onSelectField: vi.fn(),
     onInlineEditCommit: vi.fn(),
     onOpenSavedPreview: vi.fn(),
@@ -116,10 +116,10 @@ const pendingValue = JSON.stringify({
     { type: "paragraph", content: [{ type: "text", text: "Pending" }] },
   ],
 })
-function recoveryCommit(slice: ReturnType<typeof createSampleSlice>) {
+function recoveryCommit(block: ReturnType<typeof createSampleBlock>) {
   const frame = document.querySelector("iframe")!
   return {
-    ...capturePageField([slice], "fr", slice.id, "primary.title", 0)!,
+    ...capturePageField([block], "fr", block.id, "primary.title", 0)!,
     value: pendingValue,
     frameBinding: {
       sessionId: new URL(frame.src).searchParams.get("session")!,
@@ -154,9 +154,9 @@ describe("Page iframe consumer", () => {
       first.ordering!.inputRevision
     )
   })
-  it("NEW pushes preview input only when the input changed (fix 2, rank 3a)", sliceProfile(["hero-agency"]), () => {
-    const slices = [createSampleSlice("hero-agency")]
-    const view = setup({ draftRevision: 4, getDraftRevision: () => 4, slices })
+  it("NEW pushes preview input only when the input changed (fix 2, rank 3a)", blockProfile(["hero-agency"]), () => {
+    const blocks = [createSampleBlock("hero-agency")]
+    const view = setup({ draftRevision: 4, getDraftRevision: () => 4, blocks })
     const { bridge } = handshake(view)
     const pushes = () => vi.mocked(bridge.replaceInput).mock.calls.length
     const before = pushes()
@@ -165,8 +165,8 @@ describe("Page iframe consumer", () => {
       view.rerender(
         <LivePreviewFrame
           {...view.props}
-          slices={slices}
-          onSelectSlice={vi.fn()}
+          blocks={blocks}
+          onSelectBlock={vi.fn()}
           onSave={vi.fn()}
           onInlineEditCommit={vi.fn()}
         />
@@ -181,9 +181,9 @@ describe("Page iframe consumer", () => {
     const lastRevision = before
       ? revisionOf(before - 1)
       : vi.mocked(bridge.connect).mock.calls[0][0].ordering!.inputRevision
-    const changed = [{ ...slices[0] }]
+    const changed = [{ ...blocks[0] }]
     view.rerender(
-      <LivePreviewFrame {...view.props} slices={changed} title="Changed" />
+      <LivePreviewFrame {...view.props} blocks={changed} title="Changed" />
     )
     expect(pushes()).toBe(before + 1)
     expect(revisionOf(before)).toBeGreaterThan(lastRevision)
@@ -191,9 +191,9 @@ describe("Page iframe consumer", () => {
     view.rerender(
       <LivePreviewFrame
         {...view.props}
-        slices={changed}
+        blocks={changed}
         title="Changed"
-        selectedSliceId={changed[0].id}
+        selectedBlockId={changed[0].id}
       />
     )
     expect(pushes()).toBe(before + 2)
@@ -202,9 +202,9 @@ describe("Page iframe consumer", () => {
     view.rerender(
       <LivePreviewFrame
         {...view.props}
-        slices={changed}
+        blocks={changed}
         title="Changed"
-        selectedSliceId={changed[0].id}
+        selectedBlockId={changed[0].id}
       />
     )
     expect(pushes()).toBe(before + 2)
@@ -287,9 +287,6 @@ describe("Page iframe consumer", () => {
   it("blocks direct entry until existing recovery is resolved without replacing the frame", () => {
     const view = setup({ inlineEditingBlocked: true })
     const { frame, bridge } = handshake(view)
-    expect(
-      view.getByRole("button", { name: "Edit text in preview: off" })
-    ).toBeDisabled()
     expect(bridge.connect).toHaveBeenLastCalledWith(
       expect.objectContaining({ inlineEditingEnabled: false }),
       expect.any(Object)
@@ -298,9 +295,9 @@ describe("Page iframe consumer", () => {
       <LivePreviewFrame {...view.props} inlineEditingBlocked={false} />
     )
     expect(view.getByTitle("Draft Page")).toBe(frame)
-    expect(
-      view.getByRole("button", { name: "Edit text in preview: off" })
-    ).toBeEnabled()
+    expect(bridge.replaceInput).toHaveBeenLastCalledWith(
+      expect.objectContaining({ inlineEditingEnabled: true })
+    )
     expect(bridge.disconnect).not.toHaveBeenCalled()
   })
 
@@ -335,8 +332,8 @@ describe("Page iframe consumer", () => {
     }
     fireEvent.load(frame)
     expect(bridge.disconnect).toHaveBeenCalledOnce()
-    callbacks().selectSlice("stale")
-    expect(view.props.onSelectSlice).not.toHaveBeenCalled()
+    callbacks().selectBlock("stale")
+    expect(view.props.onSelectBlock).not.toHaveBeenCalled()
     expect(view.handle()?.hasActiveSession()).toBe(false)
   })
 })
@@ -408,36 +405,31 @@ describe("Unit A NEW frame regressions", () => {
     }
   })
 
-  it.each([
-    ["en", "Edit text in preview: off", "Edit text in preview: on"],
-    [
-      "fr",
-      "Modifier le texte dans l’aperçu : désactivé",
-      "Modifier le texte dans l’aperçu : activé",
-    ],
-  ] as const)(
-    "NEW shows plain %s pencil on/off copy and a distinct pressed appearance",
-    (locale, off, on) => {
+  it.each(["en", "fr"] as const)(
+    "edits in the preview from the start, with no on/off button (%s)",
+    (locale) => {
       const view = setup({}, locale)
-      const pencil = view.getByRole("button", { name: off })
-      expect(pencil).toHaveAttribute("aria-pressed", "false")
-      expect(pencil).toHaveAttribute("data-variant", "outline")
-      fireEvent.click(pencil)
-      expect(view.getByRole("button", { name: on })).toBe(pencil)
-      expect(pencil).toHaveAttribute("aria-pressed", "true")
-      expect(pencil).toHaveAttribute("data-variant", "default")
-      fireEvent.click(pencil)
-      expect(pencil).toHaveAttribute("aria-pressed", "false")
+      const { bridge } = handshake(view)
+      expect(bridge.connect).toHaveBeenLastCalledWith(
+        expect.objectContaining({ inlineEditingEnabled: true }),
+        expect.any(Object)
+      )
+      // Owner, 2026-11-21: the "Edit text in preview" button is gone.
+      expect(
+        view.queryByRole("button", {
+          name: /Edit text in preview|Modifier le texte dans l’aperçu/,
+        })
+      ).toBeNull()
     }
   )
 
-  it("NEW keeps a slow connected child and its pending buffer alive, then accepts late readiness", sliceProfile([]), () => {
+  it("NEW keeps a slow connected child and its pending buffer alive, then accepts late readiness", blockProfile([]), () => {
     vi.useFakeTimers()
     try {
-      const slice = createSampleSlice("hero-agency")
-      const view = setup({ slices: [slice] })
+      const block = createSampleBlock("hero-agency")
+      const view = setup({ blocks: [block] })
       const { frame, bridge, callbacks } = handshake(view)
-      const pending = recoveryCommit(slice)
+      const pending = recoveryCommit(block)
       bridge.hasActiveSession = () => true
       vi.mocked(bridge.capture).mockReturnValue(pending)
       act(() => {
@@ -474,7 +466,7 @@ describe("Unit A NEW frame regressions", () => {
       expect(first.bridge.disconnect).not.toHaveBeenCalled()
       const fresh = handshake(view)
       expect(fresh.bridge.connect).toHaveBeenCalledWith(
-        expect.objectContaining({ slices: view.props.slices }),
+        expect.objectContaining({ blocks: view.props.blocks }),
         expect.any(Object)
       )
       expect(view.queryByRole("button", { name: "Restore" })).toBeNull()
@@ -518,7 +510,7 @@ describe("Unit A NEW frame regressions", () => {
 })
 
 describe("Unit A NEW parent import boundary", () => {
-  it("NEW renders the shipping Page host without importing Canvas or slice renderers", () => {
+  it("NEW renders the shipping Page host without importing Canvas or block renderers", () => {
     const view = setup()
     const props = view.props
     view.unmount()
@@ -528,15 +520,15 @@ describe("Unit A NEW parent import boundary", () => {
 })
 
 describe("Unit A amendment3 NEW late loading guards", () => {
-  it("NEW A-R2 retains slow notice through a late current-child handshake and subsequent pending edits", sliceProfile([]), () => {
+  it("NEW A-R2 retains slow notice through a late current-child handshake and subsequent pending edits", blockProfile([]), () => {
     vi.useFakeTimers()
     try {
-      const slice = createSampleSlice("hero-agency")
-      const view = setup({ slices: [slice] })
+      const block = createSampleBlock("hero-agency")
+      const view = setup({ blocks: [block] })
       act(() => vi.advanceTimersByTime(15_000))
       expect(view.getByRole("button", { name: "Retry preview" })).toBeEnabled()
       const { frame, bridge, callbacks } = handshake(view, false)
-      const pending = recoveryCommit(slice)
+      const pending = recoveryCommit(block)
       bridge.hasActiveSession = () => true
       vi.mocked(bridge.capture).mockReturnValue(pending)
       act(() => callbacks().change(pending))
@@ -561,13 +553,13 @@ describe("Unit A amendment3 NEW late loading guards", () => {
     }
   })
 
-  it("NEW A-R2 preserves qualified pending text and Retry on repeated loading context after timeout", sliceProfile([]), () => {
+  it("NEW A-R2 preserves qualified pending text and Retry on repeated loading context after timeout", blockProfile([]), () => {
     vi.useFakeTimers()
     try {
-      const slice = createSampleSlice("hero-agency")
-      const view = setup({ slices: [slice] })
+      const block = createSampleBlock("hero-agency")
+      const view = setup({ blocks: [block] })
       const { frame, bridge, callbacks } = handshake(view, false)
-      const pending = recoveryCommit(slice)
+      const pending = recoveryCommit(block)
       bridge.hasActiveSession = () => true
       vi.mocked(bridge.capture).mockReturnValue(pending)
       act(() => callbacks().change(pending))
@@ -608,11 +600,11 @@ describe("Unit A amendment3 NEW reload loading guard", () => {
       vi.useRealTimers()
     }
   })
-  it("NEW accepts a current unloading packet with null source and preserves the parent draft", sliceProfile([]), () => {
+  it("NEW accepts a current unloading packet with null source and preserves the parent draft", blockProfile([]), () => {
     vi.useFakeTimers()
     try {
-      const draftSlice = createSampleSlice("hero-agency")
-      const view = setup({ slices: [draftSlice] })
+      const draftBlock = createSampleBlock("hero-agency")
+      const view = setup({ blocks: [draftBlock] })
       const { frame, bridge } = handshake(view)
       const sessionId = new URL(frame.src).searchParams.get("session")!
 
@@ -638,7 +630,7 @@ describe("Unit A amendment3 NEW reload loading guard", () => {
         "Preparing the page preview"
       )
       expect(frame.style.visibility).toBe("hidden")
-      expect(view.props.slices).toEqual([draftSlice])
+      expect(view.props.blocks).toEqual([draftBlock])
       expect(bridge.disconnect).not.toHaveBeenCalled()
       expect(view.props.onInlineEditCommit).not.toHaveBeenCalled()
       expect(view.props.onActiveEditConflict).not.toHaveBeenCalled()
@@ -753,10 +745,10 @@ describe("Unit A amendment3 NEW reload loading guard", () => {
 })
 
 it.each(["retired-build", "test-build"])(
-  "NEW B1-R1 ignores delayed %s ready from a retired generation after current child connects", sliceProfile([]),
+  "NEW B1-R1 ignores delayed %s ready from a retired generation after current child connects", blockProfile([]),
   (buildId) => {
-    const slice = createSampleSlice("hero-agency")
-    const view = setup({ slices: [slice] })
+    const block = createSampleBlock("hero-agency")
+    const view = setup({ blocks: [block] })
     const { frame, child, bridge } = handshake(view)
     expect(frame.style.visibility).toBe("visible")
     act(() =>
@@ -782,7 +774,7 @@ it.each(["retired-build", "test-build"])(
     expect(
       view.queryByText("The site was updated. Reload the editor to continue.")
     ).toBeNull()
-    expect(view.props.slices).toEqual([slice])
+    expect(view.props.blocks).toEqual([block])
     expect(view.props.onInlineEditCommit).not.toHaveBeenCalled()
   }
 )
@@ -867,9 +859,9 @@ it("NEW keeps ready and retired messages bound to the current WindowProxy", () =
   expect(view.queryByRole("status")).toBeNull()
 })
 
-it("NEW shows the site-update notice and rejects a mismatched child build while retaining parent data", sliceProfile([]), () => {
-  const slice = createSampleSlice("hero-agency")
-  const view = setup({ slices: [slice] })
+it("NEW shows the site-update notice and rejects a mismatched child build while retaining parent data", blockProfile([]), () => {
+  const block = createSampleBlock("hero-agency")
+  const view = setup({ blocks: [block] })
   const { frame, child, bridge } = handshake(view)
   // A genuine mismatch comes from the actual live replacement bridge.
   const updatedBridge: LiveFrameBridge = {
@@ -900,7 +892,7 @@ it("NEW shows the site-update notice and rejects a mismatched child build while 
   expect(view.getByRole("status")).toHaveTextContent(
     "The site was updated. Reload the editor to continue."
   )
-  expect(view.props.slices).toEqual([slice])
+  expect(view.props.blocks).toEqual([block])
   expect(bridge.disconnect).not.toHaveBeenCalled()
   expect(updatedBridge.connect).not.toHaveBeenCalled()
   expect(view.props.onInlineEditCommit).not.toHaveBeenCalled()

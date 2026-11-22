@@ -6,7 +6,7 @@
   },
   "routing": { "pathPrefix": "jobs" },
   "capabilities": {
-    "sliceBody": true,
+    "blockBody": true,
     "revisions": true,
     "scheduling": true,
     "presence": true,
@@ -114,6 +114,6 @@
   "seo": { "schemaOrgType": "JobPosting", "ogType": "website" },
   "aiHint": {
     "purpose": "A single job opening/posting on the site's careers section. Each job has its own public URL and is listed on job-board views (queried as a set, filtered by department/location/employment type/status).",
-    "fields": "department, location, remoteType, employmentType, salaryCurrency, salaryMin/salaryMax, applyUrl/applyEmail, closingDate, and jobStatus are shared (locale-agnostic) fields. title and summary are localized. The full description (responsibilities, requirements, benefits) is authored as slice body content."
+    "fields": "department, location, remoteType, employmentType, salaryCurrency, salaryMin/salaryMax, applyUrl/applyEmail, closingDate, and jobStatus are shared (locale-agnostic) fields. title and summary are localized. The full description (responsibilities, requirements, benefits) is authored as block body content."
   }
 }

@@ -48,7 +48,7 @@ describe("AI SDK usage audit boundary", () => {
     expect(runMutation.mock.calls[0][1]).toEqual({
       authId: "auth:test",
       kind: "field-generate",
-      sliceCount: 0,
+      blockCount: 0,
       modelId: "openrouter:openai/gpt-test",
       selectedProvider: "openrouter",
       selectedModel: "openai/gpt-test",
@@ -86,14 +86,14 @@ describe("AI SDK usage audit boundary", () => {
           ctx,
           {
             authId: "auth:test",
-            kind: "slice-author-propose",
+            kind: "block-author-propose",
             modelId: model,
           },
           async () => ({
             value: "MODEL OUTPUT",
             usage: { inputTokens: 13, outputTokens: 8, totalTokens: 21 },
             generation: {
-              phase: "slice-spec",
+              phase: "block-spec",
               selected: { lane: "runtime", provider, model, effort },
               actual: { provider, model, effort },
               attempts: 1,
@@ -109,7 +109,7 @@ describe("AI SDK usage audit boundary", () => {
         actualProvider: provider,
         actualModel: model,
         actualReasoning: effort,
-        phase: "slice-spec",
+        phase: "block-spec",
         attempts: 1,
         success: true,
       })
@@ -156,7 +156,7 @@ describe("AI SDK usage audit boundary", () => {
         ctx,
         {
           authId: "auth:test",
-          kind: "slice-author-propose",
+          kind: "block-author-propose",
           modelId: "legacy",
         },
         async () => {

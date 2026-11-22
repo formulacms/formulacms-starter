@@ -157,8 +157,8 @@ vi.mock("./page-editor/components/settings-panel", () => ({
     />
   ),
 }))
-vi.mock("./page-editor/components/slices-panel", () => ({
-  SlicesPanel: () => null,
+vi.mock("./page-editor/components/blocks-panel", () => ({
+  BlocksPanel: () => null,
 }))
 
 vi.mock("./contributions/history", () => ({
@@ -182,7 +182,7 @@ import { resolveRequestedEditorLocale } from "./page-editor/lib/requested-locale
 const source = {
   _id: "locale-page" as Id<"pages">, _creationTime: 1, pageType: "page",
   slug: "about", status: "draft", updatedAt: 100, createdAt: 100,
-  content: { en: { title: "About", slices: [] }, fr: { title: "À propos", slices: [] } },
+  content: { en: { title: "About", blocks: [] }, fr: { title: "À propos", blocks: [] } },
   tags: [], localizedSlugs: {}, createdBy: "owner-1",
 } as Page
 const publication = {
@@ -261,7 +261,7 @@ describe("requested editor locale", () => {
     fireEvent.click(screen.getByRole("tab", { name: /^EN/ }))
     fireEvent.click(screen.getByTitle("History"))
     act(() => mocks.history!.onSnapshotRestored!({ locale: "en", draftGeneration: 3, sharedDraftGeneration: 5 }))
-    view.rerender(<PageEditor page={{ ...source, content: { fr: source.content!.fr, en: { title: "Restored English", slices: [] } } } as Page}
+    view.rerender(<PageEditor page={{ ...source, content: { fr: source.content!.fr, en: { title: "Restored English", blocks: [] } } } as Page}
       hasStaging stagingUpdatedAt={undefined} requestedLocale="fr" publication={{ ...publication, sharedDraftGeneration: 5, locales: publication.locales.map((entry) => ({ ...entry, draftGeneration: 3 })) }} />)
     expect(screen.getByLabelText("Page title")).toHaveValue("Restored English")
     expect(screen.getByRole("tab", { name: /^EN/ })).toHaveAttribute("aria-selected", "true")
@@ -279,7 +279,7 @@ describe("requested editor locale", () => {
     { requestedLocale: "de", expectedTitle: "Über uns", expectedSlug: "deutscher-name", afterSlug: "deutscher-name" },
   ])("cold load default de, requested $requestedLocale seeds the right slug and linkage", ({ requestedLocale, expectedTitle, expectedSlug, afterSlug }) => {
     mocks.siteConfig = undefined
-    render(<PageEditor page={{ ...source, slug: "deutscher-name", content: { en: source.content!.en, de: { title: "Über uns", slices: [] } } } as Page}
+    render(<PageEditor page={{ ...source, slug: "deutscher-name", content: { en: source.content!.en, de: { title: "Über uns", blocks: [] } } } as Page}
       hasStaging={false} stagingUpdatedAt={undefined} requestedLocale={requestedLocale} routeDefaultLocale="de" />)
     expect(screen.getByLabelText("Page title")).toHaveValue(expectedTitle)
     expect(screen.getByText(`/${expectedSlug}`)).toBeInTheDocument()

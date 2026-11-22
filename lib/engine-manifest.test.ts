@@ -71,13 +71,13 @@ describe("engine.manifest.json", () => {
     }
   })
 
-  test("schema version 5 supports fresh installs only", () => {
-    expect(manifest.compatibility.freshInstallBaseline).toBe(5)
+  test("schema version 6 supports fresh installs only", () => {
+    expect(manifest.compatibility.freshInstallBaseline).toBe(6)
     expect(manifest.compatibility.supportedUpgradeFromSchemaVersions).toEqual(
       []
     )
     expect(manifest.compatibility.note).toContain(
-      "Release 0.3.1 supports fresh installs only"
+      "Release 0.4.0 supports fresh installs only"
     )
     expect(manifest.compatibility.note).toContain(
       "Upgrades from schema version 3 or older are unsupported"
@@ -156,7 +156,7 @@ describe("engine.manifest.json", () => {
     }
   })
 
-  // The engine-only "Ship to starter" slice curation lives under
+  // The engine-only "Ship to starter" block curation lives under
   // scripts/starter/. Its files must never propagate to formulacms-starter or a
   // fork — the toggle's engine-vs-starter signal is the presence of the
   // ship-list file, so shipping it would surface engine-only tooling downstream.

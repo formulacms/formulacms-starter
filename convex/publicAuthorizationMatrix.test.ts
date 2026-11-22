@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { coreRows } from "../test-utils/authorization-matrix/core"
 import { coreLanguageRows } from "../test-utils/authorization-matrix/core_language"
@@ -119,11 +119,11 @@ describe("public Convex authorization matrix", () => {
   for (const row of executableRows) {
     // These rows assert the owned Hero presentation/installed authoring contract.
     const needsHero = [
-      "cms/slices:getPresentationCatalog",
-      "cms/slices:setPresentationArchived",
-      "cms/slices:getSliceAuthoringState",
+      "cms/blocks:getPresentationCatalog",
+      "cms/blocks:setPresentationArchived",
+      "cms/blocks:getBlockAuthoringState",
     ].includes(row.name)
-    test(row.name, sliceProfile(needsHero ? ["hero-with-image"] : []), async () => {
+    test(row.name, blockProfile(needsHero ? ["hero-with-image"] : []), async () => {
       await row.run(testModules)
     })
   }

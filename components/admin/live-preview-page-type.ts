@@ -3,7 +3,7 @@ import {
   isActiveContentType,
   type ContentType,
 } from "@/convex/lib/contentTypes"
-import type { SliceBodyDoc } from "@/convex/lib/pages/sliceBodyContent"
+import type { BlockBodyDoc } from "@/convex/lib/pages/blockBodyContent"
 
 /**
  * Content types that reach the private live preview frame: every active
@@ -25,7 +25,7 @@ export function supportsLivePreviewFrame(
     typeof pageType === "string" &&
     // Active implies registered: the active set is checked against the registry.
     isActiveContentType(pageType) &&
-    contentTypeDefs[pageType as ContentType].capabilities.sliceBody === true
+    contentTypeDefs[pageType as ContentType].capabilities.blockBody === true
   )
 }
 
@@ -36,6 +36,6 @@ export function supportsLivePreviewFrame(
 export function isLivePreviewPage(page: {
   pageType: string
   content?: Record<string, unknown>
-}): page is SliceBodyDoc {
+}): page is BlockBodyDoc {
   return supportsLivePreviewFrame(page.pageType)
 }

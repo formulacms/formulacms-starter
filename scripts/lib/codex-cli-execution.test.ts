@@ -20,7 +20,7 @@ const TRANSCRIPT = [
   JSON.stringify({ type: "turn.started" }),
   JSON.stringify({
     type: "item.completed",
-    item: { type: "agent_message", text: "COMPLETE SLICE SPEC" },
+    item: { type: "agent_message", text: "COMPLETE BLOCK SPEC" },
   }),
   JSON.stringify({
     type: "turn.completed",
@@ -40,7 +40,7 @@ const baseRequest = {
   prompt: "PRIVATE BUSINESS PROMPT",
   images: [{ path: "/repo/snapshot.jpg", mediaType: "image/jpeg" as const }],
   profile: "vision-spec" as const,
-  phase: "slice-spec" as const,
+  phase: "block-spec" as const,
 }
 
 describe("executeCodexCliGeneration", () => {
@@ -57,8 +57,8 @@ describe("executeCodexCliGeneration", () => {
     })
 
     expect(result).toEqual({
-      text: "COMPLETE SLICE SPEC",
-      output: "COMPLETE SLICE SPEC",
+      text: "COMPLETE BLOCK SPEC",
+      output: "COMPLETE BLOCK SPEC",
       selected: {
         lane: "local-build",
         engine: "codex-cli",

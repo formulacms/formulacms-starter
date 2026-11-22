@@ -6,7 +6,7 @@ API, simulator, and image responses:
 
 - `Content-Security-Policy` enforces `base-uri 'self'`, `object-src 'none'`,
   `form-action 'self'`, and `frame-ancestors 'self'`.
-- `X-Frame-Options: SAMEORIGIN` keeps same-origin Slice simulator and preview
+- `X-Frame-Options: SAMEORIGIN` keeps same-origin Block simulator and preview
   iframes usable while rejecting foreign framing.
 - `X-Content-Type-Options: nosniff` prevents MIME sniffing.
 - `Referrer-Policy: strict-origin-when-cross-origin` limits cross-origin

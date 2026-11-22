@@ -1,6 +1,6 @@
 import {
   decideMenu,
-  type ShownBlock,
+  type ShownPanelSection,
   type ShownTarget,
 } from "@/lib/admin/menu/public-visibility"
 import { getPublicMessages } from "@/lib/i18n/public-messages"
@@ -59,52 +59,52 @@ function FooterTargetLink({
   )
 }
 
-function FooterBlock({
-  block,
+function FooterSection({
+  section,
   cardsBySource,
 }: {
-  block: ShownBlock
+  section: ShownPanelSection
   cardsBySource: MenuCardsBySource
 }) {
-  if (block.kind === "featured") {
-    if (block.link)
+  if (section.kind === "featured") {
+    if (section.link)
       return (
         <div>
-          <FooterBlock
-            block={{ ...block, link: undefined }}
+          <FooterSection
+            section={{ ...section, link: undefined }}
             cardsBySource={cardsBySource}
           />
-          <FooterTargetLink target={block.link.target}>
-            {block.link.label}
+          <FooterTargetLink target={section.link.target}>
+            {section.link.label}
           </FooterTargetLink>
         </div>
       )
     const content = (
       <>
-        {block.heading}
-        {block.description && (
-          <span className="mt-1 block text-caption">{block.description}</span>
+        {section.heading}
+        {section.description && (
+          <span className="mt-1 block text-caption">{section.description}</span>
         )}
       </>
     )
     const className = cn(
       "block text-body text-on-surface-muted hover:text-on-surface"
     )
-    return block.target ? (
-      <FooterTargetLink target={block.target} className={className}>
+    return section.target ? (
+      <FooterTargetLink target={section.target} className={className}>
         {content}
       </FooterTargetLink>
     ) : (
       <div className={className}>{content}</div>
     )
   }
-  if (block.kind === "dynamicList") {
-    const cards = cardsBySource[dynamicListSourceKey(block.source)] ?? []
+  if (section.kind === "dynamicList") {
+    const cards = cardsBySource[dynamicListSourceKey(section.source)] ?? []
     return (
       <section>
-        {block.heading && (
+        {section.heading && (
           <h2 className="mb-stack text-body font-semibold text-on-surface">
-            {block.heading}
+            {section.heading}
           </h2>
         )}
         <ul className="space-y-stack">
@@ -125,12 +125,12 @@ function FooterBlock({
             </li>
           ))}
         </ul>
-        {block.seeAll && (
+        {section.seeAll && (
           <FooterTargetLink
-            target={block.seeAll.target}
+            target={section.seeAll.target}
             className="mt-stack inline-block text-body font-semibold text-brand hover:underline"
           >
-            {block.seeAll.label}
+            {section.seeAll.label}
           </FooterTargetLink>
         )}
       </section>
@@ -138,13 +138,13 @@ function FooterBlock({
   }
   return (
     <section>
-      {block.heading && (
+      {section.heading && (
         <h2 className="mb-stack text-body font-semibold text-on-surface">
-          {block.heading}
+          {section.heading}
         </h2>
       )}
       <ul className="space-y-stack">
-        {block.links.map((link) => (
+        {section.links.map((link) => (
           <li key={link.id}>
             <FooterTargetLink
               target={link.target}
@@ -296,10 +296,10 @@ export function Footer({
                               >
                                 {item.panel.columns.map((column) => (
                                   <div key={column.id}>
-                                    {column.blocks.map((block) => (
-                                      <FooterBlock
-                                        key={block.id}
-                                        block={block}
+                                    {column.sections.map((section) => (
+                                      <FooterSection
+                                        key={section.id}
+                                        section={section}
                                         cardsBySource={cardsBySource}
                                       />
                                     ))}
@@ -307,10 +307,10 @@ export function Footer({
                                 ))}
                               </div>
                             ) : (
-                              item.panel.blocks.map((block) => (
-                                <FooterBlock
-                                  key={block.id}
-                                  block={block}
+                              item.panel.sections.map((section) => (
+                                <FooterSection
+                                  key={section.id}
+                                  section={section}
                                   cardsBySource={cardsBySource}
                                 />
                               ))
@@ -318,10 +318,10 @@ export function Footer({
                           </div>
                           {item.panel.footer && (
                             <div className="grid gap-gutter border-t pt-gutter sm:grid-cols-2">
-                              {item.panel.footer.blocks.map((block) => (
-                                <FooterBlock
-                                  key={block.id}
-                                  block={block}
+                              {item.panel.footer.sections.map((section) => (
+                                <FooterSection
+                                  key={section.id}
+                                  section={section}
                                   cardsBySource={cardsBySource}
                                 />
                               ))}

@@ -2,7 +2,7 @@ import { useState } from "react"
 import { act, fireEvent, screen } from "@testing-library/react"
 import { describe, expect, test, vi } from "vitest"
 import { render } from "@/test-utils/admin-i18n"
-import { group, image, link, list, relation, text, type Primitive } from "@/convex/lib/slices/primitives"
+import { group, image, link, list, relation, text, type Primitive } from "@/convex/lib/blocks/primitives"
 import { FieldsEditor } from "./field-editor"
 
 vi.mock("./relation-picker", () => ({

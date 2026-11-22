@@ -4,10 +4,10 @@ import { createContext, use, useEffect, useState } from "react"
 import Link from "next/link"
 import { Check, CircleAlert, Loader2 } from "lucide-react"
 import {
-  deleteSliceAction,
-  retrySliceDeletionCleanupAction,
-  type DeleteSliceResult,
-} from "@/app/(core)/admin/(authenticated)/slices/actions"
+  deleteBlockAction,
+  retryBlockDeletionCleanupAction,
+  type DeleteBlockResult,
+} from "@/app/(core)/admin/(authenticated)/blocks/actions"
 import {
   Dialog,
   DialogContent,
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 
-type DeleteBlocker = Extract<DeleteSliceResult, { status: "blocked" }>
+type DeleteBlocker = Extract<DeleteBlockResult, { status: "blocked" }>
 
 type DeletionState =
   | { status: "idle" }
@@ -61,7 +61,7 @@ export function DeletionOverlayProvider({
     const timeout = setTimeout(() => {
       // Hard navigation so the browser waits for the dev server to finish
       // recompiling after file deletions instead of serving stale RSC cache.
-      window.location.replace("/admin/slices")
+      window.location.replace("/admin/blocks")
     }, 800)
     return () => clearTimeout(timeout)
   }, [doneLabel])
@@ -76,7 +76,7 @@ export function DeletionOverlayProvider({
     setState({ status: "deleting", label })
 
     try {
-      const result = await deleteSliceAction({ type })
+      const result = await deleteBlockAction({ type })
       if (result.status === "blocked") {
         setState({ status: "blocked", label, blocker: result })
         return
@@ -103,7 +103,7 @@ export function DeletionOverlayProvider({
   async function retryCleanup(type: string, label: string) {
     setState({ status: "deleting", label })
     try {
-      await retrySliceDeletionCleanupAction({ type })
+      await retryBlockDeletionCleanupAction({ type })
       setState({ status: "done", label })
     } catch (error) {
       setState({
@@ -318,11 +318,11 @@ function ErrorContent({
   )
 }
 
-export function useSliceDeletion() {
+export function useBlockDeletion() {
   const ctx = use(DeletionContext)
   if (!ctx)
     throw new Error(
-      "useSliceDeletion must be used within DeletionOverlayProvider"
+      "useBlockDeletion must be used within DeletionOverlayProvider"
     )
   return ctx
 }

@@ -37,7 +37,7 @@ test("accepts public HTTP(S) and refuses a Page intent retaining an old URL", ()
 test.each(["main", "footer"])(
   "aggregates every target-bearing node and image in %s",
   (region) => {
-    const blocks: Extract<NonNullable<LocaleNavItem["panel"]>, { columns: number }>["blocks"] = [
+    const sections: Extract<NonNullable<LocaleNavItem["panel"]>, { columns: number }>["sections"] = [
       {
         id: "group",
         kind: "linkGroup",
@@ -70,8 +70,8 @@ test.each(["main", "footer"])(
         target: { type: "external", url: "/bad" },
         panel: {
           columns: 1,
-          blocks: region === "main" ? blocks : [],
-          footer: region === "footer" ? { blocks } : undefined,
+          sections: region === "main" ? sections : [],
+          footer: region === "footer" ? { sections } : undefined,
         },
       },
     ]
@@ -95,7 +95,7 @@ test.each(["main", "footer"])(
 )
 
 test("dirty state compares content and authored-alt intent, including edits reverted to saved values", () => {
-  const block = {
+  const section = {
     id: "feature",
     kind: "featured" as const,
     heading: "",
@@ -103,7 +103,7 @@ test("dirty state compares content and authored-alt intent, including edits reve
     target: { type: "external" as const, url: "https://example.com" },
   }
   const saved: LocaleNavItem[] = [
-    { id: "item", label: "Saved", panel: { columns: 1, blocks: [block] } },
+    { id: "item", label: "Saved", panel: { columns: 1, sections: [section] } },
   ]
   expect(menuDraftEqual(structuredClone(saved), saved)).toBe(true)
   expect(menuDraftEqual([{ ...saved[0]!, label: "Changed" }], saved)).toBe(
@@ -115,7 +115,7 @@ test("dirty state compares content and authored-alt intent, including edits reve
       [
         {
           ...saved[0]!,
-          panel: { columns: 1, blocks: [withAuthoredAlt(block, "")] },
+          panel: { columns: 1, sections: [withAuthoredAlt(section, "")] },
         },
       ],
       saved
@@ -130,9 +130,9 @@ test("copy overwrite detection includes text in both regions but ignores structu
       label: "",
       panel: {
         columns: 4,
-        blocks: [],
+        sections: [],
         footer: {
-          blocks: [
+          sections: [
             {
               id: "list",
               kind: "dynamicList",
@@ -148,7 +148,7 @@ test("copy overwrite detection includes text in both regions but ignores structu
     },
   ]
   expect(hasMenuText(nav)).toBe(true)
-  nav[0]!.panel!.footer!.blocks = []
+  nav[0]!.panel!.footer!.sections = []
   expect(hasMenuText(nav)).toBe(false)
 })
 
@@ -158,7 +158,7 @@ test("public empty-list projection preserves input and drops all-hidden panels i
     label: "Item",
     panel: {
       columns: 1 as const,
-      blocks: [
+      sections: [
         {
           id: "list",
           kind: "dynamicList" as const,
@@ -172,8 +172,8 @@ test("public empty-list projection preserves input and drops all-hidden panels i
     item.panel,
     {
       ...item.panel,
-      blocks: [],
-      footer: { blocks: legacyPanel(item.panel).blocks },
+      sections: [],
+      footer: { sections: legacyPanel(item.panel).sections },
     },
   ]) {
     const hidden = decideMenu([{ ...item, panel }], {})
@@ -192,18 +192,18 @@ test("public empty-list projection preserves input and drops all-hidden panels i
       reason: null,
     })
   }
-  expect(legacyPanel(item.panel).blocks).toHaveLength(1)
+  expect(legacyPanel(item.panel).sections).toHaveLength(1)
 })
 
 
 test("text validity accepts any retained locale, rejects a blank new label, and keeps empty alt distinct", () => {
   expect(menuTextValid([{ id: "retained", label: { fr: "Accueil" } }])).toBe(true)
   expect(menuTextValid([{ id: "new", label: { en: "  " } }])).toBe(false)
-  const nav = [{ id: "item", label: { fr: "Menu" }, panel: { columns: 1 as const, blocks: [{
+  const nav = [{ id: "item", label: { fr: "Menu" }, panel: { columns: 1 as const, sections: [{
     id: "feature", kind: "featured" as const, heading: { fr: "À la une" }, image: { alt: {} },
     target: { type: "anchor" as const, anchor: "#feature" },
   }] } }]
   expect(menuTextValid(nav)).toBe(false)
-  legacyPanel(nav[0]!.panel).blocks[0]!.image.alt = { fr: "" }
+  legacyPanel(nav[0]!.panel).sections[0]!.image.alt = { fr: "" }
   expect(menuTextValid(nav)).toBe(true)
 })

@@ -15,9 +15,9 @@ const entries: ContentTypeManifestEntry[] = [
     exportName: "eventContentType",
     labels: { en: { singular: "Event", plural: "Events" } },
     selected: true,
-    sliceBody: true,
+    blockBody: true,
     pathPrefix: "events",
-    renderer: "default-slice-body",
+    renderer: "default-block-body",
     sharedFieldKeys: ["startsAt"],
     localizedFieldKeys: ["title"],
   },
@@ -27,7 +27,7 @@ const entries: ContentTypeManifestEntry[] = [
     exportName: "quoteContentType",
     labels: { en: { singular: "Quote", plural: "Quotes" } },
     selected: true,
-    sliceBody: false,
+    blockBody: false,
     renderer: "none",
     sharedFieldKeys: ["speaker"],
     localizedFieldKeys: ["title", "body"],
@@ -52,7 +52,7 @@ describe("content-type registration projections", () => {
       "armLocalizedContentValidator(eventContentType)"
     )
     expect(schema.liveArms).toContain(
-      "armLocalizedContentValidatorNoSlices(quoteContentType)"
+      "armLocalizedContentValidatorNoBlocks(quoteContentType)"
     )
     expect(schema.stagingArms).toContain("eventStagingArmFields")
     expect(schema.pageDocValidator).toContain("...quoteArmFields")
@@ -72,9 +72,9 @@ describe("content-type registration projections", () => {
         "})",
       ].join("\n")
     )
-    expect(renderers.imports).toContain("DefaultSliceBodyRenderer")
+    expect(renderers.imports).toContain("DefaultBlockBodyRenderer")
     expect(renderers.registry).toContain(
-      'event: { kind: "sliceBody", Component: DefaultSliceBodyRenderer }'
+      'event: { kind: "blockBody", Component: DefaultBlockBodyRenderer }'
     )
     expect(renderers.registry).not.toContain("quote:")
   })

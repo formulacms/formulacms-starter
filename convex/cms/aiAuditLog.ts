@@ -45,8 +45,8 @@ export const recordEvent = internalMutation({
       v.literal("field-translate"),
       v.literal("field-generate"),
       v.literal("field-refine"),
-      v.literal("slice-generate"),
-      v.literal("slice-author-propose")
+      v.literal("block-generate"),
+      v.literal("block-author-propose")
     ),
     runId: v.optional(v.string()),
     unitId: v.optional(v.string()),
@@ -55,7 +55,7 @@ export const recordEvent = internalMutation({
     currency: v.optional(v.literal("USD")),
     costSource: v.optional(aiCostSourceValidator),
     briefHash: v.optional(v.string()),
-    sliceCount: v.number(),
+    blockCount: v.number(),
     modelId: v.string(),
     profile: v.optional(taskProfileValidator),
     selectedLane: v.optional(executionLaneValidator),

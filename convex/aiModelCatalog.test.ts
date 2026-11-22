@@ -19,8 +19,8 @@ import type { ApiModelTuple } from "../lib/ai/execution-contract"
 import { resolveAssistantRuntimeTuple } from "./lib/ai"
 import type { RunId } from "@convex-dev/action-retrier"
 import { refusal } from "../lib/ai/model-catalog"
-import { SLICE_CREATOR_PROFILES, TASK_PROFILE_REQUIREMENTS } from "../lib/ai/task-profiles"
-import { resolveSliceCreatorSelection } from "../lib/slices/authoring/creator-selection"
+import { BLOCK_CREATOR_PROFILES, TASK_PROFILE_REQUIREMENTS } from "../lib/ai/task-profiles"
+import { resolveBlockCreatorSelection } from "../lib/blocks/authoring/creator-selection"
 import { resolveLocalApiTuple } from "../scripts/lib/ai-api-engine"
 import { refreshDue } from "./cms/vendorModelCatalog"
 
@@ -1125,9 +1125,9 @@ describe("one shared catalog for Settings, saves and runs", () => {
     await expect(admit(t, "absent", "openai", "gpt-7-sol")).rejects.toThrow(/not-listed/)
   })
 
-  test("Slice creator: newerModels names the newer model of the saved tuple and of each provider default", async () => {
+  test("Block creator: newerModels names the newer model of the saved tuple and of each provider default", async () => {
     const { owner } = await liveApp()
-    const nothingSaved = await owner.query(api.cms.aiSettings.sliceCreator, { now: NOW })
+    const nothingSaved = await owner.query(api.cms.aiSettings.blockCreator, { now: NOW })
     // Every entry is for a tuple the card could show, and none repeats.
     const shownTuples = (["anthropic", "openrouter", "openai"] as const)
       .flatMap((provider) => nothingSaved.defaults[provider] ?? [])
@@ -1139,8 +1139,8 @@ describe("one shared catalog for Settings, saves and runs", () => {
 
     // Saved Opus 5.5 with Opus 6 listed and newer: the entry names Opus 6.
     const opus = tuple("anthropic", "claude-opus-5-5", "high")
-    await owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple: opus })
-    const saved = await owner.query(api.cms.aiSettings.sliceCreator, { now: NOW })
+    await owner.mutation(api.cms.aiSettings.setBlockCreator, { tuple: opus })
+    const saved = await owner.query(api.cms.aiSettings.blockCreator, { now: NOW })
     expect(saved.newerModels).toContainEqual({
       for: { provider: "anthropic", model: "claude-opus-5-5" },
       provider: "anthropic",
@@ -1149,25 +1149,25 @@ describe("one shared catalog for Settings, saves and runs", () => {
     })
 
     // Saved Opus 6 has nothing newer: no entry for it.
-    await owner.mutation(api.cms.aiSettings.setSliceCreator, { tuple: tuple("anthropic", "claude-opus-6", "high") })
-    const latest = await owner.query(api.cms.aiSettings.sliceCreator, { now: NOW })
+    await owner.mutation(api.cms.aiSettings.setBlockCreator, { tuple: tuple("anthropic", "claude-opus-6", "high") })
+    const latest = await owner.query(api.cms.aiSettings.blockCreator, { now: NOW })
     expect(latest.newerModels.some((entry) => entry.for.model === "claude-opus-6")).toBe(false)
   })
 
-  test("#1 unsaved Slice creator, committed default removed: the run uses the Settings default and passes preflight", async () => {
+  test("#1 unsaved Block creator, committed default removed: the run uses the Settings default and passes preflight", async () => {
     const { t, owner } = await liveApp()
     lists.openai = lists.openai.filter((row) => (row as { id: string }).id !== "gpt-6.1-sol")
     await refresh(t)
-    const creator = await owner.query(api.cms.aiSettings.sliceCreator, { now: NOW })
+    const creator = await owner.query(api.cms.aiSettings.blockCreator, { now: NOW })
     expect(creator.tuple).toBeUndefined()
     const shown = creator.defaults.openai
     expect(shown).not.toBeNull()
     expect(shown).not.toEqual(taskProfileTuple("openai", "vision-spec"))
     // The action's own choice with nothing saved: the first provider with a key, no model.
-    const selection = resolveSliceCreatorSelection(creator.tuple, { anthropic: false, openrouter: false, openai: true })
+    const selection = resolveBlockCreatorSelection(creator.tuple, { anthropic: false, openrouter: false, openai: true })
     expect(selection).toEqual({ provider: "openai", keyPresent: true })
     const catalog = catalogFromEntries(creator.catalog)
-    for (const profile of SLICE_CREATOR_PROFILES) {
+    for (const profile of BLOCK_CREATOR_PROFILES) {
       const resolved = resolveLocalApiTuple("openai", profile, {}, catalog, NOW)
       expect(resolved).toEqual(shown)
       const entry = catalog.get("openai", resolved.model)
@@ -1182,7 +1182,7 @@ describe("one shared catalog for Settings, saves and runs", () => {
             tuple: resolved,
             catalogEntry: entry,
             profile,
-            phase: profile === "vision-spec" ? "slice-spec" : "renderer-jsx",
+            phase: profile === "vision-spec" ? "block-spec" : "renderer-jsx",
             input: { prompt: "Make a block." },
             requirements: { inputModalities: ["text"], structuredOutput: TASK_PROFILE_REQUIREMENTS[profile].structuredOutput },
             output: { kind: "text" },

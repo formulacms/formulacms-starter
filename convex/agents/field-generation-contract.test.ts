@@ -71,7 +71,7 @@ describe("runtime field-generation contracts", () => {
   })
 
   test.each([
-    ["sliceTitle", 2],
+    ["blockTitle", 2],
     ["itemTitle", 3],
   ] as const)(
     "accepts canonical %s output at heading level %i",

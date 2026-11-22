@@ -39,7 +39,7 @@ export const WORKFLOW_PHASES = [
   "page-meta",
   "page-outline",
   "page-fill",
-  "slice-spec",
+  "block-spec",
   "renderer-jsx",
   "help-answer",
 ] as const

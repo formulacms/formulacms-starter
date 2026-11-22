@@ -9,7 +9,7 @@ import {
 } from "@/convex/lib/richtext/profiles"
 import { resolveFieldContract } from "@/convex/lib/richtext/contracts"
 import { toFieldShape } from "@/convex/lib/richtext/shape"
-import { composeRel, type SliceRenderContext } from "@/lib/slices/links"
+import { composeRel, type BlockRenderContext } from "@/lib/blocks/links"
 import { cn } from "@/lib/utils"
 import { generateRichTextDocument } from "@/lib/rich-text/legacy-html"
 
@@ -55,7 +55,7 @@ function stringAttr(value: unknown): string | undefined {
 function baselineRichTextToDocument(
   value: string,
   profile: RichTextProfile,
-  ctx?: SliceRenderContext
+  ctx?: BlockRenderContext
 ): JSONContent {
   const empty: JSONContent = { type: "doc", content: [] }
   if (!value) return empty
@@ -99,7 +99,7 @@ function baselineRichTextToDocument(
 
 function resolveBaselineLinkMarks(
   node: unknown,
-  ctx: SliceRenderContext | undefined
+  ctx: BlockRenderContext | undefined
 ): unknown {
   if (typeof node !== "object" || node === null) return node
   const current = node as { marks?: unknown; content?: unknown }
@@ -343,8 +343,8 @@ function renderNode(
 }
 
 function inlineDocumentChildren(document: JSONContent): ReactNode[] {
-  const blocks = document.content ?? []
-  return blocks.flatMap((node, index) => {
+  const nodes = document.content ?? []
+  return nodes.flatMap((node, index) => {
     const rendered = renderNode(node, "inline", `inline-${index}`)
     return index === 0
       ? [rendered]
@@ -367,7 +367,7 @@ export function LegacyRichTextWalkerOracle({
 }: {
   value: string
   profile: RichTextProfile
-  ctx?: SliceRenderContext
+  ctx?: BlockRenderContext
   className?: string
   fieldPath?: string
 }) {
@@ -379,7 +379,7 @@ export function LegacyRichTextWalkerOracle({
 export function frozenDocumentFor(
   value: string,
   profile: RichTextProfile,
-  ctx?: SliceRenderContext
+  ctx?: BlockRenderContext
 ): JSONContent {
   return baselineRichTextToDocument(value, profile, ctx)
 }
@@ -389,7 +389,7 @@ export function renderFrozenDocument(
   document: JSONContent,
   profile: RichTextProfile,
   className?: string,
-  preview?: { value: string; ctx?: SliceRenderContext; fieldPath?: string }
+  preview?: { value: string; ctx?: BlockRenderContext; fieldPath?: string }
 ) {
   const linkClasses =
     "[&_a]:font-medium [&_a]:underline [&_a]:underline-offset-4 [&_a]:transition-colors [&_a]:hover:text-brand [&_a]:focus-visible:outline [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-offset-2"

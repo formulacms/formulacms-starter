@@ -1,7 +1,7 @@
 import { convexTest } from "@/convexTestWithExplicitAdmin"
 import schema from "@/convex/schema"
 import { api } from "@/convex/_generated/api"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import {
   stashPageDraftHandoff,
   readPageDraftHandoff,
@@ -11,8 +11,8 @@ import type { PageSaveDraft } from "./page-editor/hooks/use-page-save"
 import * as titleAdoption from "@/lib/rich-text/adopt-hero-titles"
 import * as legacyParser from "@/lib/rich-text/legacy-html"
 import type { AdminAiTranslationHostProps } from "./contributions/ai-translation"
-import { mergeSliceText } from "./slice-editor-text"
-import { sliceDefs } from "@/convex/lib/slices"
+import { mergeBlockText } from "./block-editor-text"
+import { blockDefs } from "@/convex/lib/blocks"
 import { PreviewInlineEditor } from "./preview-inline-editor"
 import type { Editor } from "@tiptap/core"
 import { PageLivePreviewCanvas } from "./page-live-preview-canvas"
@@ -47,15 +47,15 @@ import {
 import type { Id } from "@/convex/_generated/dataModel"
 import type { AdminPageHistoryHostProps } from "./contributions/history"
 import type { Page } from "./page-editor/lib/types"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 import { capturePageField } from "./page-editor/lib/page-inline-draft"
 import {
   readRecoveryDraft,
   writeRecoveryDraft,
   recoveryKey,
 } from "./page-editor/lib/recovery"
-import { createSampleSlice } from "@/lib/slices/sample"
-import type { SlicesPanel } from "./page-editor/components/slices-panel"
+import { createSampleBlock } from "@/lib/blocks/sample"
+import type { BlocksPanel } from "./page-editor/components/blocks-panel"
 
 // FR2c row H: the core editor reaches History only through the
 // `admin.page-history` binding. With a participant bound, the editor offers
@@ -112,7 +112,7 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   slotProps: [] as AdminPageHistoryHostProps[],
   enabledLocales: ["en"] as string[],
-  sliceProps: [] as Parameters<typeof SlicesPanel>[0][],
+  blockProps: [] as Parameters<typeof BlocksPanel>[0][],
   realSidebar: false,
   addressHarness: false,
   addressQuery: null as ((args: unknown) => unknown) | null,
@@ -406,19 +406,19 @@ vi.mock("./page-editor/components/settings-panel", async (importOriginal) => {
   }
 })
 vi.mock("./page-live-preview", () => ({ PageLivePreview: () => null }))
-vi.mock("./page-editor/components/slices-panel", async (importOriginal) => {
+vi.mock("./page-editor/components/blocks-panel", async (importOriginal) => {
   const actual =
     await importOriginal<
-      typeof import("./page-editor/components/slices-panel")
+      typeof import("./page-editor/components/blocks-panel")
     >()
   return {
-    SlicesPanel: (props: Parameters<typeof SlicesPanel>[0]) => {
-      mocks.sliceProps.push(props)
+    BlocksPanel: (props: Parameters<typeof BlocksPanel>[0]) => {
+      mocks.blockProps.push(props)
       // R1 mounts the real sidebar under the real PageEditor publication wiring.
       return mocks.realSidebar ? (
-        <actual.SlicesPanel {...props} />
+        <actual.BlocksPanel {...props} />
       ) : (
-        <div data-testid="slice-panel" />
+        <div data-testid="block-panel" />
       )
     },
   }
@@ -438,7 +438,7 @@ function page(): Page {
     status: "draft",
     createdAt: 100,
     updatedAt: 100,
-    content: { en: { title: "About", slices: [] } },
+    content: { en: { title: "About", blocks: [] } },
     tags: [],
     createdBy: "owner-1",
   } as Page
@@ -479,7 +479,7 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
       updatedAt: 500,
     })
     mocks.slotProps.length = 0
-    mocks.sliceProps.length = 0
+    mocks.blockProps.length = 0
     mocks.checklistResult = { canPublish: true, blockers: [], warnings: [] }
     mocks.enabledLocales = ["en"]
     window.localStorage.clear()
@@ -488,24 +488,24 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
 
   test(
     "a newer preview action cancels a pending form-field focus",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
-      const slice = {
-        ...createSampleSlice("hero-with-image"),
-        id: "slice_focus",
+      const block = {
+        ...createSampleBlock("hero-with-image"),
+        id: "block_focus",
       }
-      const withSlice = page()
-      withSlice.content = { en: { title: "About", slices: [slice] } }
+      const withBlock = page()
+      withBlock.content = { en: { title: "About", blocks: [block] } }
       render(
         <PageEditor
-          page={withSlice}
+          page={withBlock}
           hasStaging={false}
           stagingUpdatedAt={undefined}
           publication={publication()}
         />
       )
-      const current = () => mocks.sliceProps.at(-1)!
-      const target = { sliceId: slice.id, fieldPath: "primary.eyebrow" }
+      const current = () => mocks.blockProps.at(-1)!
+      const target = { blockId: block.id, fieldPath: "primary.eyebrow" }
       const pending = () => {
         act(() => current().onPreviewSelectField(target))
         expect(current().focusedFieldTarget).toMatchObject(target)
@@ -516,112 +516,116 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
       expect(current().focusedFieldTarget).toBeNull()
 
       pending()
-      act(() => current().onPreviewSelectSlice(slice.id))
+      act(() => current().onPreviewSelectBlock(block.id))
       expect(current().focusedFieldTarget).toBeNull()
 
       pending()
-      act(() => current().onPreviewSelectSliceFallback(slice.id))
+      act(() => current().onPreviewSelectBlockFallback(block.id))
       expect(current().focusedFieldTarget).toBeNull()
     }
   )
 
   test(
-    "shows and hides the only-in-the-form notice only after a preview click sequence",
-    sliceProfile([]),
+    "shows no notice for a form-only field, and shows and hides another refusal only after a preview click sequence",
+    blockProfile([]),
     async () => {
-      // The notice sits above the split view, so a change during a double
-      // or triple click would move the preview under the pointer.
-      const slice = {
-        ...createSampleSlice("hero-with-image"),
-        id: "slice_notice",
+      // A form-only field raises no notice (owner, 2026-11-21): its form
+      // control takes the focus. Another refusal's notice sits above the
+      // split view, so a change during a double or triple click would move
+      // the preview under the pointer.
+      const block = {
+        ...createSampleBlock("hero-with-image"),
+        id: "block_notice",
       }
-      const withSlice = page()
-      withSlice.content = { en: { title: "About", slices: [slice] } }
+      const withBlock = page()
+      withBlock.content = { en: { title: "About", blocks: [block] } }
       render(
         <PageEditor
-          page={withSlice}
+          page={withBlock}
           hasStaging={false}
           stagingUpdatedAt={undefined}
           publication={publication()}
         />
       )
-      const current = () => mocks.sliceProps.at(-1)!
+      const current = () => mocks.blockProps.at(-1)!
       const wait = (ms: number) =>
         act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
-      const formOnly = { sliceId: slice.id, fieldPath: "primary.eyebrow" }
-      const refused = { status: "refused", reason: "unsupported" } as const
+      // An image is always edited in the form (a plain text field such as
+      // the eyebrow opens in place since PR A3).
+      const formOnly = { blockId: block.id, fieldPath: "primary.image" }
+      const unsupported = { status: "refused", reason: "unsupported" } as const
+      const stale = { status: "refused", reason: "stale" } as const
 
-      // A form-only double click, clicks 150 ms apart: no notice yet.
-      act(() => current().onPreviewSelectField(formOnly, refused))
+      // A form-only click: the form control is focused, and no notice
+      // shows, during or after the click sequence.
+      act(() => current().onPreviewSelectField(formOnly, unsupported))
+      expect(current().focusedFieldTarget).toMatchObject(formOnly)
+      await wait(650)
+      expect(current().previewInlineRefusal).toBeNull()
+
+      // A stale double click, clicks 150 ms apart: no notice yet.
+      act(() => current().onPreviewSelectField(formOnly, stale))
       await wait(150)
       act(() =>
-        current().onPreviewSelectField({ ...formOnly, clickCount: 2 }, refused)
+        current().onPreviewSelectField({ ...formOnly, clickCount: 2 }, stale)
       )
       await wait(400)
       expect(current().previewInlineRefusal).toBeNull()
       // About 500 ms after the last click it shows.
       await wait(200)
-      expect(current().previewInlineRefusal).toBe("unsupported")
+      expect(current().previewInlineRefusal).toBe("stale")
 
       // A title opened in place: the notice stays during the sequence, and
       // the owner's own scrolling does not keep it from updating.
-      const inPlace = { sliceId: slice.id, fieldPath: "primary.title" }
+      const inPlace = { blockId: block.id, fieldPath: "primary.title" }
       act(() =>
         current().onPreviewSelectField(inPlace, { status: "activated" })
       )
       fireEvent.wheel(document.body)
       await wait(400)
-      expect(current().previewInlineRefusal).toBe("unsupported")
+      expect(current().previewInlineRefusal).toBe("stale")
       await wait(200)
       expect(current().previewInlineRefusal).toBeNull()
     }
   )
 
   test(
-    "an empty-spot click with editing in the preview off focuses the first control with no notice",
-    sliceProfile([]),
+    "an empty-spot click focuses the first control with no notice",
+    blockProfile([]),
     async () => {
-      const slice = {
-        ...createSampleSlice("hero-with-image"),
-        id: "slice_fallback",
+      const block = {
+        ...createSampleBlock("hero-with-image"),
+        id: "block_fallback",
       }
-      const withSlice = page()
-      withSlice.content = { en: { title: "About", slices: [slice] } }
+      const withBlock = page()
+      withBlock.content = { en: { title: "About", blocks: [block] } }
       render(
         <PageEditor
-          page={withSlice}
+          page={withBlock}
           hasStaging={false}
           stagingUpdatedAt={undefined}
           publication={publication()}
         />
       )
-      const current = () => mocks.sliceProps.at(-1)!
+      const current = () => mocks.blockProps.at(-1)!
       const wait = (ms: number) =>
         act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
-      expect(current().previewInlineEditingEnabled).toBe(false)
-      act(() => current().onPreviewSelectSliceFallback(slice.id))
+      act(() => current().onPreviewSelectBlockFallback(block.id))
       await wait(650)
       expect(current().focusedFirstControlTarget).toMatchObject({
-        sliceId: slice.id,
+        blockId: block.id,
       })
       // Marked as a preview click: the form does not scroll to the row.
       expect(current().previewClickSelection).toMatchObject({
-        sliceId: slice.id,
+        blockId: block.id,
       })
       expect(current().previewInlineRefusal).toBeNull()
-
-      // With editing in the preview on, the notice still shows, after the
-      // click sequence.
-      act(() => current().onPreviewInlineEditingEnabledChange(true))
-      act(() => current().onPreviewSelectSliceFallback(slice.id))
-      await wait(650)
-      expect(current().previewInlineRefusal).toBe("unsupported")
     }
   )
 
   test(
     "NEW Unit A wires preview Save to the actual Page save handler and keeps keyboard Save",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       render(
         <PageEditor
@@ -631,12 +635,12 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
           publication={publication()}
         />
       )
-      act(() => mocks.sliceProps.at(-1)!.onSave())
+      act(() => mocks.blockProps.at(-1)!.onSave())
       expect(mocks.saveDraft).not.toHaveBeenCalled()
       fireEvent.change(screen.getByDisplayValue("About"), {
         target: { value: "Preview Save title" },
       })
-      await act(async () => mocks.sliceProps.at(-1)!.onSave())
+      await act(async () => mocks.blockProps.at(-1)!.onSave())
       await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledOnce())
       expect(mocks.saveDraft.mock.calls[0][0]).toEqual(
         expect.objectContaining({
@@ -673,7 +677,7 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
 
   test(
     "offers History and mounts the participant panel with the host inputs",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
       render(
         <PageEditor
@@ -700,7 +704,7 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
 
   test(
     "NEW checklist read errors stay local while the draft and preview panel host remain mounted",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = render(
         <TestErrorBoundary fallback={<p>Admin page failed.</p>}>
@@ -716,7 +720,7 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
       fireEvent.change(title, { target: { value: "Unsaved page title" } })
       expect(title).toHaveValue("Unsaved page title")
       expect(screen.getByRole("button", { name: "Save" })).toBeEnabled()
-      const previewPanel = screen.getByTestId("slice-panel")
+      const previewPanel = screen.getByTestId("block-panel")
 
       mocks.checklistResult = new Error("private checklist diagnostic")
       view.rerender(
@@ -733,7 +737,7 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
         "Unsaved page title"
       )
       expect(screen.getByRole("button", { name: "Save" })).toBeEnabled()
-      expect(screen.getByTestId("slice-panel")).toBe(previewPanel)
+      expect(screen.getByTestId("block-panel")).toBe(previewPanel)
       fireEvent.click(
         screen.getByRole("button", { name: "Page readiness: Unavailable" })
       )
@@ -758,13 +762,13 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
       expect(screen.getByLabelText("Page title")).toHaveValue(
         "Unsaved page title"
       )
-      expect(screen.getByTestId("slice-panel")).toBe(previewPanel)
+      expect(screen.getByTestId("block-panel")).toBe(previewPanel)
     }
   )
 
   test(
     "core snapshot restore is reachable with M06 absent and never opens legacy history",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       mocks.historyInstalled = false
       render(
@@ -802,7 +806,7 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
 
   test(
     "supplies the language to the History participant and the generations only through the base getter",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
       render(
         <PageEditor
@@ -827,7 +831,7 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
   )
   test(
     "loads restored draft values only after the refreshed generations arrive",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
       const original = page(),
         current = publication()
@@ -853,7 +857,7 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
           page={
             {
               ...original,
-              content: { en: { title: "Restored English", slices: [] } },
+              content: { en: { title: "Restored English", blocks: [] } },
             } as Page
           }
           hasStaging
@@ -893,15 +897,15 @@ const pmB1 = (text: string) =>
     ],
   })
 function b1Page(repeated = false) {
-  const slice = {
-    ...createSampleSlice(repeated ? "features-icon-grid" : "hero-agency"),
-    id: "b1-slice",
+  const block = {
+    ...createSampleBlock(repeated ? "features-icon-grid" : "hero-agency"),
+    id: "b1-block",
   }
   const source = {
     ...page(),
     content: {
-      en: { title: "About", slices: [slice] },
-      fr: { title: "Français", slices: [] },
+      en: { title: "About", blocks: [block] },
+      fr: { title: "Français", blocks: [] },
     },
   } as Page
   const view = render(
@@ -912,17 +916,17 @@ function b1Page(repeated = false) {
       publication={publication()}
     />
   )
-  const current = () => mocks.sliceProps.at(-1)!
+  const current = () => mocks.blockProps.at(-1)!
   const binding = () =>
     capturePageField(
-      current().slices,
+      current().blocks,
       current().currentLocale,
-      slice.id,
+      block.id,
       repeated ? "items.0.body" : "primary.description",
       current().contentEpoch ?? 0,
       current().presentationCatalog?.revision ?? ""
     )!
-  return { view, slice, source, current, binding }
+  return { view, block, source, current, binding }
 }
 describe("ED10 R1 parent publication", () => {
   const doc = (text: string) =>
@@ -930,12 +934,12 @@ describe("ED10 R1 parent publication", () => {
       type: "doc",
       content: [{ type: "paragraph", content: [{ type: "text", text }] }],
     })
-  const current = () => mocks.sliceProps.at(-1)!
+  const current = () => mocks.blockProps.at(-1)!
   const description = () => {
-    const slice = current().slices.find((item) => item.id === "ed10-first")!
-    if (!("description" in slice.primary))
+    const block = current().blocks.find((item) => item.id === "ed10-first")!
+    if (!("description" in block.primary))
       throw new Error("Description fixture missing")
-    return slice.primary.description
+    return block.primary.description
   }
   const rangeRects = {
     getClientRects: Object.getOwnPropertyDescriptor(
@@ -965,25 +969,25 @@ describe("ED10 R1 parent publication", () => {
   })
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.sliceProps.length = 0
+    mocks.blockProps.length = 0
     mocks.enabledLocales = ["en"]
     window.sessionStorage.clear()
     window.localStorage.clear()
   })
   async function setup() {
     mocks.realSidebar = true
-    const sample = createSampleSlice("hero-agency")
-    const slices = ["ed10-first", "ed10-second", "ed10-third"].map((id) => ({
+    const sample = createSampleBlock("hero-agency")
+    const blocks = ["ed10-first", "ed10-second", "ed10-third"].map((id) => ({
       ...sample,
       id,
       primary: { ...sample.primary, description: doc("Copy") },
-    })) as Slice[]
+    })) as Block[]
     const commits = vi.fn()
     const view = render(
       <Profiler id="ed10-parent" onRender={commits}>
         <PageEditor
           page={
-            { ...page(), content: { en: { title: "About", slices } } } as Page
+            { ...page(), content: { en: { title: "About", blocks } } } as Page
           }
           hasStaging={false}
           stagingUpdatedAt={undefined}
@@ -1010,10 +1014,10 @@ describe("ED10 R1 parent publication", () => {
       defaultLocale: "en",
       languageVersion: 0,
       title: "Preview",
-      slices: snapshot.slices,
+      blocks: snapshot.blocks,
       contentEpoch: snapshot.contentEpoch,
       catalogRevision: snapshot.presentationCatalog?.revision,
-      selectedSliceId: null,
+      selectedBlockId: null,
       inlineEditingEnabled: true,
       mode: "light",
       ordering: {
@@ -1024,7 +1028,7 @@ describe("ED10 R1 parent publication", () => {
     }
     const conflict = vi.fn(snapshot.onPreviewActiveEditConflict)
     const controller = createLiveFrameController(input, {
-      selectSlice() {},
+      selectBlock() {},
       selectField() {},
       save() {},
       unavailable() {},
@@ -1071,11 +1075,11 @@ describe("ED10 R1 parent publication", () => {
     const frame = render(
       <PageLivePreviewCanvas
         title="Preview"
-        slices={input.slices}
+        blocks={input.blocks}
         locale="en"
         defaultLocale="en"
         contentEpoch={input.contentEpoch}
-        selectedSliceId={null}
+        selectedBlockId={null}
         controlledInlineEnabled
         renderContext={{
           locale: "en",
@@ -1083,7 +1087,7 @@ describe("ED10 R1 parent publication", () => {
           pagePaths: {},
           presentationCatalog: snapshot.presentationCatalog,
         }}
-        onSelectSlice={() => {}}
+        onSelectBlock={() => {}}
         onSelectField={() => {}}
         onInlineEditCommit={(commit) => callbacks.commit(bind(commit))}
         onActiveEditChange={(commit) =>
@@ -1113,7 +1117,7 @@ describe("ED10 R1 parent publication", () => {
       publish: () =>
         controller.replaceInput({
           ...input,
-          slices: current().slices,
+          blocks: current().blocks,
           ordering: {
             draftRevision: current().draftRevision!,
             inputRevision: 1,
@@ -1124,7 +1128,7 @@ describe("ED10 R1 parent publication", () => {
   }
   test(
     "ED10 R1 single-document model of iframe order publishes DefaultLane draft before the first sidebar input task",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const { view, editor, commits } = await setup()
       const child = await island()
@@ -1192,7 +1196,7 @@ describe("ED10 R1 parent publication", () => {
   )
   test(
     "ED10 R1 keyboard-focused sidebar reorder restores focus without a lifecycle flushSync warning",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const { view } = await setup()
       const errors = vi.spyOn(console, "error")
@@ -1205,7 +1209,7 @@ describe("ED10 R1 parent publication", () => {
         const restoreFocus = vi.spyOn(down, "focus")
         fireEvent.click(down, { detail: 0 })
         await act(async () => {})
-        expect(current().slices.map((slice) => slice.id)).toEqual([
+        expect(current().blocks.map((block) => block.id)).toEqual([
           "ed10-second",
           "ed10-first",
           "ed10-third",
@@ -1223,7 +1227,7 @@ describe("ED10 R1 parent publication", () => {
   )
   test(
     "ED10 R1 deferred composition B survives sidebar input before held iframe publication",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const parent = await setup()
       const child = await island()
@@ -1298,7 +1302,7 @@ describe("ED10 R1 parent publication", () => {
 describe("B1 real Page consumer replacement safety", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.sliceProps.length = 0
+    mocks.blockProps.length = 0
     mocks.enabledLocales = ["en", "fr"]
     mocks.saveDraft.mockReset().mockResolvedValue({
       updatedAt: 101,
@@ -1310,12 +1314,12 @@ describe("B1 real Page consumer replacement safety", () => {
   })
   test(
     "NEW R1 PageEditor pairs each draft snapshot with its revision and acknowledges accepted writes synchronously across locales",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
       const view = b1Page()
       const snapshot = view.current()
       const revision = snapshot.draftRevision!
-      const originalSlices = snapshot.slices
+      const originalBlocks = snapshot.blocks
       act(() => {
         expect(
           snapshot.onPreviewInlineEditCommit({
@@ -1326,20 +1330,20 @@ describe("B1 real Page consumer replacement safety", () => {
         expect(snapshot.getDraftRevision!()).toBe(revision + 1)
         // A captured render keeps the revision of its exact content, even before React renders the accepted write.
         expect(snapshot.draftRevision).toBe(revision)
-        expect(snapshot.slices).toBe(originalSlices)
+        expect(snapshot.blocks).toBe(originalBlocks)
       })
       expect(view.current().draftRevision).toBe(revision + 1)
-      expect(view.current().slices).not.toBe(originalSlices)
+      expect(view.current().blocks).not.toBe(originalBlocks)
       fireEvent.change(screen.getByDisplayValue("About"), {
         target: { value: "Sidebar revision" },
       })
       expect(view.current().draftRevision).toBe(revision + 2)
       act(() =>
-        view.current().onSlicesChange(
-          view.current().slices.map((slice) => ({
-            ...slice,
-            primary: { ...slice.primary, eyebrow: "Other field" },
-          })) as Slice[]
+        view.current().onBlocksChange(
+          view.current().blocks.map((block) => ({
+            ...block,
+            primary: { ...block.primary, eyebrow: "Other field" },
+          })) as Block[]
         )
       )
       expect(view.current().draftRevision).toBe(revision + 3)
@@ -1364,7 +1368,7 @@ describe("B1 real Page consumer replacement safety", () => {
   )
   test(
     "NEW Order1.4 saves active inline parent values without any frame capture and keyboard repeats run once",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = b1Page()
       expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled()
@@ -1387,18 +1391,18 @@ describe("B1 real Page consumer replacement safety", () => {
       await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledOnce())
       expect(capture).not.toHaveBeenCalled()
       expect(
-        mocks.saveDraft.mock.calls[0][0].localized.draft.slices[0].primary
+        mocks.saveDraft.mock.calls[0][0].localized.draft.blocks[0].primary
           .description
       ).toBe(value)
       expect(
-        (view.current().slices[0].primary as Record<string, unknown>)
+        (view.current().blocks[0].primary as Record<string, unknown>)
           .description
       ).toBe(value)
     }
   )
   test(
     "NEW Save and locale switch refuse composing input but leave exact parent work intact",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = b1Page()
       const value = pmB1("composing parent")
@@ -1416,14 +1420,14 @@ describe("B1 real Page consumer replacement safety", () => {
       expect(view.current().currentLocale).toBe("en")
       expect(mocks.saveDraft).not.toHaveBeenCalled()
       expect(
-        (view.current().slices[0].primary as Record<string, unknown>)
+        (view.current().blocks[0].primary as Record<string, unknown>)
           .description
       ).toBe(value)
     }
   )
   test(
     "NEW B-C0 preserves manual sidebar work and exact inline JSON through frame loss and locale return",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
       const view = b1Page()
       const value = pmB1("retained parent")
@@ -1438,7 +1442,7 @@ describe("B1 real Page consumer replacement safety", () => {
       fireEvent.click(screen.getByRole("tab", { name: /français/i }))
       fireEvent.click(screen.getByRole("tab", { name: /english/i }))
       expect(
-        (view.current().slices[0].primary as Record<string, unknown>)
+        (view.current().blocks[0].primary as Record<string, unknown>)
           .description
       ).toBe(value)
       expect(
@@ -1448,7 +1452,7 @@ describe("B1 real Page consumer replacement safety", () => {
   )
   test(
     "NEW R2/Order1.5 retains formatted incompatible data through full Page reload, refusing Restore and Save",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = b1Page()
       const pending = {
@@ -1475,24 +1479,24 @@ describe("B1 real Page consumer replacement safety", () => {
       )
       await act(async () => fresh.current().onSave())
       expect(mocks.saveDraft).not.toHaveBeenCalled()
-      expect(fresh.current().slices).toEqual([fresh.slice])
+      expect(fresh.current().blocks).toEqual([fresh.block])
     }
   )
   test(
     "NEW unrelated sidebar fields keep the structural epoch and allow the next inline intent",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
       const view = b1Page()
       const binding = view.binding()
       const epoch = view.current().contentEpoch
-      const next = view.current().slices.map(
-        (slice) =>
+      const next = view.current().blocks.map(
+        (block) =>
           ({
-            ...slice,
-            primary: { ...slice.primary, eyebrow: "sidebar" },
-          }) as Slice
+            ...block,
+            primary: { ...block.primary, eyebrow: "sidebar" },
+          }) as Block
       )
-      act(() => view.current().onSlicesChange(next))
+      act(() => view.current().onBlocksChange(next))
       expect(view.current().contentEpoch).toBe(epoch)
       act(() =>
         expect(
@@ -1503,25 +1507,25 @@ describe("B1 real Page consumer replacement safety", () => {
         ).toBe(true)
       )
       expect(
-        (view.current().slices[0].primary as Record<string, unknown>).eyebrow
+        (view.current().blocks[0].primary as Record<string, unknown>).eyebrow
       ).toBe("sidebar")
     }
   )
   test(
     "NEW repeated equal-valued reorder increments the epoch and refuses stale targets with exact copyable data",
-    sliceProfile([]),
+    blockProfile([]),
     () => {
       const view = b1Page(true)
-      const slice = view.slice as Extract<Slice, { type: "features-icon-grid" }>
+      const block = view.block as Extract<Block, { type: "features-icon-grid" }>
       const equal = {
-        ...slice,
-        items: [0, 1, 2].map(() => ({ ...slice.items[0] })),
+        ...block,
+        items: [0, 1, 2].map(() => ({ ...block.items[0] })),
       }
-      act(() => view.current().onSlicesChange([equal]))
+      act(() => view.current().onBlocksChange([equal]))
       const binding = view.binding(),
         epoch = view.current().contentEpoch!
       const next = [{ ...equal, items: [...equal.items].reverse() }]
-      act(() => view.current().onSlicesChange(next))
+      act(() => view.current().onBlocksChange(next))
       expect(view.current().contentEpoch).toBe(epoch + 1)
       const pending = { ...binding, value: pmB1("stale repeated") }
       act(() => {
@@ -1529,7 +1533,7 @@ describe("B1 real Page consumer replacement safety", () => {
         view.current().onPreviewActiveEditChange!(pending)
         view.current().onPreviewActiveEditConflict!()
       })
-      expect(view.current().slices).toEqual(next)
+      expect(view.current().blocks).toEqual(next)
       expect(screen.getByRole("textbox", { name: "Pending text" })).toHaveValue(
         pending.value
       )
@@ -1545,7 +1549,7 @@ describe("B1 real Page consumer replacement safety", () => {
       )
       fireEvent.click(screen.getByRole("button", { name: /^Discard$/ }))
       expect(discardActiveEdit).toHaveBeenCalledTimes(1)
-      expect(view.current().slices).toEqual(next)
+      expect(view.current().blocks).toEqual(next)
       expect(view.current().inlineEditingBlocked).toBe(false)
     }
   )
@@ -1581,7 +1585,7 @@ describe("D2 R1 actual-consumer diagnostics", () => {
   })
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.sliceProps.length = 0
+    mocks.blockProps.length = 0
     mocks.enabledLocales = ["en", "fr"]
     mocks.translation = null
     mocks.saveDraft.mockResolvedValue({
@@ -1601,16 +1605,16 @@ describe("D2 R1 actual-consumer diagnostics", () => {
     "locale cache",
   ] as const)(
     "retains both located reports through %s → parent → recovery/Save",
-    sliceProfile([]),
+    blockProfile([]),
     async (mode) => {
       const heroes = ["first", "second"].map((id) => ({
-        ...createSampleSlice("hero-with-image"),
+        ...createSampleBlock("hero-with-image"),
         id,
       }))
-      const original = heroes.map((slice, i) => ({
-        ...slice,
+      const original = heroes.map((block, i) => ({
+        ...block,
         primary: {
-          ...slice.primary,
+          ...block.primary,
           title: JSON.stringify({
             type: "doc",
             content: [
@@ -1620,7 +1624,7 @@ describe("D2 R1 actual-consumer diagnostics", () => {
                   {
                     type: "text",
                     text: i ? "Second" : "First",
-                    marks: [{ type: "link", attrs: { href: `/${slice.id}` } }],
+                    marks: [{ type: "link", attrs: { href: `/${block.id}` } }],
                   },
                 ],
               },
@@ -1631,8 +1635,8 @@ describe("D2 R1 actual-consumer diagnostics", () => {
       const source = {
         ...page(),
         content: {
-          en: { title: "About", slices: heroes },
-          fr: { title: "Français", slices: heroes },
+          en: { title: "About", blocks: heroes },
+          fr: { title: "Français", blocks: heroes },
         },
       } as Page
       const view = render(
@@ -1646,15 +1650,15 @@ describe("D2 R1 actual-consumer diagnostics", () => {
           }
         />
       )
-      const current = () => mocks.sliceProps.at(-1)!
+      const current = () => mocks.blockProps.at(-1)!
       let reportLocale = "en"
       if (mode === "locale cache") {
         reportLocale = "fr"
         const draft = mocks.translation!.readSourceContent("fr")
-        const canonical = original.map((slice, i) => ({
-          ...slice,
+        const canonical = original.map((block, i) => ({
+          ...block,
           primary: {
-            ...slice.primary,
+            ...block.primary,
             title: JSON.stringify({
               type: "doc",
               content: [
@@ -1670,22 +1674,22 @@ describe("D2 R1 actual-consumer diagnostics", () => {
         act(() =>
           mocks.translation!.storeDraft("fr", {
             ...draft,
-            slices: canonical,
-            removedTitleLinks: heroes.map((slice) => ({
+            blocks: canonical,
+            removedTitleLinks: heroes.map((block) => ({
               locale: "fr",
-              sliceId: slice.id,
+              blockId: block.id,
               fieldPath: "primary.title",
-              removedLinks: [{ href: `/${slice.id}` }],
+              removedLinks: [{ href: `/${block.id}` }],
             })),
           })
         )
         fireEvent.click(screen.getByRole("tab", { name: /français/i }))
       } else if (mode === "inline PM") {
-        for (const slice of original) {
+        for (const block of original) {
           const binding = capturePageField(
-            current().slices,
+            current().blocks,
             "en",
-            slice.id,
+            block.id,
             "primary.title",
             current().contentEpoch ?? 0,
             current().presentationCatalog?.revision ?? ""
@@ -1693,7 +1697,7 @@ describe("D2 R1 actual-consumer diagnostics", () => {
           let flush: (() => void) | null = null
           const inline = render(
             <PreviewInlineEditor
-              value={slice.primary.title}
+              value={block.primary.title}
               contract="title"
               fieldPath="primary.title"
               label="Title"
@@ -1719,53 +1723,53 @@ describe("D2 R1 actual-consumer diagnostics", () => {
           inline.unmount()
         }
       } else {
-        const incoming = original.map((slice, i) =>
+        const incoming = original.map((block, i) =>
           mode === "source copy" || mode === "AI merge"
-            ? mergeSliceText(
+            ? mergeBlockText(
                 heroes[i],
-                slice,
-                sliceDefs["hero-with-image"].primary,
+                block,
+                blockDefs["hero-with-image"].primary,
                 mode === "source copy" ? "copy" : "write"
               )
             : {
-                ...slice,
+                ...block,
                 primary: {
-                  ...slice.primary,
+                  ...block.primary,
                   title:
                     mode === "HTML page-id"
-                      ? `<p><a data-page-id="${slice.id}-page">${i ? "Second" : "First"}</a></p>`
-                      : `<p><a href="/${slice.id}">${i ? "Second" : "First"}</a></p>`,
+                      ? `<p><a data-page-id="${block.id}-page">${i ? "Second" : "First"}</a></p>`
+                      : `<p><a href="/${block.id}">${i ? "Second" : "First"}</a></p>`,
                 },
               }
         )
-        act(() => current().onSlicesChange(incoming as Slice[]))
+        act(() => current().onBlocksChange(incoming as Block[]))
       }
-      for (const slice of current().slices) {
-        expect(slice.type).toBe("hero-with-image")
-        if (slice.type === "hero-with-image")
-          expect(validateStrict("title", slice.primary.title)).toEqual({
+      for (const block of current().blocks) {
+        expect(block.type).toBe("hero-with-image")
+        if (block.type === "hero-with-image")
+          expect(validateStrict("title", block.primary.title)).toEqual({
             ok: true,
           })
       }
       act(() => window.dispatchEvent(new Event("pagehide")))
       const recovery = readRecoveryDraft(source._id, reportLocale)!
-      const reports = heroes.map((slice) => ({
+      const reports = heroes.map((block) => ({
         locale: reportLocale,
-        sliceId: slice.id,
+        blockId: block.id,
         fieldPath: "primary.title",
         removedLinks: [
           mode === "HTML page-id"
-            ? { pageId: `${slice.id}-page` }
-            : { href: `/${slice.id}` },
+            ? { pageId: `${block.id}-page` }
+            : { href: `/${block.id}` },
         ],
       }))
       expect(recovery.removedTitleLinks).toEqual(
         expect.arrayContaining(reports)
       )
       expect(
-        recovery.slices.map((slice) =>
-          slice.type === "hero-with-image"
-            ? JSON.parse(slice.primary.title).content[0].content[0].text
+        recovery.blocks.map((block) =>
+          block.type === "hero-with-image"
+            ? JSON.parse(block.primary.title).content[0].content[0].text
             : ""
         )
       ).toEqual(["First", "Second"])
@@ -1773,12 +1777,12 @@ describe("D2 R1 actual-consumer diagnostics", () => {
       expect(mocks.saveDraft).toHaveBeenCalled()
       const saved = mocks.saveDraft.mock.calls.at(-1)![0]
       expect(
-        saved.localized.draft.slices.map((slice: Slice) =>
-          slice.type === "hero-with-image" ? slice.primary.title : ""
+        saved.localized.draft.blocks.map((block: Block) =>
+          block.type === "hero-with-image" ? block.primary.title : ""
         )
       ).toEqual(
-        recovery.slices.map((slice) =>
-          slice.type === "hero-with-image" ? slice.primary.title : ""
+        recovery.blocks.map((block) =>
+          block.type === "hero-with-image" ? block.primary.title : ""
         )
       )
       // Locale-cache restore must not discard reports already attached to canonical values.
@@ -1811,7 +1815,7 @@ describe("D2 R3 recovery adoption failure", () => {
     vi.clearAllMocks()
     mocks.historyInstalled = false
     mocks.enabledLocales = ["en", "fr"]
-    mocks.sliceProps.length = 0
+    mocks.blockProps.length = 0
     mocks.saveDraft.mockReset().mockResolvedValue({
       updatedAt: 501,
       draftGeneration: 3,
@@ -1833,23 +1837,23 @@ describe("D2 R3 recovery adoption failure", () => {
     )
   )(
     "independent recovery conversion-failure retry retains both located reports: $locale / $order / $failure",
-    sliceProfile([]),
+    blockProfile([]),
     async ({ locale, order, failure }) => {
       const html = {
-        ...createSampleSlice("hero-with-image"),
+        ...createSampleBlock("hero-with-image"),
         id: "html",
         items: [],
         primary: {
-          ...createSampleSlice("hero-with-image").primary,
+          ...createSampleBlock("hero-with-image").primary,
           title: '<p><a href="/first">First</a></p>',
         },
       }
       const pm = {
-        ...createSampleSlice("hero-with-image"),
+        ...createSampleBlock("hero-with-image"),
         id: "pm",
         items: [],
         primary: {
-          ...createSampleSlice("hero-with-image").primary,
+          ...createSampleBlock("hero-with-image").primary,
           title: JSON.stringify({
             type: "doc",
             content: [
@@ -1867,8 +1871,8 @@ describe("D2 R3 recovery adoption failure", () => {
           }),
         },
       }
-      const rawSlices = order === "HTML-first" ? [html, pm] : [pm, html]
-      const sourceBytes = JSON.stringify(rawSlices)
+      const rawBlocks = order === "HTML-first" ? [html, pm] : [pm, html]
+      const sourceBytes = JSON.stringify(rawBlocks)
       writeRecoveryDraft(pageId, {
         base: null,
         ...{
@@ -1882,7 +1886,7 @@ describe("D2 R3 recovery adoption failure", () => {
           tags: [],
           metaTitle: "",
           metaDescription: "",
-          slices: rawSlices,
+          blocks: rawBlocks,
           seoNoIndex: false,
           seoNoFollow: false,
           seoOgTitle: "",
@@ -1921,7 +1925,7 @@ describe("D2 R3 recovery adoption failure", () => {
         )
         if (locale === "fr")
           fireEvent.click(screen.getByRole("tab", { name: /français/i }))
-        const current = () => mocks.sliceProps.at(-1)!
+        const current = () => mocks.blockProps.at(-1)!
         await waitFor(() =>
           expect(
             screen.getByRole("button", { name: "Restore" })
@@ -1942,7 +1946,7 @@ describe("D2 R3 recovery adoption failure", () => {
             JSON.stringify(
               JSON.parse(
                 window.sessionStorage.getItem(recoveryKey(pageId, locale))!
-              ).slices
+              ).blocks
             )
           ).toBe(sourceBytes)
           failuresLeft = 0
@@ -1950,7 +1954,7 @@ describe("D2 R3 recovery adoption failure", () => {
         await act(async () =>
           fireEvent.click(screen.getByRole("button", { name: "Restore" }))
         )
-        const expectedTitles = rawSlices.map((slice) =>
+        const expectedTitles = rawBlocks.map((block) =>
           JSON.stringify({
             type: "doc",
             content: [
@@ -1960,7 +1964,7 @@ describe("D2 R3 recovery adoption failure", () => {
                 content: [
                   {
                     type: "text",
-                    text: slice.id === "html" ? "First" : "Second",
+                    text: block.id === "html" ? "First" : "Second",
                   },
                 ],
               },
@@ -1968,8 +1972,8 @@ describe("D2 R3 recovery adoption failure", () => {
           })
         )
         expect(
-          current().slices.map(
-            (slice) => (slice.primary as { title: string }).title
+          current().blocks.map(
+            (block) => (block.primary as { title: string }).title
           )
         ).toEqual(expectedTitles)
         await act(async () => current().onSave())
@@ -1977,8 +1981,8 @@ describe("D2 R3 recovery adoption failure", () => {
         const saved = mocks.saveDraft.mock.calls[0][0]
         expect(saved.localized.locale).toBe(locale)
         expect(
-          saved.localized.draft.slices.map(
-            (slice: Slice) => (slice.primary as { title: string }).title
+          saved.localized.draft.blocks.map(
+            (block: Block) => (block.primary as { title: string }).title
           )
         ).toEqual(expectedTitles)
         fireEvent.change(screen.getByDisplayValue("Recovered draft"), {
@@ -1990,20 +1994,20 @@ describe("D2 R3 recovery adoption failure", () => {
           expect.arrayContaining([
             {
               locale,
-              sliceId: "html",
+              blockId: "html",
               fieldPath: "primary.title",
               removedLinks: [{ href: "/first" }],
             },
             {
               locale,
-              sliceId: "pm",
+              blockId: "pm",
               fieldPath: "primary.title",
               removedLinks: [{ href: "/second" }],
             },
           ])
         )
         expect(recovered.removedTitleLinks).toHaveLength(2)
-        expect(JSON.stringify(rawSlices)).toBe(sourceBytes)
+        expect(JSON.stringify(rawBlocks)).toBe(sourceBytes)
       } finally {
         parser.mockRestore()
         view?.unmount()
@@ -2017,7 +2021,7 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
     vi.clearAllMocks()
     mocks.historyInstalled = false
     mocks.enabledLocales = ["en", "fr"]
-    mocks.sliceProps.length = 0
+    mocks.blockProps.length = 0
     mocks.saveDraft.mockReset().mockResolvedValue({
       updatedAt: 501,
       draftGeneration: 3,
@@ -2041,11 +2045,11 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
     })
   const hero = (id: string, title: string) =>
     ({
-      ...createSampleSlice("hero-with-image"),
+      ...createSampleBlock("hero-with-image"),
       id,
       items: [],
-      primary: { ...createSampleSlice("hero-with-image").primary, title },
-    }) as Slice
+      primary: { ...createSampleBlock("hero-with-image").primary, title },
+    }) as Block
   test.each(
     ["en", "fr"].flatMap((locale) =>
       ["HTML-first", "PM-first"].flatMap((order) =>
@@ -2063,7 +2067,7 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
     )
   )(
     "atomic incoming draft: $ingress / $locale / $order / $failure",
-    sliceProfile([]),
+    blockProfile([]),
     async ({ locale, order, failure, ingress }) => {
       const other = locale === "en" ? "fr" : "en"
       const source = {
@@ -2073,13 +2077,13 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
             title: "English baseline",
             metaTitle: "English meta",
             metaDescription: "English description",
-            slices: [hero("en-prior", linked("Prior EN", "/prior-en"))],
+            blocks: [hero("en-prior", linked("Prior EN", "/prior-en"))],
           },
           fr: {
             title: "French baseline",
             metaTitle: "French meta",
             metaDescription: "French description",
-            slices: [hero("fr-prior", linked("Prior FR", "/prior-fr"))],
+            blocks: [hero("fr-prior", linked("Prior FR", "/prior-fr"))],
           },
         },
       } as Page
@@ -2108,7 +2112,7 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
           }
         />
       )
-      const current = () => mocks.sliceProps.at(-1)!
+      const current = () => mocks.blockProps.at(-1)!
       const cached =
         ingress === "locale-cached"
           ? mocks.translation!.readSourceContent(other)
@@ -2119,7 +2123,7 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
         ),
         { target: { value: "Post-flush baseline" } }
       )
-      act(() => current().onSelectedSliceIdChange(current().slices[0].id))
+      act(() => current().onSelectedBlockIdChange(current().blocks[0].id))
       const flush = vi.fn()
       act(() =>
         current().onPreviewActiveEditHandleChange!({
@@ -2146,7 +2150,7 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
         })
       }
       const baseline = buffer()
-      const selection = current().selectedSliceId
+      const selection = current().selectedBlockId
       const summaries = [
         mocks.translation!.getLocaleSummary("en"),
         mocks.translation!.getLocaleSummary("fr"),
@@ -2163,12 +2167,12 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
         slugLinked: false,
         metaTitle: "Incoming meta",
         metaDescription: "Incoming description",
-        slices: raw,
+        blocks: raw,
         localizedFieldValues: { roleTitle: "Incoming localized value" },
         removedTitleLinks: [
           {
             locale: other,
-            sliceId: "html",
+            blockId: "html",
             fieldPath: "primary.title",
             removedLinks: [{ href: "/retained" }],
           },
@@ -2178,13 +2182,13 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
         title: string
         metaTitle: string
         metaDescription: string
-        slices: Slice[]
+        blocks: Block[]
       }
       Object.assign(targetBag, {
         title: incoming.title,
         metaTitle: incoming.metaTitle,
         metaDescription: incoming.metaDescription,
-        slices: raw,
+        blocks: raw,
       })
       if (cached) Object.assign(cached, incoming)
       const cacheBytes = JSON.stringify(cached)
@@ -2223,7 +2227,7 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
       try {
         await attempt()
         expect(current().currentLocale).toBe(locale)
-        expect(current().selectedSliceId).toBe(selection)
+        expect(current().selectedBlockId).toBe(selection)
         expect(JSON.stringify(cached)).toBe(cacheBytes)
         expect(buffer()).toEqual(baseline)
         // Destination failure must not publish a new cache summary.
@@ -2236,7 +2240,7 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
           const saved = mocks.saveDraft.mock.calls.at(-1)![0]
           expect(saved.localized.locale).toBe(locale)
           expect(saved.localized.draft.localized.title).toBe(baseline.title)
-          expect(saved.localized.draft.slices).toEqual(baseline.slices)
+          expect(saved.localized.draft.blocks).toEqual(baseline.blocks)
           expect(saved.localized.draft.localized.metaTitle).toBe(
             baseline.metaTitle
           )
@@ -2250,8 +2254,8 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
         if (failure === "persistent-HTML") {
           await attempt()
           expect(current().currentLocale).toBe(locale)
-          expect(current().slices).toEqual(baseline.slices)
-          expect(current().selectedSliceId).toBe(selection)
+          expect(current().blocks).toEqual(baseline.blocks)
+          expect(current().selectedBlockId).toBe(selection)
         }
         failuresLeft = 0
         ;(pm.primary as { title: string }).title = linked("Second", "/second")
@@ -2260,9 +2264,9 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
           ingress
         )
           ? mocks.translation!.readSourceContent(other)
-          : { slices: current().slices }
+          : { blocks: current().blocks }
         expect(
-          result.slices.map(
+          result.blocks.map(
             (s) => JSON.parse((s.primary as { title: string }).title).content[0]
           )
         ).toEqual(
@@ -2288,7 +2292,7 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
           ["First", "/first"],
           ["Second", "/second"],
         ]) {
-          const s = current().slices.find(
+          const s = current().blocks.find(
             (s) =>
               JSON.parse((s.primary as { title: string }).title).content[0]
                 .content[0].text === text
@@ -2297,7 +2301,7 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
             expect.arrayContaining([
               {
                 locale: acceptedLocale,
-                sliceId: s.id,
+                blockId: s.id,
                 fieldPath: "primary.title",
                 removedLinks: expect.arrayContaining([{ href }]),
               },
@@ -2306,8 +2310,8 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
         }
         await act(async () => current().onSave())
         expect(
-          mocks.saveDraft.mock.calls.at(-1)![0].localized.draft.slices
-        ).toEqual(current().slices)
+          mocks.saveDraft.mock.calls.at(-1)![0].localized.draft.blocks
+        ).toEqual(current().blocks)
       } finally {
         parser.mockRestore()
         observedPreparation.mockRestore()
@@ -2317,14 +2321,14 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
   )
   test.each(["en", "fr"])(
     "inline acceptance publishes reports only after whole-draft preparation: %s",
-    sliceProfile([]),
+    blockProfile([]),
     async (locale) => {
       const source = {
         ...page(),
         content: {
           [locale]: {
             title: "Inline baseline",
-            slices: [
+            blocks: [
               hero("html", linked("First", "/first")),
               hero("pm", linked("Second", "/second")),
             ],
@@ -2348,11 +2352,11 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
           }}
         />
       )
-      const current = () => mocks.sliceProps.at(-1)!
-      const original = structuredClone(current().slices)
+      const current = () => mocks.blockProps.at(-1)!
+      const original = structuredClone(current().blocks)
       const before = structuredClone(observer.mock.calls.at(-1)![2])
       const binding = capturePageField(
-        current().slices,
+        current().blocks,
         locale,
         "html",
         "primary.title",
@@ -2363,7 +2367,7 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
       observer.mockImplementation((...args) => {
         if (
           reject &&
-          JSON.stringify(args[0].slices).includes("Inline incoming")
+          JSON.stringify(args[0].blocks).includes("Inline incoming")
         )
           throw new Error("whole-draft validation failure")
         return prepare(...args)
@@ -2377,11 +2381,11 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
             })
           ).toBe(false)
         )
-        expect(current().slices).toEqual(original)
+        expect(current().blocks).toEqual(original)
         await act(async () => current().onSave())
         expect(observer.mock.calls.at(-1)![2]).toEqual(before)
         for (const [saved] of mocks.saveDraft.mock.calls)
-          expect(saved.localized.draft.slices).toEqual(original)
+          expect(saved.localized.draft.blocks).toEqual(original)
         mocks.saveDraft.mockClear()
         reject = false
         act(() =>
@@ -2394,13 +2398,13 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
         )
         await act(async () => current().onSave())
         expect(
-          mocks.saveDraft.mock.calls.at(-1)![0].localized.draft.slices
-        ).toEqual(current().slices)
+          mocks.saveDraft.mock.calls.at(-1)![0].localized.draft.blocks
+        ).toEqual(current().blocks)
         expect(observer.mock.calls.at(-1)![2]).toEqual(
           expect.arrayContaining([
             {
               locale,
-              sliceId: "html",
+              blockId: "html",
               fieldPath: "primary.title",
               removedLinks: expect.arrayContaining([{ href: "/inline" }]),
             },
@@ -2414,11 +2418,11 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
   )
   test.each(["en", "fr"])(
     "translation storage and active apply share the exact once-prepared draft: %s",
-    sliceProfile([]),
+    blockProfile([]),
     async (locale) => {
       const source = {
         ...page(),
-        content: { [locale]: { title: "Translation baseline", slices: [] } },
+        content: { [locale]: { title: "Translation baseline", blocks: [] } },
       } as Page
       const observer = vi.spyOn(titleAdoption, "prepareHeroTitleDraft")
       const view = render(
@@ -2445,7 +2449,7 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
         slugLinked: true,
         metaTitle: "Translated meta",
         metaDescription: "Translated description",
-        slices: [
+        blocks: [
           hero("html", '<p><a href="/first">First</a></p>'),
           hero("pm", linked("Second", "/second")),
         ],
@@ -2472,13 +2476,13 @@ describe("D2 R4 atomic actual-consumer ingress", () => {
           expect.arrayContaining([
             {
               locale,
-              sliceId: "html",
+              blockId: "html",
               fieldPath: "primary.title",
               removedLinks: [{ href: "/first" }],
             },
             {
               locale,
-              sliceId: "pm",
+              blockId: "pm",
               fieldPath: "primary.title",
               removedLinks: [{ href: "/second" }],
             },
@@ -2497,7 +2501,7 @@ describe("D2 R5 canonical diagnostic recipients", () => {
     vi.clearAllMocks()
     mocks.historyInstalled = false
     mocks.enabledLocales = ["en", "fr"]
-    mocks.sliceProps.length = 0
+    mocks.blockProps.length = 0
     mocks.saveDraft.mockReset().mockResolvedValue({
       updatedAt: 501,
       draftGeneration: 3,
@@ -2509,11 +2513,11 @@ describe("D2 R5 canonical diagnostic recipients", () => {
   })
   const canonical = () =>
     ["first", "second"].map((id) => ({
-      ...createSampleSlice("hero-with-image"),
+      ...createSampleBlock("hero-with-image"),
       id,
       items: [],
       primary: {
-        ...createSampleSlice("hero-with-image").primary,
+        ...createSampleBlock("hero-with-image").primary,
         title: JSON.stringify({
           type: "doc",
           content: [
@@ -2525,19 +2529,19 @@ describe("D2 R5 canonical diagnostic recipients", () => {
           ],
         }),
       },
-    })) as Slice[]
-  function heroTitle(slice: Slice) {
-    expect(slice.type).toBe("hero-with-image")
-    if (slice.type !== "hero-with-image")
+    })) as Block[]
+  function heroTitle(block: Block) {
+    expect(block.type).toBe("hero-with-image")
+    if (block.type !== "hero-with-image")
       throw new Error("Expected Hero fixture")
-    return slice.primary.title
+    return block.primary.title
   }
   const reportsFor = (locale: string) =>
-    ["first", "second"].map((sliceId) => ({
+    ["first", "second"].map((blockId) => ({
       locale,
-      sliceId,
+      blockId,
       fieldPath: "primary.title",
-      removedLinks: [{ href: `/${sliceId}-attached` }],
+      removedLinks: [{ href: `/${blockId}-attached` }],
     }))
   const rawRecovery = (locale: string) =>
     JSON.parse(
@@ -2547,8 +2551,8 @@ describe("D2 R5 canonical diagnostic recipients", () => {
     page: {
       ...page(),
       content: {
-        en: { title: "English", slices: canonical() },
-        fr: { title: "French", slices: canonical() },
+        en: { title: "English", blocks: canonical() },
+        fr: { title: "French", blocks: canonical() },
       },
     } as Page,
     hasStaging: false,
@@ -2566,7 +2570,7 @@ describe("D2 R5 canonical diagnostic recipients", () => {
     } as never,
   })
   test.each([
-    "shared slice",
+    "shared block",
     "saved locale",
     "cached locale",
     "source copy",
@@ -2576,10 +2580,10 @@ describe("D2 R5 canonical diagnostic recipients", () => {
     "inline",
   ] as const)(
     "canonical report recipients: %s",
-    sliceProfile([]),
+    blockProfile([]),
     async (boundary) => {
       const view = render(<PageEditor {...props()} />)
-      const current = () => mocks.sliceProps.at(-1)!
+      const current = () => mocks.blockProps.at(-1)!
       const reports = reportsFor(boundary === "cached locale" ? "fr" : "en")
       let locale = "en"
       let expected = reports
@@ -2591,15 +2595,15 @@ describe("D2 R5 canonical diagnostic recipients", () => {
         metaTitle: "",
         metaDescription: "",
         localizedFieldValues: {},
-        slices: canonical().map((slice) => ({
-          ...slice,
+        blocks: canonical().map((block) => ({
+          ...block,
           primary: {
-            ...slice.primary,
-            title: (slice.primary as { title: string }).title
+            ...block.primary,
+            title: (block.primary as { title: string }).title
               .replace('"first"', '"Incoming first"')
               .replace('"second"', '"Incoming second"'),
           },
-        })) as Slice[],
+        })) as Block[],
         removedTitleLinks: [reports[0], reports[0], reports[1]],
       }
       try {
@@ -2615,20 +2619,20 @@ describe("D2 R5 canonical diagnostic recipients", () => {
         expect(prepared!.removedTitleLinks).toEqual(reports)
         if (boundary === "translation read") {
           const read = mocks.translation!.readSourceContent("en")
-          expect(read.slices).toEqual(incoming.slices)
+          expect(read.blocks).toEqual(incoming.blocks)
           expect(read.removedTitleLinks).toEqual(reports)
-        } else if (boundary === "shared slice") {
+        } else if (boundary === "shared block") {
           act(() =>
-            current().onSlicesChange(
-              current().slices.map((slice) => ({
-                ...slice,
-                primary: { ...slice.primary, eyebrow: "Edited sibling" },
-              })) as Slice[]
+            current().onBlocksChange(
+              current().blocks.map((block) => ({
+                ...block,
+                primary: { ...block.primary, eyebrow: "Edited sibling" },
+              })) as Block[]
             )
           )
         } else if (boundary === "inline") {
           const binding = capturePageField(
-            current().slices,
+            current().blocks,
             "en",
             "first",
             "primary.title",
@@ -2639,7 +2643,7 @@ describe("D2 R5 canonical diagnostic recipients", () => {
             expect(
               current().onPreviewInlineEditCommit({
                 ...binding,
-                value: (incoming.slices[0].primary as { title: string }).title,
+                value: (incoming.blocks[0].primary as { title: string }).title,
                 removedLinks: [{ href: "/inline-attached" }],
               })
             ).toBe(true)
@@ -2672,13 +2676,13 @@ describe("D2 R5 canonical diagnostic recipients", () => {
                 screen.getByRole("button", { name: /^Copy from EN/ })
               )
             )
-            const remapped = current().slices.map((slice, i) => ({
+            const remapped = current().blocks.map((block, i) => ({
               ...reports[i],
               locale: "fr",
-              sliceId: slice.id,
+              blockId: block.id,
             }))
             expected = [...reports, ...remapped]
-            expect(current().slices.map((slice) => slice.id)).not.toEqual([
+            expect(current().blocks.map((block) => block.id)).not.toEqual([
               "first",
               "second",
             ])
@@ -2695,8 +2699,8 @@ describe("D2 R5 canonical diagnostic recipients", () => {
         act(() => window.dispatchEvent(new Event("pagehide")))
         const raw = rawRecovery(locale) // No adopting reader can repair missing diagnostics.
         expect(raw.removedTitleLinks).toEqual(expected)
-        expect(raw.slices.map(heroTitle)).toEqual(
-          (boundary === "saved locale" ? canonical() : incoming.slices).map(
+        expect(raw.blocks.map(heroTitle)).toEqual(
+          (boundary === "saved locale" ? canonical() : incoming.blocks).map(
             heroTitle
           )
         )
@@ -2711,16 +2715,16 @@ describe("D2 R5 canonical diagnostic recipients", () => {
       }
     }
   )
-  // Ingress (not forwarding): the AI route stash has slices but no report
+  // Ingress (not forwarding): the AI route stash has blocks but no report
   // field. Real legacy PM is therefore adopted at the initial mount boundary.
   test.each(["initial load", "AI handoff"] as const)(
     "initial ingress retains located reports: %s",
-    sliceProfile([]),
+    blockProfile([]),
     async (boundary) => {
-      const source = canonical().map((slice) => ({
-        ...slice,
+      const source = canonical().map((block) => ({
+        ...block,
         primary: {
-          ...slice.primary,
+          ...block.primary,
           title: JSON.stringify({
             type: "doc",
             content: [
@@ -2729,11 +2733,11 @@ describe("D2 R5 canonical diagnostic recipients", () => {
                 content: [
                   {
                     type: "text",
-                    text: slice.id,
+                    text: block.id,
                     marks: [
                       {
                         type: "link",
-                        attrs: { href: `/${slice.id}-attached` },
+                        attrs: { href: `/${block.id}-attached` },
                       },
                     ],
                   },
@@ -2742,30 +2746,30 @@ describe("D2 R5 canonical diagnostic recipients", () => {
             ],
           }),
         },
-      })) as Slice[]
+      })) as Block[]
       const input = props()
       if (boundary === "initial load")
         input.page = {
           ...input.page,
           content: {
             ...input.page.content,
-            en: { title: "English", slices: source },
+            en: { title: "English", blocks: source },
           },
         } as Page
       else
-        expect(stashPageDraftHandoff(input.page._id, { slices: source })).toBe(
+        expect(stashPageDraftHandoff(input.page._id, { blocks: source })).toBe(
           true
         )
       const view = render(<PageEditor {...input} />)
       try {
-        expect(mocks.sliceProps.at(-1)!.slices).toEqual(canonical())
+        expect(mocks.blockProps.at(-1)!.blocks).toEqual(canonical())
         expect(readPageDraftHandoff(input.page._id)).toBeNull()
         fireEvent.change(screen.getByDisplayValue("English"), {
           target: { value: "Initial dirty" },
         })
         act(() => window.dispatchEvent(new Event("pagehide")))
         expect(rawRecovery("en").removedTitleLinks).toEqual(reportsFor("en"))
-        await act(async () => mocks.sliceProps.at(-1)!.onSave())
+        await act(async () => mocks.blockProps.at(-1)!.onSave())
         fireEvent.change(screen.getByDisplayValue("Initial dirty"), {
           target: { value: "After initial Save" },
         })
@@ -2779,7 +2783,7 @@ describe("D2 R5 canonical diagnostic recipients", () => {
   )
   test(
     "Save prepared callback retains canonical attached reports in the real parent",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const reports = reportsFor("en")
       const actual = pageSaveHook.usePageSave
@@ -2807,10 +2811,10 @@ describe("D2 R5 canonical diagnostic recipients", () => {
         fireEvent.change(screen.getByDisplayValue("English"), {
           target: { value: "Save captured" },
         })
-        await act(async () => mocks.sliceProps.at(-1)!.onSave())
+        await act(async () => mocks.blockProps.at(-1)!.onSave())
         expect(payload).toEqual(
           expect.objectContaining({
-            slices: canonical(),
+            blocks: canonical(),
             removedTitleLinks: reports,
           })
         )
@@ -2864,8 +2868,8 @@ describe("E1 a tab never saves over content it has not loaded", () => {
     ({
       ...page(),
       content: {
-        en: { title: en, slices: [] },
-        ...(fr === undefined ? {} : { fr: { title: fr, slices: [] } }),
+        en: { title: en, blocks: [] },
+        ...(fr === undefined ? {} : { fr: { title: fr, blocks: [] } }),
       },
     }) as Page
   const tab = (pageProp: Page, publicationProp: ReturnType<typeof states>) => (
@@ -2878,7 +2882,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
   )
   const type = (label: string, value: string) =>
     fireEvent.change(screen.getByLabelText(label), { target: { value } })
-  const save = () => act(async () => mocks.sliceProps.at(-1)!.onSave())
+  const save = () => act(async () => mocks.blockProps.at(-1)!.onSave())
   const sent = (n = -1) => mocks.saveDraft.mock.calls.at(n)![0]
   // Coming back to a language with typing the tab kept offers the browser copy
   // of that typing. Keeping it is what the owner does; the base is unchanged.
@@ -2897,7 +2901,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
     vi.clearAllMocks()
     mocks.historyInstalled = false
     mocks.enabledLocales = ["en"]
-    mocks.sliceProps.length = 0
+    mocks.blockProps.length = 0
     mocks.slotProps.length = 0
     mocks.seoProps = null
     mocks.retainedTargetRemedy = null
@@ -2921,7 +2925,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test(
     "E1-1 a refresh that carries another tab's generation does not move this tab's base",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const mounted = states({})
       const view = render(tab(pageOf("About"), mounted))
@@ -2951,7 +2955,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test(
     "E1-2 a shared-only save followed by a refresh cannot launder the base for a later locale save",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = render(tab(pageOf("About"), states({})))
       // B saved the English title (en 3). This tab, unaware, saves SEO only.
@@ -2982,7 +2986,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test(
     "E1-3 a cached language keeps the base it was loaded from; a first visit adopts that language from the payload",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       mocks.enabledLocales = ["en", "fr"]
       const view = render(tab(pageOf("About", "Français"), states({ fr: 5 })))
@@ -3007,7 +3011,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test(
     "E1-3b a first visit loads a language from the current payload and adopts only that language's base",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       mocks.enabledLocales = ["en", "fr"]
       const view = render(tab(pageOf("About", "Français"), states({ fr: 5 })))
@@ -3038,7 +3042,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test(
     "E1-4 History keeps each retained language's base through the remount",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       mocks.enabledLocales = ["en", "fr"]
       const view = render(tab(pageOf("About", "Français"), states({ fr: 5 })))
@@ -3088,7 +3092,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test(
     "E1-5 a delayed refresh after two own saves does not roll the base back",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = render(tab(pageOf("About"), states({})))
       mocks.saveDraft
@@ -3118,7 +3122,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test(
     "E1-6 History sends this tab's base, not a refreshed prop's, and sees a save made before its refresh",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = render(tab(pageOf("About"), states({})))
       // Our own save first; its refresh has not arrived.
@@ -3164,7 +3168,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       tags: [],
       metaTitle: "",
       metaDescription: "",
-      slices: [],
+      blocks: [],
       seoNoIndex: false,
       seoNoFollow: false,
       seoOgTitle: "",
@@ -3243,7 +3247,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       },
     ])(
       "ED1REC $name round trip restores literal expectations and repeats the dialog",
-      sliceProfile([]),
+      blockProfile([]),
       async (c) => {
         // Use the real writer/reader; malformed base must not hide the strip.
         writeRecoveryDraft(pageId, recovered(c.base) as never)
@@ -3295,7 +3299,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "ED1REC R1 same-base writer restore saves normally",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         const first = render(tab(pageOf("About"), states({ en: 5, shared: 6 })))
         type("Page title", "My recovered words")
@@ -3320,7 +3324,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "ED1REC R5 writers record held base despite newer live publication",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         mocks.enabledLocales = ["en", "fr"]
         const view = render(
@@ -3350,7 +3354,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "ED1REC R6 Publish pre-save carries recorded expectations and stops publication",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         writeRecoveryDraft(
           pageId,
@@ -3377,7 +3381,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "ED1REC R7b real server refuses pre-save recovery after another tab saves and publishes",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         const identity = {
           subject: "ed1rec-owner",
@@ -3399,14 +3403,14 @@ describe("E1 a tab never saves over content it has not loaded", () => {
           status: "draft",
           slug: "home",
           title: "Home",
-          content: { en: { title: "Home", slices: [] } },
+          content: { en: { title: "Home", blocks: [] } },
         })
         const id = await owner.mutation(api.cms.pages.create, {
           pageType: "page",
           status: "draft",
           slug: "about",
           title: "About",
-          content: { en: { title: "About", slices: [] } },
+          content: { en: { title: "About", blocks: [] } },
         })
         await t.run(async (ctx) => {
           await ctx.db.insert("siteSettings", {
@@ -3437,7 +3441,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
             draft: {
               pageType: "page",
               localized: { title: "Tab one saved" },
-              slices: [],
+              blocks: [],
             },
           },
         })
@@ -3506,7 +3510,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "ED1REC shared-only write refuses a locale-stale recovery",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         writeRecoveryDraft(pageId, {
           ...recovered({
@@ -3534,7 +3538,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "ED1REC target locale-only write refuses a shared-stale recovery",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         writeRecoveryDraft(pageId, {
           ...recovered({
@@ -3572,7 +3576,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test.each([1, 2, 3, 4, 5, 6, 7])(
       "refusal-provenance-outlives-restored-content (case %s)",
-      sliceProfile([]),
+      blockProfile([]),
       async (which) => {
         const identity = {
           subject: "lifetime-owner",
@@ -3594,15 +3598,15 @@ describe("E1 a tab never saves over content it has not loaded", () => {
           status: "draft",
           slug: "about",
           content: {
-            en: { title: "Their title", slices: [] },
-            fr: { title: "Bonjour", slices: [] },
-            de: { title: "Guten Tag", slices: [] },
+            en: { title: "Their title", blocks: [] },
+            fr: { title: "Bonjour", blocks: [] },
+            de: { title: "Guten Tag", blocks: [] },
           },
         })
         let content = {
-          en: { title: "Their title", slices: [] },
-          fr: { title: "Bonjour", slices: [] },
-          de: { title: "Guten Tag", slices: [] },
+          en: { title: "Their title", blocks: [] },
+          fr: { title: "Bonjour", blocks: [] },
+          de: { title: "Guten Tag", blocks: [] },
         }
         let pub = {
           authority: "snapshot_active" as const,
@@ -3751,7 +3755,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
             })
             await ctx.db.patch("pageLocaleDrafts", draft!._id, {
               generation: draft!.generation + 1,
-              content: { title: "History " + locale, slices: [] },
+              content: { title: "History " + locale, blocks: [] },
             })
             await ctx.db.patch("pageSharedDrafts", shared!._id, {
               generation: 7,
@@ -3768,7 +3772,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
           }
           content = {
             ...content,
-            [locale]: { title: "History " + locale, slices: [] },
+            [locale]: { title: "History " + locale, blocks: [] },
           }
           updatedAt = 3000
           return {
@@ -3961,7 +3965,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       "Discard",
     ] as const)(
       "non-save-commands-after-stale-restore-match-eb31c9dc (%s)",
-      sliceProfile([]),
+      blockProfile([]),
       async (command) => {
         mocks.strictWrites = true
         mocks.historyInstalled = true
@@ -4074,7 +4078,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "ED1REC legacy restore keeps the original staging expectation",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         writeRecoveryDraft(
           pageId,
@@ -4121,7 +4125,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       tags: [],
       metaTitle: "",
       metaDescription: "",
-      slices: [],
+      blocks: [],
       seoNoIndex: false,
       seoNoFollow: false,
       seoOgTitle: "",
@@ -4133,7 +4137,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "E1-7a after a reload and a restore, a new write by the other tab is still refused",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         writeRecoveryDraft(pageId, copy("My unsaved words"))
         // The reload mounts with B's generations (en 5, shared 6).
@@ -4157,7 +4161,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "E1-7b after a reload, the restored save is based on the recovery's recorded generations and addresses only the loaded language and shared fields",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         // The copy also differs in a shared field (SEO), so the save has a
         // shared half whose base must be the recorded one, never the reload's.
@@ -4191,7 +4195,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "E1-7c a restore without a reload keeps the old base, so the save is refused",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         writeRecoveryDraft(pageId, copy("My unsaved words", "/copy-social.png"))
         const view = render(tab(pageOf("About"), states({})))
@@ -4220,7 +4224,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
       test(
         "shows no refusal and no outline before anything is refused",
-        sliceProfile([]),
+        blockProfile([]),
         async () => {
           writeRecoveryDraft(pageId, copy("My unsaved words"))
           render(tab(pageOf("About"), states({})))
@@ -4232,7 +4236,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
       test(
         "keeps the refusal inside the outlined bar instead of a toast",
-        sliceProfile([]),
+        blockProfile([]),
         async () => {
           writeRecoveryDraft(pageId, copy("My unsaved words"))
           render(tab(pageOf("About"), states({})))
@@ -4249,7 +4253,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
       test.each(["Discard", "Restore"])(
         "removes the bar and its refusal after %s, and Save works again",
-        sliceProfile([]),
+        blockProfile([]),
         async (choice) => {
           writeRecoveryDraft(pageId, copy("My unsaved words"))
           render(tab(pageOf("About"), states({})))
@@ -4272,7 +4276,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
       test(
         "hides the save shortcut hint only while the recovered draft waits",
-        sliceProfile([]),
+        blockProfile([]),
         async () => {
           writeRecoveryDraft(pageId, copy("My unsaved words"))
           render(tab(pageOf("About"), states({})))
@@ -4292,7 +4296,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test(
     "E1-8 a single tab keeps saving, publishing and restoring after refreshes that carry its own results",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = render(tab(pageOf("About"), states({})))
       type("Page title", "One")
@@ -4348,7 +4352,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test(
     "E1-9 deleting the retained target draft drops that language's cached buffer and base",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       mocks.enabledLocales = ["en", "fr"]
       mocks.retainedTargetRemedy = {
@@ -4398,7 +4402,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test(
     "E1-10 a tab opened before a legacy-to-snapshot cutover refuses Save and History through the stale path and keeps its typing",
-    sliceProfile([]),
+    blockProfile([]),
     async () => {
       const view = render(
         <PageEditor
@@ -4431,7 +4435,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test.each(["Restore draft", "Publish", "Archive", "Move to trash"])(
     "P3-1 a clean cutover tab refuses %s before any publication write",
-    sliceProfile([]),
+    blockProfile([]),
     async (action) => {
       mocks.strictWrites = true
       mocks.convex.query.mockImplementation(async (reference?: unknown) =>
@@ -4517,7 +4521,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "a source read from the page prop adopts that language's base from the same payload",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         const { props, view } = mountWithTranslation()
         view.rerender(props(pageOf("About", "Leur fr"), states({ fr: 6 })))
@@ -4536,7 +4540,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "a cached language keeps its base when it is read again as a source",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         const { props, view } = mountWithTranslation()
         fireEvent.click(screen.getByRole("tab", { name: /français/i }))
@@ -4558,7 +4562,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "a stored translation keeps the older base, never the refresh's",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         const { props, view } = mountWithTranslation()
         view.rerender(props(pageOf("About", "Leur fr"), states({ fr: 6 })))
@@ -4568,7 +4572,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
           slugLinked: false,
           metaTitle: "",
           metaDescription: "",
-          slices: [],
+          blocks: [],
           localizedFieldValues: {},
         })
         fireEvent.click(screen.getByRole("tab", { name: /français/i }))
@@ -4641,7 +4645,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "a: with no later typing the target opens clean with the translation",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         const view = mount()
         openTab(french)
@@ -4666,7 +4670,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test.each(["the save", "the refresh"])(
       "b: target title and meta typed during %s are kept, dirty, on the old base",
-      sliceProfile([]),
+      blockProfile([]),
       async (wait) => {
         const view = mount()
         openTab(french)
@@ -4682,7 +4686,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "b: target text typed before switching away is kept and opened",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         const view = mount()
         openTab(french)
@@ -4739,7 +4743,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       ],
     ])(
       "c: Accept pressed from %s opens the target; the source buffer is kept",
-      sliceProfile([]),
+      blockProfile([]),
       async (_, press) => {
         const view = mount()
         const reload = await press()
@@ -4759,7 +4763,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test.each(["before the save returns", "before the refresh"])(
       "d: switching language %s still reconciles to the target",
-      sliceProfile([]),
+      blockProfile([]),
       async (when) => {
         const view = mount()
         openTab(french)
@@ -4778,7 +4782,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "e: shared fields the open tab saves before Accept are not lost",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         const view = mount()
         fireEvent.click(screen.getByTitle("SEO"))
@@ -4813,7 +4817,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
     test(
       "f: leaving the page before the save returns does nothing",
-      sliceProfile([]),
+      blockProfile([]),
       async () => {
         const view = mount()
         openTab(french)
@@ -4829,15 +4833,15 @@ describe("E1 a tab never saves over content it has not loaded", () => {
 
   test.each(["rendered", "unrendered"])(
     "F1 a capture that resolves after %s newer typing never overwrites it or its browser copy",
-    sliceProfile([]),
+    blockProfile([]),
     async (timing) => {
-      const slice = {
-        ...createSampleSlice("hero-with-image"),
-        id: "f1-slice",
+      const block = {
+        ...createSampleBlock("hero-with-image"),
+        id: "f1-block",
       }
       const source = {
         ...page(),
-        content: { en: { title: "About", slices: [slice] } },
+        content: { en: { title: "About", blocks: [block] } },
       } as Page
       const actual = pageSaveHook.usePageSave
       let release!: () => void
@@ -4861,14 +4865,14 @@ describe("E1 a tab never saves over content it has not loaded", () => {
         type("Page title", "Older title")
         let saving!: Promise<unknown>
         act(() => {
-          saving = Promise.resolve(mocks.sliceProps.at(-1)!.onSave())
+          saving = Promise.resolve(mocks.blockProps.at(-1)!.onSave())
         })
         const newer = () =>
-          mocks.sliceProps.at(-1)!.onSlicesChange(
-            mocks.sliceProps.at(-1)!.slices.map((current) => ({
+          mocks.blockProps.at(-1)!.onBlocksChange(
+            mocks.blockProps.at(-1)!.blocks.map((current) => ({
               ...current,
               primary: { ...current.primary, eyebrow: "Newer eyebrow" },
-            })) as Slice[]
+            })) as Block[]
           )
         if (timing === "rendered") {
           act(() => newer())
@@ -4888,7 +4892,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
         }
         expect(mocks.saveDraft).not.toHaveBeenCalled()
         expect(
-          (mocks.sliceProps.at(-1)!.slices[0]!.primary as { eyebrow?: string })
+          (mocks.blockProps.at(-1)!.blocks[0]!.primary as { eyebrow?: string })
             .eyebrow
         ).toBe("Newer eyebrow")
         if (timing === "rendered")
@@ -4896,7 +4900,7 @@ describe("E1 a tab never saves over content it has not loaded", () => {
         act(() => window.dispatchEvent(new Event("pagehide")))
         const copy = readRecoveryDraft(pageId, "en")!
         expect(
-          (copy.slices[0] as unknown as { primary: { eyebrow?: string } })
+          (copy.blocks[0] as unknown as { primary: { eyebrow?: string } })
             .primary.eyebrow
         ).toBe("Newer eyebrow")
       } finally {
@@ -4929,7 +4933,7 @@ describe("per-language identifier intent boundaries", () => {
     mocks.enabledLocales = ["en", "fr"]
     mocks.addressRequests.length = 0
     mocks.settingsProps = null
-    mocks.sliceProps.length = 0
+    mocks.blockProps.length = 0
     mocks.slotProps.length = 0
     mocks.checklistResult = { canPublish: true, blockers: [], warnings: [] }
     mocks.confirm.mockReset().mockResolvedValue(true)
@@ -4953,7 +4957,7 @@ describe("per-language identifier intent boundaries", () => {
     )
   )(
     "$boundary keeps $locale intent through availability and Save",
-    sliceProfile([]),
+    blockProfile([]),
     async ({ boundary, locale }) => {
       const other = locale === "en" ? "fr" : "en"
       const source = {
@@ -4961,16 +4965,16 @@ describe("per-language identifier intent boundaries", () => {
         slug: "contact-2",
         localizedSlugs: { fr: "contact-2" },
         content: {
-          en: { title: "Contact", slices: [] },
-          fr: { title: "Contact", slices: [] },
+          en: { title: "Contact", blocks: [] },
+          fr: { title: "Contact", blocks: [] },
         },
       } as Page
       const typedLocale = boundary === "saved target" ? other : locale
-      source.content![typedLocale] = { title: "Typed Match", slices: [] }
+      source.content![typedLocale] = { title: "Typed Match", blocks: [] }
       if (typedLocale === "en") source.slug = "typed-match"
       else source.localizedSlugs = { fr: "typed-match" }
       if (boundary === "copy") {
-        source.content![other] = { title: "Copy Source", slices: [] }
+        source.content![other] = { title: "Copy Source", blocks: [] }
         if (other === "en") source.slug = "copy-source"
         else source.localizedSlugs = { fr: "copy-source" }
       }
@@ -5014,7 +5018,7 @@ describe("per-language identifier intent boundaries", () => {
           tags: [],
           metaTitle: "Recovered metadata",
           metaDescription: "",
-          slices: [],
+          blocks: [],
           seoNoIndex: false,
           seoNoFollow: false,
           seoOgTitle: "",
@@ -5129,7 +5133,7 @@ describe("per-language identifier intent boundaries", () => {
                 slugLinked: true,
                 metaTitle: "",
                 metaDescription: "",
-                slices: [],
+                blocks: [],
                 localizedFieldValues: {},
               })
               if (host.getActiveLocale() === locale)
@@ -5167,8 +5171,8 @@ describe("per-language identifier intent boundaries", () => {
           expect(settings().slugLinked).toBe(true)
         } else
           expect(screen.queryByText(/Occupied Contact/)).not.toBeInTheDocument()
-        // Identifier-preserving slice/SEO merges must not change the address intent.
-        act(() => mocks.sliceProps.at(-1)!.onSlicesChange([]))
+        // Identifier-preserving block/SEO merges must not change the address intent.
+        act(() => mocks.blockProps.at(-1)!.onBlocksChange([]))
         dirtyMeta()
         act(() => window.dispatchEvent(new Event("pagehide")))
         const recovery = JSON.parse(
@@ -5178,7 +5182,7 @@ describe("per-language identifier intent boundaries", () => {
         if (boundary.startsWith("recovery"))
           expect(recovery.slugLinked).toBe(!legacy)
         mocks.saveDraft.mockClear()
-        await act(async () => mocks.sliceProps.at(-1)!.onSave())
+        await act(async () => mocks.blockProps.at(-1)!.onSave())
         expect(mocks.saveDraft).toHaveBeenCalledOnce()
         expect(mocks.saveDraft.mock.calls[0]![0].localized).toMatchObject({
           locale,
@@ -5200,7 +5204,7 @@ describe("per-language identifier intent boundaries", () => {
 describe("round4 loading availability provenance", () => {
   test(
     "a content-only Save while French availability is pending retains the real reloaded allocation and hint",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async () => {
       vi.clearAllMocks()
       mocks.enabledLocales = ["en", "fr"]
@@ -5209,7 +5213,7 @@ describe("round4 loading availability provenance", () => {
       mocks.realSidebar = false
       mocks.historyInstalled = false
       mocks.checklistResult = { canPublish: true, blockers: [], warnings: [] }
-      mocks.sliceProps.length = 0
+      mocks.blockProps.length = 0
       window.localStorage.clear()
       window.sessionStorage.clear()
       const identity = {
@@ -5232,7 +5236,7 @@ describe("round4 loading availability provenance", () => {
         status: "draft",
         slug: "home",
         title: "Home",
-        content: { en: { title: "Home", slices: [] } },
+        content: { en: { title: "Home", blocks: [] } },
       })
       await t.run((ctx) =>
         ctx.db.insert("siteSettings", {
@@ -5250,22 +5254,22 @@ describe("round4 loading availability provenance", () => {
         slug: "contact",
         title: "Occupied Contact",
         content: {
-          en: { title: "Occupied Contact", slices: [] },
-          fr: { title: "Occupied Contact", slices: [] },
+          en: { title: "Occupied Contact", blocks: [] },
+          fr: { title: "Occupied Contact", blocks: [] },
         },
       })
       const body = {
-        ...createSampleSlice("rich-text-body"),
+        ...createSampleBlock("rich-text-body"),
         id: "allocation-body",
-      } as Slice
+      } as Block
       const id = await owner.mutation(api.cms.pages.create, {
         pageType: "page",
         status: "draft",
         slug: "contact",
         title: "Contact",
         content: {
-          en: { title: "Contact", slices: [body] },
-          fr: { title: "Contact", slices: [body] },
+          en: { title: "Contact", blocks: [body] },
+          fr: { title: "Contact", blocks: [body] },
         },
       })
       const initial = (await owner.query(api.cms.pages.getForEdit, { id }))!
@@ -5309,7 +5313,7 @@ describe("round4 loading availability provenance", () => {
         expect(mocks.settingsProps!.slug).toBe("contact-2")
         expect(screen.queryByText(/Occupied Contact/)).not.toBeInTheDocument()
         act(() =>
-          mocks.sliceProps.at(-1)!.onSlicesChange([
+          mocks.blockProps.at(-1)!.onBlocksChange([
             {
               ...body,
               primary: {
@@ -5329,10 +5333,10 @@ describe("round4 loading availability provenance", () => {
                   ],
                 }),
               },
-            } as Slice,
+            } as Block,
           ])
         )
-        await act(async () => mocks.sliceProps.at(-1)!.onSave())
+        await act(async () => mocks.blockProps.at(-1)!.onSave())
         expect(mocks.saveDraft).toHaveBeenCalledOnce()
         expect(resolved).toBeUndefined()
         const reloaded = (await owner.query(api.cms.pages.getForEdit, { id }))!
@@ -5345,8 +5349,8 @@ describe("round4 loading availability provenance", () => {
         ).toMatchObject({ wantedSlug: "contact", allocatedSlug: "contact-2" })
         const frenchContent = reloaded.page.content?.fr
         expect(
-          frenchContent && "slices" in frenchContent
-            ? JSON.stringify(frenchContent.slices)
+          frenchContent && "blocks" in frenchContent
+            ? JSON.stringify(frenchContent.blocks)
             : undefined
         ).toContain("French body edited before availability resolves")
         // A remount reads only actual server results and represents reopening

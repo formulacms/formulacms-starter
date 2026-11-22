@@ -14,9 +14,9 @@
       }
     },
     "selected": true,
-    "sliceBody": true,
+    "blockBody": true,
     "pathPrefix": "",
-    "renderer": "custom-slice-body",
+    "renderer": "custom-block-body",
     "rendererModule": "./landing-page",
     "rendererExport": "LandingPageRenderer",
     "sharedFieldKeys": [],
@@ -41,9 +41,9 @@
       }
     },
     "selected": true,
-    "sliceBody": true,
+    "blockBody": true,
     "pathPrefix": "",
-    "renderer": "custom-slice-body",
+    "renderer": "custom-block-body",
     "rendererModule": "./page",
     "rendererExport": "PageRenderer",
     "sharedFieldKeys": [],
@@ -68,9 +68,9 @@
       }
     },
     "selected": true,
-    "sliceBody": true,
+    "blockBody": true,
     "pathPrefix": "",
-    "renderer": "custom-slice-body",
+    "renderer": "custom-block-body",
     "rendererModule": "./post",
     "rendererExport": "PostRenderer",
     "sharedFieldKeys": [
@@ -102,9 +102,9 @@
       }
     },
     "selected": true,
-    "sliceBody": true,
+    "blockBody": true,
     "pathPrefix": "authors",
-    "renderer": "custom-slice-body",
+    "renderer": "custom-block-body",
     "rendererModule": "./author",
     "rendererExport": "AuthorRenderer",
     "sharedFieldKeys": [
@@ -133,7 +133,7 @@
       }
     },
     "selected": false,
-    "sliceBody": false,
+    "blockBody": false,
     "renderer": "custom-pure-form",
     "rendererModule": "./testimonial",
     "rendererExport": "TestimonialRenderer",
@@ -164,9 +164,9 @@
       }
     },
     "selected": false,
-    "sliceBody": true,
+    "blockBody": true,
     "pathPrefix": "jobs",
-    "renderer": "custom-slice-body",
+    "renderer": "custom-block-body",
     "rendererModule": "./job",
     "rendererExport": "JobRenderer",
     "sharedFieldKeys": [

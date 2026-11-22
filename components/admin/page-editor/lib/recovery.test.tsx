@@ -1,5 +1,5 @@
-import { createSampleSlice } from "@/convex/lib/slices/sample"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import {
   clearRecoveryDraft,
@@ -29,7 +29,7 @@ const draft = {
   tags: [],
   metaTitle: "",
   metaDescription: "",
-  slices: [],
+  blocks: [],
   seoNoIndex: false,
   seoNoFollow: false,
   seoOgTitle: "",
@@ -56,8 +56,8 @@ describe("recovery draft persistence (jsdom tab storage)", () => {
     writeRecoveryDraft(pageId, draft)
     expect(readRecoveryDraft(pageId, "en")).toEqual(draft)
   })
-  it("NEW R2 retains exact formatted incompatible data after reload but refuses applying it", sliceProfile([]), () => {
-    const hero = createSampleSlice("hero-agency")
+  it("NEW R2 retains exact formatted incompatible data after reload but refuses applying it", blockProfile([]), () => {
+    const hero = createSampleBlock("hero-agency")
     const exact = JSON.stringify({
       type: "doc",
       content: [
@@ -79,13 +79,13 @@ describe("recovery draft persistence (jsdom tab storage)", () => {
     })
     const retained = {
       ...draft,
-      slices: [hero],
+      blocks: [hero],
       inlineConflicts: [
         {
           locale: "en",
-          sliceId: hero.id,
-          sliceType: hero.type,
-          expectedSlice: "",
+          blockId: hero.id,
+          blockType: hero.type,
+          expectedBlock: "",
           fieldPath: "retired.field",
           kind: "richText" as const,
           value: exact,
@@ -111,15 +111,15 @@ describe("recovery draft persistence (jsdom tab storage)", () => {
   })
 
   it("retains but refuses an incomplete current-version payload", () => {
-    const raw = JSON.stringify({ ...draft, slices: undefined })
+    const raw = JSON.stringify({ ...draft, blocks: undefined })
     window.sessionStorage.setItem(recoveryKey(pageId, "en"), raw)
     expect(readRecoveryDraft(pageId, "en")).toBeNull()
     expect(window.sessionStorage.getItem(recoveryKey(pageId, "en"))).toBe(raw)
   })
 
-  it("restores only current descriptors, complete occurrences and the active locale/type", sliceProfile([]), () => {
-    const hero = createSampleSlice("hero-with-image")
-    const compatible = { ...draft, slices: [hero] }
+  it("restores only current descriptors, complete occurrences and the active locale/type", blockProfile([]), () => {
+    const hero = createSampleBlock("hero-with-image")
+    const compatible = { ...draft, blocks: [hero] }
     expect(isCurrentSourceRecovery(compatible, "landing-page", "en")).toBe(true)
     expect(isCurrentSourceRecovery(compatible, "page", "en")).toBe(false)
     expect(isCurrentSourceRecovery(compatible, "landing-page", "fr")).toBe(
@@ -134,22 +134,22 @@ describe("recovery draft persistence (jsdom tab storage)", () => {
     ).toBe(false)
     expect(
       isCurrentSourceRecovery(
-        { ...compatible, slices: [hero, hero] },
+        { ...compatible, blocks: [hero, hero] },
         "landing-page",
         "en"
       )
     ).toBe(false)
   })
 
-  it("preserves recovery when current typed fields or rich-text profiles refuse it", sliceProfile([]), () => {
-    const hero = createSampleSlice("hero-with-image")
+  it("preserves recovery when current typed fields or rich-text profiles refuse it", blockProfile([]), () => {
+    const hero = createSampleBlock("hero-with-image")
     hero.primary.title = JSON.stringify({
       type: "doc",
       content: [
         { type: "codeBlock", content: [{ type: "text", text: "not inline" }] },
       ],
     })
-    const incompatible = { ...draft, slices: [hero] }
+    const incompatible = { ...draft, blocks: [hero] }
     writeRecoveryDraft(pageId, incompatible)
     expect(isCurrentSourceRecovery(incompatible, "landing-page", "en")).toBe(
       false
@@ -157,17 +157,17 @@ describe("recovery draft persistence (jsdom tab storage)", () => {
     expect(readRecoveryDraft(pageId, "en")).toEqual(incompatible)
     const badShape = {
       ...draft,
-      slices: [{ ...hero, primary: { ...hero.primary, image: 42 } }],
+      blocks: [{ ...hero, primary: { ...hero.primary, image: 42 } }],
     } as unknown as PageEditorRecoveryDraft
     expect(isCurrentSourceRecovery(badShape, "landing-page", "en")).toBe(false)
   })
 
   it.each(["centered\n", "centered\r", "centered\u2028", "centered\u2029"])(
-    "preserves but refuses a malformed saved presentation identity %j", sliceProfile([]),
+    "preserves but refuses a malformed saved presentation identity %j", blockProfile([]),
     (presentationIdV1) => {
       const pending = {
         ...draft,
-        slices: [{ ...createSampleSlice("hero-with-image"), presentationIdV1 }],
+        blocks: [{ ...createSampleBlock("hero-with-image"), presentationIdV1 }],
       }
       writeRecoveryDraft(pageId, pending)
       expect(isCurrentSourceRecovery(pending, "landing-page", "en")).toBe(false)
@@ -175,18 +175,18 @@ describe("recovery draft persistence (jsdom tab storage)", () => {
     }
   )
 
-  it("preserves a well-formed retired presentation identity for backend retention checks", sliceProfile([]), () => {
+  it("preserves a well-formed retired presentation identity for backend retention checks", blockProfile([]), () => {
     const pending = {
       ...draft,
-      slices: [
+      blocks: [
         {
-          ...createSampleSlice("hero-with-image"),
+          ...createSampleBlock("hero-with-image"),
           presentationIdV1: "removed-choice",
         },
       ],
     }
     expect(isCurrentSourceRecovery(pending, "landing-page", "en")).toBe(true)
-    expect(pending.slices[0].presentationIdV1).toBe("removed-choice")
+    expect(pending.blocks[0].presentationIdV1).toBe("removed-choice")
   })
 
   it("returns null when the stored value lacks a numeric savedAt", () => {

@@ -1,11 +1,11 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
-import { type Primitive, type Slice } from "@/convex/lib/slices"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
+import { type Primitive, type Block } from "@/convex/lib/blocks"
 import { resolveFieldContract } from "@/convex/lib/richtext/contracts"
 import {
   isLegacyTitleHtml,
   isRecord,
-  writeSliceFields,
+  writeBlockFields,
   type TitleWriteReport,
 } from "@/convex/lib/richtext/write"
 import { mergeRemovedLinks } from "@/convex/lib/richtext/shape"
@@ -21,7 +21,7 @@ export function mergeTitleReports(
     for (const report of group) {
       const key = JSON.stringify([
         report.locale,
-        report.sliceId,
+        report.blockId,
         report.fieldPath,
       ])
       const previous = reports.get(key)
@@ -41,7 +41,7 @@ export function mergeTitleReports(
  * Callers keep the located diagnostics with their draft/recovery state.
  */
 export function adoptHeroTitles(
-  slices: Slice[],
+  blocks: Block[],
   locale: string,
   previous: TitleWriteReport[] = [],
   forWrite = false
@@ -49,58 +49,58 @@ export function adoptHeroTitles(
   const reports = previous.filter(
     (report) =>
       report.locale !== locale ||
-      slices.some((slice) => readSlice(slice).id === report.sliceId)
+      blocks.some((block) => readBlock(block).id === report.blockId)
   )
   function applyReport(report: TitleWriteReport) {
     const at = reports.findIndex(
       (row) =>
         row.locale === locale &&
-        row.sliceId === report.sliceId &&
+        row.blockId === report.blockId &&
         row.fieldPath === report.fieldPath
     )
     if (at < 0) reports.push(report)
     else reports[at] = mergeTitleReports([reports[at]], [report])[0]
   }
-  const value = slices.map((slice) => {
-    // Adopting one slice is a pure function of that slice object, so an
-    // unchanged slice (same identity) reuses the previous result instead of
+  const value = blocks.map((block) => {
+    // Adopting one block is a pure function of that block object, so an
+    // unchanged block (same identity) reuses the previous result instead of
     // being validated again on every keystroke. `forWrite` may allocate item
     // ids, so write-time adoption never reuses.
-    const cached = forWrite ? undefined : adoptedSliceCache.get(slice)
+    const cached = forWrite ? undefined : adoptedBlockCache.get(block)
     if (cached && cached.locale === locale) {
       for (const report of cached.produced) applyReport(report)
       return cached.out
     }
     const produced: TitleWriteReport[] = []
-    const out = adoptSlice(slice, locale, forWrite, produced)
+    const out = adoptBlock(block, locale, forWrite, produced)
     for (const report of produced) applyReport(report)
-    if (!forWrite) adoptedSliceCache.set(slice, { locale, out, produced })
+    if (!forWrite) adoptedBlockCache.set(block, { locale, out, produced })
     return out
   })
   return {
-    value: value.every((slice, index) => slice === slices[index])
-      ? slices
+    value: value.every((block, index) => block === blocks[index])
+      ? blocks
       : value,
     reports,
   }
 }
 
-type AdoptedSlice = {
+type AdoptedBlock = {
   locale: string
-  out: Slice
+  out: Block
   produced: TitleWriteReport[]
 }
-const adoptedSliceCache = new WeakMap<Slice, AdoptedSlice>()
+const adoptedBlockCache = new WeakMap<Block, AdoptedBlock>()
 
-/** Adopt one slice. Reports are returned in the order they were produced so
+/** Adopt one block. Reports are returned in the order they were produced so
  * callers can merge them into the draft-wide list exactly as before.
  */
-function adoptSlice(
-  slice: Slice,
+function adoptBlock(
+  block: Block,
   locale: string,
   forWrite: boolean,
   produced: TitleWriteReport[]
-): Slice {
+): Block {
   function adoptField(def: Primitive, value: unknown, path: string): unknown {
     if (def.kind === "group" && isRecord(value)) {
       const next = { ...value }
@@ -123,7 +123,7 @@ function adoptSlice(
       def.kind !== "richText" ||
       resolveFieldContract(def.config).contract !== "title" ||
       transitionForField({
-        sliceType: readSlice(slice).type,
+        blockType: readBlock(block).type,
         fieldPath: path,
       }) ||
       typeof value !== "string" ||
@@ -134,35 +134,35 @@ function adoptSlice(
     if (adopted.removedLinks.length)
       produced.push({
         locale,
-        sliceId: readSlice(slice).id,
+        blockId: readBlock(block).id,
         fieldPath: path,
         removedLinks: adopted.removedLinks,
       })
     return adopted.value
   }
-  const def = readSliceDefinition(readSlice(slice).type)
-  if (!def) return slice
-  const next = Object.assign({}, slice, {
-    primary: adoptField(def.primary, readSlice(slice).primary, "primary"),
-  }) as Slice
-  if (def.items !== undefined && "items" in slice)
+  const def = readBlockDefinition(readBlock(block).type)
+  if (!def) return block
+  const next = Object.assign({}, block, {
+    primary: adoptField(def.primary, readBlock(block).primary, "primary"),
+  }) as Block
+  if (def.items !== undefined && "items" in block)
     Object.assign(next, {
-      items: adoptField(def.items, readSlice(slice).items, "items"),
+      items: adoptField(def.items, readBlock(block).items, "items"),
     })
-  const written = writeSliceFields(next, locale, {
+  const written = writeBlockFields(next, locale, {
     allocateItemIds: forWrite,
   })
   produced.push(...written.reports)
   // A title is one line: any stored break becomes a space on save.
-  const out = forWrite ? canonicalSliceTitles(written.value, def) : written.value
-  return JSON.stringify(out) === JSON.stringify(slice) ? slice : out
+  const out = forWrite ? canonicalBlockTitles(written.value, def) : written.value
+  return JSON.stringify(out) === JSON.stringify(block) ? block : out
 }
 
-/** Apply the shared one-line canonicaliser to every descriptor-declared title in a slice. */
-function canonicalSliceTitles(
-  slice: Slice,
-  def: NonNullable<ReturnType<typeof readSliceDefinition>>
-): Slice {
+/** Apply the shared one-line canonicaliser to every descriptor-declared title in a block. */
+function canonicalBlockTitles(
+  block: Block,
+  def: NonNullable<ReturnType<typeof readBlockDefinition>>
+): Block {
   function trim(field: Primitive, value: unknown): unknown {
     if (field.kind === "group" && isRecord(value)) {
       const next = { ...value }
@@ -181,11 +181,11 @@ function canonicalSliceTitles(
     }
     return value
   }
-  const next = Object.assign({}, slice, {
-    primary: trim(def.primary, readSlice(slice).primary),
-  }) as Slice
-  if (def.items !== undefined && "items" in slice)
-    Object.assign(next, { items: trim(def.items, readSlice(slice).items) })
+  const next = Object.assign({}, block, {
+    primary: trim(def.primary, readBlock(block).primary),
+  }) as Block
+  if (def.items !== undefined && "items" in block)
+    Object.assign(next, { items: trim(def.items, readBlock(block).items) })
   return next
 }
 
@@ -194,14 +194,14 @@ function canonicalSliceTitles(
  */
 export function prepareHeroTitleDraft<
   T extends {
-    slices: Slice[]
+    blocks: Block[]
     removedTitleLinks?: TitleWriteReport[]
   },
 >(draft: T, locale: string, previous: TitleWriteReport[] = []) {
   const adopted = adoptHeroTitles(
-    draft.slices,
+    draft.blocks,
     locale,
     mergeTitleReports(previous, draft.removedTitleLinks ?? [])
   )
-  return { ...draft, slices: adopted.value, removedTitleLinks: adopted.reports }
+  return { ...draft, blocks: adopted.value, removedTitleLinks: adopted.reports }
 }

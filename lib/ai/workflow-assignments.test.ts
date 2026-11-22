@@ -23,9 +23,9 @@ describe("migrated runtime workload assignments", () => {
     expect(value).toContain("profile: cfg.profile")
   })
 
-  test("keeps editorial, outline/meta, and help assignments exact after slice retirement", async () => {
-    // The slice-author/slice-renderer Convex actions retired 2026-07-14
-    // (ADR-0032 amendment) — slice authoring now runs in the build lane via
+  test("keeps editorial, outline/meta, and help assignments exact after block retirement", async () => {
+    // The block-author/block-renderer Convex actions retired 2026-07-14
+    // (ADR-0032 amendment) — block authoring now runs in the build lane via
     // dev-only Next server actions calling `scripts/lib/ai-engine.ts`, so
     // there is no runtime workflow assignment left to pin for them.
     const [contentWriter, help] = await Promise.all([

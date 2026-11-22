@@ -140,7 +140,7 @@ describe("the Convex marker of Writing and Translation", () => {
   })
 
   test("Help and the Block creator have no marker", async () => {
-    await saveLocalToolChoices({ help: null, sliceCreator: null })
+    await saveLocalToolChoices({ help: null, blockCreator: null })
     expect(mocks.fetchAuthMutation).not.toHaveBeenCalled()
   })
 })

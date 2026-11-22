@@ -97,7 +97,7 @@ const segment = (index: number, state = "saved") => ({
   index,
   kind: "translation",
   segmentIndex: index,
-  address: `slices[${index}]`,
+  address: `blocks[${index}]`,
   state,
   reused: false,
   costMicros: 0,
@@ -143,7 +143,7 @@ const RESULT_DATA = {
   sections: [
     {
       index: 0,
-      sliceType: "features-icon-grid",
+      blockType: "features-icon-grid",
       purpose: "",
       fields: [
         { label: "Heading", text: "Un atelier qui soigne les détails" },
@@ -152,7 +152,7 @@ const RESULT_DATA = {
     },
     {
       index: 1,
-      sliceType: "rich-text-body",
+      blockType: "rich-text-body",
       purpose: "",
       fields: [{ label: "Body", text: "Parlons de votre site." }],
     },
@@ -608,8 +608,8 @@ describe("review list", () => {
       "Title",
       "Meta description",
       "Role title",
-      "Section 1",
-      "Section 2",
+      "Block 1",
+      "Block 2",
     ])
     expect(rows[3]).toHaveTextContent("Un atelier qui soigne les détails")
     expect(rows[3]).toHaveTextContent("Nous concevons des sites.")
@@ -712,7 +712,7 @@ describe("review list", () => {
     openReview({ ensureSaved, beginSavedLanguage: () => ({ complete }) })
     fireEvent.click(screen.getByRole("button", { name: "Accept" }))
     expect(await screen.findByTestId("save-error")).toHaveTextContent(
-      "Could not save. Your sections are kept. Try again."
+      "Could not save. Your blocks are kept. Try again."
     )
     expect(ensureSaved).toHaveBeenCalledTimes(1)
     expect(mocks.calls[ACCEPT] ?? vi.fn()).not.toHaveBeenCalled()
@@ -726,7 +726,7 @@ describe("review list", () => {
     openReview({ beginSavedLanguage: () => ({ complete }) })
     fireEvent.click(screen.getByRole("button", { name: "Accept" }))
     expect(await screen.findByTestId("save-error")).toHaveTextContent(
-      "Could not save. Your sections are kept. Try again."
+      "Could not save. Your blocks are kept. Try again."
     )
     expect(complete).not.toHaveBeenCalled()
   })

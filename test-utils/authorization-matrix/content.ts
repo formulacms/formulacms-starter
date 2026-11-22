@@ -4,7 +4,7 @@ import { makeFunctionReference } from "convex/server"
 import { api } from "../../convex/_generated/api"
 import { finishMediaUsageBackfill } from "../media-usage-backfill"
 import type { Id } from "../../convex/_generated/dataModel"
-import { readSlicePresentationCatalog } from "../../convex/lib/slices/presentations"
+import { readBlockPresentationCatalog } from "../../convex/lib/blocks/presentations"
 import { LEGACY_SNAPSHOT_MIGRATION_INSTALLED } from "../../convex/lib/publishing/legacyMigration"
 import {
   defineRow,
@@ -58,21 +58,21 @@ const optional = {
       "cms/pageHistory:restoreRevisionAsDraft"
     ),
   },
-  sliceLibrary: {
-    setSliceArchived: makeFunctionReference<"mutation">(
-      "cms/sliceLibrary:setSliceArchived"
+  blockLibrary: {
+    setBlockArchived: makeFunctionReference<"mutation">(
+      "cms/blockLibrary:setBlockArchived"
     ),
-    cleanupDeletedSliceTypeArchive: makeFunctionReference<"mutation">(
-      "cms/sliceLibrary:cleanupDeletedSliceTypeArchive"
+    cleanupDeletedBlockTypeArchive: makeFunctionReference<"mutation">(
+      "cms/blockLibrary:cleanupDeletedBlockTypeArchive"
     ),
-    assertSliceTypeRetirementAllowed: makeFunctionReference<"query">(
-      "cms/sliceLibrary:assertSliceTypeRetirementAllowed"
+    assertBlockTypeRetirementAllowed: makeFunctionReference<"query">(
+      "cms/blockLibrary:assertBlockTypeRetirementAllowed"
     ),
-    getSliceUsageSummary: makeFunctionReference<"query">(
-      "cms/sliceLibrary:getSliceUsageSummary"
+    getBlockUsageSummary: makeFunctionReference<"query">(
+      "cms/blockLibrary:getBlockUsageSummary"
     ),
-    getSlicePresentationUsageSummary: makeFunctionReference<"query">(
-      "cms/sliceLibrary:getSlicePresentationUsageSummary"
+    getBlockPresentationUsageSummary: makeFunctionReference<"query">(
+      "cms/blockLibrary:getBlockPresentationUsageSummary"
     ),
   },
 }
@@ -115,8 +115,8 @@ async function seedContentDocuments(
       slug: "matrix-page",
       status: "published",
       content: {
-        en: { title: "Matrix Page", slices: [] },
-        fr: { title: "Page matrice", slices: [] },
+        en: { title: "Matrix Page", blocks: [] },
+        fr: { title: "Page matrice", blocks: [] },
       },
       createdAt: 1,
       updatedAt: 1,
@@ -128,8 +128,8 @@ async function seedContentDocuments(
       status: "published",
       name: "Matrix Author",
       content: {
-        en: { title: "Matrix Author", roleTitle: "Editor", slices: [] },
-        fr: { title: "Auteur matrice", roleTitle: "Rédacteur", slices: [] },
+        en: { title: "Matrix Author", roleTitle: "Editor", blocks: [] },
+        fr: { title: "Auteur matrice", roleTitle: "Rédacteur", blocks: [] },
       },
       createdAt: 1,
       updatedAt: 1,
@@ -298,7 +298,7 @@ async function seedRevision(
       slug: "matrix-page",
       pageType: "page",
       contentJson: JSON.stringify({
-        en: { title: "Archived Matrix", slices: [] },
+        en: { title: "Archived Matrix", blocks: [] },
       }),
       metadata: { title: "Archived Matrix", locales: ["en"], summary: [] },
     })
@@ -323,7 +323,7 @@ async function setupSuccessorPage(
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   await t.run(async (ctx) => {
     const settings = await ctx.db.query("siteSettings").unique()
@@ -335,8 +335,8 @@ async function setupSuccessorPage(
     slug: "snapshot-matrix",
     title: "Snapshot Matrix",
     content: {
-      en: { title: "Snapshot Matrix", slices: [] },
-      fr: { title: "Matrice", slices: [] },
+      en: { title: "Snapshot Matrix", blocks: [] },
+      fr: { title: "Matrice", blocks: [] },
     },
   })
   return { pageId }
@@ -708,14 +708,14 @@ async function setupLegacyMigration(
         status: "published",
         slug: "home",
         title: "Migration home",
-        content: { en: { title: "Migration home", slices: [] } },
+        content: { en: { title: "Migration home", blocks: [] } },
       })
     : await t.run((ctx) =>
         ctx.db.insert("pages", {
           pageType: "landing-page",
           status: "published",
           slug: "home",
-          content: { en: { title: "Migration home", slices: [] } },
+          content: { en: { title: "Migration home", blocks: [] } },
           createdAt: 1,
           updatedAt: 1,
           publishedAt: 1,
@@ -773,7 +773,7 @@ async function setupSnapshotMigrationGuard(
     status: "draft",
     slug: "snapshot-home",
     title: "Snapshot home",
-    content: { en: { title: "Snapshot home", slices: [] } },
+    content: { en: { title: "Snapshot home", blocks: [] } },
   })
   return { pageId }
 }
@@ -950,10 +950,10 @@ const migrationRows: AuthorizationRow[] = [
 
 export const contentRows: AuthorizationRow[] = [
   ownerOnly(
-    "cms/sliceLibrary:getSlicePresentationUsageSummary",
+    "cms/blockLibrary:getBlockPresentationUsageSummary",
     "query",
     (actor) =>
-      actor.query(optional.sliceLibrary.getSlicePresentationUsageSummary, {
+      actor.query(optional.blockLibrary.getBlockPresentationUsageSummary, {
         type: "hero-with-image",
         presentationIds: ["centered"],
       }),
@@ -1222,7 +1222,7 @@ export const contentRows: AuthorizationRow[] = [
         draft: {
           pageType: "landing-page",
           localized: { title: "Snapshot Matrix Edited" },
-          slices: [],
+          blocks: [],
         },
         expectedDraftGeneration: 1,
         expectedLifecycleGeneration: 1,
@@ -1246,7 +1246,7 @@ export const contentRows: AuthorizationRow[] = [
           draft: {
             pageType: "landing-page",
             localized: { title: "Snapshot Matrix Edited" },
-            slices: [],
+            blocks: [],
           },
         },
       }),
@@ -1875,10 +1875,10 @@ export const contentRows: AuthorizationRow[] = [
     }
   ),
   ownerOnly(
-    "cms/sliceLibrary:assertSliceTypeRetirementAllowed",
+    "cms/blockLibrary:assertBlockTypeRetirementAllowed",
     "query",
     (actor) =>
-      actor.query(optional.sliceLibrary.assertSliceTypeRetirementAllowed, {
+      actor.query(optional.blockLibrary.assertBlockTypeRetirementAllowed, {
         type: "hero-agency",
       }),
     { value: null }
@@ -2532,13 +2532,13 @@ export const contentRows: AuthorizationRow[] = [
     }
   ),
   ownerOnly(
-    "cms/slices:getPresentationCatalog",
+    "cms/blocks:getPresentationCatalog",
     "query",
-    (actor) => actor.query(api.cms.slices.getPresentationCatalog, {}),
+    (actor) => actor.query(api.cms.blocks.getPresentationCatalog, {}),
     {
       check: (value) =>
         expect(value).toMatchObject({
-          version: "slice-presentations-v1",
+          version: "block-presentations-v1",
           revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
           installedTypes: expect.arrayContaining(["hero-with-image"]),
           entries: expect.arrayContaining([
@@ -2548,14 +2548,14 @@ export const contentRows: AuthorizationRow[] = [
     }
   ),
   ownerOnly(
-    "cms/slices:setPresentationArchived",
+    "cms/blocks:setPresentationArchived",
     "mutation",
     async (actor) =>
-      actor.mutation(api.cms.slices.setPresentationArchived, {
+      actor.mutation(api.cms.blocks.setPresentationArchived, {
         type: "hero-with-image",
         presentationId: "centered",
         archived: true,
-        expectedCatalogRevision: (await readSlicePresentationCatalog())
+        expectedCatalogRevision: (await readBlockPresentationCatalog())
           .revision,
       }),
     {
@@ -2584,7 +2584,7 @@ export const contentRows: AuthorizationRow[] = [
       const membership = await t.run(
         async (ctx) =>
           (await ctx.db.query("siteSettings").unique())
-            ?.archivedSlicePresentationsV1
+            ?.archivedBlockPresentationsV1
       )
       expect(membership).toEqual([
         { type: "hero-with-image", presentationId: "centered" },
@@ -2592,9 +2592,9 @@ export const contentRows: AuthorizationRow[] = [
     }
   ),
   ownerOnly(
-    "cms/slices:getSliceAuthoringState",
+    "cms/blocks:getBlockAuthoringState",
     "query",
-    (actor) => actor.query(api.cms.slices.getSliceAuthoringState, {}),
+    (actor) => actor.query(api.cms.blocks.getBlockAuthoringState, {}),
     {
       check: (value) =>
         expect(value).toMatchObject({
@@ -2607,35 +2607,35 @@ export const contentRows: AuthorizationRow[] = [
     }
   ),
   ownerOnly(
-    "cms/slices:getArchivedSliceTypes",
+    "cms/blocks:getArchivedBlockTypes",
     "query",
-    (actor) => actor.query(api.cms.slices.getArchivedSliceTypes, {}),
+    (actor) => actor.query(api.cms.blocks.getArchivedBlockTypes, {}),
     { value: [] }
   ),
   ownerOnly(
-    "cms/sliceLibrary:setSliceArchived",
+    "cms/blockLibrary:setBlockArchived",
     "mutation",
     (actor) =>
-      actor.mutation(optional.sliceLibrary.setSliceArchived, {
+      actor.mutation(optional.blockLibrary.setBlockArchived, {
         type: "hero-agency",
         archived: true,
       }),
     { check: (value) => expect(value).toEqual(["hero-agency"]) }
   ),
   ownerOnly(
-    "cms/sliceLibrary:cleanupDeletedSliceTypeArchive",
+    "cms/blockLibrary:cleanupDeletedBlockTypeArchive",
     "mutation",
     (actor) =>
-      actor.mutation(optional.sliceLibrary.cleanupDeletedSliceTypeArchive, {
+      actor.mutation(optional.blockLibrary.cleanupDeletedBlockTypeArchive, {
         type: "retired",
       }),
     { value: [] }
   ),
   ownerOnly(
-    "cms/sliceLibrary:getSliceUsageSummary",
+    "cms/blockLibrary:getBlockUsageSummary",
     "query",
     (actor) =>
-      actor.query(optional.sliceLibrary.getSliceUsageSummary, {
+      actor.query(optional.blockLibrary.getBlockUsageSummary, {
         type: "hero-agency",
       }),
     {

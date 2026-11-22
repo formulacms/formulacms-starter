@@ -1,4 +1,4 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { beforeEach, describe, expect, test } from "vitest"
 import { readRecoveryDraft, recoveryKey } from "./recovery"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -11,7 +11,7 @@ describe("RF2a recovery readers", () => {
     window.sessionStorage.clear()
   })
 
-  test("converts heading-shaped current-profile fields without changing schema or row identity", sliceProfile([]), () => {
+  test("converts heading-shaped current-profile fields without changing schema or row identity", blockProfile([]), () => {
     const heading = JSON.stringify({
       type: "doc",
       content: [
@@ -41,7 +41,7 @@ describe("RF2a recovery readers", () => {
         seoOgTitle: "",
         seoOgDescription: "",
         seoOgImage: "",
-        slices: [
+        blocks: [
           {
             id: "hero",
             type: "hero-agency",
@@ -57,15 +57,15 @@ describe("RF2a recovery readers", () => {
 
     const recovered = readRecoveryDraft(pageId, "en") as unknown as {
       version: number
-      slices: Array<{
+      blocks: Array<{
         primary: { title: string }
         items: Array<{ itemId: string }>
       }>
     }
     expect(recovered.version).toBe(3)
-    expect(JSON.parse(recovered.slices[0]!.primary.title).content[0].type).toBe(
+    expect(JSON.parse(recovered.blocks[0]!.primary.title).content[0].type).toBe(
       "heading"
     )
-    expect(recovered.slices[0]?.items[0]?.itemId).toBe("row-1")
+    expect(recovered.blocks[0]?.items[0]?.itemId).toBe("row-1")
   })
 })

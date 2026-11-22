@@ -2,8 +2,8 @@ import { createHash } from "node:crypto"
 
 /**
  * Content hashes for the generated files the formulacms release owns
- * (ADR-0059). The module factory writes the hash line; the shipped check
- * (scripts/check-generated-files.ts, the starter `build` and
+ * (ADR-0059). The module factory writes the hash line; the factory gate
+ * (lib/factories/gate.ts: `pnpm check:factories`, the starter `build` and
  * `check:preflight`) and `modules:sync --check` verify it. Imports nothing
  * from the factory tooling, which never ships.
  */

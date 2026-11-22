@@ -12,7 +12,7 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import {
   bodyHeadingLevels,
   createBodyHeadingResolver,
-} from "@/lib/slices/page-outline"
+} from "@/lib/blocks/page-outline"
 
 export type HeadingResult =
   `H${1 | 2 | 3 | 4 | 5 | 6}` | "P" | "empty" | "unavailable"

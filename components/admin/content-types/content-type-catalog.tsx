@@ -8,6 +8,7 @@ import { api } from "@/convex/_generated/api"
 import {
   adminContentTypes,
   adminContentTypeDetail,
+  adminContentTypePluralMessageKey,
 } from "@/lib/admin/content-types"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -20,26 +21,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useArchivedContentTypes } from "./use-archived-content-types"
 
-function contentTypePluralMessageKey(type: string) {
-  switch (type) {
-    case "author":
-      return "author.plural" as const
-    case "landing-page":
-      return "landing-page.plural" as const
-    case "page":
-      return "page.plural" as const
-    case "post":
-      return "post.plural" as const
-    default:
-      return null
-  }
-}
-
 function CapabilityChips({
   capabilities,
 }: {
   capabilities: {
-    sliceBody: boolean
+    blockBody: boolean
     revisions: boolean
     scheduling: boolean
     presence: boolean
@@ -48,7 +34,7 @@ function CapabilityChips({
 }) {
   const t = useTranslations("inventory.contentTypes")
   const enabled = [
-    capabilities.sliceBody ? t("capabilities.sliceBody") : null,
+    capabilities.blockBody ? t("capabilities.blockBody") : null,
     capabilities.revisions ? t("capabilities.revisions") : null,
     capabilities.scheduling ? t("capabilities.scheduling") : null,
     capabilities.presence ? t("capabilities.presence") : null,
@@ -140,7 +126,7 @@ function ContentTypeCatalogContent({
         {summaries.map((summary) => {
           const detail = adminContentTypeDetail(summary.type)
           if (!detail) return null
-          const pluralKey = contentTypePluralMessageKey(detail.type)
+          const pluralKey = adminContentTypePluralMessageKey(detail.type)
           const pluralLabel = pluralKey
             ? tContentType(pluralKey)
             : detail.plural

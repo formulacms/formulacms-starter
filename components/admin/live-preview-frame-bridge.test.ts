@@ -1,16 +1,16 @@
-import { readInstalledSliceDefinition } from "@/convex/lib/slices"
-import { createSampleSlice } from "@/convex/lib/slices/sample"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { readInstalledBlockDefinition } from "@/convex/lib/blocks"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, it, vi } from "vitest"
 import { v, type GenericValidator, type VObject } from "convex/values"
 import {
-  installedSliceDefs,
-  sliceDefs,
-  sliceValidator,
-  type Slice,
-} from "@/convex/lib/slices"
-import { withSliceOccurrencePresentation } from "@/convex/lib/slices/occurrencePresentation"
-import { group, list, richText, text } from "@/convex/lib/slices/primitives"
+  installedBlockDefs,
+  blockDefs,
+  blockValidator,
+  type Block,
+} from "@/convex/lib/blocks"
+import { withBlockOccurrencePresentation } from "@/convex/lib/blocks/occurrencePresentation"
+import { group, list, richText, text } from "@/convex/lib/blocks/primitives"
 
 import enAdminMessages from "@/messages/admin/en.json"
 import frAdminMessages from "@/messages/admin/fr.json"
@@ -31,14 +31,14 @@ import {
 } from "./live-preview-frame-bridge"
 
 // Snapshot an optional descriptor without requiring it to be installed.
-const installedSliceDefinition = (type: string) => readInstalledSliceDefinition(type)
+const installedBlockDefinition = (type: string) => readInstalledBlockDefinition(type)
 
 const pm = (text: string) =>
   JSON.stringify({
     type: "doc",
     content: [{ type: "paragraph", content: [{ type: "text", text }] }],
   })
-const slice: Slice = {
+const block: Block = {
   id: "hero",
   type: "hero-agency",
   enabled: true,
@@ -59,28 +59,28 @@ const input: LiveFrameInput = {
   defaultLocale: "en",
   languageVersion: 2,
   title: "Title",
-  slices: [slice],
-  selectedSliceId: null,
+  blocks: [block],
+  selectedBlockId: null,
   inlineEditingEnabled: true,
   mode: "light",
 }
 
-function requireSliceFallback(callbacks: LiveFrameCallbacks) {
-  const handler = callbacks.selectSliceFallback
-  if (!handler) throw new Error("Expected the frame to provide slice fallback")
+function requireBlockFallback(callbacks: LiveFrameCallbacks) {
+  const handler = callbacks.selectBlockFallback
+  if (!handler) throw new Error("Expected the frame to provide block fallback")
   return handler
 }
 
-type SliceValidatorSnapshot = {
+type BlockValidatorSnapshot = {
   members: GenericValidator[]
   originalMembers: GenericValidator[]
 }
 
-function registerSyntheticFrameSlice<
+function registerSyntheticFrameBlock<
   Type,
   Fields extends Record<string, GenericValidator>,
 >(validator: VObject<Type, Fields>) {
-  const members: GenericValidator[] = sliceValidator.members
+  const members: GenericValidator[] = blockValidator.members
   const originalMembers = members.slice()
   const matches = members.flatMap((member, index) => {
     if (member.kind !== "object") return []
@@ -94,11 +94,11 @@ function registerSyntheticFrameSlice<
   const [index] = matches
   if (index === undefined)
     throw new Error("Expected a registered features-icon-grid member")
-  members[index] = withSliceOccurrencePresentation(validator)
-  return { members, originalMembers } satisfies SliceValidatorSnapshot
+  members[index] = withBlockOccurrencePresentation(validator)
+  return { members, originalMembers } satisfies BlockValidatorSnapshot
 }
 
-function restoreSyntheticFrameSlice(snapshot: SliceValidatorSnapshot) {
+function restoreSyntheticFrameBlock(snapshot: BlockValidatorSnapshot) {
   snapshot.members.splice(
     0,
     snapshot.members.length,
@@ -106,37 +106,37 @@ function restoreSyntheticFrameSlice(snapshot: SliceValidatorSnapshot) {
   )
 }
 
-function expectSyntheticFrameSliceRestored(snapshot: SliceValidatorSnapshot) {
-  expect(sliceValidator.members).toBe(snapshot.members)
-  expect(sliceValidator.members).toHaveLength(snapshot.originalMembers.length)
+function expectSyntheticFrameBlockRestored(snapshot: BlockValidatorSnapshot) {
+  expect(blockValidator.members).toBe(snapshot.members)
+  expect(blockValidator.members).toHaveLength(snapshot.originalMembers.length)
   snapshot.originalMembers.forEach((member, index) => {
-    expect(sliceValidator.members[index]).toBe(member)
+    expect(blockValidator.members[index]).toBe(member)
   })
 }
 
 it.each(["centered\n", "centered\r", "centered\u2028", "centered\u2029"])(
-  "refuses malformed presentation metadata before a frame accepts input %j", sliceProfile([]),
+  "refuses malformed presentation metadata before a frame accepts input %j", blockProfile([]),
   (presentationIdV1) => {
     expect(
       validLiveFrameInput({
         ...input,
-        slices: [{ ...slice, presentationIdV1 }],
+        blocks: [{ ...block, presentationIdV1 }],
       })
     ).toBe(false)
   }
 )
 
-it("accepts a well-formed retained choice without rewriting frame input", sliceProfile([]), () => {
+it("accepts a well-formed retained choice without rewriting frame input", blockProfile([]), () => {
   const retained = {
     ...input,
-    slices: [{ ...slice, presentationIdV1: "removed-choice" }],
+    blocks: [{ ...block, presentationIdV1: "removed-choice" }],
   }
   const before = JSON.stringify(retained)
   expect(validLiveFrameInput(retained)).toBe(true)
   expect(JSON.stringify(retained)).toBe(before)
 })
 
-it.each(["page", "landing-page", "post", "author"])("accepts a %s frame input", sliceProfile([]), (pageType) => {
+it.each(["page", "landing-page", "post", "author"])("accepts a %s frame input", blockProfile([]), (pageType) => {
   expect(validLiveFrameInput({ ...input, pageType })).toBe(true)
 })
 
@@ -145,7 +145,7 @@ it.each([
   { localizedFields: ["roleTitle"] },
   { authorIds: "author-1" },
   { authorIds: ["author-1", ""] },
-])("refuses malformed unsaved field values %j", sliceProfile([]), (extra) => {
+])("refuses malformed unsaved field values %j", blockProfile([]), (extra) => {
   expect(validLiveFrameInput({ ...input, pageType: "post", ...extra })).toBe(
     false
   )
@@ -164,25 +164,25 @@ it("keeps only declared fields with valid values", () => {
 
 it.each(["testimonial", "job", "", undefined])(
   "refuses a frame input of type %j",
-  sliceProfile([]),
+  blockProfile([]),
   (pageType) => {
     expect(validLiveFrameInput({ ...input, pageType })).toBe(false)
   }
 )
 
-it("keeps every inline refusal reason available in both admin dictionaries", () => {
+it("keeps every shown inline refusal reason available in both admin dictionaries", () => {
+  // A form-only field ("unsupported") shows no notice (owner, 2026-11-21).
   const refusalCopy = (messages: {
     editor: {
-      slicesPanel: {
-        inlineRefusal: Record<
-          "unsupported" | "begin" | "capture" | "stale",
-          string
-        >
+      blocksPanel: {
+        inlineRefusal: Record<"begin" | "capture" | "stale", string>
       }
     }
-  }) => messages.editor.slicesPanel.inlineRefusal
+  }) => messages.editor.blocksPanel.inlineRefusal
 
-  for (const reason of ["unsupported", "begin", "capture", "stale"] as const) {
+  expect(refusalCopy(enAdminMessages)).not.toHaveProperty("unsupported")
+  expect(refusalCopy(frAdminMessages)).not.toHaveProperty("unsupported")
+  for (const reason of ["begin", "capture", "stale"] as const) {
     expect(refusalCopy(enAdminMessages)[reason]).toMatch(/form/i)
     expect(refusalCopy(frAdminMessages)[reason]).toMatch(/formulaire/i)
   }
@@ -191,8 +191,8 @@ it("keeps every inline refusal reason available in both admin dictionaries", () 
 function setup(editorBuildId = input.buildId) {
   let parent = { ...input, buildId: editorBuildId }
   const calls = {
-    selectSlice: vi.fn(),
-    selectSliceFallback: vi.fn(),
+    selectBlock: vi.fn(),
+    selectBlockFallback: vi.fn(),
     selectField: vi.fn(),
     change: vi.fn(),
     conflict: vi.fn(),
@@ -200,15 +200,15 @@ function setup(editorBuildId = input.buildId) {
     context: vi.fn(),
     unavailable: vi.fn(),
     commit: vi.fn((commit) => {
-      const slices = applyPageField(
-        parent.slices,
+      const blocks = applyPageField(
+        parent.blocks,
         parent.locale,
         commit,
         parent.contentEpoch ?? 0,
         parent.catalogRevision ?? ""
       )
-      if (!slices) return false
-      parent = { ...parent, slices }
+      if (!blocks) return false
+      parent = { ...parent, blocks }
       return true
     }),
   } satisfies LiveFrameCallbacks
@@ -235,7 +235,7 @@ function setup(editorBuildId = input.buildId) {
   const first = make("child-1")
   expect(controller.connect(first.bridge)).toBe(true)
   const binding = {
-    ...capturePageField(input.slices, "en", "hero", "primary.description", 0)!,
+    ...capturePageField(input.blocks, "en", "hero", "primary.description", 0)!,
     frameBinding: {
       sessionId: input.sessionId,
       pageId: input.pageId,
@@ -259,9 +259,9 @@ function setup(editorBuildId = input.buildId) {
   }
 }
 describe("B1 serializable frame admission", () => {
-  it("NEW forwards only finite field-selection activation results from the current child", sliceProfile([]), () => {
+  it("NEW forwards only finite field-selection activation results from the current child", blockProfile([]), () => {
     const view = setup()
-    const field = { sliceId: "hero", fieldPath: "primary.description" }
+    const field = { blockId: "hero", fieldPath: "primary.description" }
     view.first.callbacks().selectField(field, {
       status: "refused",
       reason: "capture",
@@ -284,7 +284,7 @@ describe("B1 serializable frame admission", () => {
     })
   })
 
-  it("NEW forwards explicit transient Discard once without changing accepted parent content", sliceProfile([]), () => {
+  it("NEW forwards explicit transient Discard once without changing accepted parent content", blockProfile([]), () => {
     const view = setup()
     view.first.callbacks().commit({ ...view.binding, value: pm("accepted") })
     view.first.callbacks().change({ ...view.binding, composing: true })
@@ -299,7 +299,7 @@ describe("B1 serializable frame admission", () => {
     expect(JSON.stringify(view.parent())).toBe(before)
   })
 
-  it("NEW applies each own keystroke exactly once into the parent and advances its field baseline", sliceProfile([]), () => {
+  it("NEW applies each own keystroke exactly once into the parent and advances its field baseline", blockProfile([]), () => {
     const view = setup()
     const one = { ...view.binding, value: pm("one") }
     expect(view.first.callbacks().commit(one)).toBe(true)
@@ -311,11 +311,11 @@ describe("B1 serializable frame admission", () => {
     expect(view.first.callbacks().commit(two)).toBe(true)
     expect(view.calls.commit).toHaveBeenCalledTimes(2)
     expect(
-      (view.parent().slices[0].primary as Record<string, unknown>).description
+      (view.parent().blocks[0].primary as Record<string, unknown>).description
     ).toBe(two.value)
     expect(view.first.bridge.replaceInput).not.toHaveBeenCalled()
   })
-  it("NEW B-C0 retires no unsaved draft, admits a fresh child and drops all old callbacks", sliceProfile([]), () => {
+  it("NEW B-C0 retires no unsaved draft, admits a fresh child and drops all old callbacks", blockProfile([]), () => {
     const view = setup()
     view.first.callbacks().commit({ ...view.binding, value: pm("kept") })
     const parent = JSON.stringify(view.parent())
@@ -323,43 +323,43 @@ describe("B1 serializable frame admission", () => {
     const fresh = view.make("child-2")
     expect(view.controller.connect(fresh.bridge)).toBe(true)
     expect(fresh.bridge.connect).toHaveBeenCalledWith(
-      expect.objectContaining({ slices: view.parent().slices }),
+      expect.objectContaining({ blocks: view.parent().blocks }),
       expect.any(Object)
     )
     view.first.callbacks().commit({ ...view.binding, value: pm("late") })
     view.first.callbacks().save()
-    view.first.callbacks().selectSlice("late")
-    requireSliceFallback(view.first.callbacks())("late-fallback")
+    view.first.callbacks().selectBlock("late")
+    requireBlockFallback(view.first.callbacks())("late-fallback")
     view.first.callbacks().unavailable()
     expect(JSON.stringify(view.parent())).toBe(parent)
     expect(view.calls.save).not.toHaveBeenCalled()
-    expect(view.calls.selectSlice).not.toHaveBeenCalled()
-    expect(view.calls.selectSliceFallback).not.toHaveBeenCalled()
+    expect(view.calls.selectBlock).not.toHaveBeenCalled()
+    expect(view.calls.selectBlockFallback).not.toHaveBeenCalled()
   })
 
-  it("forwards first-control fallback only from the current frame", sliceProfile([]), () => {
+  it("forwards first-control fallback only from the current frame", blockProfile([]), () => {
     const view = setup()
-    const selectFallback = requireSliceFallback(view.first.callbacks())
+    const selectFallback = requireBlockFallback(view.first.callbacks())
     selectFallback("hero")
-    expect(view.calls.selectSliceFallback).toHaveBeenCalledExactlyOnceWith(
+    expect(view.calls.selectBlockFallback).toHaveBeenCalledExactlyOnceWith(
       "hero"
     )
     view.controller.retire()
     selectFallback("stale-hero")
-    expect(view.calls.selectSliceFallback).toHaveBeenCalledExactlyOnceWith(
+    expect(view.calls.selectBlockFallback).toHaveBeenCalledExactlyOnceWith(
       "hero"
     )
   })
 
-  it("preserves slice selection for current legacy callers without fallback callback", sliceProfile([]), () => {
+  it("preserves block selection for current legacy callers without fallback callback", blockProfile([]), () => {
     const view = setup()
     const legacyCallbacks: LiveFrameCallbacks = {
       ...view.calls,
-      selectSliceFallback: undefined,
+      selectBlockFallback: undefined,
     }
     view.controller.replaceCallbacks(legacyCallbacks)
-    requireSliceFallback(view.first.callbacks())("legacy-hero")
-    expect(view.calls.selectSlice).toHaveBeenCalledExactlyOnceWith(
+    requireBlockFallback(view.first.callbacks())("legacy-hero")
+    expect(view.calls.selectBlock).toHaveBeenCalledExactlyOnceWith(
       "legacy-hero"
     )
   })
@@ -370,7 +370,7 @@ describe("B1 serializable frame admission", () => {
     "buildId",
     "languageVersion",
   ] as const)(
-    "NEW refuses a stale %s intent without changing the draft", sliceProfile([]),
+    "NEW refuses a stale %s intent without changing the draft", blockProfile([]),
     (key) => {
       const view = setup()
       const before = JSON.stringify(view.parent())
@@ -387,7 +387,7 @@ describe("B1 serializable frame admission", () => {
     }
   )
   it.each(["old-editor/new-frame", "new-editor/old-frame"])(
-    "NEW refuses build skew on %s reconnect without removing parent text", sliceProfile([]),
+    "NEW refuses build skew on %s reconnect without removing parent text", blockProfile([]),
     (direction) => {
       const editorIsOld = direction === "old-editor/new-frame"
       const view = setup(editorIsOld ? "old-build" : "new-build")
@@ -400,15 +400,15 @@ describe("B1 serializable frame admission", () => {
       expect(view.controller.connect(skew.bridge)).toBe(false)
       expect(skew.bridge.connect).not.toHaveBeenCalled()
       expect(
-        (view.parent().slices[0].primary as Record<string, unknown>).description
+        (view.parent().blocks[0].primary as Record<string, unknown>).description
       ).toBe(pm("retained"))
     }
   )
-  it("NEW refuses same-field external changes and permits an unrelated value edit", sliceProfile([]), () => {
+  it("NEW refuses same-field external changes and permits an unrelated value edit", blockProfile([]), () => {
     const view = setup()
     view.replace({
       ...view.parent(),
-      slices: [{ ...slice, primary: { ...slice.primary, eyebrow: "manual" } }],
+      blocks: [{ ...block, primary: { ...block.primary, eyebrow: "manual" } }],
     })
     expect(
       view.first.callbacks().commit({ ...view.binding, value: pm("inline") })
@@ -423,10 +423,10 @@ describe("B1 serializable frame admission", () => {
     view.first.callbacks().change(latest)
     view.replace({
       ...view.parent(),
-      slices: [
+      blocks: [
         {
-          ...slice,
-          primary: { ...slice.primary, description: pm("external") },
+          ...block,
+          primary: { ...block.primary, description: pm("external") },
         },
       ],
     })
@@ -434,14 +434,14 @@ describe("B1 serializable frame admission", () => {
       view.first.callbacks().commit({ ...latest, value: pm("outdated") })
     ).toBe(false)
     expect(
-      (view.parent().slices[0].primary as Record<string, unknown>).description
+      (view.parent().blocks[0].primary as Record<string, unknown>).description
     ).toBe(pm("external"))
     expect(view.calls.conflict).toHaveBeenCalled()
     expect(view.calls.change).toHaveBeenLastCalledWith(
       expect.objectContaining({ value: pm("outdated") })
     )
   })
-  it("NEW reports composition/refuses authority changes and preserves serialized exact data", sliceProfile([]), () => {
+  it("NEW reports composition/refuses authority changes and preserves serialized exact data", blockProfile([]), () => {
     const view = setup()
     view.first.callbacks().change({ ...view.binding, composing: true })
     expect(view.controller.handle.isComposing()).toBe(true)
@@ -451,7 +451,7 @@ describe("B1 serializable frame admission", () => {
     view.first.callbacks().change({ ...view.binding, composing: false })
     expect(view.controller.handle.isComposing()).toBe(false)
   })
-  it("NEW checks message origin, WindowProxy, identity, generation and build shape", sliceProfile([]), () => {
+  it("NEW checks message origin, WindowProxy, identity, generation and build shape", blockProfile([]), () => {
     const frame = {} as Window
     const data = {
       ...input,
@@ -482,10 +482,10 @@ describe("B1 serializable frame admission", () => {
   })
 })
 
-it("NEW P3 real frame commit refuses a changed root-items ancestor", sliceProfile([]), () => {
-  expect.assertions(8 + sliceValidator.members.length)
-  const original = sliceDefs["features-icon-grid"]
-  const installedOriginal = installedSliceDefinition("features-icon-grid")
+it("NEW P3 real frame commit refuses a changed root-items ancestor", blockProfile([]), () => {
+  expect.assertions(8 + blockValidator.members.length)
+  const original = blockDefs["features-icon-grid"]
+  const installedOriginal = installedBlockDefinition("features-icon-grid")
   const details = list(
     group({
       title: richText({ profile: "inline" }),
@@ -505,12 +505,12 @@ it("NEW P3 real frame commit refuses a changed root-items ancestor", sliceProfil
       items: items.validator,
     }),
   }
-  const validatorSnapshot = registerSyntheticFrameSlice(def.validator)
-  Reflect.set(sliceDefs, "features-icon-grid", def)
-  Reflect.set(installedSliceDefs, "features-icon-grid", def)
+  const validatorSnapshot = registerSyntheticFrameBlock(def.validator)
+  Reflect.set(blockDefs, "features-icon-grid", def)
+  Reflect.set(installedBlockDefs, "features-icon-grid", def)
   try {
-    const slice = createSampleSlice("features-icon-grid")
-    Reflect.set(slice, "items", [
+    const block = createSampleBlock("features-icon-grid")
+    Reflect.set(block, "items", [
       {
         label: "parent",
         details: [
@@ -525,22 +525,22 @@ it("NEW P3 real frame commit refuses a changed root-items ancestor", sliceProfil
     ])
     const parent: LiveFrameInput = {
       ...input,
-      slices: [slice],
+      blocks: [block],
       contentEpoch: 7,
     }
     expect(validLiveFrameInput(parent)).toBe(true)
     const callbacks: LiveFrameCallbacks = {
-      selectSlice: vi.fn(),
+      selectBlock: vi.fn(),
       selectField: vi.fn(),
       commit: vi.fn((commit) => {
         const next = applyPageField(
-          parent.slices,
+          parent.blocks,
           parent.locale,
           commit,
           parent.contentEpoch ?? 0
         )
         if (!next) return false
-        parent.slices = next
+        parent.blocks = next
         return true
       }),
       change: vi.fn(),
@@ -567,9 +567,9 @@ it("NEW P3 real frame commit refuses a changed root-items ancestor", sliceProfil
     }
     expect(controller.connect(bridge)).toBe(true)
     const binding = capturePageField(
-      parent.slices,
+      parent.blocks,
       parent.locale,
-      slice.id,
+      block.id,
       "items.0.details.0.title",
       7
     )
@@ -582,15 +582,15 @@ it("NEW P3 real frame commit refuses a changed root-items ancestor", sliceProfil
       languageVersion: input.languageVersion,
     }
     childCallbacks.change({ ...binding, frameBinding })
-    const parentSlice = parent.slices[0]
-    if (!parentSlice || parentSlice.type !== "features-icon-grid") {
-      throw new Error("Expected the features icon grid parent slice")
+    const parentBlock = parent.blocks[0]
+    if (!parentBlock || parentBlock.type !== "features-icon-grid") {
+      throw new Error("Expected the features icon grid parent block")
     }
-    const changed = structuredClone(parentSlice)
-    const changedItems = structuredClone(parentSlice.items)
+    const changed = structuredClone(parentBlock)
+    const changedItems = structuredClone(parentBlock.items)
     Reflect.set(changedItems[0], "label", "parent changed")
     Reflect.set(changed, "items", changedItems)
-    parent.slices[0] = changed
+    parent.blocks[0] = changed
     expect(
       childCallbacks.commit({
         ...binding,
@@ -600,27 +600,27 @@ it("NEW P3 real frame commit refuses a changed root-items ancestor", sliceProfil
     ).toBe(false)
     expect(callbacks.commit).not.toHaveBeenCalled()
     expect(callbacks.conflict).toHaveBeenCalledOnce()
-    const refusedSlice = parent.slices[0]
-    if (!refusedSlice || refusedSlice.type !== "features-icon-grid") {
-      throw new Error("Expected the refused features icon grid parent slice")
+    const refusedBlock = parent.blocks[0]
+    if (!refusedBlock || refusedBlock.type !== "features-icon-grid") {
+      throw new Error("Expected the refused features icon grid parent block")
     }
-    expect(JSON.stringify(refusedSlice.items)).toContain(
+    expect(JSON.stringify(refusedBlock.items)).toContain(
       '"label":"parent changed"'
     )
   } finally {
-    restoreSyntheticFrameSlice(validatorSnapshot)
-    Reflect.set(sliceDefs, "features-icon-grid", original)
-    Reflect.set(installedSliceDefs, "features-icon-grid", installedOriginal)
-    expectSyntheticFrameSliceRestored(validatorSnapshot)
+    restoreSyntheticFrameBlock(validatorSnapshot)
+    Reflect.set(blockDefs, "features-icon-grid", original)
+    Reflect.set(installedBlockDefs, "features-icon-grid", installedOriginal)
+    expectSyntheticFrameBlockRestored(validatorSnapshot)
   }
 })
 
 function withPrimaryRepeatedField(
   depth: 1 | 2,
-  run: (slice: Slice, fieldPath: string) => void
+  run: (block: Block, fieldPath: string) => void
 ) {
-  const original = sliceDefs["features-icon-grid"]
-  const installedOriginal = installedSliceDefinition("features-icon-grid")
+  const original = blockDefs["features-icon-grid"]
+  const installedOriginal = installedBlockDefinition("features-icon-grid")
   const details = list(
     group({
       copy: richText({ profile: "inline" }),
@@ -650,20 +650,20 @@ function withPrimaryRepeatedField(
       items: original.items.validator,
     }),
   }
-  const validatorSnapshot = registerSyntheticFrameSlice(def.validator)
-  Reflect.set(sliceDefs, "features-icon-grid", def)
-  Reflect.set(installedSliceDefs, "features-icon-grid", def)
+  const validatorSnapshot = registerSyntheticFrameBlock(def.validator)
+  Reflect.set(blockDefs, "features-icon-grid", def)
+  Reflect.set(installedBlockDefs, "features-icon-grid", def)
   try {
-    const slice = createSampleSlice("features-icon-grid")
+    const block = createSampleBlock("features-icon-grid")
     const fieldPath =
       depth === 1 ? "primary.cards.0.title" : "primary.cards.0.details.0.copy"
     if (depth === 1) {
-      Reflect.set(slice.primary, "cards", [
+      Reflect.set(block.primary, "cards", [
         { title: pm("primary target"), body: pm("primary body") },
         { title: pm("primary sibling"), body: pm("primary sibling body") },
       ])
     } else {
-      Reflect.set(slice.primary, "cards", [
+      Reflect.set(block.primary, "cards", [
         {
           label: "parent",
           details: [
@@ -677,12 +677,12 @@ function withPrimaryRepeatedField(
         },
       ])
     }
-    run(slice, fieldPath)
+    run(block, fieldPath)
   } finally {
-    restoreSyntheticFrameSlice(validatorSnapshot)
-    Reflect.set(sliceDefs, "features-icon-grid", original)
-    Reflect.set(installedSliceDefs, "features-icon-grid", installedOriginal)
-    expectSyntheticFrameSliceRestored(validatorSnapshot)
+    restoreSyntheticFrameBlock(validatorSnapshot)
+    Reflect.set(blockDefs, "features-icon-grid", original)
+    Reflect.set(installedBlockDefs, "features-icon-grid", installedOriginal)
+    expectSyntheticFrameBlockRestored(validatorSnapshot)
   }
 }
 
@@ -691,18 +691,18 @@ function frameHarness(initial: LiveFrameInput, generation: string) {
   let frameCallbacks: LiveFrameCallbacks | null = null
   let deliveredInput: LiveFrameInput | undefined
   const callbacks: LiveFrameCallbacks = {
-    selectSlice: vi.fn(),
+    selectBlock: vi.fn(),
     selectField: vi.fn(),
     commit: vi.fn((commit) => {
       const next = applyPageField(
-        parent.slices,
+        parent.blocks,
         parent.locale,
         commit,
         parent.contentEpoch ?? 0,
         parent.catalogRevision ?? ""
       )
       if (!next) return false
-      parent = { ...parent, slices: next }
+      parent = { ...parent, blocks: next }
       return true
     }),
     change: vi.fn(),
@@ -748,28 +748,28 @@ function frameHarness(initial: LiveFrameInput, generation: string) {
 }
 
 it.each([1, 2] as const)(
-  "NEW P3 primary depth-%i controller captures, echoes and accepts two commits", sliceProfile([]),
+  "NEW P3 primary depth-%i controller captures, echoes and accepts two commits", blockProfile([]),
   (depth) => {
-    expect.assertions(17 + sliceValidator.members.length)
-    withPrimaryRepeatedField(depth, (slice, fieldPath) => {
-      const sourceBefore = JSON.stringify(slice)
+    expect.assertions(17 + blockValidator.members.length)
+    withPrimaryRepeatedField(depth, (block, fieldPath) => {
+      const sourceBefore = JSON.stringify(block)
       let parent: LiveFrameInput = {
         ...input,
-        slices: [slice],
+        blocks: [block],
         contentEpoch: 7,
       }
       const callbacks: LiveFrameCallbacks = {
-        selectSlice: vi.fn(),
+        selectBlock: vi.fn(),
         selectField: vi.fn(),
         commit: vi.fn((commit) => {
           const next = applyPageField(
-            parent.slices,
+            parent.blocks,
             parent.locale,
             commit,
             parent.contentEpoch ?? 0
           )
           if (!next) return false
-          parent = { ...parent, slices: next }
+          parent = { ...parent, blocks: next }
           return true
         }),
         change: vi.fn(),
@@ -797,9 +797,9 @@ it.each([1, 2] as const)(
       expect(validLiveFrameInput(parent)).toBe(true)
       expect(controller.connect(bridge)).toBe(true)
       const captured = capturePageField(
-        parent.slices,
+        parent.blocks,
         parent.locale,
-        slice.id,
+        block.id,
         fieldPath,
         7
       )
@@ -824,7 +824,7 @@ it.each([1, 2] as const)(
       expect(callbacks.change).toHaveBeenCalledOnce()
       const first = { ...sessionCommit, value: pm("first primary commit") }
       expect(childCallbacks.commit(first)).toBe(true)
-      const receipt = pageFieldEcho(parent.slices)
+      const receipt = pageFieldEcho(parent.blocks)
       expect(receipt).toBeDefined()
       expect(receipt?.inlineSessionId).toBe(`primary-session-${depth}`)
       expect(receipt?.repeatedTarget).toEqual(captured.repeatedTarget)
@@ -836,35 +836,35 @@ it.each([1, 2] as const)(
         childCallbacks.commit({ ...active, value: pm("second primary commit") })
       ).toBe(true)
       expect(callbacks.commit).toHaveBeenCalledTimes(2)
-      expect(JSON.stringify(parent.slices[0].primary)).toContain(
+      expect(JSON.stringify(parent.blocks[0].primary)).toContain(
         "second primary commit"
       )
-      expect(JSON.stringify(slice)).toBe(sourceBefore)
+      expect(JSON.stringify(block)).toBe(sourceBefore)
     })
   }
 )
 
-it("NEW P3 root-items controller acknowledges its own echo and accepts two commits", sliceProfile([]), () => {
+it("NEW P3 root-items controller acknowledges its own echo and accepts two commits", blockProfile([]), () => {
   expect.assertions(12)
-  const slice = createSampleSlice("features-icon-grid")
-  const sourceBefore = JSON.stringify(slice)
+  const block = createSampleBlock("features-icon-grid")
+  const sourceBefore = JSON.stringify(block)
   let parent: LiveFrameInput = {
     ...input,
-    slices: [slice],
+    blocks: [block],
     contentEpoch: 7,
   }
   const callbacks: LiveFrameCallbacks = {
-    selectSlice: vi.fn(),
+    selectBlock: vi.fn(),
     selectField: vi.fn(),
     commit: vi.fn((commit) => {
       const next = applyPageField(
-        parent.slices,
+        parent.blocks,
         parent.locale,
         commit,
         parent.contentEpoch ?? 0
       )
       if (!next) return false
-      parent = { ...parent, slices: next }
+      parent = { ...parent, blocks: next }
       return true
     }),
     change: vi.fn(),
@@ -891,9 +891,9 @@ it("NEW P3 root-items controller acknowledges its own echo and accepts two commi
   }
   expect(controller.connect(bridge)).toBe(true)
   const binding = capturePageField(
-    parent.slices,
+    parent.blocks,
     parent.locale,
-    slice.id,
+    block.id,
     "items.0.body",
     7
   )
@@ -915,7 +915,7 @@ it("NEW P3 root-items controller acknowledges its own echo and accepts two commi
   expect(callbacks.change).toHaveBeenCalledOnce()
   const first = { ...sessionCommit, value: pm("first own commit") }
   expect(childCallbacks.commit(first)).toBe(true)
-  const receipt = pageFieldEcho(parent.slices)
+  const receipt = pageFieldEcho(parent.blocks)
   expect(receipt).toBeDefined()
   expect(receipt?.inlineSessionId).toBe("root-items-session")
   expect(controller.replaceInput(parent)).toBe(true)
@@ -925,12 +925,12 @@ it("NEW P3 root-items controller acknowledges its own echo and accepts two commi
   const second = { ...active, value: pm("second own commit") }
   expect(childCallbacks.commit(second)).toBe(true)
   expect(callbacks.commit).toHaveBeenCalledTimes(2)
-  const updated = parent.slices[0]
+  const updated = parent.blocks[0]
   if (!updated || updated.type !== "features-icon-grid") {
     throw new Error("Expected the updated features icon grid")
   }
   expect(JSON.stringify(updated.items)).toContain("second own commit")
-  expect(JSON.stringify(slice)).toBe(sourceBefore)
+  expect(JSON.stringify(block)).toBe(sourceBefore)
 })
 
 it.each([
@@ -939,14 +939,14 @@ it.each([
   "missing ancestry",
   "stale epoch",
 ] as const)(
-  "NEW P3 active primary session refuses an incoming %s identity", sliceProfile([]),
+  "NEW P3 active primary session refuses an incoming %s identity", blockProfile([]),
   (kind) => {
-    expect.assertions(11 + sliceValidator.members.length)
-    withPrimaryRepeatedField(2, (slice, fieldPath) => {
-      const sourceBefore = JSON.stringify(slice)
+    expect.assertions(11 + blockValidator.members.length)
+    withPrimaryRepeatedField(2, (block, fieldPath) => {
+      const sourceBefore = JSON.stringify(block)
       const initial: LiveFrameInput = {
         ...input,
-        slices: [slice],
+        blocks: [block],
         contentEpoch: 7,
         catalogRevision: "catalog-a",
       }
@@ -954,17 +954,17 @@ it.each([
       expect(validLiveFrameInput(initial)).toBe(true)
       expect(view.connect()).toBe(true)
       const binding = capturePageField(
-        initial.slices,
+        initial.blocks,
         initial.locale,
-        slice.id,
+        block.id,
         fieldPath,
         7,
         "catalog-a"
       )
       const borrowed = capturePageField(
-        initial.slices,
+        initial.blocks,
         initial.locale,
-        slice.id,
+        block.id,
         "primary.cards.1.details.0.copy",
         7,
         "catalog-a"
@@ -1009,20 +1009,20 @@ it.each([
       expect(view.callbacks.commit).not.toHaveBeenCalled()
       expect(view.callbacks.conflict).toHaveBeenCalledOnce()
       expect(JSON.stringify(view.parent())).toBe(before)
-      expect(JSON.stringify(slice)).toBe(sourceBefore)
+      expect(JSON.stringify(block)).toBe(sourceBefore)
     })
   }
 )
 
 it.each(["locale", "frame", "catalog"] as const)(
-  "NEW P3 active primary session refuses a wrong %s update", sliceProfile([]),
+  "NEW P3 active primary session refuses a wrong %s update", blockProfile([]),
   (kind) => {
-    expect.assertions(11 + sliceValidator.members.length)
-    withPrimaryRepeatedField(2, (slice, fieldPath) => {
-      const sourceBefore = JSON.stringify(slice)
+    expect.assertions(11 + blockValidator.members.length)
+    withPrimaryRepeatedField(2, (block, fieldPath) => {
+      const sourceBefore = JSON.stringify(block)
       const initial: LiveFrameInput = {
         ...input,
-        slices: [slice],
+        blocks: [block],
         contentEpoch: 7,
         catalogRevision: "catalog-a",
       }
@@ -1030,9 +1030,9 @@ it.each(["locale", "frame", "catalog"] as const)(
       expect(validLiveFrameInput(initial)).toBe(true)
       expect(view.connect()).toBe(true)
       const binding = capturePageField(
-        initial.slices,
+        initial.blocks,
         initial.locale,
-        slice.id,
+        block.id,
         fieldPath,
         7,
         "catalog-a"
@@ -1086,18 +1086,18 @@ it.each(["locale", "frame", "catalog"] as const)(
         expect(view.callbacks.conflict).toHaveBeenCalledOnce()
       else expect(view.callbacks.conflict).not.toHaveBeenCalled()
       expect(JSON.stringify(view.parent())).toBe(before)
-      expect(JSON.stringify(slice)).toBe(sourceBefore)
+      expect(JSON.stringify(block)).toBe(sourceBefore)
     })
   }
 )
 
-it("NEW P3 primary own echo with changed ancestor refuses the next frame commit", sliceProfile([]), () => {
-  expect.assertions(12 + sliceValidator.members.length)
-  withPrimaryRepeatedField(2, (slice, fieldPath) => {
-    const sourceBefore = JSON.stringify(slice)
+it("NEW P3 primary own echo with changed ancestor refuses the next frame commit", blockProfile([]), () => {
+  expect.assertions(12 + blockValidator.members.length)
+  withPrimaryRepeatedField(2, (block, fieldPath) => {
+    const sourceBefore = JSON.stringify(block)
     const initial: LiveFrameInput = {
       ...input,
-      slices: [slice],
+      blocks: [block],
       contentEpoch: 7,
       catalogRevision: "catalog-a",
     }
@@ -1105,9 +1105,9 @@ it("NEW P3 primary own echo with changed ancestor refuses the next frame commit"
     expect(validLiveFrameInput(initial)).toBe(true)
     expect(view.connect()).toBe(true)
     const binding = capturePageField(
-      initial.slices,
+      initial.blocks,
       initial.locale,
-      slice.id,
+      block.id,
       fieldPath,
       7,
       "catalog-a"
@@ -1128,16 +1128,16 @@ it("NEW P3 primary own echo with changed ancestor refuses the next frame commit"
     expect(
       view.frameCallbacks().commit({ ...active, value: pm("first") })
     ).toBe(true)
-    const receipt = pageFieldEcho(view.parent().slices)
+    const receipt = pageFieldEcho(view.parent().blocks)
     expect(receipt).toMatchObject({
       inlineSessionId: "primary-echo-session",
       repeatedTarget: binding.repeatedTarget,
     })
     const acknowledged = structuredClone(view.parent())
-    const cards = Reflect.get(acknowledged.slices[0]!.primary, "cards")
+    const cards = Reflect.get(acknowledged.blocks[0]!.primary, "cards")
     if (!Array.isArray(cards)) throw new Error("Expected primary cards")
     Reflect.set(cards[0], "label", "external ancestor change")
-    Reflect.set(acknowledged.slices[0]!.primary, "cards", cards)
+    Reflect.set(acknowledged.blocks[0]!.primary, "cards", cards)
     expect(view.replaceParent(acknowledged)).toBe(true)
     const beforeRefusal = JSON.stringify(view.parent())
     const activeAfterReplace = view.controller.handle.capture()
@@ -1152,6 +1152,6 @@ it("NEW P3 primary own echo with changed ancestor refuses the next frame commit"
     expect(view.callbacks.commit).toHaveBeenCalledOnce()
     expect(view.callbacks.conflict).toHaveBeenCalledOnce()
     expect(JSON.stringify(view.parent())).toBe(beforeRefusal)
-    expect(JSON.stringify(slice)).toBe(sourceBefore)
+    expect(JSON.stringify(block)).toBe(sourceBefore)
   })
 })

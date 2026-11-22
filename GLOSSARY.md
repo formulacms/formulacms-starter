@@ -15,7 +15,7 @@ The single Page assigned to the site's public root. Content for each enabled loc
 _Avoid_: Homepage record, root document
 
 **Localized Content**:
-The independently publishable per-locale unit of a Page (`fr`, `en`, …). Each locale carries its own `slices` array — slices are duplicated per locale, not shared — and archiving or trashing the Page removes every locale from public access.
+The independently publishable per-locale unit of a Page (`fr`, `en`, …). Each locale carries its own `blocks` array — blocks are duplicated per locale, not shared — and archiving or trashing the Page removes every locale from public access.
 _Avoid_: Translation, variant
 
 **Working Draft**:
@@ -122,30 +122,31 @@ _Avoid_: Published Snapshot, rollback in place
 A short-lived, authenticated view of one Page's saved Working Draft in one locale. It is bound to the viewer, Page identity, and locale; browser draft mode or knowledge of a slug is not authority to read unpublished content.
 _Avoid_: Public preview link, Draft Mode cookie, preview URL
 
-**Slice**:
-A composable, typed content block placed in a Localized Content's ordered list (for example `hero` or `hero-agency`). Has `id`, `type`, `enabled`, a `primary` field group, and optional repeatable `items`.
-_Avoid_: Block, section, widget, component, Prismic slice, Slice Machine slice
-_Important_: This is formulacms vocabulary only. A Slice is not a Prismic model,
+**Block**:
+A composable, typed content unit placed in a Localized Content's ordered list (for example `hero` or `hero-agency`). Has `id`, `type`, `enabled`, a `primary` field group, and optional repeatable `items`.
+_Avoid_: slice (old name), section, widget, component
+_Important_: This is formulacms vocabulary only. A Block is not a Prismic model,
 custom type, shared slice, or Slice Machine artifact.
+Terminology (2026-11-20, unit 38): "block" replaces the former term "slice" in code, routes, commands and docs; ADR numbers are unchanged.
 
-**Slice Type**:
-The reusable code-first definition from which Slice instances are created, combining the content shape with its renderer and authoring metadata. Archiving or deleting a Slice Type is distinct from removing one Slice from a Page.
-_Avoid_: Example Slice (when meaning the reusable type), Slice instance
+**Block Type**:
+The reusable code-first definition from which Block instances are created, combining the content shape with its renderer and authoring metadata. Archiving or deleting a Block Type is distinct from removing one Block from a Page.
+_Avoid_: Example Block (when meaning the reusable type), Block instance
 
 **Field Primitive**:
-The smallest reusable authoring unit a Slice is built from. The v0.1 vocabulary is fixed at seven leaf kinds: **text, rich-text, image, link, boolean, select, number**. A primitive holds a single value within one locale — localization lives one level up at the Page, never inside a primitive — and always has a value (a canonical default); "unset" is expressed only by omitting an explicitly-optional field, never by a half-set or tri-state value.
+The smallest reusable authoring unit a Block is built from. The v0.1 vocabulary is fixed at seven leaf kinds: **text, rich-text, image, link, boolean, select, number**. A primitive holds a single value within one locale — localization lives one level up at the Page, never inside a primitive — and always has a value (a canonical default); "unset" is expressed only by omitting an explicitly-optional field, never by a half-set or tri-state value.
 _Avoid_: Field, control, input, widget, atom (when meaning the primitive)
 
 **Field Group**:
-A named object of fields — Field Primitives or nested groups. A Slice's non-repeatable group is `primary`; reusable groups (e.g. the button) are defined once and shared across Slices.
+A named object of fields — Field Primitives or nested groups. A Block's non-repeatable group is `primary`; reusable groups (e.g. the button) are defined once and shared across Blocks.
 _Avoid_: Props, fields blob
 
 **List**:
-A repeatable, bounded sequence of a single group or primitive. A Slice's `items` is a List (e.g. a List of buttons, capped by a max).
+A repeatable, bounded sequence of a single group or primitive. A Block's `items` is a List (e.g. a List of buttons, capped by a max).
 _Avoid_: Array, collection, repeater (loosely)
 
 **Primitive Walk**:
-A recursive descent over a Field Primitive tree — through Field Groups (`config.fields`) and Lists (`config.item`) down to the leaves. Two shapes: a **value walk** (`walkValue`) traverses a descriptor alongside a stored value and visits each leaf (real list indices in the path); a **def walk** (`walkDef`) is structure-only and visits every node with a positional path and list-nesting depth. Both live in `convex/lib/slices/walk.ts` so the descent and its casts exist once. A transform that _rebuilds_ a value tree (sample synthesis, localization) is not a Primitive Walk.
+A recursive descent over a Field Primitive tree — through Field Groups (`config.fields`) and Lists (`config.item`) down to the leaves. Two shapes: a **value walk** (`walkValue`) traverses a descriptor alongside a stored value and visits each leaf (real list indices in the path); a **def walk** (`walkDef`) is structure-only and visits every node with a positional path and list-nesting depth. Both live in `convex/lib/blocks/walk.ts` so the descent and its casts exist once. A transform that _rebuilds_ a value tree (sample synthesis, localization) is not a Primitive Walk.
 _Avoid_: Traversal, visitor (loosely), recursion
 
 **Primitive Config**:
@@ -205,7 +206,7 @@ _Avoid_: Forms (as the module name), contact module
 Owner decision (2026-11-07): "drop linl label and button label just label. link go soewhere .buttton do action."
 
 **Link**:
-An element that goes somewhere: it has a destination (a page, a URL, or `#` while no destination is set) and is rendered as `<a href>`. A link keeps this name even when it is styled to look like a button, for example a call to action in a featured menu block.
+An element that goes somewhere: it has a destination (a page, a URL, or `#` while no destination is set) and is rendered as `<a href>`. A link keeps this name even when it is styled to look like a button, for example a call to action in a featured menu section.
 _Avoid_: Button, button link (for anything that has a destination)
 
 **Button**:

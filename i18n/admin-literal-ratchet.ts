@@ -63,7 +63,7 @@ const R1_SOURCE_PREFIXES = [
   "app/(public)/",
   "components/public/",
   "components/content-types/",
-  "components/slices/",
+  "components/blocks/",
 ] as const
 
 const NAMED_STRING_PROPS = new Set([

@@ -83,7 +83,7 @@ async function createPage(
     content: Object.fromEntries(
       site.locales.map((locale) => [
         locale,
-        { title: `${slug} ${locale}`, slices: [] },
+        { title: `${slug} ${locale}`, blocks: [] },
       ])
     ),
   })

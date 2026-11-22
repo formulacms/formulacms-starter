@@ -1,15 +1,15 @@
 import { catalogSchema } from "./schema"
 
 /**
- * A deliberately small catalog of real reference slices already shipped by
+ * A deliberately small catalog of real reference blocks already shipped by
  * formulacms. Paid Plus source and unshipped roadmap assets do not belong here.
  */
 export const catalogAssets = catalogSchema.parse([
   {
     schemaVersion: 1,
-    id: "slice:hero-agency",
+    id: "block:hero-agency",
     slug: "hero-agency",
-    kind: "slice",
+    kind: "block",
     name: "Hero Agency",
     summary:
       "High-impact agency hero with eyebrow text and split footer layout.",
@@ -34,9 +34,9 @@ export const catalogAssets = catalogSchema.parse([
   },
   {
     schemaVersion: 1,
-    id: "slice:features-icon-grid",
+    id: "block:features-icon-grid",
     slug: "features-icon-grid",
-    kind: "slice",
+    kind: "block",
     name: "Features Icon Grid",
     summary: "Responsive grid of feature cards under a section heading.",
     group: "features",
@@ -60,9 +60,9 @@ export const catalogAssets = catalogSchema.parse([
   },
   {
     schemaVersion: 1,
-    id: "slice:contact-form",
+    id: "block:contact-form",
     slug: "contact-form",
-    kind: "slice",
+    kind: "block",
     name: "Contact Form",
     summary: "Contact detail cards beside a localized, validated contact form.",
     group: "misc",

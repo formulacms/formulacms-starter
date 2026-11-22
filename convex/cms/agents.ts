@@ -16,17 +16,17 @@ import {
 import { assertTupleSelectable } from "../lib/aiCatalog"
 import type { TaskProfile } from "../../lib/ai/execution-contract"
 
-// slice-author / slice-renderer retired 2026-07-14 (ADR-0032 amendment):
+// block-author / block-renderer retired 2026-07-14 (ADR-0032 amendment):
 // build-lane work is no longer a runtime agent. The literal union stays
 // tighter than the schema table's own union so `updateAgent` refuses those
 // keys even if a legacy client sends them; the schema keeps them so existing
-// rows remain schema-valid until `clearRetiredSliceAgents` sweeps them.
+// rows remain schema-valid until `clearRetiredBlockAgents` sweeps them.
 const agentLiteral = v.union(
   v.literal("translation"),
   v.literal("content"),
   v.literal("help-assistant")
 )
-const RETIRED_AGENT_IDS = ["slice-author", "slice-renderer"] as const
+const RETIRED_AGENT_IDS = ["block-author", "block-renderer"] as const
 const presetValidator = v.object({ label: v.string(), body: v.string() })
 
 export const AGENT_TASK_PROFILES = {
@@ -261,15 +261,15 @@ export const updateAgent = mutation({
   },
 })
 
-/** One-shot cleanup for the two retired build-lane slice agents
- *  (`slice-author`, `slice-renderer`) — the runtime no longer routes to them,
+/** One-shot cleanup for the two retired build-lane block agents
+ *  (`block-author`, `block-renderer`) — the runtime no longer routes to them,
  *  `listAgents` no longer surfaces them, and `updateAgent` refuses to write
  *  them. Any surviving `agentConfigs` row for those ids is dead data. Run once
- *  per deployment: `npx convex run cms/agents:clearRetiredSliceAgents`. Keep
+ *  per deployment: `npx convex run cms/agents:clearRetiredBlockAgents`. Keep
  *  the schema union entries for both ids until this has run everywhere;
  *  removing a literal from a defineTable union while rows still carry it is a
  *  schema-validation break. */
-export const clearRetiredSliceAgents = internalMutation({
+export const clearRetiredBlockAgents = internalMutation({
   args: {},
   returns: v.number(),
   handler: async (ctx) => {

@@ -1,7 +1,7 @@
-import { parseFieldPath } from "@/components/slice-kit/field-path"
+import { parseFieldPath } from "@/components/block-kit/field-path"
 
 /** Preserve the admin's permissive parser import while sharing its pure implementation. */
-export { parseFieldPath } from "@/components/slice-kit/field-path"
+export { parseFieldPath } from "@/components/block-kit/field-path"
 
 export function setValueAtFieldPath(
   source: unknown,

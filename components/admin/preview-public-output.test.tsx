@@ -1,14 +1,14 @@
-import { createSampleSlice } from "@/convex/lib/slices/sample"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { createSampleBlock } from "@/convex/lib/blocks/sample"
+import { blockProfile } from "@/test-utils/block-profile"
 import { expect, it } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
-import { HeroAgency } from "@/components/slices/hero-agency"
+import { HeroAgency } from "@/components/blocks/hero-agency"
 
 
-it("NEW renders actual unqueried public source without renderer/revision/location stamps", sliceProfile([]), () => {
+it("NEW renders actual unqueried public source without renderer/revision/location stamps", blockProfile([]), () => {
   const html = renderToStaticMarkup(
     <HeroAgency
-      slice={createSampleSlice("hero-agency")}
+      block={createSampleBlock("hero-agency")}
       ctx={{ locale: "en", defaultLocale: "en", pagePaths: {} }}
     />
   )

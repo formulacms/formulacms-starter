@@ -36,7 +36,7 @@ import {
   validateApiModelTuple,
 } from "./task-profiles"
 
-test("one profile-to-assistant map covers all runtime profiles and excludes slice authoring", () => {
+test("one profile-to-assistant map covers all runtime profiles and excludes block authoring", () => {
   expect(ASSISTANT_PROFILES).toEqual({ writing: ["editorial-copy", "structured-outline-meta"], translation: ["mechanical-translation", "brand-translation"], help: ["grounded-help"] })
   expect(assistantForProfile("structured-outline-meta")).toBe("writing")
   expect(assistantForProfile("mechanical-translation")).toBe("translation")

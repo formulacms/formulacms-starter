@@ -8,7 +8,7 @@ import { resolveFieldContract } from "@/convex/lib/richtext/contracts"
 
 test.each([
   ["itemTitle", 3],
-  ["sliceTitle", 2],
+  ["blockTitle", 2],
 ] as const)(
   "preserves the resolved %s descriptor level through preview normalization",
   (role, level) => {

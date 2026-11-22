@@ -6,7 +6,7 @@ import { isLocalDevelopment } from "@/lib/assert-local-dev"
 import type { LocalProviderKeyPresence } from "@/lib/local-api-keys"
 import { localProviderKeyPresenceNow } from "@/lib/local-api-keys-file"
 import { isLocalToolRequest } from "@/lib/local-request"
-import { resolveSliceCreatorSelection } from "@/lib/slices/authoring/creator-selection"
+import { resolveBlockCreatorSelection } from "@/lib/blocks/authoring/creator-selection"
 import { AiSettingsRoute, type LocalToolsData } from "../ai-settings-screen"
 
 /** System-owned server contract for the direct Settings AI route body. */
@@ -21,12 +21,12 @@ export type AdminAiSettingsServerBinding = Readonly<{
   /** The local tools for Settings › AI; `undefined` unless the owner, with
    *  the AI module on, asks from this computer in local development. */
   loadLocalTools: () => Promise<LocalToolsData | undefined>
-  /** Whether the Slice creator can run here; the Slices list and Create
-   *  slice share it so they never disagree. */
-  resolveSliceCreatorReady: () => Promise<boolean>
+  /** Whether the Block creator can run here; the Blocks list and Create
+   *  block share it so they never disagree. */
+  resolveBlockCreatorReady: () => Promise<boolean>
 }>
 
-// Same route and selection as the slice-authoring server actions, so the
+// Same route and selection as the block-authoring server actions, so the
 // Generate button never lies about whether the action can run. A local tool
 // chosen for the Block creator in Settings › AI is ready for a browser on
 // this computer (no API key needed); another device is not ready. Any failed
@@ -36,7 +36,7 @@ export type AdminAiSettingsServerBinding = Readonly<{
 // AI route does not otherwise load. The reads run in order, so the local file
 // is read only after the owner check and the saved settings (which refuse
 // while the AI module is off) succeed.
-async function resolveSliceCreatorReady(): Promise<boolean> {
+async function resolveBlockCreatorReady(): Promise<boolean> {
   if (!isLocalDevelopment()) return false
   try {
     const [{ requireInstallationOwner }, { fetchAuthQuery }] = await Promise.all([
@@ -44,13 +44,13 @@ async function resolveSliceCreatorReady(): Promise<boolean> {
       import("@/lib/auth/server"),
     ])
     await requireInstallationOwner()
-    const saved = await fetchAuthQuery(api.cms.aiSettings.sliceCreator, {})
+    const saved = await fetchAuthQuery(api.cms.aiSettings.blockCreator, {})
     const { resolveLocalAiRoute } = await import(
       "@/app/(core)/admin/(authenticated)/pages/local-ai-routing"
     )
     const route = await resolveLocalAiRoute("vision-spec")
     if (route.engine === "claude" || route.engine === "codex") return true
-    return resolveSliceCreatorSelection(saved.tuple, localProviderKeyPresenceNow())
+    return resolveBlockCreatorSelection(saved.tuple, localProviderKeyPresenceNow())
       .keyPresent
   } catch {
     return false
@@ -117,4 +117,4 @@ async function loadLocalTools(): Promise<LocalToolsData | undefined> {
 
 /** Installed AI settings route; OptionalModuleRoute owns the runtime gate. */
 export const ADMIN_AI_SETTINGS_SERVER_BINDING: AdminAiSettingsServerBinding | null =
-  { renderSettingsPage: (props) => createElement(AiSettingsRoute, props), resolveSliceCreatorReady, loadLocalTools }
+  { renderSettingsPage: (props) => createElement(AiSettingsRoute, props), resolveBlockCreatorReady, loadLocalTools }

@@ -1,9 +1,9 @@
 import {
   dynamicListSourceKey,
   isColumnPanel,
-  mapPanelBlocks,
-  panelBlocks,
-  type ResolvedBlock,
+  mapPanelSections,
+  panelSections,
+  type ResolvedPanelSection,
   type CanonicalResolvedNavItem,
   type MenuCardsBySource,
   type PanelTree,
@@ -18,17 +18,17 @@ type Reason =
   | "Empty"
   | "parent hidden"
   | null
-type Kind = "item" | "panel" | "column" | "block" | "link" | "seeAll" | "image"
+type Kind = "item" | "panel" | "column" | "section" | "link" | "seeAll" | "image"
 export type MenuDecision = { kind: Kind; shown: boolean; reason: Reason }
 type ResolvedTarget = NonNullable<CanonicalResolvedNavItem["target"]>
 type ResolvedPanel = NonNullable<CanonicalResolvedNavItem["panel"]>
 
 export type ShownTarget = ResolvedTarget & { url: string }
 type ShownLink<T> = Omit<T, "target"> & { target: ShownTarget }
-type LinkGroup = Extract<ResolvedBlock, { kind: "linkGroup" }>
-type Featured = Extract<ResolvedBlock, { kind: "featured" }>
-type DynamicList = Extract<ResolvedBlock, { kind: "dynamicList" }>
-export type ShownBlock =
+type LinkGroup = Extract<ResolvedPanelSection, { kind: "linkGroup" }>
+type Featured = Extract<ResolvedPanelSection, { kind: "featured" }>
+type DynamicList = Extract<ResolvedPanelSection, { kind: "dynamicList" }>
+export type ShownPanelSection =
   | (Omit<LinkGroup, "links"> & {
       links: ShownLink<LinkGroup["links"][number]>[]
     })
@@ -42,7 +42,7 @@ export type ShownBlock =
 export type ShownNavItem = Omit<CanonicalResolvedNavItem, "target" | "panel"> &
   (
     | { target: ShownTarget; panel?: undefined }
-    | { target?: ShownTarget; panel: PanelTree<ShownBlock, string> }
+    | { target?: ShownTarget; panel: PanelTree<ShownPanelSection, string> }
   )
 
 /**
@@ -97,16 +97,16 @@ export function decideMenu(
     return target ? { ...value, target } : undefined
   }
 
-  const block = (
-    value: ResolvedBlock,
+  const section = (
+    value: ResolvedPanelSection,
     dead: boolean
-  ): ShownBlock | undefined => {
+  ): ShownPanelSection | undefined => {
     const off = gate(dead, null)
     if (value.kind === "linkGroup") {
       const links = value.links
         .map((entry) => link(entry, entry.id, "link", dead))
         .filter((entry) => entry !== undefined)
-      return put(value.id, "block", off ?? (links.length ? null : "Empty"))
+      return put(value.id, "section", off ?? (links.length ? null : "Empty"))
         ? { ...value, links }
         : undefined
     }
@@ -119,7 +119,7 @@ export function decideMenu(
       const seeAll =
         value.seeAll &&
         link(value.seeAll, `${value.id}:seeAll`, "seeAll", reason !== null)
-      return put(value.id, "block", reason) ? { ...value, seeAll } : undefined
+      return put(value.id, "section", reason) ? { ...value, seeAll } : undefined
     }
     // A card's destination is optional; only ancestor/disabled state can
     // suppress its content, image, and independently resolved Link.
@@ -129,17 +129,17 @@ export function decideMenu(
       value.link && link(value.link, `${value.id}:link`, "link", off !== null)
     if (value.image)
       put(`${value.id}:image`, "image", off ? "parent hidden" : null)
-    if (!put(value.id, "block", off)) return undefined
+    if (!put(value.id, "section", off)) return undefined
     return { ...card, ...(target ? { target } : {}), link: featuredLink }
   }
   const panel = (
     value: ResolvedPanel,
     id: string,
     dead: boolean
-  ): PanelTree<ShownBlock, string> | undefined => {
-    let result = mapPanelBlocks(value, (blocks) =>
-      blocks.flatMap((entry) => {
-        const shown = block(entry, dead)
+  ): PanelTree<ShownPanelSection, string> | undefined => {
+    let result = mapPanelSections(value, (sections) =>
+      sections.flatMap((entry) => {
+        const shown = section(entry, dead)
         return shown ? [shown] : []
       })
     )
@@ -147,15 +147,15 @@ export function decideMenu(
       result = {
         ...result,
         columns: result.columns.filter((col) =>
-          put(col.id, "column", gate(dead, col.blocks.length ? null : "Empty"))
+          put(col.id, "column", gate(dead, col.sections.length ? null : "Empty"))
         ),
       }
     }
-    if (result.footer?.blocks.length === 0) delete result.footer
+    if (result.footer?.sections.length === 0) delete result.footer
     return put(
       id,
       "panel",
-      gate(dead, panelBlocks(result).length ? null : "Empty")
+      gate(dead, panelSections(result).length ? null : "Empty")
     )
       ? result
       : undefined

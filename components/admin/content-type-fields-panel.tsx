@@ -10,7 +10,7 @@ import {
   type FieldGenerate,
   type FieldTranslate,
 } from "./fields/field-editor"
-import type { Primitive } from "@/convex/lib/slices"
+import type { Primitive } from "@/convex/lib/blocks"
 import type { AdminContentType } from "@/lib/admin/content-types"
 import {
   adminContentTypeLocalizedFields,
@@ -39,7 +39,7 @@ const LOCALIZED_FIELDS_HEADING_ID = "content-type-localized-heading"
  * toolbar (2026-07-17 density redesign, prototype variant C): short text
  * fields become inline chips and booleans become toggle-pills, so a handful
  * of classification/flag fields no longer eat a tall stack of double-labelled
- * checkbox rows before the slice body. It is a presentation-only change — the
+ * checkbox rows before the block body. It is a presentation-only change — the
  * chip still carries the field's AI Write/Refine/Translate affordances, and
  * any field that isn't a short-text or a plain boolean (rich text, image,
  * list, relation, multiline text, a boolean carrying a `description`) falls
@@ -47,10 +47,10 @@ const LOCALIZED_FIELDS_HEADING_ID = "content-type-localized-heading"
  * capability is dropped. The per-language section keeps the full stacked form
  * — its fields (meta, prose) don't belong in tiny chips.
  *
- * The slice zone is composed by the host (page-editor `content-panel.tsx`)
- * and appears below this panel when `descriptor.capabilities.sliceBody`
- * is true — this component is deliberately slice-agnostic so the pure-form
- * path used by C10's non-slice descriptors (testimonial, faq-item) drops
+ * The block zone is composed by the host (page-editor `content-panel.tsx`)
+ * and appears below this panel when `descriptor.capabilities.blockBody`
+ * is true — this component is deliberately block-agnostic so the pure-form
+ * path used by C10's non-block descriptors (testimonial, faq-item) drops
  * cleanly out of the same seam.
  *
  * Two callers wire the same `sharedFieldValues` / `localizedFieldValues`
@@ -60,9 +60,9 @@ const LOCALIZED_FIELDS_HEADING_ID = "content-type-localized-heading"
  *
  * `descriptorOverride` exists solely for component tests — production
  * callers pass `contentType` and the panel reads from the admin facade.
- * Tests pass `descriptorOverride` with a mock `sliceBody:false` capability
+ * Tests pass `descriptorOverride` with a mock `blockBody:false` capability
  * to exercise the pure-form assertion the plan calls out (no shipped
- * descriptor has `sliceBody:false` today).
+ * descriptor has `blockBody:false` today).
  */
 export type ContentTypeFieldsPanelProps = {
   contentType: AdminContentType

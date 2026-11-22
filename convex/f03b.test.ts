@@ -145,14 +145,14 @@ describe("F03b owner boundary", () => {
   test("keeps source writers behind durable owner plus local-development guards", async () => {
     for (const file of [
       "app/(core)/admin/(authenticated)/content-types/actions.ts",
-      "app/(core)/admin/(authenticated)/slices/actions.ts",
-      "app/(sim)/slice-sim/[type]/actions.ts",
-      "app/(sim)/slice-sim/[type]/read-renderer-source.ts",
+      "app/(core)/admin/(authenticated)/blocks/actions.ts",
+      "app/(sim)/block-sim/[type]/actions.ts",
+      "app/(sim)/block-sim/[type]/read-renderer-source.ts",
     ]) {
       const source = await readFile(file, "utf8")
       expect(source).toContain("requireInstallationOwner")
       expect(source).not.toContain("roles.myPermissions")
-      expect(source).not.toContain("requireSliceAuthorPermission")
+      expect(source).not.toContain("requireBlockAuthorPermission")
     }
     const ownerAction = await readFile("lib/owner-server.ts", "utf8")
     expect(ownerAction).toContain("getOwnerSession")

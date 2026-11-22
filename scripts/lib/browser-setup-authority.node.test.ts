@@ -36,6 +36,7 @@ describe("browser verification setup authority", () => {
     const harnesses = [
       "scripts/verify-starter-e2e.ts",
       "scripts/verify-app-creation.ts",
+      "scripts/verify-block-rendering.ts",
     ]
 
     for (const relativePath of harnesses) {

@@ -31,7 +31,7 @@ async function activeApp() {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   await t.run((ctx) =>
     ctx.db.insert("siteSettings", {
@@ -52,7 +52,7 @@ const createCafe = (owner: Awaited<ReturnType<typeof activeApp>>["owner"]) =>
     status: "draft",
     slug: "cafe",
     title: "Café",
-    content: { en: { title: "Café", slices: [] } },
+    content: { en: { title: "Café", blocks: [] } },
   })
 
 const firstPublish = (pageId: Awaited<ReturnType<typeof createCafe>>) => ({
@@ -87,7 +87,7 @@ describe("snapshot-active slug uniqueness", () => {
           draft: {
             pageType: "landing-page",
             localized: { title: "Café" },
-            slices: [],
+            blocks: [],
           },
         },
       })
@@ -141,7 +141,7 @@ describe("CVX-REPRO-1 historical reservation", () => {
               draft: {
                 pageType: "landing-page",
                 localized: { title: "Café" },
-                slices: [],
+                blocks: [],
               },
             },
           }
@@ -238,7 +238,7 @@ describe("CVX-REPRO-1 historical reservation", () => {
           draft: {
             pageType: "landing-page",
             localized: { title: "Café" },
-            slices: [],
+            blocks: [],
           },
         },
       })
@@ -294,7 +294,7 @@ describe("CVX-REPRO-1 historical reservation", () => {
       status: "draft",
       slug: "a",
       title: "Other",
-      content: { en: { title: "Other", slices: [] } },
+      content: { en: { title: "Other", blocks: [] } },
     })
     expect(
       (await owner.query(api.cms.pages.getForEdit, { id: other }))?.page.slug
@@ -324,7 +324,7 @@ describe("ED3 server/editor slug parity (literal addresses)", () => {
         pageType: "landing-page",
         status: "draft",
         title,
-        content: { en: { title, slices: [] } },
+        content: { en: { title, blocks: [] } },
       })
       expect((await t.run((ctx) => ctx.db.get("pages", id)))?.slug).toBe(
         expected
@@ -340,7 +340,7 @@ describe("ED3 server/editor slug parity (literal addresses)", () => {
       status: "draft",
       title: "one_two",
       slug: "kept",
-      content: { en: { title: "one_two", slices: [] } },
+      content: { en: { title: "one_two", blocks: [] } },
     })
     expect((await t.run((ctx) => ctx.db.get("pages", id)))?.slug).toBe("kept")
   })

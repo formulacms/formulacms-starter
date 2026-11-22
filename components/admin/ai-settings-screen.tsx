@@ -21,7 +21,7 @@ import { OptionalModuleRoute } from "./optional-module-route"
 import { AiSettingsModelPicker, updatedSinceRefresh, type ListsUpdated, type ModelChoice } from "./ai-settings-model-picker"
 import type { LocalProviderKeyPresence } from "@/lib/local-api-keys"
 import { localToolModelName } from "@/lib/local-model-names"
-import { resolveSliceCreatorSelection } from "@/lib/slices/authoring/creator-selection"
+import { resolveBlockCreatorSelection } from "@/lib/blocks/authoring/creator-selection"
 
 // Settings › AI (approved prototype `prototype/ai-install-setup` 96be6727,
 // owner 2026-11-18): a rail with Assistants and Your AI providers. Your AI
@@ -38,8 +38,8 @@ type Tuple = Assistant["effective"]
 type Draft = { tuple: Tuple; instructions?: string }
 type Choice = ModelChoice
 type Effort = Choice["efforts"][number]
-type CreatorData = FunctionReturnType<typeof api.cms.aiSettings.sliceCreator>
-type SliceCreatorProps = { data: CreatorData; keys: LocalProviderKeyPresence }
+type CreatorData = FunctionReturnType<typeof api.cms.aiSettings.blockCreator>
+type BlockCreatorProps = { data: CreatorData; keys: LocalProviderKeyPresence }
 
 // Local tools (ADR-0057 step 1): offered to every assistant, in a browser on
 // this computer only. The choice is saved in the local file by a server
@@ -47,7 +47,7 @@ type SliceCreatorProps = { data: CreatorData; keys: LocalProviderKeyPresence }
 export type LocalToolEngine = "claude" | "codex"
 /** The sign-in method only; never the tool's own output. */
 export type LocalToolStatus = "plan" | "api-key" | "unknown" | "signed-out" | "not-installed"
-export type LocalAssistant = "help" | "sliceCreator" | "writing" | "translation"
+export type LocalAssistant = "help" | "blockCreator" | "writing" | "translation"
 export type LocalToolChoice = { engine: LocalToolEngine; model: string; effort: string }
 export type LocalToolChoices = Partial<Record<LocalAssistant, LocalToolChoice>>
 /** A Claude plan Settings names; anything else is "plan not detected". */
@@ -167,11 +167,11 @@ function offeredChoice(models: readonly Choice[], model: string) {
   return listed && !listed.unavailable ? listed : undefined
 }
 
-/** The Slice creator's tuple before any edit: saved, else the default of the
+/** The Block creator's tuple before any edit: saved, else the default of the
  *  provider it would run with on this computer, else the first offered default. */
-function creatorBaseTuple({ data, keys }: SliceCreatorProps): Tuple | undefined {
+function creatorBaseTuple({ data, keys }: BlockCreatorProps): Tuple | undefined {
   if (data.tuple) return data.tuple
-  const provider = resolveSliceCreatorSelection(undefined, keys).provider
+  const provider = resolveBlockCreatorSelection(undefined, keys).provider
   return (provider ? data.defaults[provider] : null) ?? APIS.map((p) => data.defaults[p]).find((tuple) => tuple !== null) ?? undefined
 }
 
@@ -406,11 +406,11 @@ export function SettingsAiScreen({ isLocal, localKeys, localTools: offeredTools 
   const searchParams = useSearchParams()
   const localTools = isLocal ? offeredTools : undefined
   const status = useQuery(api.cms.aiSettings.status, {})
-  // The Slice creator exists only in local development, where the server passes key presence.
+  // The Block creator exists only in local development, where the server passes key presence.
   const keys = isLocal ? localKeys : undefined
-  const creatorData = useQuery(api.cms.aiSettings.sliceCreator, keys ? {} : "skip")
+  const creatorData = useQuery(api.cms.aiSettings.blockCreator, keys ? {} : "skip")
   const saveAssistant = useMutation(api.cms.aiSettings.setAssistant)
-  const saveCreator = useMutation(api.cms.aiSettings.setSliceCreator)
+  const saveCreator = useMutation(api.cms.aiSettings.setBlockCreator)
   const refreshCatalogs = useMutation(api.cms.vendorModelCatalog.refreshModelCatalogs)
   // Drafts sit above the tabs: an edit survives switching tabs and coming back.
   const [drafts, setDrafts] = useState<Partial<Record<Assistant["id"], Draft>>>({})
@@ -499,8 +499,8 @@ export function SettingsAiScreen({ isLocal, localKeys, localTools: offeredTools 
         })
       }
       if (pendingCreator) {
-        // setSliceCreator replaces the stored entry, so both values travel together.
-        const args: FunctionArgs<typeof api.cms.aiSettings.setSliceCreator> = {}
+        // setBlockCreator replaces the stored entry, so both values travel together.
+        const args: FunctionArgs<typeof api.cms.aiSettings.setBlockCreator> = {}
         if (pendingCreator.tuple.mode === "catalog") args.tuple = pendingCreator.tuple
         if (pendingCreator.instructions.trim() !== "") args.instructions = pendingCreator.instructions
         await saveCreator(args)
@@ -549,29 +549,29 @@ export function SettingsAiScreen({ isLocal, localKeys, localTools: offeredTools 
 
   if (creator && creatorBase) {
     const { data, keys: fileKeys } = creator
-    const local = localRoute("sliceCreator")
+    const local = localRoute("blockCreator")
     const instructions = creatorDraft ? creatorDraft.instructions : data.instructions ?? ""
     const apiTuple = creatorDraft?.tuple ?? creatorBase
     const route: RowTuple = local ? localTuple(local) : apiTuple
     const set = (patch: Partial<CreatorDraft>) => setCreatorDraft((current) => ({ tuple: apiTuple, instructions, ...current, ...patch }))
-    const { all, providers, hasDefault } = toolChoices("sliceCreator", data.choices)
+    const { all, providers, hasDefault } = toolChoices("blockCreator", data.choices)
     cards.push(
-      <AssistantCard key="sliceCreator" id="sliceCreator" title={t("sliceCreator.title")} summary={t("sliceCreator.summary")} route={route} choices={all} providers={providers} {...shared}
+      <AssistantCard key="blockCreator" id="blockCreator" title={t("blockCreator.title")} summary={t("blockCreator.summary")} route={route} choices={all} providers={providers} {...shared}
         // The Block creator runs on its own .env.local key, not the Convex one: an API key's word follows that file.
         // Nothing records a refused file key, so it has no Invalid key.
         problem={(p) => isTool(p) ? problem(p) : fileKeys[p] ? undefined : "notSetUp"}
         optionDisabled={(p) => isTool(p) ? !toolReady(localTools, p) || !hasDefault(p) : data.defaults[p] === null}
         selectDisabled={false}
         onProvider={(p) => {
-          if (isTool(p)) return chooseTool("sliceCreator", p)
-          leaveTool("sliceCreator")
+          if (isTool(p)) return chooseTool("blockCreator", p)
+          leaveTool("blockCreator")
           if (p === creatorBase.provider) {
             if (creatorDraft) set({ tuple: creatorBase })
           } else set({ tuple: data.defaults[p]! })
         }}
-        onRoute={(next) => next.mode === "local" ? setLocal("sliceCreator", { engine: next.provider, model: next.model, effort: next.reasoning.effort }) : set({ tuple: next })}
+        onRoute={(next) => next.mode === "local" ? setLocal("blockCreator", { engine: next.provider, model: next.model, effort: next.reasoning.effort }) : set({ tuple: next })}
         effortLocked={false}
-        instructions={<Instructions id="sliceCreator" value={instructions} placeholder={t("sliceCreator.prompt")} onChange={(value) => set({ instructions: value })}
+        instructions={<Instructions id="blockCreator" value={instructions} placeholder={t("blockCreator.prompt")} onChange={(value) => set({ instructions: value })}
           onReset={instructions !== "" ? () => set({ instructions: "" }) : undefined} />} />
     )
   }

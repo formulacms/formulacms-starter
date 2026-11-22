@@ -113,7 +113,7 @@ describe("frozen shipped selector invariants", () => {
     for (const target of [
       "components/public/new-renderer.tsx",
       "components/content-types/new.ts",
-      "components/slices/new.tsx",
+      "components/blocks/new.tsx",
       "app/(public)/new/page.tsx",
       "app/(live-preview)/admin/pages/[id]/live-frame/[locale]/page.tsx",
       "components/ui/dialog.tsx",
@@ -123,7 +123,7 @@ describe("frozen shipped selector invariants", () => {
       expect(isR1LiteralSource(target)).toBe(true)
     for (const target of [
       "components/public/new.test.tsx",
-      "components/slices/new.d.ts",
+      "components/blocks/new.d.ts",
       "components/public/new.sourceInventory.ts",
       "components/ui/button.tsx",
     ])

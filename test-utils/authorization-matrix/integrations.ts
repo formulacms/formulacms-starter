@@ -190,7 +190,7 @@ function localJobRows(): AuthorizationRow[] {
     brief: "Matrix job",
     locale: "en",
     meta: { title: "Matrix job", slug: "matrix-job" },
-    rows: [{ sliceType: "hero-with-image", purpose: "Introduce the page" }],
+    rows: [{ blockType: "hero-with-image", purpose: "Introduce the page" }],
   }
   const seedLocalJob = async (t: Site, state: MatrixState) => {
     await seedState(t, state)
@@ -346,7 +346,7 @@ export const integrationsRows: AuthorizationRow[] = [
                       meta: { title: "Matrix job", slug: "matrix-job" },
                       rows: [
                         {
-                          sliceType: "hero-with-image",
+                          blockType: "hero-with-image",
                           purpose: "Introduce the page",
                         },
                       ],
@@ -369,7 +369,7 @@ export const integrationsRows: AuthorizationRow[] = [
     })
   ),
   ownerOnly(
-    "lib/publishing/staging:startSliceOccurrenceUsageBackfill",
+    "lib/publishing/staging:startBlockOccurrenceUsageBackfill",
     "mutation",
     () => ({ mode: "backfill" }),
     { value: null },
@@ -444,8 +444,8 @@ export const integrationsRows: AuthorizationRow[] = [
   ownerOnly("cms/aiSettings:setAssistant", "mutation", () => ({ id: "writing", instructions: "Matrix" }), { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/aiSettings:setAssistantLocalTool", "mutation", () => ({ assistant: "writing", on: true }), { error: "CMS_MODULE_DISABLED" }),
   ...localJobRows(),
-  ownerOnly("cms/aiSettings:sliceCreator", "query", noArgs, { error: "CMS_MODULE_DISABLED" }),
-  ownerOnly("cms/aiSettings:setSliceCreator", "mutation", () => ({ instructions: "Matrix" }), { error: "CMS_MODULE_DISABLED" }),
+  ownerOnly("cms/aiSettings:blockCreator", "query", noArgs, { error: "CMS_MODULE_DISABLED" }),
+  ownerOnly("cms/aiSettings:setBlockCreator", "mutation", () => ({ instructions: "Matrix" }), { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/vendorModelCatalog:refreshModelCatalogs", "mutation", noArgs, { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/aiSettings:setMonthlyAiCap", "mutation", () => ({
     capMicros: 5_000_000,
@@ -471,8 +471,8 @@ export const integrationsRows: AuthorizationRow[] = [
   aiOwnerOnly("agents/contentWriter:generateField", () => ({
     brief: "Write a short title", locale: "en", fieldLabel: "Title",
   }), { value: expect.any(String) }),
-  aiOwnerOnly("agents/contentWriter:generateSlice", () => ({
-    sliceType: "hero-agency", brief: "Introduce the site", locale: "en",
+  aiOwnerOnly("agents/contentWriter:generateBlock", () => ({
+    blockType: "hero-agency", brief: "Introduce the site", locale: "en",
   }), object),
   aiOwnerOnly("agents/contentWriter:generateRichText", () => ({
     brief: "Write a short paragraph", locale: "en", fieldLabel: "Body", profile: "basic",
@@ -483,8 +483,8 @@ export const integrationsRows: AuthorizationRow[] = [
   aiOwnerOnly("agents/contentWriter:generatePageOutline", () => ({
     brief: "A useful matrix page", locale: "en",
   }), object),
-  aiOwnerOnly("agents/contentWriter:generatePageSlice", () => ({
-    sliceType: "hero-agency", pageBrief: "A useful matrix page", purpose: "Introduce the topic", locale: "en",
+  aiOwnerOnly("agents/contentWriter:generatePageBlock", () => ({
+    blockType: "hero-agency", pageBrief: "A useful matrix page", purpose: "Introduce the topic", locale: "en",
   }), object),
   aiOwnerOnly("agents/helpAssistant:answer", () => ({
     question: "How do I publish a page?",
@@ -497,17 +497,17 @@ export const integrationsRows: AuthorizationRow[] = [
     sourceLocale: "en", targetLocale: "fr",
   }), { value: expect.any(String) }),
   aiOwnerOnly("agents/localizer:localizePage", () => ({
-    title: "Hello", slices: [], sourceLocale: "en", targetLocale: "fr",
+    title: "Hello", blocks: [], sourceLocale: "en", targetLocale: "fr",
   }), object),
   ownerOnly("cms/entitlements:getAdminState", "query", noArgs, object),
   ownerOnly("cms/ai:isConfigured", "query", noArgs, { error: "CMS_MODULE_DISABLED" }),
   defineRow({
-    name: "agents/sliceAuthor:canAuthorSlices",
+    name: "agents/blockAuthor:canAuthorBlocks",
     kind: "query",
     scenarios: MATRIX_STATES.map((state): Scenario<Fixture> => ({
       label: stateLabel(state),
       setup: (t) => seedState(t, state),
-      call: (actor, fixture) => invoke(actor, "query", "agents/sliceAuthor:canAuthorSlices", noArgs(fixture)),
+      call: (actor, fixture) => invoke(actor, "query", "agents/blockAuthor:canAuthorBlocks", noArgs(fixture)),
       outcomes: {
         owner: { value: true },
         signedOut: { value: false },

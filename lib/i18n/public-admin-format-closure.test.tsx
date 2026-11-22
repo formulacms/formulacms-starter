@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
     pageType: string
   }[],
   media: [] as unknown[],
+  messages: null as Record<string, unknown> | null,
 }))
 vi.mock("next/server", () => ({ connection: async () => {} }))
 vi.mock("@/lib/auth/server", () => ({
@@ -37,7 +38,7 @@ vi.mock("next-intl/server", async () => {
     getTranslations: async (namespace: string) =>
       createTranslator({
         locale: state.locale,
-        messages: state.locale === "fr" ? fr : en,
+        messages: state.messages ?? (state.locale === "fr" ? fr : en),
         namespace: namespace as never,
       }),
   }
@@ -53,6 +54,7 @@ beforeEach(() => {
   state.locale = "fr"
   state.pages = []
   state.media = []
+  state.messages = null
 })
 test("French dashboard groups large counts, localizes badges/default, and preserves custom type identifiers", async () => {
   state.pages = Array.from({ length: 1001 }, (_, i): (typeof state.pages)[number] => ({
@@ -93,6 +95,44 @@ test("English dashboard compatibility keeps owner content and existing labels", 
   expect(screen.getByRole("link", { name: "Titre propriétaire" })).toBeVisible()
   expect(screen.getByText("Author")).toBeVisible()
   expect(screen.getByText("draft")).toBeVisible()
+})
+test("dashboard labels a selected type beyond the shipped four from the admin messages", async () => {
+  // What `content-type:new` writes: the type joins the selection and gets
+  // `sidebar.contentType.<type>` in every admin messages file.
+  vi.resetModules()
+  vi.doMock("@/convex/lib/contentTypes/starterSelection", () => ({
+    STARTER_CONTENT_TYPES: ["landing-page", "page", "post", "author", "testimonial"],
+  }))
+  try {
+    const { default: FreshDashboard } = await import(
+      "@/app/(core)/admin/(authenticated)/page"
+    )
+    state.messages = {
+      ...fr,
+      sidebar: {
+        ...fr.sidebar,
+        contentType: {
+          ...fr.sidebar.contentType,
+          testimonial: { singular: "Témoignage", plural: "Témoignages" },
+        },
+      },
+    }
+    state.pages = [
+      {
+        _id: "t",
+        localizedTitles: { fr: "Avis client" },
+        updatedAt: 1_800_000_000_000,
+        pageType: "testimonial",
+        status: "draft",
+      },
+    ]
+    render(await FreshDashboard())
+    expect(screen.getByText("Témoignage")).toBeVisible()
+    expect(screen.queryByText("testimonial")).not.toBeInTheDocument()
+  } finally {
+    vi.doUnmock("@/convex/lib/contentTypes/starterSelection")
+    vi.resetModules()
+  }
 })
 test.each(["fr", "en"])(
   "%s effective interface date formats preserve host timezone semantics",

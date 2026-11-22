@@ -5,7 +5,7 @@ import { getFunctionName } from "convex/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 
 import type { Id } from "@/convex/_generated/dataModel"
-import type { Slice } from "@/convex/lib/slices"
+import type { Block } from "@/convex/lib/blocks"
 import type { Page, PrePublishChecklist } from "./page-editor/lib/types"
 
 const owner = {
@@ -174,9 +174,9 @@ vi.mock("./page-editor/components/settings-panel", () => ({
   SettingsPanel: () => null,
 }))
 
-vi.mock("./page-editor/components/slices-panel", () => ({
-  SlicesPanel: ({ slices }: { slices: Slice[] }) => (
-    <output data-testid="page-editor-slices">{JSON.stringify(slices)}</output>
+vi.mock("./page-editor/components/blocks-panel", () => ({
+  BlocksPanel: ({ blocks }: { blocks: Block[] }) => (
+    <output data-testid="page-editor-blocks">{JSON.stringify(blocks)}</output>
   ),
 }))
 
@@ -184,13 +184,13 @@ import { PageEditor } from "./page-editor"
 
 const pageId = "page-1" as Id<"pages">
 
-function bodySlice(id: string, body: string): Slice {
+function bodyBlock(id: string, body: string): Block {
   return {
     id,
     type: "rich-text-body",
     enabled: true,
     primary: { body },
-  } as Slice
+  } as Block
 }
 
 function localizedPage(): Page {
@@ -206,11 +206,11 @@ function localizedPage(): Page {
     content: {
       en: {
         title: "English title",
-        slices: [bodySlice("slice-en", "English body")],
+        blocks: [bodyBlock("block-en", "English body")],
       },
       fr: {
         title: "Titre Français",
-        slices: [bodySlice("slice-fr", "Corps Français")],
+        blocks: [bodyBlock("block-fr", "Corps Français")],
       },
     },
     tags: [],
@@ -262,7 +262,7 @@ describe("PageEditor all-off admin profile", () => {
     expect(screen.queryByText("Revision history")).not.toBeInTheDocument()
 
     expect(mocks.commandIds).toEqual(
-      expect.arrayContaining(["page-editor:save", "page-editor:insert-slice"])
+      expect.arrayContaining(["page-editor:save", "page-editor:insert-block"])
     )
     expect(mocks.commandIds).not.toContain("page-editor:history")
     expect(mocks.queryNames).not.toContain("cms/ai:isConfigured")
@@ -281,7 +281,7 @@ describe("PageEditor all-off admin profile", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Page title")).toHaveValue("Titre Français")
     })
-    expect(screen.getByTestId("page-editor-slices")).toHaveTextContent(
+    expect(screen.getByTestId("page-editor-blocks")).toHaveTextContent(
       "Corps Français"
     )
     expect(mocks.success).toHaveBeenCalledWith(
@@ -309,7 +309,7 @@ describe("PageEditor all-off admin profile", () => {
       )
     })
     expect(screen.getByLabelText("Page title")).toHaveValue("English title")
-    expect(screen.getByTestId("page-editor-slices")).toHaveTextContent(
+    expect(screen.getByTestId("page-editor-blocks")).toHaveTextContent(
       "English body"
     )
   })

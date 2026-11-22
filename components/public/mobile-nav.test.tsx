@@ -47,7 +47,7 @@ const resolvedMenu: CanonicalResolvedNavItem[] = [
     },
     panel: {
       columns: 1,
-      blocks: [
+      sections: [
         {
           id: "expertise",
           kind: "linkGroup",
@@ -85,7 +85,7 @@ const resolvedMenu: CanonicalResolvedNavItem[] = [
         },
       ],
       footer: {
-        blocks: [
+        sections: [
           {
             id: "support",
             kind: "linkGroup",
@@ -316,8 +316,8 @@ for (const withLink of [true, false]) {
               : undefined,
             panel: {
               columns: 1,
-              blocks: [empty],
-              footer: { blocks: [{ ...empty, id: "bottom" }] },
+              sections: [empty],
+              footer: { sections: [{ ...empty, id: "bottom" }] },
             },
           },
         ]}
@@ -341,8 +341,8 @@ for (const withLink of [true, false]) {
 
 test.each([MobileNav])("R1a mobile column panel stacks in order without menu styles (%#)", Nav => {
   render(<Nav items={[{ id: "services", label: "Services en français", panel: { layout: "columns", columns: [
-    { id: "left", blocks: [{ id: "feature", kind: "featured", heading: "Card heading", link: { label: "Read feature", target: { type: "placeholder", url: "#" } } }] },
-    { id: "right", blocks: [{ id: "links", kind: "linkGroup", links: [{ id: "child", label: "Second column", target: { type: "placeholder", url: "#" } }] }] },
+    { id: "left", sections: [{ id: "feature", kind: "featured", heading: "Card heading", link: { label: "Read feature", target: { type: "placeholder", url: "#" } } }] },
+    { id: "right", sections: [{ id: "links", kind: "linkGroup", links: [{ id: "child", label: "Second column", target: { type: "placeholder", url: "#" } }] }] },
   ] } }]} />)
   openSheet()
   const trigger = expandServices()

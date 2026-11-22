@@ -55,7 +55,7 @@ const WRITE_INPUT = {
   brief: "About us",
   locale: "en",
   meta: { title: "About", slug: "about", metaTitle: "About", metaDescription: "Us" },
-  rows: [{ sliceType: "hero", purpose: "Intro" }],
+  rows: [{ blockType: "hero", purpose: "Intro" }],
 } as const
 
 const selection = (writing?: typeof WRITING) => ({

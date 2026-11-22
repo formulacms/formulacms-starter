@@ -1,17 +1,17 @@
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { readSlice } from "@/convex/lib/slices/identity"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { readBlock } from "@/convex/lib/blocks/identity"
 import { ConvexError, v, type Infer } from "convex/values"
 import type { Doc, Id } from "../../_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "../../_generated/server"
 import { contentTypeDefs, type ContentType } from "../contentTypes"
-import { hasSliceBody } from "../pages/sliceBodyContent"
-import { type Slice } from "../slices"
-import { walkFieldMap, walkValue } from "../slices/walk"
+import { hasBlockBody } from "../pages/blockBodyContent"
+import { type Block } from "../blocks"
+import { walkFieldMap, walkValue } from "../blocks/walk"
 import {
   isPrimitiveValueEmpty,
   PLACEHOLDER_IMAGE_URL,
   type Primitive,
-} from "../slices/primitives"
+} from "../blocks/primitives"
 import { isRichTextEmpty } from "../richtext/emptiness"
 import {
   createPublicSnapshotProjectionReader,
@@ -27,7 +27,7 @@ import {
 /**
  * Publishing pipeline: pre-publish checklist (plan 028 C0).
  *
- * Enforces the "publish blocker" gate — required slice fields, image alt text,
+ * Enforces the "publish blocker" gate — required block fields, image alt text,
  * SEO metadata, and target-page validity — and produces the warning/blocker
  * lists surfaced by the editor and archived into revision metadata.
  */
@@ -38,10 +38,10 @@ export const prePublishChecklistCodeValidator = v.union(
   v.literal("missing_seo_title"),
   v.literal("missing_seo_description"),
   v.literal("missing_enabled_locale_translation"),
-  v.literal("missing_required_slice_field"),
+  v.literal("missing_required_block_field"),
   // Plan 029 C9a — publish blocker/warning for a required descriptor
   // shared/localized field with a semantically empty value. Historical
-  // slice-side code stays for revision-archive back-compat (ADR-0029).
+  // block-side code stays for revision-archive back-compat (ADR-0029).
   v.literal("missing_required_field"),
   v.literal("missing_image_alt_text"),
   v.literal("broken_internal_link"),
@@ -59,7 +59,7 @@ export const prePublishChecklistParamsValidator = v.object({
     )
   ),
   contentType: v.optional(v.string()),
-  sliceType: v.optional(v.string()),
+  blockType: v.optional(v.string()),
   fieldName: v.optional(v.string()),
   targetTitle: v.optional(v.string()),
   localeSpecific: v.optional(v.boolean()),
@@ -96,7 +96,7 @@ export type PrePublishChecklistItem = {
     | "missing_seo_title"
     | "missing_seo_description"
     | "missing_enabled_locale_translation"
-    | "missing_required_slice_field"
+    | "missing_required_block_field"
     | "missing_required_field"
     | "missing_image_alt_text"
     | "broken_internal_link"
@@ -276,10 +276,10 @@ function walkDescriptorFieldMapForChecklist(
     ) {
       const relation = leaf.value as { pageId?: Id<"pages"> }
       if (relation.pageId) {
-        // Descriptor relations stay separate from slice references so field
+        // Descriptor relations stay separate from block references so field
         // metadata and the allowed content-type contract survive the walk.
         // (Advisor-flagged post-C9a bug: a draft-author byline once surfaced
-        // as a slice reference.)
+        // as a block reference.)
         const allowedTypes =
           (leaf.def.config as { pageTypes?: readonly string[] }).pageTypes ?? []
         descriptorRelations.push({
@@ -294,12 +294,12 @@ function walkDescriptorFieldMapForChecklist(
   })
 }
 
-function formatSliceField(locale: string, slice: Slice, path: string): string {
-  return `content.${locale}.slices.${readSlice(slice).type}.${path}`
+function formatBlockField(locale: string, block: Block, path: string): string {
+  return `content.${locale}.blocks.${readBlock(block).type}.${path}`
 }
 
-function inspectSliceForChecklist(
-  slice: Slice,
+function inspectBlockForChecklist(
+  block: Block,
   locale: string,
   blockers: PrePublishChecklistItem[],
   referencedPageLocales: Map<Id<"pages">, Set<string>>
@@ -309,7 +309,7 @@ function inspectSliceForChecklist(
     locales.add(locale)
     referencedPageLocales.set(pageId, locales)
   }
-  const def = readSliceDefinition(readSlice(slice).type)
+  const def = readBlockDefinition(readBlock(block).type)
   if (!def) return
   const inspectValue = (
     root: Primitive | undefined,
@@ -318,9 +318,9 @@ function inspectSliceForChecklist(
   ) => {
     if (!root) return
     walkValue(root, value, ({ def, value, path }) => {
-      const field = formatSliceField(
+      const field = formatBlockField(
         locale,
-        slice,
+        block,
         path ? `${rootPath}.${path}` : rootPath
       )
       const required = !isOptionalField(def)
@@ -331,11 +331,11 @@ function inspectSliceForChecklist(
           (def.kind === "richText" && isRichTextEmpty(value))
         ) {
           blockers.push({
-            code: "missing_required_slice_field",
+            code: "missing_required_block_field",
             severity: "blocker",
-            message: `${locale.toUpperCase()} ${readSlice(slice).type} is missing required ${path || rootPath}.`,
+            message: `${locale.toUpperCase()} ${readBlock(block).type} is missing required ${path || rootPath}.`,
             params: {
-              sliceType: readSlice(slice).type,
+              blockType: readBlock(block).type,
               fieldName: path || rootPath,
             },
             field,
@@ -351,10 +351,10 @@ function inspectSliceForChecklist(
                 (value as { url?: string }).url === PLACEHOLDER_IMAGE_URL)))
         ) {
           blockers.push({
-            code: "missing_required_slice_field",
+            code: "missing_required_block_field",
             severity: "blocker",
-            message: `${locale.toUpperCase()} ${readSlice(slice).type} is missing a required image.`,
-            params: { variant: "image", sliceType: readSlice(slice).type },
+            message: `${locale.toUpperCase()} ${readBlock(block).type} is missing a required image.`,
+            params: { variant: "image", blockType: readBlock(block).type },
             field,
             locales: [locale],
           })
@@ -374,8 +374,8 @@ function inspectSliceForChecklist(
           blockers.push({
             code: "missing_image_alt_text",
             severity: "blocker",
-            message: `${locale.toUpperCase()} ${readSlice(slice).type} image is missing alt text.`,
-            params: { sliceType: readSlice(slice).type },
+            message: `${locale.toUpperCase()} ${readBlock(block).type} image is missing alt text.`,
+            params: { blockType: readBlock(block).type },
             field,
             locales: [locale],
           })
@@ -391,10 +391,10 @@ function inspectSliceForChecklist(
             blockers.push({
               code: "broken_internal_link",
               severity: "blocker",
-              message: `${locale.toUpperCase()} ${readSlice(slice).type} has an internal link without a target page.`,
+              message: `${locale.toUpperCase()} ${readBlock(block).type} has an internal link without a target page.`,
               params: {
                 variant: "missing_link_target",
-                sliceType: readSlice(slice).type,
+                blockType: readBlock(block).type,
               },
               field,
               locales: [locale],
@@ -409,10 +409,10 @@ function inspectSliceForChecklist(
           addReference(relation.pageId)
         } else if (required) {
           blockers.push({
-            code: "missing_required_slice_field",
+            code: "missing_required_block_field",
             severity: "blocker",
-            message: `${locale.toUpperCase()} ${readSlice(slice).type} is missing a required related page.`,
-            params: { variant: "relation", sliceType: readSlice(slice).type },
+            message: `${locale.toUpperCase()} ${readBlock(block).type} is missing a required related page.`,
+            params: { variant: "relation", blockType: readBlock(block).type },
             field,
             locales: [locale],
           })
@@ -421,9 +421,9 @@ function inspectSliceForChecklist(
     })
   }
 
-  inspectValue(def.primary, readSlice(slice).primary, "primary")
-  if (def.items !== undefined && "items" in slice) {
-    inspectValue(def.items, (slice as Record<string, unknown>).items, "items")
+  inspectValue(def.primary, readBlock(block).primary, "primary")
+  if (def.items !== undefined && "items" in block) {
+    inspectValue(def.items, (block as Record<string, unknown>).items, "items")
   }
 }
 
@@ -514,34 +514,34 @@ export function buildPrePublishChecklist(
     })
   }
 
-  // Slice-body-specific checks — an empty slice canvas / missing SEO title
-  // /description block only makes sense for a slice-bodied, routable arm.
-  // Pure-form types (testimonial) have no slice canvas and no public URL —
-  // per ADR-0038 §7 those checks are n/a for `sliceBody: false` arms.
-  if (hasSliceBody(page)) {
-    const sliceBodyContent = page.content?.[cfg.defaultLocale]
-    // "Meaningful" = at least one enabled slice. A canvas full of disabled
-    // slices renders nothing and is functionally identical to an empty
+  // Block-body-specific checks — an empty block canvas / missing SEO title
+  // /description block only makes sense for a block-bodied, routable arm.
+  // Pure-form types (testimonial) have no block canvas and no public URL —
+  // per ADR-0038 §7 those checks are n/a for `blockBody: false` arms.
+  if (hasBlockBody(page)) {
+    const blockBodyContent = page.content?.[cfg.defaultLocale]
+    // "Meaningful" = at least one enabled block. A canvas full of disabled
+    // blocks renders nothing and is functionally identical to an empty
     // canvas, so it counts the same for publish-gating.
-    const enabledSliceCount = (sliceBodyContent?.slices ?? []).filter(
-      (slice) => readSlice(slice).enabled
+    const enabledBlockCount = (blockBodyContent?.blocks ?? []).filter(
+      (block) => readBlock(block).enabled
     ).length
     const descriptor = contentTypeDefs[page.pageType as ContentType]
     const requiresBody = descriptor?.capabilities.requiresBodyContent === true
 
-    if (enabledSliceCount === 0) {
+    if (enabledBlockCount === 0) {
       // Plan 029 C10 task 11 — `requiresBodyContent: true` promotes the
       // empty-canvas signal from a warning to a blocker. Types like
       // `post` set this because a post whose body is empty is a broken
       // publish, not a "you probably want to add copy" nudge. Types like
       // `landing-page` / `page` / `author` keep the softer warning (an
-      // author profile page rendering only from slice cards is a
+      // author profile page rendering only from block cards is a
       // legitimate publish state).
       if (requiresBody) {
         blockers.push({
           code: "missing_required_field",
           severity: "blocker",
-          message: `Add at least one enabled content section for ${cfg.defaultLocale.toUpperCase()} — this content type requires body content before publishing.`,
+          message: `Add at least one enabled content block for ${cfg.defaultLocale.toUpperCase()} — this content type requires body content before publishing.`,
           params: { variant: "body" },
           field: "body",
           locales: [cfg.defaultLocale],
@@ -550,14 +550,14 @@ export function buildPrePublishChecklist(
         warnings.push({
           code: "missing_default_locale_content",
           severity: "warning",
-          message: `Add at least one content section for ${cfg.defaultLocale.toUpperCase()} before publishing.`,
-          field: "content.slices",
+          message: `Add at least one content block for ${cfg.defaultLocale.toUpperCase()} before publishing.`,
+          field: "content.blocks",
           locales: [cfg.defaultLocale],
         })
       }
     }
 
-    if (!sliceBodyContent?.metaTitle?.trim() && !page.seo?.metaTitle?.trim()) {
+    if (!blockBodyContent?.metaTitle?.trim() && !page.seo?.metaTitle?.trim()) {
       warnings.push({
         code: "missing_seo_title",
         severity: "warning",
@@ -568,7 +568,7 @@ export function buildPrePublishChecklist(
     }
 
     if (
-      !sliceBodyContent?.metaDescription?.trim() &&
+      !blockBodyContent?.metaDescription?.trim() &&
       !page.seo?.metaDescription?.trim()
     ) {
       warnings.push({
@@ -686,14 +686,14 @@ export async function buildPrePublishChecklistWithReferences(
       )
     }
 
-    // Pure-form arms (`sliceBody: false`) don't carry a slice canvas — the
-    // walk below only applies to slice-bodied arms.
-    if (hasSliceBody(page)) {
-      const sliceBodyLocalized = page.content?.[locale]
-      for (const slice of sliceBodyLocalized?.slices ?? []) {
-        if (!readSlice(slice).enabled) continue
-        inspectSliceForChecklist(
-          slice,
+    // Pure-form arms (`blockBody: false`) don't carry a block canvas — the
+    // walk below only applies to block-bodied arms.
+    if (hasBlockBody(page)) {
+      const blockBodyLocalized = page.content?.[locale]
+      for (const block of blockBodyLocalized?.blocks ?? []) {
+        if (!readBlock(block).enabled) continue
+        inspectBlockForChecklist(
+          block,
           locale,
           checklist.blockers,
           referencedPageLocales
@@ -702,7 +702,7 @@ export async function buildPrePublishChecklistWithReferences(
     }
   }
 
-  // Fetch every referenced target once — both the slice-reference map and
+  // Fetch every referenced target once — both the block-reference map and
   // the descriptor relations may point at overlapping ids. Dedupe
   // via a single Map that both loops read.
   const allTargetIds = new Set<Id<"pages">>(referencedPageLocales.keys())
@@ -745,7 +745,7 @@ export async function buildPrePublishChecklistWithReferences(
     return locales.map((locale) => locale.toUpperCase()).join(", ")
   }
 
-  const sliceRelationBlockers = await Promise.all(
+  const blockRelationBlockers = await Promise.all(
     [...referencedPageLocales].map(
       async ([id, locales]): Promise<PrePublishChecklistItem | null> => {
         const target = targetsById.get(id)
@@ -776,14 +776,14 @@ export async function buildPrePublishChecklistWithReferences(
     )
   )
   checklist.blockers.push(
-    ...sliceRelationBlockers.filter(
+    ...blockRelationBlockers.filter(
       (item): item is PrePublishChecklistItem => item !== null
     )
   )
 
   // Descriptor-relation loop uses descriptor-aware wording and threads
   // the field/locales metadata. The `pageTypes` allowlist check is
-  // genuinely new (slice relations don't declare an allowlist). Publish-
+  // genuinely new (block relations don't declare an allowlist). Publish-
   // state check runs for readiness and publish intent, while ordinary save
   // remains independent from the checklist query.
   const descriptorRelationBlockers = await Promise.all(

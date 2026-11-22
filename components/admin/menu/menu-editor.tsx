@@ -1,6 +1,6 @@
 "use client"
 
-import { isColumnPanel, panelBlocks, type LocaleBlock } from "@/convex/lib/menu"
+import { isColumnPanel, panelSections, type LocalePanelSection } from "@/convex/lib/menu"
 
 import { getContentDefault } from "@/lib/i18n/content-defaults"
 
@@ -416,17 +416,17 @@ export function MenuEditor({ slug }: MenuEditorProps) {
                 <LocalizedNavItemEditor
                   item={item}
                   locale={activeLocale}
-                  authoredAltIds={panelBlocks(canonicalNav[index]?.panel)
-                    .map((entry) => entry.block)
+                  authoredAltIds={panelSections(canonicalNav[index]?.panel)
+                    .map((entry) => entry.section)
                     .filter(
-                      (block) =>
-                        block.kind === "featured" &&
+                      (section) =>
+                        section.kind === "featured" &&
                         Boolean(
-                          block.image &&
-                          Object.hasOwn(block.image.alt, activeLocale)
+                          section.image &&
+                          Object.hasOwn(section.image.alt, activeLocale)
                         )
                     )
-                    .map((block) => block.id)}
+                    .map((section) => section.id)}
                   placeholder={activeDraft?.placeholders?.[index]}
                   onChange={(updated) =>
                     setNav(
@@ -521,16 +521,16 @@ function LocalizedNavItemEditor({
       {expanded && item.panel && !isColumnPanel(item.panel) && (
         <div className="space-y-3 border-t p-3">
           <section className="space-y-3 rounded-md border p-3">
-            <h4 className="text-sm font-medium">{tPanel("panelBlocks")}</h4>
-            {item.panel.blocks.map((block, index) => (
-              <LocalizedBlockEditor
-                key={block.id}
-                block={block}
+            <h4 className="text-sm font-medium">{tPanel("panelSections")}</h4>
+            {item.panel.sections.map((section, index) => (
+              <LocalizedSectionEditor
+                key={section.id}
+                section={section}
                 locale={locale}
-                savedAltAuthored={authoredAltIds.includes(block.id)}
+                savedAltAuthored={authoredAltIds.includes(section.id)}
                 placeholder={
                   placeholder?.panel && !isColumnPanel(placeholder.panel)
-                    ? placeholder.panel.blocks[index]
+                    ? placeholder.panel.sections[index]
                     : undefined
                 }
                 onChange={(updated) =>
@@ -541,11 +541,11 @@ function LocalizedNavItemEditor({
                         NonNullable<LocaleNavItem["panel"]>,
                         { columns: number }
                       >),
-                      blocks: (isColumnPanel(item.panel!)
+                      sections: (isColumnPanel(item.panel!)
                         ? []
-                        : item.panel!.blocks
+                        : item.panel!.sections
                       ).map((current) =>
-                        current.id === block.id ? updated : current
+                        current.id === section.id ? updated : current
                       ),
                     },
                   })
@@ -554,22 +554,22 @@ function LocalizedNavItemEditor({
             ))}
           </section>
           <section className="space-y-3 rounded-md border p-3">
-            <h4 className="text-sm font-medium">{tPanel("footerBlocks")}</h4>
-            {item.panel.footer?.blocks.map((block, index) => (
-              <LocalizedBlockEditor
-                key={block.id}
-                block={block}
+            <h4 className="text-sm font-medium">{tPanel("footerSections")}</h4>
+            {item.panel.footer?.sections.map((section, index) => (
+              <LocalizedSectionEditor
+                key={section.id}
+                section={section}
                 locale={locale}
-                savedAltAuthored={authoredAltIds.includes(block.id)}
-                placeholder={placeholder?.panel?.footer?.blocks[index]}
+                savedAltAuthored={authoredAltIds.includes(section.id)}
+                placeholder={placeholder?.panel?.footer?.sections[index]}
                 onChange={(updated) =>
                   onChange({
                     ...item,
                     panel: {
                       ...item.panel!,
                       footer: {
-                        blocks: item.panel!.footer!.blocks.map((current) =>
-                          current.id === block.id ? updated : current
+                        sections: item.panel!.footer!.sections.map((current) =>
+                          current.id === section.id ? updated : current
                         ),
                       },
                     },
@@ -584,24 +584,24 @@ function LocalizedNavItemEditor({
   )
 }
 
-function LocalizedBlockEditor({
-  block,
+function LocalizedSectionEditor({
+  section,
   locale,
   savedAltAuthored,
   placeholder,
   onChange,
 }: {
-  block: LocaleBlock
+  section: LocalePanelSection
   locale: string
   savedAltAuthored: boolean
-  placeholder: LocaleBlock | undefined
-  onChange: (block: LocaleBlock) => void
+  placeholder: LocalePanelSection | undefined
+  onChange: (section: LocalePanelSection) => void
 }) {
   const t = useTranslations("menus.items")
   const [altAuthored, setAltAuthored] = useState(false)
   const fieldId = useId()
 
-  if (block.kind === "linkGroup") {
+  if (section.kind === "linkGroup") {
     const placeholderGroup =
       placeholder?.kind === "linkGroup" ? placeholder : undefined
     return (
@@ -610,13 +610,13 @@ function LocalizedBlockEditor({
           locale={locale}
           id={`${fieldId}-heading`}
           label={t("heading")}
-          value={block.heading ?? ""}
+          value={section.heading ?? ""}
           placeholder={placeholderGroup?.heading}
           onChange={(heading) =>
-            onChange({ ...block, heading: heading || undefined })
+            onChange({ ...section, heading: heading || undefined })
           }
         />
-        {block.links.map((link, index) => {
+        {section.links.map((link, index) => {
           const placeholderLink = placeholderGroup?.links[index]
           return (
             <div key={link.id} className="space-y-3 rounded-md border p-3">
@@ -629,8 +629,8 @@ function LocalizedBlockEditor({
                 placeholder={placeholderLink?.label}
                 onChange={(label) =>
                   onChange({
-                    ...block,
-                    links: block.links.map((current) =>
+                    ...section,
+                    links: section.links.map((current) =>
                       current.id === link.id ? { ...current, label } : current
                     ),
                   })
@@ -643,8 +643,8 @@ function LocalizedBlockEditor({
                 placeholder={placeholderLink?.description}
                 onChange={(description) =>
                   onChange({
-                    ...block,
-                    links: block.links.map((current) =>
+                    ...section,
+                    links: section.links.map((current) =>
                       current.id === link.id
                         ? { ...current, description: description || undefined }
                         : current
@@ -659,7 +659,7 @@ function LocalizedBlockEditor({
     )
   }
 
-  if (block.kind === "dynamicList") {
+  if (section.kind === "dynamicList") {
     const placeholderList =
       placeholder?.kind === "dynamicList" ? placeholder : undefined
     return (
@@ -668,24 +668,24 @@ function LocalizedBlockEditor({
           locale={locale}
           id={`${fieldId}-heading`}
           label={t("heading")}
-          value={block.heading ?? ""}
+          value={section.heading ?? ""}
           placeholder={placeholderList?.heading}
           onChange={(heading) =>
-            onChange({ ...block, heading: heading || undefined })
+            onChange({ ...section, heading: heading || undefined })
           }
         />
-        {block.seeAll && (
+        {section.seeAll && (
           <LocalizedInput
             locale={locale}
             id={`${fieldId}-see-all`}
             label={t("seeAllLabel")}
             emptyKind="seeAll"
-            value={block.seeAll.label}
+            value={section.seeAll.label}
             placeholder={placeholderList?.seeAll?.label}
             onChange={(label) =>
               onChange({
-                ...block,
-                seeAll: { ...block.seeAll!, label },
+                ...section,
+                seeAll: { ...section.seeAll!, label },
               })
             }
           />
@@ -702,30 +702,30 @@ function LocalizedBlockEditor({
         locale={locale}
         id={`${fieldId}-heading`}
         label={t("heading")}
-        value={block.heading}
-        emptyKind="block"
+        value={section.heading}
+        emptyKind="section"
         placeholder={placeholderFeatured?.heading}
-        onChange={(heading) => onChange({ ...block, heading })}
+        onChange={(heading) => onChange({ ...section, heading })}
       />
       <LocalizedTextarea
         id={`${fieldId}-description`}
         label={t("description")}
-        value={block.description ?? ""}
+        value={section.description ?? ""}
         placeholder={placeholderFeatured?.description}
         onChange={(description) =>
-          onChange({ ...block, description: description || undefined })
+          onChange({ ...section, description: description || undefined })
         }
       />
       <LocalizedInput
         locale={locale}
         id={`${fieldId}-alt`}
         label={t("imageAlt")}
-        value={block.image?.alt ?? ""}
-        emptyKind={savedAltAuthored || altAuthored ? null : "block"}
+        value={section.image?.alt ?? ""}
+        emptyKind={savedAltAuthored || altAuthored ? null : "section"}
         placeholder={placeholderFeatured?.image?.alt}
         onChange={(alt) => {
           setAltAuthored(true)
-          onChange(withAuthoredAlt(block, alt))
+          onChange(withAuthoredAlt(section, alt))
         }}
       />
     </div>
@@ -743,7 +743,7 @@ function LocalizedInput({
 }: {
   id: string
   locale: string
-  emptyKind?: "heading" | "item" | "link" | "block" | "seeAll" | null
+  emptyKind?: "heading" | "item" | "link" | "section" | "seeAll" | null
   label: string
   value: string
   placeholder?: string
@@ -833,18 +833,18 @@ function ReadOnlyMenuTree({ nav }: { nav: LocaleNavItem[] }) {
           <p className="font-medium">{item.label}</p>
           {item.panel && (
             <ul className="mt-3 space-y-3 border-l pl-4">
-              {panelBlocks(item.panel)
-                .map((entry) => entry.block)
-                .map((block) => (
-                  <li key={block.id}>
+              {panelSections(item.panel)
+                .map((entry) => entry.section)
+                .map((section) => (
+                  <li key={section.id}>
                     <p className="text-sm font-medium">
-                      {block.kind === "featured"
-                        ? block.heading
-                        : (block.heading ?? t("untitledItem"))}
+                      {section.kind === "featured"
+                        ? section.heading
+                        : (section.heading ?? t("untitledItem"))}
                     </p>
-                    {block.kind === "linkGroup" && (
+                    {section.kind === "linkGroup" && (
                       <ul className="space-y-1 text-sm text-muted-foreground">
-                        {block.links.map((link) => (
+                        {section.links.map((link) => (
                           <li key={link.id}>{link.label}</li>
                         ))}
                       </ul>

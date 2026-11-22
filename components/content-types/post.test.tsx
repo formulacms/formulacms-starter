@@ -1,9 +1,9 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, it } from "vitest"
 import { render, screen } from "@testing-library/react"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
-import type { Slice } from "@/convex/lib/slices"
-import type { SliceRenderContext } from "@/lib/slices/links"
+import type { Block } from "@/convex/lib/blocks"
+import type { BlockRenderContext } from "@/lib/blocks/links"
 import { PostRenderer } from "./post"
 import type { PublicByline } from "./types"
 
@@ -14,19 +14,19 @@ import type { PublicByline } from "./types"
  * tag value to the DOM, regardless of what's stored on the doc.
  */
 
-const ctx: SliceRenderContext = {
+const ctx: BlockRenderContext = {
   locale: "en",
   defaultLocale: "en",
   pagePaths: {},
 }
 
-const heroSlice = {
+const heroBlock = {
   id: "s1" as string,
   type: "hero-agency",
   enabled: true,
   primary: { eyebrow: "", title: "Hero heading", description: "" },
   items: [],
-} as unknown as Slice
+} as unknown as Block
 
 function makePost(overrides: {
   tags?: string[]
@@ -49,7 +49,7 @@ function makePost(overrides: {
     content: {
       en: {
         title: "Sample post title",
-        slices: [],
+        blocks: [],
       },
     },
   } as unknown as Doc<"pages">
@@ -64,17 +64,17 @@ const bylineFixture: PublicByline = {
 describe("PostRenderer", () => {
   for (const profileRow of [
     ["empty", []],
-    ["populated", [heroSlice]],
+    ["populated", [heroBlock]],
   ] as const) {
-    it.each([profileRow])("renders one outer element with the resolved page heading for %s content", sliceProfile([]),
-      (_state, slices) => {
+    it.each([profileRow])("renders one outer element with the resolved page heading for %s content", blockProfile([]),
+      (_state, blocks) => {
         const page = makePost({})
         const content = page.content!.en!
         const { container } = render(
           <PostRenderer
             page={page as never}
             content={content as never}
-            slices={[...slices]}
+            blocks={[...blocks]}
             ctx={ctx}
             locale="en"
             renderLocale="en"
@@ -86,11 +86,11 @@ describe("PostRenderer", () => {
         expect(container.children).toHaveLength(1)
         expect(
           screen.getByRole("heading", {
-            name: slices.length ? "Hero heading" : "Sample post title",
+            name: blocks.length ? "Hero heading" : "Sample post title",
             level: 1,
           })
         ).toBeInTheDocument()
-        if (slices.length === 0) {
+        if (blocks.length === 0) {
           expect(screen.getByText("No content yet.")).toBeInTheDocument()
         } else {
           expect(screen.getByText("Hero heading")).toBeInTheDocument()
@@ -99,14 +99,14 @@ describe("PostRenderer", () => {
     )
   }
 
-  it("never renders admin-only tags in the DOM", sliceProfile([]), () => {
+  it("never renders admin-only tags in the DOM", blockProfile([]), () => {
     const page = makePost({ tags: ["internal-secret-tag"] })
     const content = page.content!.en!
     const { container } = render(
       <PostRenderer
         page={page as never}
         content={content as never}
-        slices={[heroSlice]}
+        blocks={[heroBlock]}
         ctx={ctx}
         locale="en"
         renderLocale="en"
@@ -117,14 +117,14 @@ describe("PostRenderer", () => {
     expect(container.textContent ?? "").not.toContain("internal-secret-tag")
   })
 
-  it("shows the public byline when descriptor marks authorIds public", sliceProfile([]), () => {
+  it("shows the public byline when descriptor marks authorIds public", blockProfile([]), () => {
     const page = makePost({})
     const content = page.content!.en!
     render(
       <PostRenderer
         page={page as never}
         content={content as never}
-        slices={[heroSlice]}
+        blocks={[heroBlock]}
         ctx={ctx}
         locale="en"
         renderLocale="en"
@@ -136,7 +136,7 @@ describe("PostRenderer", () => {
     expect(screen.getByText("Editor at large")).toBeInTheDocument()
   })
 
-  it("formats a multi-author byline and hides the single-author role title", sliceProfile([]), () => {
+  it("formats a multi-author byline and hides the single-author role title", blockProfile([]), () => {
     const page = makePost({})
     const content = page.content!.en!
     const coAuthor: PublicByline = {
@@ -148,7 +148,7 @@ describe("PostRenderer", () => {
       <PostRenderer
         page={page as never}
         content={content as never}
-        slices={[heroSlice]}
+        blocks={[heroBlock]}
         ctx={ctx}
         locale="en"
         renderLocale="en"
@@ -163,14 +163,14 @@ describe("PostRenderer", () => {
     expect(screen.queryByText("Contributor")).not.toBeInTheDocument()
   })
 
-  it("lets a non-empty opening Hero own the page heading", sliceProfile([]), () => {
+  it("lets a non-empty opening Hero own the page heading", blockProfile([]), () => {
     const page = makePost({})
     const content = page.content!.en!
     render(
       <PostRenderer
         page={page as never}
         content={content as never}
-        slices={[heroSlice]}
+        blocks={[heroBlock]}
         ctx={ctx}
         locale="en"
         renderLocale="en"
@@ -188,14 +188,14 @@ describe("PostRenderer", () => {
     ).toBeNull()
   })
 
-  it("does not surface the featured / promoteToFront flags as visible copy", sliceProfile([]), () => {
+  it("does not surface the featured / promoteToFront flags as visible copy", blockProfile([]), () => {
     const page = makePost({ featured: true, promoteToFront: true })
     const content = page.content!.en!
     const { container } = render(
       <PostRenderer
         page={page as never}
         content={content as never}
-        slices={[heroSlice]}
+        blocks={[heroBlock]}
         ctx={ctx}
         locale="en"
         renderLocale="en"
@@ -210,9 +210,9 @@ describe("PostRenderer", () => {
 })
 
 
-it("ED3 avatar beside its author name is decorative", sliceProfile([]), () => {
+it("ED3 avatar beside its author name is decorative", blockProfile([]), () => {
   const page = makePost({})
-  const view = render(<PostRenderer page={page as never} content={page.content!.en! as never} slices={[heroSlice]} ctx={ctx} locale="en" renderLocale="en" defaultLocale="en" bylines={[{ ...bylineFixture, avatarUrl: "https://example.com/avatar.png" }]} />)
+  const view = render(<PostRenderer page={page as never} content={page.content!.en! as never} blocks={[heroBlock]} ctx={ctx} locale="en" renderLocale="en" defaultLocale="en" bylines={[{ ...bylineFixture, avatarUrl: "https://example.com/avatar.png" }]} />)
   expect(view.container.querySelector("img")).toHaveAttribute("alt", "")
   expect(screen.getByText("By Ada Lovelace")).toBeInTheDocument()
 })

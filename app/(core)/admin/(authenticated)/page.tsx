@@ -5,6 +5,7 @@ import Link from "next/link";
 import { FileText, Image, PlusCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { adminContentTypeSingularMessageKey } from "@/lib/admin/content-types";
 import { formatLocalDate } from "@/lib/i18n/local-date-format";
 import { getFormatter, getTranslations } from "next-intl/server";
 
@@ -31,7 +32,7 @@ export default async function AdminDashboardPage() {
 
   const [pages, media, t, format, tType, tStatus] = await Promise.all([
     // `listSummaries`, not `list`: the dashboard needs a count plus ten titles,
-    // and `list` ships full page documents (every slice body, every locale) to
+    // and `list` ships full page documents (every block body, every locale) to
     // do it. Same rows, a fraction of the payload.
     withDashboardFallback(fetchAuthQuery(api.cms.pages.listSummaries, {}), []),
     withDashboardFallback(fetchAuthQuery(api.cms.media.list, { limit: 1000 }), []),
@@ -129,11 +130,9 @@ export default async function AdminDashboardPage() {
                   Object.values(page.localizedTitles).find((value) =>
                     value?.trim(),
                   ) || t("untitled");
-                const contentTypeKey =
-                  page.pageType === "page" ? "page.singular" :
-                  page.pageType === "landing-page" ? "landing-page.singular" :
-                  page.pageType === "post" ? "post.singular" :
-                  page.pageType === "author" ? "author.singular" : null;
+                const contentTypeKey = adminContentTypeSingularMessageKey(
+                  page.pageType,
+                );
                 return (
                   <div key={page._id} className="flex items-center justify-between py-3">
                     <div className="flex items-center gap-3 min-w-0">

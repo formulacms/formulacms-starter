@@ -1,5 +1,5 @@
-import { readInstalledSliceDefinition } from "@/convex/lib/slices"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { readInstalledBlockDefinition } from "@/convex/lib/blocks"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, it, vi } from "vitest"
 import { useState } from "react"
 import { fireEvent, screen } from "@testing-library/react"
@@ -7,11 +7,11 @@ import { render } from "@/test-utils/admin-i18n"
 import { v } from "convex/values"
 import { validate } from "convex-helpers/validators"
 import {
-  installedSliceDefs,
-  sliceDefs,
+  installedBlockDefs,
+  blockDefs,
   type Primitive,
-  type Slice,
-} from "@/convex/lib/slices"
+  type Block,
+} from "@/convex/lib/blocks"
 import {
   group,
   image,
@@ -19,12 +19,12 @@ import {
   list,
   richText,
   text,
-} from "@/convex/lib/slices/primitives"
-import { writeSliceFields } from "@/convex/lib/richtext/write"
+} from "@/convex/lib/blocks/primitives"
+import { writeBlockFields } from "@/convex/lib/richtext/write"
 import { FieldsEditor } from "./field-editor"
 
 // Snapshot an optional descriptor without requiring it to be installed.
-const installedSliceDefinition = (type: string) => readInstalledSliceDefinition(type)
+const installedBlockDefinition = (type: string) => readInstalledBlockDefinition(type)
 
 const mocks = vi.hoisted(() => ({ useQuery: vi.fn(() => undefined) }))
 vi.mock("convex/react", () => ({ useQuery: mocks.useQuery }))
@@ -49,9 +49,9 @@ const pm = JSON.stringify({
 })
 
 describe("primary-list FieldsEditor writer seam", () => {
-  it("writes a nested text edit and clears IDless image/link rows through the canonical slice writer", sliceProfile([]), () => {
-    const previous = sliceDefs["rich-text-body"]
-    const previousInstalled = installedSliceDefinition("rich-text-body")
+  it("writes a nested text edit and clears IDless image/link rows through the canonical block writer", blockProfile([]), () => {
+    const previous = blockDefs["rich-text-body"]
+    const previousInstalled = installedBlockDefinition("rich-text-body")
     const primary = group({
       cards: list(
         group({ title: text(), body: richText({ profile: "inline" }) }),
@@ -70,8 +70,8 @@ describe("primary-list FieldsEditor writer seam", () => {
         primary: primary.validator,
       }),
     }
-    Reflect.set(sliceDefs, "rich-text-body", synthetic)
-    Reflect.set(installedSliceDefs, "rich-text-body", synthetic)
+    Reflect.set(blockDefs, "rich-text-body", synthetic)
+    Reflect.set(installedBlockDefs, "rich-text-body", synthetic)
     try {
       const initial = {
         cards: [
@@ -94,7 +94,7 @@ describe("primary-list FieldsEditor writer seam", () => {
             }}
             basePath="primary"
             locale="en"
-            sliceType="rich-text-body"
+            blockType="rich-text-body"
           />
         )
       }
@@ -106,14 +106,14 @@ describe("primary-list FieldsEditor writer seam", () => {
       const changed = onChange.mock.calls.at(-1)?.[0]
       expect(changed).toBeDefined()
       const linksSelect = container.querySelector(
-        '[data-slice-field-path="primary.links.0"] select'
+        '[data-block-field-path="primary.links.0"] select'
       )
       expect(linksSelect).not.toBeNull()
       fireEvent.change(linksSelect!, { target: { value: "none" } })
       const clearedLink = onChange.mock.calls.at(-1)?.[0]
       expect(clearedLink).toBeDefined()
       const removeImage = container.querySelector(
-        '[data-slice-field-path="primary.images.0"] button[title]'
+        '[data-block-field-path="primary.images.0"] button[title]'
       )
       expect(removeImage).not.toBeNull()
       fireEvent.click(removeImage!)
@@ -136,13 +136,13 @@ describe("primary-list FieldsEditor writer seam", () => {
       expect(initial.images[0]!.url).toBe("/legacy.png")
       expect(initial.links[0]!.url).toBe("/legacy-link")
 
-      const slice = {
+      const block = {
         id: "form",
         type: "rich-text-body",
         enabled: true,
         primary: emitted,
-      } as unknown as Slice
-      const canonical = writeSliceFields(slice, "en", {
+      } as unknown as Block
+      const canonical = writeBlockFields(block, "en", {
         createId: () => "allocated",
       }).value
       expect((canonical.primary as Record<string, unknown>).cards).toEqual(
@@ -166,8 +166,8 @@ describe("primary-list FieldsEditor writer seam", () => {
         )
       ).not.toThrow()
     } finally {
-      Reflect.set(sliceDefs, "rich-text-body", previous)
-      Reflect.set(installedSliceDefs, "rich-text-body", previousInstalled)
+      Reflect.set(blockDefs, "rich-text-body", previous)
+      Reflect.set(installedBlockDefs, "rich-text-body", previousInstalled)
     }
   })
 })

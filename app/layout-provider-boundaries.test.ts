@@ -11,7 +11,7 @@ function readLayout(path: string): string {
 const SERVER_AUTH_PROVIDER = "ConvexAuthNextjsServerProvider"
 
 describe("root layout provider boundaries", () => {
-  test("keeps the dev-only slice simulator outside every Convex provider", () => {
+  test("keeps the dev-only block simulator outside every Convex provider", () => {
     const source = readLayout("app/(sim)/layout.tsx")
 
     expect(source).not.toContain("@/components/providers")

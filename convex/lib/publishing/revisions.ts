@@ -9,8 +9,8 @@ export type { PageRevisionChecklistSnapshot }
  * Publishing pipeline: revision history (plan 028 C0).
  *
  * ADR-0029 — revisions archive their content as a serialized JSON string, NOT
- * as a record validated against the live closed slice union. This decouples
- * history from the live schema so shrinking the union (deleting a slice type)
+ * as a record validated against the live closed block union. This decouples
+ * history from the live schema so shrinking the union (deleting a block type)
  * can never retroactively invalidate old revisions and block a deploy.
  */
 
@@ -27,7 +27,7 @@ export type PageRevisionReason =
  * ADR-0029 — revisions are heterogeneous by design: an archived JSON blob
  * may carry any registered descriptor's localized fields, plus keys from
  * a since-retired descriptor. The live per-arm shape (post's
- * `{title, metaTitle, metaDescription, slices}`, testimonial's
+ * `{title, metaTitle, metaDescription, blocks}`, testimonial's
  * `{title, quote}`, …) is enforced on the LIVE `pages.content` row, not
  * here.
  *
@@ -38,15 +38,15 @@ export type PageRevisionReason =
  *
  * Plan 029 C10 task 8 continuation: widened from
  * `Doc<"pages">["content"][string]` because the strict per-arm union
- * lost `.slices` / `.metaTitle` on the testimonial arm, breaking every
+ * lost `.blocks` / `.metaTitle` on the testimonial arm, breaking every
  * historical revision reader.
  */
 export interface RevisionLocalizedContent {
   title?: string
   metaTitle?: string
   metaDescription?: string
-  /** Opaque history keeps unavailable slice records visible for inspection. */
-  slices?: unknown[]
+  /** Opaque history keeps unavailable block records visible for inspection. */
+  blocks?: unknown[]
   [key: string]: unknown
 }
 

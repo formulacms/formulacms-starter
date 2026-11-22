@@ -1,4 +1,4 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, test } from "vitest"
 import { resolveFieldContract } from "./contracts"
 import { toComparisonForm, toDescriptorComparisonForm } from "./comparison"
@@ -10,7 +10,7 @@ import {
 } from "./transitions"
 import { toFieldShape } from "./shape"
 import { validateLegacy, validateStrict } from "./strict"
-import { group, text } from "../slices/primitives"
+import { group, text } from "../blocks/primitives"
 import { buildPMDocForContract } from "./build"
 
 const title = resolveFieldContract({
@@ -190,7 +190,7 @@ describe("RF2a field shape and transition readers", () => {
     expect(toFieldShape(title, normalized).value).toBe(normalized)
   })
 
-  test("role-default title round-trip and descriptor comparison preserve content", sliceProfile([]), () => {
+  test("role-default title round-trip and descriptor comparison preserve content", blockProfile([]), () => {
     const source = JSON.stringify({
       type: "doc",
       content: [
@@ -208,12 +208,12 @@ describe("RF2a field shape and transition readers", () => {
     const after = { question: source, itemId: "stable" }
     expect(
       toDescriptorComparisonForm(row, before, {
-        sliceType: "faq-simple",
+        blockType: "faq-simple",
         fieldPath: "items[0]",
       })
     ).toEqual(
       toDescriptorComparisonForm(row, after, {
-        sliceType: "faq-simple",
+        blockType: "faq-simple",
         fieldPath: "items[0]",
       })
     )
@@ -252,8 +252,8 @@ describe("RF2a field shape and transition readers", () => {
     )
   })
 
-  test("registered title comparison retains removed link addresses", sliceProfile([]), () => {
-    const address = { sliceType: "faq-simple", fieldPath: "items[0].question" }
+  test("registered title comparison retains removed link addresses", blockProfile([]), () => {
+    const address = { blockType: "faq-simple", fieldPath: "items[0].question" }
     const linked = (href: string) =>
       JSON.stringify({
         type: "doc",
@@ -278,8 +278,8 @@ describe("RF2a field shape and transition readers", () => {
     )
   })
 
-  test("registered comparison retains a leading empty paragraph", sliceProfile([]), () => {
-    const address = { sliceType: "faq-simple", fieldPath: "items[0].question" }
+  test("registered comparison retains a leading empty paragraph", blockProfile([]), () => {
+    const address = { blockType: "faq-simple", fieldPath: "items[0].question" }
     const leadingEmptyParagraph = JSON.stringify({
       type: "doc",
       content: [
@@ -330,8 +330,8 @@ describe("RF2a field shape and transition readers", () => {
     )
   })
 
-  test("transition is exact-address only and recognizes valid canonical headings", sliceProfile([]), () => {
-    const address = { sliceType: "faq-simple", fieldPath: "items[0].question" }
+  test("transition is exact-address only and recognizes valid canonical headings", blockProfile([]), () => {
+    const address = { blockType: "faq-simple", fieldPath: "items[0].question" }
     const canonical = JSON.stringify({
       type: "doc",
       content: [
@@ -344,7 +344,7 @@ describe("RF2a field shape and transition readers", () => {
     })
     expect(transitionForField(address)?.to).toBe("title")
     expect(
-      transitionForField({ ...address, sliceType: "other" })
+      transitionForField({ ...address, blockType: "other" })
     ).toBeUndefined()
     expect(readTransitionField(undefined, canonical)).toEqual({
       kind: "plain",
@@ -409,10 +409,10 @@ describe("RF2a field shape and transition readers", () => {
 
 // ADR-0055 amendment (owner 2026-11-04): a title is one line.
 describe("one-line titles", () => {
-  const doc = (...blocks: unknown[][]) =>
+  const doc = (...nodes: unknown[][]) =>
     JSON.stringify({
       type: "doc",
-      content: blocks.map((content) => ({
+      content: nodes.map((content) => ({
         type: "heading",
         attrs: { level: 3 },
         ...(content.length ? { content } : {}),
@@ -491,7 +491,7 @@ describe("one-line titles", () => {
   })
 
   test("the FAQ transition turns newlines into spaces", () => {
-    const address = { sliceType: "faq-simple", fieldPath: "items[0].question" }
+    const address = { blockType: "faq-simple", fieldPath: "items[0].question" }
     expect(
       readFieldText(address, convertTransitionTitle(address, "Line one\nLine two")!.value)
     ).toBe("Line one Line two")

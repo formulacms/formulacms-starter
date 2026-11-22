@@ -37,7 +37,7 @@ const base: ComponentProps<typeof SettingsPanel> = {
     slug: "support",
     createdAt: 1,
     updatedAt: 1,
-    content: { en: { title: "Support", slices: [] } },
+    content: { en: { title: "Support", blocks: [] } },
   } as Page,
   currentLocale: "en",
   defaultLocale: "en",

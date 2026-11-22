@@ -1,9 +1,9 @@
-import { readSliceMetadata } from "@/lib/slices/builder"
-import { readSliceDefinition } from "@/convex/lib/slices"
-import { sliceDefs, type Primitive } from "@/convex/lib/slices"
+import { readBlockMetadata } from "@/lib/blocks/builder"
+import { readBlockDefinition } from "@/convex/lib/blocks"
+import { blockDefs, type Primitive } from "@/convex/lib/blocks"
 import { authorContentType } from "@/convex/lib/contentTypes/author"
 import { postContentType } from "@/convex/lib/contentTypes/post"
-import { SLICE_METADATA, type SliceMetadata } from "@/lib/slices/builder"
+import { BLOCK_METADATA, type BlockMetadata } from "@/lib/blocks/builder"
 import { humanize } from "@/lib/humanize"
 
 import type { MessageKeys, NestedKeyOf } from "next-intl"
@@ -27,42 +27,42 @@ const bundledCopy: Partial<
   >
 > = {
   "cta-band": {
-    labelKey: "slices.cta-band.label",
-    descriptionKey: "slices.cta-band.description",
+    labelKey: "blocks.cta-band.label",
+    descriptionKey: "blocks.cta-band.description",
     label: "CTA Band",
     description:
       "A full-width branded call-to-action band with a heading, optional body copy, and up to two CTA buttons.",
   },
   "faq-simple": {
-    labelKey: "slices.faq-simple.label",
-    descriptionKey: "slices.faq-simple.description",
+    labelKey: "blocks.faq-simple.label",
+    descriptionKey: "blocks.faq-simple.description",
     label: "FAQ Simple",
     description: "Section heading with an expandable accordion of FAQ items.",
   },
   "features-icon-grid": {
-    labelKey: "slices.features-icon-grid.label",
-    descriptionKey: "slices.features-icon-grid.description",
+    labelKey: "blocks.features-icon-grid.label",
+    descriptionKey: "blocks.features-icon-grid.description",
     label: "Features Icon Grid",
     description:
       "Responsive grid of feature cards with optional icon, title, and description under a section heading.",
   },
   "hero-agency": {
-    labelKey: "slices.hero-agency.label",
-    descriptionKey: "slices.hero-agency.description",
+    labelKey: "blocks.hero-agency.label",
+    descriptionKey: "blocks.hero-agency.description",
     label: "Hero Agency",
     description:
       "High-impact agency hero with eyebrow text and split footer layout.",
   },
   "hero-with-image": {
-    labelKey: "slices.hero-with-image.label",
-    descriptionKey: "slices.hero-with-image.description",
+    labelKey: "blocks.hero-with-image.label",
+    descriptionKey: "blocks.hero-with-image.description",
     label: "Hero with Image",
     description:
       "Split hero with eyebrow announcement, headline, description, CTAs, and a side image.",
   },
   "rich-text-body": {
-    labelKey: "slices.rich-text-body.label",
-    descriptionKey: "slices.rich-text-body.description",
+    labelKey: "blocks.rich-text-body.label",
+    descriptionKey: "blocks.rich-text-body.description",
     label: "Rich Text Body",
     description:
       "A plain full-width rich-text content block for article bodies, long-form prose, or imported documents.",
@@ -70,13 +70,13 @@ const bundledCopy: Partial<
 }
 
 /** Translate only the current bundled copy, preserving custom metadata. */
-export function adminSliceMetadata(
+export function adminBlockMetadata(
   type: string,
   t: AdminMetadataTranslator,
-  metadata: SliceMetadata | undefined = readSliceMetadata(
-    type as keyof typeof SLICE_METADATA
+  metadata: BlockMetadata | undefined = readBlockMetadata(
+    type as keyof typeof BLOCK_METADATA
   )
-): SliceMetadata | undefined {
+): BlockMetadata | undefined {
   const expected = bundledCopy[type]
   if (!metadata || metadata.origin !== "system" || !expected) return metadata
   return {
@@ -98,7 +98,7 @@ const groupKeys: Partial<Record<string, AdminMetadataMessageKey>> = {
   forms: "groups.forms",
   misc: "groups.misc",
 }
-export function adminSliceGroupLabel(
+export function adminBlockGroupLabel(
   id: string,
   fallback: string,
   t: AdminMetadataTranslator
@@ -116,7 +116,7 @@ function register(def: Primitive) {
   if (def.kind === "list") register(def.config.item as Primitive)
 }
 for (const type of Object.keys(bundledCopy)) {
-  const def = readSliceDefinition(type as keyof typeof sliceDefs)
+  const def = readBlockDefinition(type as keyof typeof blockDefs)
   if (def) {
     register(def.primary)
     if (def.items !== undefined) register(def.items)

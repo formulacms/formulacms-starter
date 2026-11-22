@@ -37,9 +37,9 @@ import {
 import { CONTENT_TYPES, type ContentType } from "@/convex/lib/contentTypes"
 import { validate } from "convex-helpers/validators"
 import {
-  INSTALLED_SLICE_TYPES,
-  installedSliceValidator,
-} from "@/convex/lib/slices"
+  INSTALLED_BLOCK_TYPES,
+  installedBlockValidator,
+} from "@/convex/lib/blocks"
 import { useArchivedContentTypes } from "./content-types/use-archived-content-types"
 import {
   ADMIN_AI_WRITING_BROWSER_BINDING,
@@ -145,7 +145,7 @@ export function NewPageForm({
     ownerResolved
   const canSubmit = canCreateSelected && title.trim().length > 0
   const canImportMarkdown = (
-    INSTALLED_SLICE_TYPES as readonly string[]
+    INSTALLED_BLOCK_TYPES as readonly string[]
   ).includes("rich-text-body")
 
   async function createShellPage() {
@@ -156,7 +156,7 @@ export function NewPageForm({
       title: title.trim(),
       defaultLocale: locale,
       content: {
-        [locale]: { title: title.trim(), slices: [] },
+        [locale]: { title: title.trim(), blocks: [] },
       },
     })
   }
@@ -186,7 +186,7 @@ export function NewPageForm({
 
   async function handleMarkdownImport(data: MarkdownImportData) {
     if (
-      !(INSTALLED_SLICE_TYPES as readonly string[]).includes(
+      !(INSTALLED_BLOCK_TYPES as readonly string[]).includes(
         "rich-text-body"
       ) ||
       !canCreateSelected
@@ -194,13 +194,13 @@ export function NewPageForm({
       toast.error(tNew("availabilityNotConfirmed"))
       return
     }
-    const importedSlice: unknown = {
+    const importedBlock: unknown = {
       id: crypto.randomUUID(),
       type: "rich-text-body",
       enabled: true,
       primary: { body: data.body },
     }
-    if (!validate(installedSliceValidator, importedSlice)) {
+    if (!validate(installedBlockValidator, importedBlock)) {
       toast.error(tNew("availabilityNotConfirmed"))
       return
     }
@@ -214,7 +214,7 @@ export function NewPageForm({
         title: effectiveTitle,
         defaultLocale: locale,
         content: {
-          [locale]: { title: effectiveTitle, slices: [] },
+          [locale]: { title: effectiveTitle, blocks: [] },
         },
       })
       if (!id) {
@@ -222,7 +222,7 @@ export function NewPageForm({
         return
       }
       stashPageDraftHandoff(id, {
-        slices: [importedSlice],
+        blocks: [importedBlock],
       })
       toast.success(tNew("createdFromMarkdown"))
       router.push(`/admin/pages/${id}`)

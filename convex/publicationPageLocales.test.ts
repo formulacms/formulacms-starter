@@ -45,7 +45,7 @@ function createPage(owner: Owner, slug: string, locales: string[]) {
     slug,
     title: `T ${slug}`,
     content: Object.fromEntries(
-      locales.map((l) => [l, { title: `${l} ${slug}`, slices: [] }])
+      locales.map((l) => [l, { title: `${l} ${slug}`, blocks: [] }])
     ),
   })
 }

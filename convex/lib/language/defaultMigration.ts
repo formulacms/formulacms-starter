@@ -11,7 +11,7 @@ import type { Doc, Id } from "../../_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "../../_generated/server"
 import { SUPPORTED_LOCALES } from "../../../lib/i18n/config"
 import { storeLegacySiteDescription } from "../../../lib/i18n/site-description"
-import { panelBlocks, type NavItem } from "../menu"
+import { panelSections, type NavItem } from "../menu"
 import { hasLocaleText } from "../menu/canonical"
 import type { OwnerPrincipal } from "../access/owner"
 import {
@@ -1604,7 +1604,7 @@ async function readPhasePage(
 /**
  * Menu nodes where `validateCanonicalMenu` requires default-language text and
  * `locale` has none, in the preview's walk order: item, then each panel and
- * footer block, then that block's links (contract Default migration step 3).
+ * footer section, then that section's links (contract Default migration step 3).
  */
 export function menuNodePathsMissingRequiredText(
   nav: readonly NavItem[],
@@ -1613,27 +1613,27 @@ export function menuNodePathsMissingRequiredText(
   const paths: string[] = []
   for (const item of nav) {
     if (!hasLocaleText(item.label, locale)) paths.push(item.id)
-    const blocks = panelBlocks(item.panel).map((entry) => entry.block)
-    for (const block of blocks) {
-      const blockPath = `${item.id}/${block.id}`
+    const sections = panelSections(item.panel).map((entry) => entry.section)
+    for (const section of sections) {
+      const sectionPath = `${item.id}/${section.id}`
       const missing =
-        block.kind === "linkGroup"
-          ? block.heading !== undefined && !hasLocaleText(block.heading, locale)
-          : block.kind === "dynamicList"
-            ? (block.heading !== undefined &&
-                !hasLocaleText(block.heading, locale)) ||
-              (block.seeAll !== undefined &&
-                !hasLocaleText(block.seeAll.label, locale))
-            : !hasLocaleText(block.heading, locale) ||
-              (block.image !== undefined &&
-                !hasLocaleText(block.image.alt, locale, true)) ||
-              (block.link !== undefined &&
-                !hasLocaleText(block.link.label, locale))
-      if (missing) paths.push(blockPath)
-      if (block.kind !== "linkGroup") continue
-      for (const link of block.links) {
+        section.kind === "linkGroup"
+          ? section.heading !== undefined && !hasLocaleText(section.heading, locale)
+          : section.kind === "dynamicList"
+            ? (section.heading !== undefined &&
+                !hasLocaleText(section.heading, locale)) ||
+              (section.seeAll !== undefined &&
+                !hasLocaleText(section.seeAll.label, locale))
+            : !hasLocaleText(section.heading, locale) ||
+              (section.image !== undefined &&
+                !hasLocaleText(section.image.alt, locale, true)) ||
+              (section.link !== undefined &&
+                !hasLocaleText(section.link.label, locale))
+      if (missing) paths.push(sectionPath)
+      if (section.kind !== "linkGroup") continue
+      for (const link of section.links) {
         if (!hasLocaleText(link.label, locale)) {
-          paths.push(`${blockPath}/${link.id}`)
+          paths.push(`${sectionPath}/${link.id}`)
         }
       }
     }

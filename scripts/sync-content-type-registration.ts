@@ -2,6 +2,7 @@ import {
   readContentTypeManifest,
   syncContentTypeRegistration,
 } from "../lib/content-types/authoring/registration"
+import { siteFilesFailureMessage } from "../lib/factories/gate"
 
 const check = process.argv.slice(2).includes("--check")
 
@@ -11,9 +12,7 @@ try {
     dryRun: check,
   })
   if (check && result.files.length > 0) {
-    console.error(
-      `Content-type registration is stale: ${result.files.join(", ")}`
-    )
+    console.error(siteFilesFailureMessage("content-types", result.files))
     process.exit(1)
   }
   console.log(

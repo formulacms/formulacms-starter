@@ -54,7 +54,7 @@ only an adapter.
 ## Deliberate limits
 
 - Local stdio transport only; no remote deployment or HTTP endpoint.
-- Three real public reference slices; no invented Plus products.
+- Three real public reference blocks; no invented Plus products.
 - No authentication, entitlement checks, downloads, or installation.
 - No CMS reads or writes, publishing, schema changes, filesystem, or shell.
 - The official TypeScript MCP v2 SDK is currently beta, so its package version

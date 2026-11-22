@@ -190,7 +190,7 @@ describe("rich-text caret registry", () => {
 })
 
 describe("preview field selection message", () => {
-  const base = { sliceId: "s1", fieldPath: "primary.body" }
+  const base = { blockId: "s1", fieldPath: "primary.body" }
   it("accepts a whole non-negative text offset or none", () => {
     expect(isPreviewFieldSelection(base)).toBe(true)
     expect(isPreviewFieldSelection({ ...base, textOffset: 0 })).toBe(true)

@@ -1,12 +1,12 @@
 import { writePrimitive } from "../richtext/write"
 import type { ContentTypeDescriptor, DescriptorFieldMap } from "./types"
-import { isPrimitiveValueEmpty } from "../slices/primitives"
+import { isPrimitiveValueEmpty } from "../blocks/primitives"
 
 type InitialLocalizedInput = {
   title: string
   metaTitle?: string
   metaDescription?: string
-  slices?: readonly unknown[]
+  blocks?: readonly unknown[]
 }
 
 function cloneValue<T>(value: T): T {
@@ -33,7 +33,7 @@ export function descriptorDefaults(
  * Build schema-valid initial localized content for any registered descriptor.
  *
  * The create mutation's legacy input only exposes the universal title/meta
- * fields and slices. Descriptor-specific fields therefore start at their
+ * fields and blocks. Descriptor-specific fields therefore start at their
  * primitive defaults and become editable through the generic Content panel.
  */
 export function buildInitialLocalizedContent(
@@ -64,8 +64,8 @@ export function buildInitialLocalizedContent(
           localized[key] = block[key]
         }
       }
-      if (descriptor.capabilities.sliceBody) {
-        localized.slices = cloneValue(block.slices ?? [])
+      if (descriptor.capabilities.blockBody) {
+        localized.blocks = cloneValue(block.blocks ?? [])
       }
       return [locale, localized]
     })

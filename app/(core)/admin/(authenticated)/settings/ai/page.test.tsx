@@ -30,7 +30,7 @@ describe("Settings AI route", () => {
     vi.unstubAllEnvs()
   })
 
-  test("locally the binding receives which Slice creator keys exist, as booleans only", async () => {
+  test("locally the binding receives which Block creator keys exist, as booleans only", async () => {
     vi.stubEnv("NODE_ENV", "development")
     vi.stubEnv("FORMULACMS_DEV_ANTHROPIC_API_KEY", "secret-key-value")
     vi.stubEnv("FORMULACMS_DEV_OPENAI_API_KEY", "")

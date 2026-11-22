@@ -11,7 +11,7 @@ const page = {
   status: "published",
   createdAt: 0,
   updatedAt: 0,
-  content: { en: { title: "Page title", slices: [] } },
+  content: { en: { title: "Page title", blocks: [] } },
 } as unknown as Doc<"pages">
 
 describe("PageRenderer", () => {
@@ -20,7 +20,7 @@ describe("PageRenderer", () => {
       <PageRenderer
         page={page as never}
         content={page.content!.en! as never}
-        slices={[]}
+        blocks={[]}
         ctx={{ locale: "en", defaultLocale: "en", pagePaths: {} }}
         locale="en"
         renderLocale="en"
@@ -40,7 +40,7 @@ describe("PageRenderer", () => {
       <PageRenderer
         page={otherPage as never}
         content={otherPage.content!.en! as never}
-        slices={[]}
+        blocks={[]}
         ctx={{ locale: "en", defaultLocale: "en", pagePaths: {} }}
         locale="en"
         renderLocale="en"

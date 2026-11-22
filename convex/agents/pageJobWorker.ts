@@ -5,14 +5,14 @@ import { internalAction } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { createRuntimeAccounting } from "../lib/ai"
 import { catalogFromEntries } from "../../lib/ai/model-catalog"
-import { generatePageSliceCore, type ContentConfig } from "./contentWriter"
+import { generatePageBlockCore, type ContentConfig } from "./contentWriter"
 import { createTranslationTraversal, type TranslationConfig } from "./localizer"
-import { flattenSliceText } from "../lib/agents/pageContext"
+import { flattenBlockText } from "../lib/agents/pageContext"
 import {
-  assembleSlice,
-  assertSliceType,
+  assembleBlock,
+  assertBlockType,
 } from "../lib/agents/contentWriterContract"
-import { readSlice } from "../lib/slices/identity"
+import { readBlock } from "../lib/blocks/identity"
 import { Semaphore } from "../lib/semaphore"
 import { apiTupleOf } from "../cms/aiJobs"
 import { translateSegment } from "../lib/agents/translationWorkflow"
@@ -61,8 +61,8 @@ export const runUnit = internalAction({
         systemPrompt: job.systemPrompt!,
         brandVoice: job.brandVoice,
       }
-      const generated = await generatePageSliceCore(cfg, {
-        sliceType: unit.sliceType!,
+      const generated = await generatePageBlockCore(cfg, {
+        blockType: unit.blockType!,
         purpose: unit.purpose!,
         pageBrief: job.brief!,
         locale: job.locale,
@@ -74,13 +74,13 @@ export const runUnit = internalAction({
               if (!row.output || typeof row.output !== "object")
                 throw new Error("Missing saved section.")
               return {
-                type: readSlice(row.output).type,
-                text: flattenSliceText(row.output),
+                type: readBlock(row.output).type,
+                text: flattenBlockText(row.output),
               }
             }),
         },
       })
-      output = assembleSlice(assertSliceType(unit.sliceType!), generated.text)
+      output = assembleBlock(assertBlockType(unit.blockType!), generated.text)
     } else {
       const cfg: TranslationConfig = {
         ...common,

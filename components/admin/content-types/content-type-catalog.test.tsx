@@ -1,6 +1,8 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { getFunctionName } from "convex/server"
+import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, test, vi } from "vitest"
+import fr from "@/messages/admin/fr.json"
 import { CONTENT_TYPES } from "@/convex/lib/contentTypes"
 import { adminContentTypeDetail } from "@/lib/admin/content-types"
 import { render } from "@/test-utils/admin-i18n"
@@ -102,5 +104,45 @@ describe("ContentTypeCatalog", () => {
 
     await waitFor(() => expect(screen.getByText("Authors")).toBeInTheDocument())
     expect(screen.getAllByText("Archived").length).toBeGreaterThanOrEqual(2)
+  })
+
+  test("labels a selected type beyond the shipped four from the admin messages", async () => {
+    // What `content-type:new` writes: the type joins the selection and gets
+    // `sidebar.contentType.<type>` in every admin messages file.
+    vi.resetModules()
+    vi.doMock("@/convex/lib/contentTypes/starterSelection", () => ({
+      STARTER_CONTENT_TYPES: ["landing-page", "page", "post", "author", "testimonial"],
+    }))
+    try {
+      const { ContentTypeCatalog: Catalog } = await import(
+        "./content-type-catalog"
+      )
+      mocks.useQuery.mockReturnValue([
+        { type: "testimonial", count: 3, capped: false },
+      ])
+      const messages = {
+        ...fr,
+        sidebar: {
+          ...fr.sidebar,
+          contentType: {
+            ...fr.sidebar.contentType,
+            testimonial: { singular: "Témoignage", plural: "Témoignages" },
+          },
+        },
+      }
+
+      render(
+        <NextIntlClientProvider locale="fr" messages={messages}>
+          <Catalog />
+        </NextIntlClientProvider>,
+        { locale: "fr" }
+      )
+
+      expect(screen.getByText("Témoignages")).toBeInTheDocument()
+      expect(screen.queryByText("Testimonials")).not.toBeInTheDocument()
+    } finally {
+      vi.doUnmock("@/convex/lib/contentTypes/starterSelection")
+      vi.resetModules()
+    }
   })
 })

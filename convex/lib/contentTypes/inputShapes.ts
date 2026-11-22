@@ -1,5 +1,5 @@
 import { v } from "convex/values"
-import { sliceValidator } from "../slices"
+import { blockValidator } from "../blocks"
 // @content-type-codegen:content-draft-imports:start
 import { landingPageContentType } from "./landingPage"
 import { pageContentType } from "./page"
@@ -21,13 +21,13 @@ const perLanguageInput = perLanguageDraftValidatorFields
 /**
  * Typed per-descriptor content-save input (plan 029 C8 Phase 2).
  *
- * The prior hand-rolled `{title, metaTitle, metaDescription, slices}` bag
+ * The prior hand-rolled `{title, metaTitle, metaDescription, blocks}` bag
  * could not express arbitrary descriptor localized fields (author
  * `roleTitle`/`bio`, future faq/testimonial content). This module replaces
  * that bag with a discriminated union — one arm per registered
  * content-type descriptor, each arm carrying the descriptor's own typed
- * `localizedValidator` shape plus a `slices` field on arms whose
- * descriptor sets `sliceBody: true`. `pages.updateDraft` is the sole
+ * `localizedValidator` shape plus a `blocks` field on arms whose
+ * descriptor sets `blockBody: true`. `pages.updateDraft` is the sole
  * public consumer (ADR-0041 Deploy 3 Narrow).
  *
  * **Scope note (advisor-driven).** Only the LOCALIZED bag flows through this
@@ -48,28 +48,28 @@ const perLanguageInput = perLanguageDraftValidatorFields
 const landingPageDraftInput = v.object({
   pageType: v.literal("landing-page"),
   localized: landingPageContentType.localizedValidator,
-  slices: v.array(sliceValidator),
+  blocks: v.array(blockValidator),
   ...perLanguageInput,
 })
 
 const pageDraftInput = v.object({
   pageType: v.literal("page"),
   localized: pageContentType.localizedValidator,
-  slices: v.array(sliceValidator),
+  blocks: v.array(blockValidator),
   ...perLanguageInput,
 })
 
 const postDraftInput = v.object({
   pageType: v.literal("post"),
   localized: postContentType.localizedValidator,
-  slices: v.array(sliceValidator),
+  blocks: v.array(blockValidator),
   ...perLanguageInput,
 })
 
 const authorDraftInput = v.object({
   pageType: v.literal("author"),
   localized: authorContentType.localizedValidator,
-  slices: v.array(sliceValidator),
+  blocks: v.array(blockValidator),
   ...perLanguageInput,
 })
 
@@ -82,7 +82,7 @@ const testimonialDraftInput = v.object({
 const jobDraftInput = v.object({
   pageType: v.literal("job"),
   localized: jobContentType.localizedValidator,
-  slices: v.array(sliceValidator),
+  blocks: v.array(blockValidator),
   ...perLanguageInput,
 })
 // @content-type-codegen:content-draft-arms:end
@@ -90,7 +90,7 @@ const jobDraftInput = v.object({
 /**
  * The typed content-save input consumed by `pages.updateDraft`. Convex
  * + TypeScript both narrow on `pageType`: a `post`-arm consumer sees
- * `localized: {title, metaTitle, metaDescription}` + `slices`; the
+ * `localized: {title, metaTitle, metaDescription}` + `blocks`; the
  * `testimonial` pure-form arm carries only `title` + `quote`.
  */
 // @content-type-codegen:content-draft-validator:start

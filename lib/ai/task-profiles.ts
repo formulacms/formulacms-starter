@@ -49,7 +49,7 @@ export const TASK_PROFILE_REQUIREMENTS = {
   },
 } as const satisfies Record<TaskProfile, GenerationRequirements>
 
-// Slice authoring (`vision-spec`, `renderer-jsx`) moved to the build lane on
+// Block authoring (`vision-spec`, `renderer-jsx`) moved to the build lane on
 // 2026-07-14 (ADR-0032 amendment). Those two profiles remain in the shared
 // `TASK_PROFILES` contract so the local API/CLI engines can still resolve
 // their tuples, but the runtime picker, task-routing UI, agent registry, and
@@ -68,9 +68,9 @@ export const ASSISTANT_PROFILES = {
   translation: ["mechanical-translation", "brand-translation"],
   help: ["grounded-help"],
 } as const satisfies Record<string, readonly TaskProfile[]>
-/** Local-only fourth assistant (the Slice creator); deliberately outside
+/** Local-only fourth assistant (the Block creator); deliberately outside
  *  ASSISTANT_PROFILES so live status and module readiness never see it. */
-export const SLICE_CREATOR_PROFILES = ["vision-spec", "renderer-jsx"] as const satisfies readonly TaskProfile[]
+export const BLOCK_CREATOR_PROFILES = ["vision-spec", "renderer-jsx"] as const satisfies readonly TaskProfile[]
 export const ASSISTANT_DEFAULT_INSTRUCTIONS = {
   writing:
     "You write clear, friendly web pages. Use short sentences and plain words. Follow the brand voice in Settings › General. Never invent prices, dates or facts.",

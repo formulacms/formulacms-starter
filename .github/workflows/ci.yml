@@ -47,8 +47,8 @@ jobs:
       - name: Tests
         run: pnpm test:run
 
-      - name: Slice manifest sync
-        run: pnpm slices:sync --check
+      - name: Block manifest sync
+        run: pnpm blocks:sync --check
 
       - name: Token boundary (ADR-0025 §3)
         run: pnpm check:tokens
@@ -122,3 +122,51 @@ jobs:
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
         run: |
           echo "::notice title=Convex dry-run skipped::Fork pull requests cannot access CONVEX_DEPLOY_KEY. Dry-run validation runs on the push to main after merge when the secret is set."
+
+  # The block factory's click check, for every installed block, an owner's own
+  # blocks included: each block opens in the simulator in a real browser, and
+  # every visible text field must take the caret, a double click and a triple
+  # click without moving. The simulator exists only in development, so this
+  # job runs the development server, not the production build.
+  block-clicks:
+    name: Block text fields respond to clicks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
+        with:
+          version: 11.20.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Prepare local Convex runtime
+        run: pnpm exec convex dev --once
+
+      # The check waits for the simulator page itself, then opens every block.
+      - name: Click every block's text fields in the simulator
+        run: |
+          SERVER_LOG="$RUNNER_TEMP/block-sim-server.log"
+          pnpm exec convex dev --tail-logs disable --start "pnpm dev:frontend" >"$SERVER_LOG" 2>&1 &
+          SIM_PID=$!
+          trap 'kill "$SIM_PID" 2>/dev/null || true' EXIT
+
+          if ! pnpm check:blocks:render; then
+            echo "::group::Block preview server log"
+            cat "$SERVER_LOG"
+            echo "::endgroup::"
+            exit 1
+          fi
+        env:
+          FORMULACMS_ALLOW_LOCAL_IMAGE_IPS: "1"

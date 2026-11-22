@@ -24,11 +24,11 @@ vi.mock("next-intl/server", () => ({
 vi.mock("next-intl", () => ({
   NextIntlClientProvider: ({ children }: { children: ReactNode }) => children,
 }))
-vi.mock("@/lib/slices/public-site-shell.server", () => ({
+vi.mock("@/lib/blocks/public-site-shell.server", () => ({
   loadPublicSiteShell: reads.shell,
 }))
-vi.mock("@/convex/lib/slices/presentations", () => ({
-  readSlicePresentationCatalog: reads.catalog,
+vi.mock("@/convex/lib/blocks/presentations", () => ({
+  readBlockPresentationCatalog: reads.catalog,
 }))
 vi.mock("@/components/admin/live-preview-frame-runtime", () => ({
   LivePreviewFrameRuntime: ({

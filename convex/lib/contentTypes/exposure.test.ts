@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { group, list, text } from "../slices/primitives"
+import { group, list, text } from "../blocks/primitives"
 import { contentTypeDefs } from "./index"
 import { isDescriptorFieldPublic, publicFieldsOf } from "./exposure"
 

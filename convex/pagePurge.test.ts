@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import migrationsTest from "@convex-dev/migrations/test"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { api, internal } from "./_generated/api"
@@ -19,7 +19,7 @@ const OWNER = {
   subject: "page-purge-owner",
   tokenIdentifier: "page-purge-owner",
 }
-const slice = (id: string, text: string) => ({
+const block = (id: string, text: string) => ({
   id,
   type: "rich-text-body" as const,
   enabled: true,
@@ -48,7 +48,7 @@ async function setup() {
     status: "draft",
     slug: "home",
     title: "Home",
-    content: { en: { title: "Home", slices: [] } },
+    content: { en: { title: "Home", blocks: [] } },
   })
   await t.run((ctx) =>
     ctx.db.insert("siteSettings", {
@@ -71,7 +71,7 @@ async function maintain(
   restart = false
 ) {
   await f.owner.mutation(
-    api.lib.publishing.staging.startSliceOccurrenceUsageBackfill,
+    api.lib.publishing.staging.startBlockOccurrenceUsageBackfill,
     { mode, restart }
   )
   await f.t.finishAllScheduledFunctions(vi.runAllTimers)
@@ -85,8 +85,8 @@ async function newPage(f: Site, slug: string, parentId?: Id<"pages">) {
     title: slug,
     ...(parentId ? { parentId } : {}),
     content: {
-      en: { title: `${slug} en`, slices: [] },
-      fr: { title: `${slug} fr`, slices: [] },
+      en: { title: `${slug} en`, blocks: [] },
+      fr: { title: `${slug} fr`, blocks: [] },
     },
   })
 }
@@ -128,7 +128,7 @@ async function saveDraft(
       draft: {
         pageType: "landing-page",
         localized: { title: `T ${text}` },
-        slices: [slice(`a-${text}`, text), slice(`b-${text}`, `${text} two`)],
+        blocks: [block(`a-${text}`, text), block(`b-${text}`, `${text} two`)],
       },
     },
   })
@@ -242,7 +242,7 @@ async function markStarted(f: Pick<Site, "t">) {
 
 async function counters(f: Site) {
   return f.t.run(async (ctx) =>
-    (await ctx.db.query("sliceOccurrenceCounts").collect())
+    (await ctx.db.query("blockOccurrenceCounts").collect())
       .map((row) => `${row.type}:${row.presentationId}=${row.count}`)
       .sort()
   )
@@ -297,7 +297,7 @@ describe("schema closure", () => {
     }
     // The string-typed fields exist where the declaration says they do.
     const usage = (
-      schema.tables.sliceOccurrenceUsage.validator as unknown as {
+      schema.tables.blockOccurrenceUsage.validator as unknown as {
         json: { value: { pageId?: { fieldType: { type: string } } } }
       }
     ).json
@@ -308,7 +308,7 @@ describe("schema closure", () => {
 describe("permanent page purge", () => {
   test(
     "a two-language page published three times is removed from every owned table",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async () => {
       const f = await setup()
       const baseline = await counters(f)
@@ -362,7 +362,7 @@ describe("permanent page purge", () => {
               target: { type: "internal", pageId },
               panel: {
                 columns: 1,
-                blocks: [
+                sections: [
                   {
                     id: "g",
                     kind: "linkGroup",
@@ -423,7 +423,7 @@ describe("permanent page purge", () => {
       expect(JSON.stringify(menu!.nav)).not.toContain(pageId)
       await f.owner.mutation(api.cms.menus.restore, { id: menu!._id })
 
-      // Slice-occurrence counts equal a fresh recount, and the public reader
+      // Block-occurrence counts equal a fresh recount, and the public reader
       // of a kept continuity row tolerates the missing page.
       const incremental = await counters(f)
       await maintain(f, "backfill", true)
@@ -432,7 +432,7 @@ describe("permanent page purge", () => {
       await maintain(f, "verify")
       expect(
         await f.owner.query(
-          api.cms.sliceLibrary.getSlicePresentationUsageSummary,
+          api.cms.blockLibrary.getBlockPresentationUsageSummary,
           { type: "rich-text-body", presentationIds: ["default"] }
         )
       ).toMatchObject({ status: "ready" })
@@ -465,7 +465,7 @@ describe("permanent page purge", () => {
 
   test(
     "two pages in one request drain one after the other and the counts match a recount",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async () => {
       const f = await setup()
       const a = await publishedPage(f, "first", 2)
@@ -911,7 +911,7 @@ describe("stale closure and failures", () => {
           mediaId,
           storageId,
           sourcePath: `p${i}`,
-          referenceKind: "slice-image",
+          referenceKind: "block-image",
           sourceKind: "shared_draft",
           sourceId: shared._id,
           sourceGeneration: shared.generation,
@@ -1125,7 +1125,7 @@ describe("stale closure and failures", () => {
             draft: {
               pageType: "landing-page",
               localized: { title: "Rival" },
-              slices: [],
+              blocks: [],
             },
           },
         })
@@ -1321,7 +1321,7 @@ describe("review round 1 fixes", () => {
 
   test(
     "withdrawal is refused once the purge starts",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async () => {
       const f = await setup()
       const pageId = await publishedPage(f, "withdrawn", 1)
@@ -1344,7 +1344,7 @@ describe("review round 1 fixes", () => {
 
   test(
     "snapshots and locale states stay while an intent is pending, and go once it completes",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async () => {
       const f = await setup()
       const pageId = await publishedPage(f, "held-published", 1)
@@ -1629,7 +1629,7 @@ describe("review round 1 fixes", () => {
 
   test(
     "closure guard: after a late withdrawal and a stalled-then-retried step, no row references the purged ids",
-    sliceProfile(["rich-text-body"]),
+    blockProfile(["rich-text-body"]),
     async () => {
       const f = await setup()
       const stored = await f.t.run(async (ctx) => {
@@ -1657,7 +1657,7 @@ describe("review round 1 fixes", () => {
           draft: {
             pageType: "landing-page",
             localized: { title: "Guarded" },
-            slices: [
+            blocks: [
               {
                 id: "body",
                 type: "rich-text-body",
@@ -1691,7 +1691,7 @@ describe("review round 1 fixes", () => {
               mediaId: stored.mediaId,
               storageId: stored.storageId,
               sourcePath: `filler.${i}`,
-              referenceKind: "slice-image",
+              referenceKind: "block-image",
               sourceKind: "shared_draft",
               sourceId: shared._id,
               sourceGeneration: shared.generation,

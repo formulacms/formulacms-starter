@@ -10,7 +10,7 @@ const source = {
   ogTitle: "Social hello",
   ogDescription: "Social description",
   cardExcerpt: "Card excerpt",
-  slices: [],
+  blocks: [],
   translatables: [],
 }
 
@@ -39,7 +39,7 @@ describe("AI translation of the per-language text", () => {
         pageType: "landing-page",
         localized: { title: "Hello" },
         seo: { noIndex: true },
-        slices: [],
+        blocks: [],
       } as never,
       translated as never
     ) as unknown as {
@@ -58,7 +58,7 @@ describe("AI translation of the per-language text", () => {
   test("a page without them translates as before", async () => {
     const segments = await enumerateSegments({
       title: "Hello",
-      slices: [],
+      blocks: [],
       translatables: [],
     })
     expect(segments.map((segment) => segment.address)).toEqual(["title"])

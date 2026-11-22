@@ -1,4 +1,4 @@
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { createHash } from "node:crypto"
 import type { AdminAiTranslationHostProps } from "./contributions/ai-translation"
 import { act, fireEvent, waitFor } from "@testing-library/react"
@@ -9,8 +9,8 @@ import { beforeAll, beforeEach, expect, test, vi } from "vitest"
 import type { Id } from "@/convex/_generated/dataModel"
 import type { AdminPageHistoryHostProps } from "./contributions/history"
 import type { Page } from "./page-editor/lib/types"
-import type { Slice } from "@/convex/lib/slices"
-import type { SlicesPanel } from "./page-editor/components/slices-panel"
+import type { Block } from "@/convex/lib/blocks"
+import type { BlocksPanel } from "./page-editor/components/blocks-panel"
 
 const mocks = vi.hoisted(() => ({
   localeTabs: null as
@@ -32,7 +32,7 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   slotProps: [] as AdminPageHistoryHostProps[],
   enabledLocales: ["en"] as string[],
-  sliceProps: [] as Parameters<typeof SlicesPanel>[0][],
+  blockProps: [] as Parameters<typeof BlocksPanel>[0][],
 }))
 
 vi.mock("./locale-tabs", async (importOriginal) => {
@@ -126,7 +126,7 @@ vi.mock("convex/react", () => ({
   useQuery: (reference: unknown) => {
     const name = getFunctionName(reference as never)
     mocks.queryNames.push(name)
-    if (name === "cms/slices:getPresentationCatalog") return boundary.catalog
+    if (name === "cms/blocks:getPresentationCatalog") return boundary.catalog
     if (name === "cms/pages:getForEdit")
       return { page: { pageType: "landing-page" } }
     if (name === "cms/publication:listSnapshotHistory")
@@ -226,7 +226,7 @@ function page(): Page {
     status: "draft",
     createdAt: 100,
     updatedAt: 100,
-    content: { en: { title: "About", slices: [] } },
+    content: { en: { title: "About", blocks: [] } },
     tags: [],
     createdBy: "owner-1",
   } as Page
@@ -258,7 +258,7 @@ import type {
   LiveFrameWindow,
   LiveFrameBridge,
 } from "./live-preview-frame-bridge"
-import { readSlicePresentationCatalog } from "@/convex/lib/slices/presentations"
+import { readBlockPresentationCatalog } from "@/convex/lib/blocks/presentations"
 
 const boundary = vi.hoisted(() => ({
   control: process.env.OWN_ECHO_CONTROL ?? "original",
@@ -268,7 +268,7 @@ const boundary = vi.hoisted(() => ({
   observerRuns: 0,
   mirrorSuppressed: 0,
   afterOwnerPassive: null as null | (() => void),
-  layout: null as null | ((props: Parameters<typeof SlicesPanel>[0]) => void),
+  layout: null as null | ((props: Parameters<typeof BlocksPanel>[0]) => void),
   trace: [] as unknown[],
   conflicts: 0,
   commits: [] as { value: string; accepted: boolean | void }[],
@@ -279,7 +279,7 @@ vi.mock("react", async (importOriginal) => {
     ...actual,
     useEffect(effect: () => void | (() => void), deps?: unknown[]) {
       const source = effect.toString()
-      const isMirror = /^\(\) => \{\s*slicesRef\.current = slices;?\s*\}$/.test(
+      const isMirror = /^\(\) => \{\s*blocksRef\.current = blocks;?\s*\}$/.test(
         source
       )
       if (isMirror) {
@@ -317,9 +317,9 @@ vi.mock("react", async (importOriginal) => {
 vi.mock("@/lib/rich-text/adopt-hero-titles", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/rich-text/adopt-hero-titles")>()
-  const share = (before: Slice[], after: Slice[]) =>
+  const share = (before: Block[], after: Block[]) =>
     boundary.control === "q38-only" &&
-    after.every((slice, index) => slice === before[index])
+    after.every((block, index) => block === before[index])
       ? before
       : after
   return {
@@ -332,13 +332,13 @@ vi.mock("@/lib/rich-text/adopt-hero-titles", async (importOriginal) => {
       ...args: Parameters<typeof actual.prepareHeroTitleDraft>
     ) => {
       const result = actual.prepareHeroTitleDraft(...args)
-      const slices = share(args[0].slices, result.slices)
+      const blocks = share(args[0].blocks, result.blocks)
       boundary.trace.push([
         "actual-prepare",
-        titleOf(slices),
-        slices === args[0].slices,
+        titleOf(blocks),
+        blocks === args[0].blocks,
       ])
-      return { ...result, slices }
+      return { ...result, blocks }
     },
   }
 })
@@ -355,7 +355,7 @@ vi.mock("./page-editor/lib/page-inline-draft", async (importOriginal) => {
         const current = actual.capturePageField(
           args[0],
           args[1],
-          args[2].sliceId,
+          args[2].blockId,
           args[2].fieldPath,
           args[3],
           args[4]
@@ -395,20 +395,20 @@ vi.mock("@/components/public/public-site-shell", () => ({
     <div>{children}</div>
   ),
 }))
-vi.mock("./slice-builder", () => ({ SliceBuilder: () => null }))
-vi.mock("./page-editor/components/slices-panel", async (importOriginal) => {
+vi.mock("./block-builder", () => ({ BlockBuilder: () => null }))
+vi.mock("./page-editor/components/blocks-panel", async (importOriginal) => {
   const actual =
     await importOriginal<
-      typeof import("./page-editor/components/slices-panel")
+      typeof import("./page-editor/components/blocks-panel")
     >()
   return {
-    SlicesPanel: (props: Parameters<typeof actual.SlicesPanel>[0]) => {
-      mocks.sliceProps.push(props)
+    BlocksPanel: (props: Parameters<typeof actual.BlocksPanel>[0]) => {
+      mocks.blockProps.push(props)
       useLayoutEffect(() => {
         boundary.layout?.(props)
       })
       return (
-        <actual.SlicesPanel
+        <actual.BlocksPanel
           {...props}
           onPreviewActiveEditConflict={() => {
             boundary.conflicts++
@@ -437,13 +437,13 @@ vi.mock("./page-live-preview-canvas", async (importOriginal) => {
     PageLivePreviewCanvas: (
       props: Parameters<typeof actual.PageLivePreviewCanvas>[0]
     ) => {
-      boundary.trace.push(["actual-canvas-render", titleOf(props.slices)])
+      boundary.trace.push(["actual-canvas-render", titleOf(props.blocks)])
       return <actual.PageLivePreviewCanvas {...props} />
     },
   }
 })
-function titleOf(slices: Slice[]) {
-  const value = (slices as Array<{ primary?: Record<string, unknown> }>)?.[0]?.primary?.title
+function titleOf(blocks: Block[]) {
+  const value = (blocks as Array<{ primary?: Record<string, unknown> }>)?.[0]?.primary?.title
   return typeof value === "string"
     ? (JSON.parse(value).content?.[0]?.content?.[0]?.text ?? "")
     : ""
@@ -483,14 +483,14 @@ beforeAll(() => {
   )
 })
 beforeEach(async () => {
-  boundary.catalog = await readSlicePresentationCatalog()
+  boundary.catalog = await readBlockPresentationCatalog()
   boundary.mirrorRegistrations = boundary.mirrorSuppressed = 0
   boundary.observerRegistrations = boundary.observerRuns = 0
   boundary.afterOwnerPassive = boundary.layout = null
   boundary.trace = []
   boundary.commits = []
   boundary.conflicts = 0
-  mocks.sliceProps.length = 0
+  mocks.blockProps.length = 0
   mocks.historyInstalled = false
   mocks.enabledLocales = ["en", "fr"]
   window.localStorage.clear()
@@ -499,7 +499,7 @@ beforeEach(async () => {
 async function setupBoundary(locale: "en" | "fr") {
   const initial = "First"
   boundary.trace.push(["fixture-locale", locale])
-  const slices = [
+  const blocks = [
     {
       id: "hero",
       type: "hero-agency",
@@ -516,12 +516,12 @@ async function setupBoundary(locale: "en" | "fr") {
       },
       items: [],
     },
-  ] as Slice[]
+  ] as Block[]
   const fixture = page()
   fixture.pageType = "landing-page"
   fixture.content = {
-    en: { title: "About", slices },
-    fr: { title: "About", slices },
+    en: { title: "About", blocks },
+    fr: { title: "About", blocks },
   }
   const parent = render(
     <PageEditor
@@ -539,7 +539,7 @@ async function setupBoundary(locale: "en" | "fr") {
   const iframe = parent.getByTitle("About") as HTMLIFrameElement
   const child = iframe.contentWindow as LiveFrameWindow
   const sessionId = new URL(iframe.src).searchParams.get("session")!
-  const contentLocale = mocks.sliceProps.at(-1)!.currentLocale
+  const contentLocale = mocks.blockProps.at(-1)!.currentLocale
   expect(contentLocale).toBe(locale)
   const identity = {
     sessionId,
@@ -592,11 +592,11 @@ async function setupBoundary(locale: "en" | "fr") {
     replaceInput(input) {
       queued.push(input)
       if (hold) {
-        boundary.trace.push(["transport-held", titleOf(input.slices)])
+        boundary.trace.push(["transport-held", titleOf(input.blocks)])
         return true
       }
       const accepted = actual.replaceInput(input)
-      boundary.trace.push(["runtime-accept", titleOf(input.slices), accepted])
+      boundary.trace.push(["runtime-accept", titleOf(input.blocks), accepted])
       transportHook?.(input, accepted)
       return accepted
     },
@@ -614,11 +614,6 @@ async function setupBoundary(locale: "en" | "fr") {
         data: ready,
       })
     )
-  )
-  fireEvent.click(
-    parent.getByRole("button", {
-      name: /Edit text in preview: off|Modifier le texte dans l’aperçu : désactivé/,
-    })
   )
   await waitFor(() =>
     expect(
@@ -653,7 +648,7 @@ async function setupBoundary(locale: "en" | "fr") {
     hook: (fn: typeof transportHook) => {
       transportHook = fn
     },
-    latest: () => mocks.sliceProps.at(-1)!,
+    latest: () => mocks.blockProps.at(-1)!,
     title: () =>
       runtime.container.querySelector('[data-preview-field="primary.title"]')
         ?.textContent,
@@ -704,7 +699,7 @@ function assertComplete(
   expect(boundary.commits.map((row) => row.accepted)).toEqual(
     Array(count).fill(true)
   )
-  expect(titleOf(frame.latest().slices)).toBe(expected)
+  expect(titleOf(frame.latest().blocks)).toBe(expected)
   expect(frame.editor.getText()).toBe(expected)
   expect(frame.title()).toBe(expected)
   expect(frame.latest().previewInlineRefusal).toBeNull()
@@ -712,12 +707,12 @@ function assertComplete(
   expect(frame.parent.container.querySelector('[role="alert"]')).toBeNull()
 }
 test.each(["en", "fr"] as const)(
-  "R accepted B before TipTap C retains every character (%s)", sliceProfile(["hero-agency"]),
+  "R accepted B before TipTap C retains every character (%s)", blockProfile(["hero-agency"]),
   async (locale) => {
     const frame = await setupBoundary(locale)
     let triggered = false
     frame.hook((input, accepted) => {
-      if (!triggered && titleOf(input.slices) === "Firstb") {
+      if (!triggered && titleOf(input.blocks) === "Firstb") {
         expect(accepted).toBe(true)
         triggered = true
         frame.hold()
@@ -730,7 +725,7 @@ test.each(["en", "fr"] as const)(
   }
 )
 test.each(["en", "fr"] as const)(
-  "W child layout C then real passive B preserves next TipTap D (%s)", sliceProfile(["hero-agency"]),
+  "W child layout C then real passive B preserves next TipTap D (%s)", blockProfile(["hero-agency"]),
   async (locale) => {
     const frame = await setupBoundary(locale)
     let layoutTriggered = false
@@ -738,7 +733,7 @@ test.each(["en", "fr"] as const)(
     // Holding B at transport isolates the ref hazard from stale Canvas receipt.
     frame.hold()
     boundary.layout = (props) => {
-      if (!layoutTriggered && titleOf(props.slices) === "Firstb") {
+      if (!layoutTriggered && titleOf(props.blocks) === "Firstb") {
         layoutTriggered = true
         frame.type("c")
       }

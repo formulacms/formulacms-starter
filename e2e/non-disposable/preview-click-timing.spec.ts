@@ -1,11 +1,13 @@
 import { expect, test, type Frame, type Page } from "playwright/test"
-import { localPath, ownerPage, pageTranslator } from "../support"
+import { localPath, ownerPage } from "../support"
 
 /**
- * Page editor live preview: opening the Hero Agency title in place. Two
- * variables, four combinations: the in-place editor's code is cold (first
- * open after the page loads, its code held back 800 ms) or warm (already
- * loaded), and the page is fresh (no block selected, page scrolled to the
+ * Page editor live preview: opening the Hero Agency title in place. Editing
+ * in the preview is always on (owner, 2026-11-21): no on/off button, no
+ * "only in the form" notice. Two variables, four combinations: the in-place
+ * editor's code is cold (every script held back 800 ms from before the page
+ * loads, so its preload is late) or warm (already loaded), and the page is
+ * fresh (no block selected, page scrolled to the
  * top, no setup scrolling) or settled (the Hero already selected, the page
  * already scrolled). For every interaction, sampled on every animation frame
  * from pointer down until the editor is ready and the clicks are over:
@@ -15,29 +17,46 @@ import { localPath, ownerPage, pageTranslator } from "../support"
  * Then (d) a native double click, 60, 150 or 250 ms between its clicks,
  * selects the word under the pointer and (e) a triple click selects the
  * title's text. Two more starting points, code loaded: another block
- * already selected, and right after a click on a form-only field (its
- * "only in the form" notice is showing and must not move the preview while
- * the title's clicks land). Last, a double and a triple click on a form-only
+ * already selected, and right after a click on a form-only field (its form
+ * control took the focus; nothing may move the preview while the title's
+ * clicks land). Last, a double and a triple click on a form-only
  * rich-text paragraph select the word and the paragraph in the form editor
- * while the preview stays put.
+ * while the preview stays put. The Hero's eyebrow, a one-line plain text
+ * field, opens in place like the title (PR A3, owner 2026-11-21): the same
+ * interactions, sampled on the eyebrow with the title below it.
  *
  * Preconditions: built English owner app; FR6_E2E_CLICK_PAGE_PATH names the
- * editor of a page whose first block is a Hero Agency with a title of at
- * least two words and a description, and whose second block is a Rich Text
+ * editor of a page whose first block is a Hero Agency with an eyebrow and a
+ * title of at least two words each and a description, and whose second block is a Rich Text
  * Body with at least two paragraphs, with no recovered browser draft (it
- * keeps "Edit text in preview" off). The scenario edits nothing: Escape
+ * blocks editing in the preview). The scenario edits nothing: Escape
  * closes each field unchanged. Server: as every non-disposable spec (see
  * `playwright.config.ts`).
  */
 
 const TITLE =
-  '[data-preview-slice-occurrence] [data-preview-field="primary.title"]'
+  '[data-preview-block-occurrence] [data-preview-field="primary.title"]'
 const DESCRIPTION =
-  '[data-preview-slice-occurrence] [data-preview-field="primary.description"]'
+  '[data-preview-block-occurrence] [data-preview-field="primary.description"]'
 const EDITOR = `${TITLE} [data-preview-inline-editor]`
+const EYEBROW =
+  '[data-preview-block-occurrence] [data-preview-field="primary.eyebrow"]'
+
+/** The field a scenario clicks, and the field below it that must not move. */
+type FieldTarget = { host: string; below: string; editor: string }
+const TITLE_FIELD: FieldTarget = {
+  host: TITLE,
+  below: DESCRIPTION,
+  editor: EDITOR,
+}
+const EYEBROW_FIELD: FieldTarget = {
+  host: EYEBROW,
+  below: TITLE,
+  editor: `${EYEBROW} [data-preview-inline-editor]`,
+}
 const BODY_PARAGRAPH =
-  '[data-preview-slice-occurrence] [data-preview-field="primary.body"] p'
-const FORM_BODY = '[data-slice-field-path="primary.body"]'
+  '[data-preview-block-occurrence] [data-preview-field="primary.body"] p'
+const FORM_BODY = '[data-block-field-path="primary.body"]'
 
 type Sample = { height: number; text: number; descriptionTop: number | null }
 type Place = { frameTop: number; scroller: number; document: number }
@@ -65,7 +84,6 @@ function liveFrame(page: Page): Frame {
 }
 
 async function openEditor(page: Page) {
-  const t = await pageTranslator(page)
   await page.goto(localPath("FR6_E2E_CLICK_PAGE_PATH"))
   await expect
     .poll(() =>
@@ -74,28 +92,10 @@ async function openEditor(page: Page) {
     .toBe(true)
   const frame = liveFrame(page)
   await expect(frame.locator(TITLE).first()).toBeVisible()
-  return { t, frame }
-}
-
-async function switchEditingOn(
-  page: Page,
-  t: Awaited<ReturnType<typeof pageTranslator>>
-) {
-  const off = page.getByRole("button", {
-    name: t("editor.livePreview.inlineEditingOff"),
-  })
-  await expect(off).toBeEnabled()
-  await off.click()
-  await expect(
-    page.getByRole("button", { name: t("editor.livePreview.inlineEditingOn") })
-  ).toBeVisible()
+  return frame
 }
 
 /** Page point of letter 1 of the title's second word, and that word. */
-async function titlePoint(page: Page, frame: Frame) {
-  return textPoint(page, frame, TITLE, 0)
-}
-
 /**
  * Page point of letter 1 of the second word in match `nth` of `selector`,
  * that word, and the whole text of that match.
@@ -211,7 +211,7 @@ async function startPlaceSampling(page: Page) {
   return start
 }
 
-async function startSampling(frame: Frame) {
+async function startSampling(frame: Frame, target: FieldTarget) {
   return frame.evaluate(
     ({ title, description }) => {
       const host = document.querySelector(title)!
@@ -237,7 +237,7 @@ async function startSampling(frame: Frame) {
         descriptionTop: below ? below.getBoundingClientRect().top : null,
       }
     },
-    { title: TITLE, description: DESCRIPTION }
+    { title: target.host, description: target.below }
   )
 }
 
@@ -287,13 +287,14 @@ async function interact(
   frame: Frame,
   interaction: Interaction,
   label: string,
-  settleMs = SETTLE_MS
+  settleMs = SETTLE_MS,
+  target: FieldTarget = TITLE_FIELD
 ) {
   // The click point is read only once nothing moves.
   await waitUntilStill(page)
-  const point = await titlePoint(page, frame)
+  const point = await textPoint(page, frame, target.host, 0)
   const placeStart = await startPlaceSampling(page)
-  const start = await startSampling(frame)
+  const start = await startSampling(frame, target)
   await page.mouse.move(point.x, point.y)
   let lastClick = Date.now()
   for (let click = 1; click <= interaction.clicks; click++) {
@@ -303,7 +304,7 @@ async function interact(
     await page.mouse.down({ clickCount: click })
     await page.mouse.up({ clickCount: click })
   }
-  await frame.locator(EDITOR).first().waitFor({ timeout: 10_000 })
+  await frame.locator(target.editor).first().waitFor({ timeout: 10_000 })
   await page.waitForTimeout(Math.max(0, settleMs - (Date.now() - lastClick)))
   await frame.evaluate(
     () =>
@@ -331,20 +332,23 @@ async function interact(
   for (const sample of end.samples) {
     expect(
       Math.abs(sample.height - start.height),
-      "title height"
+      "clicked field height"
     ).toBeLessThanOrEqual(1)
-    expect(sample.text, "title text length").toBe(start.text)
+    expect(sample.text, "clicked field text length").toBe(start.text)
     if (start.descriptionTop !== null && sample.descriptionTop !== null)
       expect(
         Math.abs(sample.descriptionTop - start.descriptionTop),
         "description top"
       ).toBeLessThanOrEqual(1)
   }
-  if (interaction.clicks === 1) expect(end.selection).toBe("")
-  if (interaction.clicks === 2) expect(end.selection).toBe(point.word)
-  if (interaction.clicks === 3) expect(end.selection).toBe(point.title)
+  // Chrome's selection text applies text-transform (an eyebrow is often
+  // uppercase); the DOM text is the field's own casing.
+  const selected = end.selection.toLowerCase()
+  if (interaction.clicks === 1) expect(selected).toBe("")
+  if (interaction.clicks === 2) expect(selected).toBe(point.word.toLowerCase())
+  if (interaction.clicks === 3) expect(selected).toBe(point.title.toLowerCase())
   await page.keyboard.press("Escape")
-  await expect(frame.locator(EDITOR)).toHaveCount(0)
+  await expect(frame.locator(target.editor)).toHaveCount(0)
 }
 
 const HOLD_BACK = "**/_next/static/chunks/**"
@@ -362,7 +366,7 @@ async function holdBackScripts(page: Page) {
  * (the title stays on screen), then waits until nothing moves.
  */
 async function settle(page: Page, frame: Frame) {
-  await frame.locator("[data-preview-slice-control]").first().click()
+  await frame.locator("[data-preview-block-control]").first().click()
   await waitUntilStill(page)
   await page.evaluate(() => {
     const element = Array.from(document.querySelectorAll("iframe")).find(
@@ -426,19 +430,20 @@ async function bringOnScreen(
 
 /** Opens a fresh page for one interaction in the named combination. */
 async function prepare(page: Page, code: Code, context: Context) {
-  const { t, frame } = await openEditor(page)
+  // Cold: the frame preloads the editor's code as soon as it connects, so
+  // the hold starts before the page loads.
+  if (code === "cold") await holdBackScripts(page)
+  const frame = await openEditor(page)
   await waitUntilStill(page)
   if (context === "settled") await settle(page, frame)
   if (context === "other-selected") {
     // The second block's button: today's selection scroll, then still.
-    await frame.locator("[data-preview-slice-control]").nth(1).click()
+    await frame.locator("[data-preview-block-control]").nth(1).click()
     await waitUntilStill(page)
     await bringOnScreen(page, frame, TITLE, 0)
   }
-  if (code === "cold") await holdBackScripts(page)
-  await switchEditingOn(page, t)
-  // Warm: let the editor's code, preloaded in the frame when editing turns
-  // on, arrive: no new resource for one second (at most ten).
+  // Warm: let the editor's code, preloaded once the frame connects,
+  // arrive: no new resource for one second (at most ten).
   if (code === "warm")
     await frame.evaluate(async () => {
       // No named inner functions (see startSampling).
@@ -451,14 +456,19 @@ async function prepare(page: Page, code: Code, context: Context) {
       }
     })
   if (context === "after-form-click") {
-    // One click on a form-only paragraph: its notice shows and its form
-    // field comes into view once the click is over.
+    // One click on a form-only paragraph: its form control takes the focus
+    // at once and comes into view once the click is over. No notice shows.
     await bringOnScreen(page, frame, BODY_PARAGRAPH, 0)
     const point = await textPoint(page, frame, BODY_PARAGRAPH, 0)
     await page.mouse.click(point.x, point.y)
-    await expect(
-      page.getByText(t("editor.slicesPanel.inlineRefusal.unsupported"))
-    ).toBeVisible()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (field) => Boolean(document.activeElement?.closest(field)),
+          FORM_BODY
+        )
+      )
+      .toBe(true)
     await waitUntilStill(page)
     await bringOnScreen(page, frame, TITLE, 0)
   }
@@ -488,7 +498,7 @@ async function formOnlyInteract(
     await page.mouse.down({ clickCount: click })
     await page.mouse.up({ clickCount: click })
   }
-  // Before the notice and the form scroll, which wait 500 ms.
+  // Before the form scroll, which waits 500 ms.
   await page.waitForTimeout(Math.max(0, 400 - (Date.now() - lastClick)))
   expectStill(
     `${label}, ${interaction.name}`,
@@ -554,31 +564,37 @@ test.describe("page preview: opening the Hero title in place", () => {
         for (const interaction of INTERACTIONS.slice(1))
           await test.step(interaction.name, async () => {
             const frame = await prepare(page, "warm", context)
-            // After a form-only click the page sees only the title's first
-            // click (the rest reach the editor in the preview), so check up
-            // to 100 ms after the last click: the notice may then hide.
-            await interact(
-              page,
-              frame,
-              interaction,
-              title,
-              context === "after-form-click" ? 100 : SETTLE_MS
-            )
-            // The notice was showing during the clicks; it hides once they
-            // are over.
-            if (context === "after-form-click") {
-              const t = await pageTranslator(page)
-              await expect(
-                page.getByText(
-                  t("editor.slicesPanel.inlineRefusal.unsupported")
-                )
-              ).toBeHidden()
-            }
+            // No notice shows or hides now, so nothing may move up to the
+            // usual settle time after the last click.
+            await interact(page, frame, interaction, title)
           })
       } finally {
         await page.context().close()
       }
     })
+
+  test("the eyebrow, a plain text field, opens in place like the title", async ({
+    browser,
+  }) => {
+    const page = await ownerPage(browser)
+    try {
+      for (const interaction of INTERACTIONS)
+        await test.step(interaction.name, async () => {
+          const frame = await prepare(page, "warm", "fresh")
+          await bringOnScreen(page, frame, EYEBROW, 0)
+          await interact(
+            page,
+            frame,
+            interaction,
+            "eyebrow, code loaded",
+            SETTLE_MS,
+            EYEBROW_FIELD
+          )
+        })
+    } finally {
+      await page.context().close()
+    }
+  })
 
   test("a form-only rich-text paragraph: double and triple click", async ({
     browser,

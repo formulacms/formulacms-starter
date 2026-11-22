@@ -49,7 +49,7 @@ const PRODUCTION_ROUTE: DevAiTaskEffectiveSelection = Object.freeze({
  * them when they run with an API service. Their whole-page jobs and the outline
  * step read only their choice (`loadLocalToolChoice`).
  */
-const CHOICE_ONLY_ASSISTANTS = ["help", "sliceCreator"] as const satisfies
+const CHOICE_ONLY_ASSISTANTS = ["help", "blockCreator"] as const satisfies
   readonly LocalToolAssistant[]
 
 /** The choice-only assistant that owns a task profile, if any. */

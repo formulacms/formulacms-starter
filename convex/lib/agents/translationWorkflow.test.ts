@@ -4,20 +4,20 @@ import {
   translatePageContent,
   translatePrimitiveValue,
   translateRichText,
-  translateSlice,
+  translateBlock,
 } from "./translationWorkflow"
-import { group, list, table, text } from "../slices/primitives"
-import type { HeroAgencySlice, Slice } from "../slices"
-import { createSampleSlice } from "../slices/sample"
+import { group, list, table, text } from "../blocks/primitives"
+import type { HeroAgencyBlock, Block } from "../blocks"
+import { createSampleBlock } from "../blocks/sample"
 import { buildFieldDoc } from "../richtext/build"
 import { validateStrict } from "../richtext/strict"
-import { writeSliceFields } from "../richtext/write"
+import { writeBlockFields } from "../richtext/write"
 
 describe("translation workflow", () => {
   test.each(["", " \n "])(
-    "RF4c removes empty translated nodes through the registered slice consumer: %j",
+    "RF4c removes empty translated nodes through the registered block consumer: %j",
     async (empty) => {
-      const sample = createSampleSlice("hero-with-image")
+      const sample = createSampleBlock("hero-with-image")
       const source = {
         ...sample,
         primary: {
@@ -27,7 +27,7 @@ describe("translation workflow", () => {
         },
       }
       const before = JSON.stringify(source)
-      const result = (await translateSlice(source, {
+      const result = (await translateBlock(source, {
         translateText: async (value) =>
           value === "Drop"
             ? empty
@@ -42,7 +42,7 @@ describe("translation workflow", () => {
       expect(
         validateStrict(
           "title",
-          (writeSliceFields(result, "fr").value as typeof source).primary.title
+          (writeBlockFields(result, "fr").value as typeof source).primary.title
         )
       ).toEqual({ ok: true })
       expect(validateStrict("basic", result.primary.description)).toEqual({
@@ -58,7 +58,7 @@ describe("translation workflow", () => {
       // A title is one line: the write path turns the translated newline into a space.
       expect(
         JSON.parse(
-          (writeSliceFields(result, "fr").value as typeof source).primary.title
+          (writeBlockFields(result, "fr").value as typeof source).primary.title
         ).content[0].content
       ).toEqual([{ type: "text", text: "Ligne une Ligne deux" }])
       expect(JSON.parse(result.primary.description).content).toEqual([
@@ -66,7 +66,7 @@ describe("translation workflow", () => {
       ])
       expect(JSON.stringify(source)).toBe(before)
       expect(
-        await translateSlice(source, {
+        await translateBlock(source, {
           enabled: false,
           translateText: async () => empty,
         })
@@ -208,7 +208,7 @@ describe("translation workflow", () => {
     })
   })
 
-  test("slice traversal translates editorial copy without changing button identity", async () => {
+  test("block traversal translates editorial copy without changing button identity", async () => {
     const title = JSON.stringify({
       type: "doc",
       content: [
@@ -227,7 +227,7 @@ describe("translation workflow", () => {
         },
       ],
     })
-    const slice: HeroAgencySlice = {
+    const block: HeroAgencyBlock = {
       id: "hero-1",
       type: "hero-agency",
       enabled: true,
@@ -248,12 +248,12 @@ describe("translation workflow", () => {
       ],
     }
 
-    const translated = await translateSlice(slice, {
+    const translated = await translateBlock(block, {
       translateText: async (value) => `tx:${value}`,
     })
 
     expect(translated).toEqual({
-      ...slice,
+      ...block,
       primary: {
         eyebrow: "tx:Montreal",
         title: JSON.stringify({
@@ -286,10 +286,10 @@ describe("translation workflow", () => {
         },
       ],
     })
-    expect(slice.primary.description).toBe(description)
+    expect(block.primary.description).toBe(description)
   })
 
-  test("page traversal translates metadata with the title, slices, and descriptor leaves", async () => {
+  test("page traversal translates metadata with the title, blocks, and descriptor leaves", async () => {
     const richText = JSON.stringify({
       type: "doc",
       content: [
@@ -303,13 +303,13 @@ describe("translation workflow", () => {
       title: "About us",
       metaTitle: "About our studio",
       metaDescription: "Meet the team behind our work",
-      slices: [
+      blocks: [
         {
           id: "body-1",
           type: "rich-text-body",
           enabled: true,
           primary: { body: richText },
-        } as Slice,
+        } as Block,
       ],
       translatables: [
         { path: "excerpt", kind: "text" as const, value: "Our story" },
@@ -325,7 +325,7 @@ describe("translation workflow", () => {
       title: "tx:About us",
       metaTitle: "tx:About our studio",
       metaDescription: "tx:Meet the team behind our work",
-      slices: [
+      blocks: [
         {
           id: "body-1",
           type: "rich-text-body",
@@ -366,14 +366,14 @@ describe("translation workflow", () => {
     const translateText = vi.fn(async (value: string) => `tx:${value}`)
 
     const absent = await translatePageContent(
-      { title: "About", slices: [] },
+      { title: "About", blocks: [] },
       { translateText }
     )
     expect(Object.hasOwn(absent, "metaTitle")).toBe(false)
     expect(Object.hasOwn(absent, "metaDescription")).toBe(false)
 
     const empty = await translatePageContent(
-      { title: "About", metaTitle: "", metaDescription: "", slices: [] },
+      { title: "About", metaTitle: "", metaDescription: "", blocks: [] },
       { translateText }
     )
     expect(Object.hasOwn(empty, "metaTitle")).toBe(true)
@@ -397,7 +397,7 @@ describe("translation workflow", () => {
       title: "Pricing",
       metaTitle: "Plans",
       metaDescription: "Compare every plan",
-      slices: [
+      blocks: [
         {
           id: "hero-dense",
           type: "hero-with-image",
@@ -449,7 +449,7 @@ describe("translation workflow", () => {
             },
           ],
         },
-      ] as Slice[],
+      ] as Block[],
       translatables: [
         {
           path: "profile.cards[0].label",
@@ -488,7 +488,7 @@ describe("translation workflow", () => {
     })
     const page = {
       title: "Page",
-      slices: [
+      blocks: [
         {
           id: "faq",
           type: "faq-simple",
@@ -496,7 +496,7 @@ describe("translation workflow", () => {
           primary: { heading: "", eyebrow: "", body: "" },
           items: [{ itemId: "stable", question, answer: "" }],
         },
-      ] as Slice[],
+      ] as Block[],
     }
     const source = structuredClone(page)
     const translateText = vi.fn(async (value: string) => `tx:${value}`)
@@ -523,7 +523,7 @@ describe("translation workflow", () => {
     })
     const page = {
       title: "Body",
-      slices: [
+      blocks: [
         {
           id: "faq-disabled-primary-heading",
           type: "faq-simple",
@@ -531,7 +531,7 @@ describe("translation workflow", () => {
           primary: { heading, eyebrow: "", body: "" },
           items: [],
         },
-      ] as Slice[],
+      ] as Block[],
     }
     const source = structuredClone(page)
     const translateText = vi.fn(async (value: string) => `tx:${value}`)
@@ -549,7 +549,7 @@ describe("translation workflow", () => {
       content: [
         {
           type: "paragraph",
-          content: [{ type: "text", text: "Slice copy" }],
+          content: [{ type: "text", text: "Block copy" }],
         },
       ],
     })
@@ -557,13 +557,13 @@ describe("translation workflow", () => {
       title: "About",
       metaTitle: "About the team",
       metaDescription: "Who we are",
-      slices: [
+      blocks: [
         {
           id: "body-failure",
           type: "rich-text-body",
           enabled: true,
           primary: { body: richText },
-        } as Slice,
+        } as Block,
       ],
       translatables: [
         { path: "profile.name", kind: "text" as const, value: "First leaf" },
@@ -605,8 +605,8 @@ describe("translation workflow", () => {
       enabled: true,
       primary: { heading: "FAQ", eyebrow: "", body: "" },
       items: [{ itemId: "stable-row", question, answer: "" }],
-    } as unknown as Slice
-    const translated = await translateSlice(faq, {
+    } as unknown as Block
+    const translated = await translateBlock(faq, {
       translateText: async (value) => {
         seen.push(value)
         return `translated:${value}`
@@ -635,7 +635,7 @@ describe("translation workflow", () => {
 })
 
 test("registered basic body translation preserves block structure, marks and links", async () => {
-  const sample = createSampleSlice("features-icon-grid")
+  const sample = createSampleBlock("features-icon-grid")
   const document = {
     type: "doc",
     content: [
@@ -674,7 +674,7 @@ test("registered basic body translation preserves block structure, marks and lin
   sample.primary.body = JSON.stringify(document)
   sample.items[0].body = JSON.stringify(document)
   const before = JSON.stringify(sample)
-  const translated = (await translateSlice(sample, {
+  const translated = (await translateBlock(sample, {
     translateText: async (text) => `FR ${text}`,
   })) as typeof sample
   const expected = JSON.parse(
@@ -815,7 +815,7 @@ describe("durable translation enumeration and assembly", () => {
         title: "  Page title  ",
         metaTitle: "",
         metaDescription: "Last metadata",
-        slices: [],
+        blocks: [],
         translatables: [
           {
             path: "body",
@@ -875,15 +875,15 @@ describe("durable translation enumeration and assembly", () => {
       expect(disabled).not.toHaveBeenCalled()
     }
   )
-  test("addresses cover metadata and registered slice fields; missing, extra and duplicate outputs refuse", async () => {
+  test("addresses cover metadata and registered block fields; missing, extra and duplicate outputs refuse", async () => {
     const { enumerateSegments, assembleTranslation } =
       await import("./translationWorkflow")
-    const slice = createSampleSlice("hero-with-image")
+    const block = createSampleBlock("hero-with-image")
     const page = {
       title: "Title",
       metaTitle: "Meta",
       metaDescription: "Description",
-      slices: [slice],
+      blocks: [block],
       translatables: [],
     }
     const segments = await enumerateSegments(page)
@@ -892,7 +892,7 @@ describe("durable translation enumeration and assembly", () => {
     )
     expect(
       segments.some((segment) =>
-        segment.address.startsWith("slices[0].primary.")
+        segment.address.startsWith("blocks[0].primary.")
       )
     ).toBe(true)
     const outputs = segments.map((segment) => ({
@@ -919,7 +919,7 @@ describe("durable translation enumeration and assembly", () => {
   })
   test("supported segment/text/rich-text limits refuse before jobs or provider calls", async () => {
     const { enumerateSegments } = await import("./translationWorkflow")
-    const page = { title: "Title", slices: [], translatables: [] }
+    const page = { title: "Title", blocks: [], translatables: [] }
     await expect(
       enumerateSegments({ ...page, title: "a".repeat(5001) })
     ).rejects.toThrow("too long")

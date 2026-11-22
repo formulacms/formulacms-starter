@@ -5,10 +5,10 @@ import {
 } from "./profiles"
 
 export type FieldContract = "title" | RichTextProfile
-export type HeadingRole = "sliceTitle" | "itemTitle"
+export type HeadingRole = "blockTitle" | "itemTitle"
 
 export interface FieldAddress {
-  sliceType: string
+  blockType: string
   fieldPath: string
 }
 
@@ -66,7 +66,7 @@ export function resolveFieldContract(
   if (config.heading && contract !== "title") {
     throw new Error("Heading role configuration is only valid for title fields")
   }
-  const headingRole = config.heading?.role ?? "sliceTitle"
+  const headingRole = config.heading?.role ?? "blockTitle"
   return {
     contract,
     profile: contract === "title" ? undefined : contract,

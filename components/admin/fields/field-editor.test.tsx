@@ -1,10 +1,10 @@
 import { useState } from "react"
-import { sliceProfile } from "@/test-utils/slice-profile"
+import { blockProfile } from "@/test-utils/block-profile"
 import { describe, expect, it, vi } from "vitest"
 import { screen, fireEvent, act, waitFor } from "@testing-library/react"
 import { render } from "@/test-utils/admin-i18n"
 import { getFunctionName } from "convex/server"
-import type { Primitive } from "@/convex/lib/slices"
+import type { Primitive } from "@/convex/lib/blocks"
 import {
   group,
   boolean as booleanField,
@@ -18,7 +18,7 @@ import {
   relation,
   text,
   richText,
-} from "@/convex/lib/slices/primitives"
+} from "@/convex/lib/blocks/primitives"
 import { validateStrict } from "@/convex/lib/richtext/strict"
 import { readFieldText } from "@/convex/lib/richtext/transitions"
 import { isStructuralListOperation } from "@/lib/editor-structure"
@@ -42,9 +42,9 @@ vi.mock("@/lib/use-drag-reorder", async (importOriginal) => ({
 }))
 
 // FieldsEditor is the descriptor-generic seam plan 029 C8 exposes: the same
-// primitive walker that renders a slice's `primary` group now renders a
+// primitive walker that renders a block's `primary` group now renders a
 // content-type descriptor's shared/localized bags. These tests pin the
-// interface guarantees the ContentTypeFieldsPanel and future non-slice
+// interface guarantees the ContentTypeFieldsPanel and future non-block
 // descriptors (C10 testimonial / faq-item) rely on.
 
 // A synthetic descriptor field map — deliberately mixed leaf + nested group
@@ -299,7 +299,7 @@ describe("FieldsEditor", () => {
     expect(container.firstElementChild).toHaveAttribute("dir", "ltr")
   })
 
-  it("reads a registered FAQ title's stored break as a space in a single-line control", sliceProfile([]), () => {
+  it("reads a registered FAQ title's stored break as a space in a single-line control", blockProfile([]), () => {
     const onChange = vi.fn<(value: Record<string, unknown>) => void>()
     render(
       <ConfirmProvider>
@@ -309,7 +309,7 @@ describe("FieldsEditor", () => {
           onChange={onChange}
           basePath="items.0"
           locale="en"
-          sliceType="faq-simple"
+          blockType="faq-simple"
         />
       </ConfirmProvider>
     )
@@ -323,7 +323,7 @@ describe("FieldsEditor", () => {
     })
   })
 
-  it("keeps the adopted FAQ control unchanged and emits canonical literal questions", sliceProfile([]), () => {
+  it("keeps the adopted FAQ control unchanged and emits canonical literal questions", blockProfile([]), () => {
     const onChange = vi.fn<(value: Record<string, unknown>) => void>()
     render(
       <ConfirmProvider>
@@ -338,7 +338,7 @@ describe("FieldsEditor", () => {
           onChange={onChange}
           basePath="items.0"
           locale="fr"
-          sliceType="faq-simple"
+          blockType="faq-simple"
         />
       </ConfirmProvider>
     )
@@ -351,13 +351,13 @@ describe("FieldsEditor", () => {
     expect(validateStrict("title", value)).toEqual({ ok: true })
     expect(
       readFieldText(
-        { sliceType: "faq-simple", fieldPath: "items[0].question" },
+        { blockType: "faq-simple", fieldPath: "items[0].question" },
         value
       )
     ).toBe(literal)
   })
 
-  it("keeps every typed space when a FAQ question is typed one key at a time", sliceProfile([]), () => {
+  it("keeps every typed space when a FAQ question is typed one key at a time", blockProfile([]), () => {
     // Review P1 (2026-11-04): the controlled input gets the stored value back on
     // every key; a trimmed title turned "What is" into "Whatis".
     const fields = {
@@ -375,7 +375,7 @@ describe("FieldsEditor", () => {
           onChange={setValue}
           basePath="items.0"
           locale="fr"
-          sliceType="faq-simple"
+          blockType="faq-simple"
         />
       )
     }
@@ -394,7 +394,7 @@ describe("FieldsEditor", () => {
     expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue(typed)
   })
 
-  it("uses a single-line control when only the registered FAQ source has a hard break", sliceProfile([]), async () => {
+  it("uses a single-line control when only the registered FAQ source has a hard break", blockProfile([]), async () => {
     const onChange = vi.fn<(value: Record<string, unknown>) => void>()
     const run = vi.fn(async (value: string) => value)
     render(
@@ -406,7 +406,7 @@ describe("FieldsEditor", () => {
           onChange={onChange}
           basePath="items.0"
           locale="fr"
-          sliceType="faq-simple"
+          blockType="faq-simple"
           translate={{
             sourceLocale: "en",
             supportsPlainText: true,
@@ -422,7 +422,7 @@ describe("FieldsEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: /translate/i }))
     await waitFor(() => {
       expect(run).toHaveBeenCalledWith("Source question", "text", {
-        sliceType: "faq-simple",
+        blockType: "faq-simple",
         fieldPath: "items.0.question",
       })
       expect(onChange).toHaveBeenCalledWith({ question: "Source question" })
@@ -432,7 +432,7 @@ describe("FieldsEditor", () => {
   it.each([
     ["a refused Save stays quiet", new PageSaveRefusedError(), 0],
     ["another failure still reports", new Error("route down"), 1],
-  ])("translate: %s", sliceProfile([]), async (_name, failure, toasts) => {
+  ])("translate: %s", blockProfile([]), async (_name, failure, toasts) => {
     const toastError = vi.spyOn(toast, "error").mockReturnValue("")
     toastError.mockClear()
     const run = vi.fn(async () => {
@@ -447,7 +447,7 @@ describe("FieldsEditor", () => {
           onChange={vi.fn()}
           basePath="items.0"
           locale="fr"
-          sliceType="faq-simple"
+          blockType="faq-simple"
           translate={{
             sourceLocale: "en",
             supportsPlainText: true,
@@ -503,7 +503,7 @@ it("NEW carries an explicit structural signal through the real nested widget for
 // field editor hands that contract to the rich-text editor, so Enter, paste and
 // the toolbar follow it, while description fields keep today's behaviour.
 describe("title and description rich-text fields", () => {
-  const titleField = richText({ contract: "title", heading: { role: "sliceTitle" } })
+  const titleField = richText({ contract: "title", heading: { role: "blockTitle" } })
   const basicField = richText({ contract: "basic" })
 
   it("a title field's toolbar has no Link button and Enter inserts nothing", async () => {

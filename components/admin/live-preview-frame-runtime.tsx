@@ -17,12 +17,12 @@ import {
 import { api } from "@/convex/_generated/api"
 import { PREVIEW_BUILD_ID } from "@/lib/preview-build-id"
 import type { Id } from "@/convex/_generated/dataModel"
-import type { SliceBodyDoc } from "@/convex/lib/pages/sliceBodyContent"
+import type { BlockBodyDoc } from "@/convex/lib/pages/blockBodyContent"
 import { postContentType } from "@/convex/lib/contentTypes/post"
 import { publicFieldsOf } from "@/convex/lib/contentTypes/exposure"
-import type { Slice } from "@/convex/lib/slices"
-import type { SlicePresentationCatalog } from "@/convex/lib/slices/presentationResolution"
-import { collectRelationIds } from "@/convex/lib/slices/resolve"
+import type { Block } from "@/convex/lib/blocks"
+import type { BlockPresentationCatalog } from "@/convex/lib/blocks/presentationResolution"
+import { collectRelationIds } from "@/convex/lib/blocks/resolve"
 import {
   getContentTypeRenderer,
   type PublicByline,
@@ -33,11 +33,11 @@ import {
 } from "@/components/public/public-site-shell"
 import { PresentationLocaleProvider } from "@/components/public/presentation-locale"
 import { ThemeProvider } from "@/components/theme-provider"
-import { collectPageIds, type SliceRenderContext } from "@/lib/slices/links"
+import { collectPageIds, type BlockRenderContext } from "@/lib/blocks/links"
 import {
   applyFreshImageUrls,
   collectImageStorageIds,
-} from "@/lib/slices/media-urls"
+} from "@/lib/blocks/media-urls"
 import { useTranslations } from "next-intl"
 import { PageLivePreviewCanvas } from "./page-live-preview-canvas"
 import {
@@ -56,14 +56,14 @@ import type { PreviewActiveEditHandle } from "./visual-editing-types"
 
 type FrameProps = {
   identity: LiveFrameIdentity
-  page: SliceBodyDoc
+  page: BlockBodyDoc
   config: {
     defaultLocale: string
     enabledLocales: string[]
     languageVersion: number
   }
   shell: Omit<PublicSiteShellProps, "children">
-  presentationCatalog?: SlicePresentationCatalog
+  presentationCatalog?: BlockPresentationCatalog
   /** Anonymous, version-pinned bootstrap path; never an authenticated draft path. */
   publicPath?: string | null
 }
@@ -87,7 +87,7 @@ function ConnectedLivePreviewFrame({
   const { sessionId, pageId, locale } = identity
   // One registry owns the renderer per content type; the frame never picks one.
   const renderer = getContentTypeRenderer(page.pageType)
-  const SliceBody = renderer.kind === "sliceBody" ? renderer.Component : null
+  const BlockBody = renderer.kind === "blockBody" ? renderer.Component : null
   const [input, setInput] = useState<LiveFrameInput | null>(null)
   const inputRef = useRef<LiveFrameInput | null>(null)
   const callbacks = useRef<LiveFrameCallbacks | null>(null)
@@ -253,10 +253,10 @@ function ConnectedLivePreviewFrame({
             <ThemeProvider forcedTheme={input.mode}>
               <div
                 onClickCapture={(event) => {
-                  // Preview chrome is view-only; slice interactions are intercepted below.
+                  // Preview chrome is view-only; block interactions are intercepted below.
                   if (
                     event.target instanceof Element &&
-                    !event.target.closest("[data-preview-slice-occurrence]")
+                    !event.target.closest("[data-preview-block-occurrence]")
                   ) {
                     event.preventDefault()
                     event.stopPropagation()
@@ -270,17 +270,17 @@ function ConnectedLivePreviewFrame({
                 <PublicSiteShell {...shell}>
                   <PageLivePreviewCanvas
                     title={input.title}
-                    slices={input.slices}
+                    blocks={input.blocks}
                     contentEpoch={input.contentEpoch}
                     inlineEditEcho={input.inlineEditEcho}
                     locale={input.locale}
                     defaultLocale={input.defaultLocale}
-                    selectedSliceId={input.selectedSliceId}
+                    selectedBlockId={input.selectedBlockId}
                     controlledInlineEnabled={input.inlineEditingEnabled}
                     renderContext={ctx}
-                    onSelectSlice={(id) => callbacks.current?.selectSlice(id)}
-                    onSelectSliceFallback={(id) =>
-                      callbacks.current?.selectSliceFallback?.(id)
+                    onSelectBlock={(id) => callbacks.current?.selectBlock(id)}
+                    onSelectBlockFallback={(id) =>
+                      callbacks.current?.selectBlockFallback?.(id)
                     }
                     onSelectField={(target, result) =>
                       callbacks.current?.selectField(target, result)
@@ -319,12 +319,12 @@ function ConnectedLivePreviewFrame({
                     }}
                     onActiveEditConflict={() => callbacks.current?.conflict()}
                     onActiveEditHandleChange={captureHandle}
-                    renderSlicesTransform={(slices) =>
-                      applyFreshImageUrls(slices, mediaUrls) as Slice[]
+                    renderBlocksTransform={(blocks) =>
+                      applyFreshImageUrls(blocks, mediaUrls) as Block[]
                     }
-                    renderPage={(slices, context) =>
-                      SliceBody ? (
-                        <SliceBody
+                    renderPage={(blocks, context) =>
+                      BlockBody ? (
+                        <BlockBody
                           // Unsaved field values replace the stored ones, so
                           // e.g. an author's name and role update live.
                           page={
@@ -335,7 +335,7 @@ function ConnectedLivePreviewFrame({
                                 "sharedFields",
                                 input.sharedFields
                               ),
-                            } as SliceBodyDoc
+                            } as BlockBodyDoc
                           }
                           content={{
                             ...liveFrameFieldValues(
@@ -344,9 +344,9 @@ function ConnectedLivePreviewFrame({
                               input.localizedFields
                             ),
                             title: input.title,
-                            slices,
+                            blocks,
                           }}
-                          slices={slices}
+                          blocks={blocks}
                           ctx={context}
                           locale={input.locale}
                           renderLocale={input.locale}
@@ -398,11 +398,11 @@ function LiveFrameContext({
   children,
 }: {
   input: LiveFrameInput
-  presentationCatalog?: SlicePresentationCatalog
+  presentationCatalog?: BlockPresentationCatalog
   onContext(ready: boolean): void
   onUnavailable(): void
   children(
-    ctx: SliceRenderContext,
+    ctx: BlockRenderContext,
     mediaUrls: Record<string, string>,
     ready: boolean,
     bylines: PublicByline[]
@@ -425,10 +425,10 @@ function LiveFrameContext({
     config.languageVersion === input.languageVersion &&
     config.defaultLocale === input.defaultLocale
   const storage = new Set<Id<"_storage">>()
-  collectImageStorageIds(input.slices, storage)
+  collectImageStorageIds(input.blocks, storage)
   const storageIds = [...storage].toSorted()
-  const pageIds = collectPageIds(input.slices).toSorted()
-  const relationIds = collectRelationIds(input.slices).toSorted()
+  const pageIds = collectPageIds(input.blocks).toSorted()
+  const relationIds = collectRelationIds(input.blocks).toSorted()
   // The existing media query truncates at 100. Never admit a partial context.
   const withinMediaLimit = storageIds.length <= 100
   const canResolve = authorized && withinMediaLimit
@@ -501,7 +501,7 @@ function LiveFrameContext({
     onContext(ready)
     if (unavailable) onUnavailable()
   }, [ready, unavailable, onContext, onUnavailable])
-  const ctx: SliceRenderContext = {
+  const ctx: BlockRenderContext = {
     locale: input.locale,
     presentationLocale: input.locale,
     defaultLocale: input.defaultLocale,

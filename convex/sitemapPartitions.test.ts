@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { sliceProfile, createInstalledDefaultSlice } from "@/test-utils/slice-profile"
+import { blockProfile, createInstalledDefaultBlock } from "@/test-utils/block-profile"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { api, internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
@@ -85,9 +85,9 @@ async function publishArgs(t: T, pageId: Id<"pages">, locale: string) {
 }
 
 /** About `kib` KiB of FAQ text: the P22 profile's realistic page body. */
-function bulkSlices(kib: number) {
+function bulkBlocks(kib: number) {
   if (kib === 0) return []
-  const faq = createInstalledDefaultSlice("faq-simple") as {
+  const faq = createInstalledDefaultBlock("faq-simple") as {
     items: Array<Record<string, unknown>>
   }
   faq.items = Array.from({ length: 12 }, (_, index) => ({
@@ -113,7 +113,7 @@ async function createPage(
     content: Object.fromEntries(
       locales.map((locale) => [
         locale,
-        { title: `${slug} ${locale}`, slices: bulkSlices(kib) as never },
+        { title: `${slug} ${locale}`, blocks: bulkBlocks(kib) as never },
       ])
     ),
   })
@@ -296,7 +296,7 @@ async function insertBarePage(
     createdAt: now,
     updatedAt: now,
     publishedAt: now,
-    content: { en: { title: slug, slices: [] } },
+    content: { en: { title: slug, blocks: [] } },
   })
 }
 
@@ -778,7 +778,7 @@ describe("M05 P22 sitemap partitions: build, publication and children", () => {
     expect(after.covered).toBe(after.rows)
   })
 
-  test("15 locales each close their own chained partitions", sliceProfile([]), async () => {
+  test("15 locales each close their own chained partitions", blockProfile([]), async () => {
     const site = await snapshotSite(LOCALES)
     for (const locale of LOCALES)
       await insertBareRows(site.t, locale, TARGET + 2)
@@ -1238,7 +1238,7 @@ async function renderedSitemap(
 }
 
 describe("M05 P13b SEO sitemap", () => {
-  test("15 locales, more than 500 published Pages in a locale and a noIndex locale: nothing omitted, and only SEO alternates are listed", { ...sliceProfile([]), timeout: 300_000 }, async () => {
+  test("15 locales, more than 500 published Pages in a locale and a noIndex locale: nothing omitted, and only SEO alternates are listed", { ...blockProfile([]), timeout: 300_000 }, async () => {
     const site = await snapshotSite(LOCALES)
     const template = await publishedPage(site, "tmplpage", LOCALES)
     const quiet = await publishedPage(site, "quiet", LOCALES)
@@ -1354,7 +1354,7 @@ describe("M05 P13b SEO sitemap", () => {
 })
 
 describe("M05 C5 reachable sitemap alternates", () => {
-  test("a withdrawn same-locale ancestor removes the child's alternate and own sitemap URL", sliceProfile([]), async () => {
+  test("a withdrawn same-locale ancestor removes the child's alternate and own sitemap URL", blockProfile([]), async () => {
     const site = await snapshotSite(["en", "fr"])
     const parentId = await publishedPage(site, "company", ["en", "fr"])
     const childId = await publishedPage(site, "team", ["en", "fr"], parentId)
@@ -1546,7 +1546,7 @@ describe("M05 P22 transaction metrics", () => {
     expectBuilderWithinCeilings("publication", publication)
   })
 
-  test("a child of CEILING + 1 rows under the P22 profile stays within the M23 reserve; a heavier one answers 503 before the hard limit", { ...sliceProfile(["faq-simple"]), timeout: 300_000 }, async () => {
+  test("a child of CEILING + 1 rows under the P22 profile stays within the M23 reserve; a heavier one answers 503 before the hard limit", { ...blockProfile(["faq-simple"]), timeout: 300_000 }, async () => {
     const site = await snapshotSite(LOCALES)
     const build = async (slug: string, kib: number) => {
       const top = await publishedPage(

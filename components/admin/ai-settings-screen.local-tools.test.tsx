@@ -71,15 +71,15 @@ vi.mock("@/app/(core)/admin/(authenticated)/settings/ai/actions", () => ({ saveL
 vi.mock("@/scripts/lib/local-tool-models", () => ({ loadLocalToolModels: mocks.loadLocalToolModels }))
 vi.mock("convex/react", () => ({
   useQuery: (reference: Parameters<typeof getFunctionName>[0], args: unknown) =>
-    getFunctionName(reference) === "cms/aiSettings:sliceCreator" ? (args === "skip" ? undefined : mocks.creator) : mocks.status,
+    getFunctionName(reference) === "cms/aiSettings:blockCreator" ? (args === "skip" ? undefined : mocks.creator) : mocks.status,
   useMutation: (reference: Parameters<typeof getFunctionName>[0]) => {
     const name = getFunctionName(reference)
-    return name === "cms/aiSettings:setSliceCreator" ? mocks.saveCreator : name === "cms/aiSettings:setAssistant" ? mocks.save : vi.fn()
+    return name === "cms/aiSettings:setBlockCreator" ? mocks.saveCreator : name === "cms/aiSettings:setAssistant" ? mocks.save : vi.fn()
   },
 }))
 
 type Status = NonNullable<FunctionReturnType<typeof api.cms.aiSettings.status>>
-type Creator = FunctionReturnType<typeof api.cms.aiSettings.sliceCreator>
+type Creator = FunctionReturnType<typeof api.cms.aiSettings.blockCreator>
 const anthropic = { mode: "catalog", provider: "anthropic", model: "claude-haiku-5-5", reasoning: { kind: "effort", effort: "low" } } as const
 const openrouter = { mode: "catalog", provider: "openrouter", model: "or/default", reasoning: { kind: "effort", effort: "medium" } } as const
 const openai = { mode: "catalog", provider: "openai", model: "gpt-6.1-luna", reasoning: { kind: "effort", effort: "low" } } as const
@@ -155,7 +155,7 @@ beforeEach(() => {
   mocks.fetchAuthQuery.mockImplementation(async (reference: unknown) => {
     const name = getFunctionName(reference as never)
     if (name === "cms/modules:effective") return { version: 1, modules: [{ id: "ai", outcome: mocks.aiOutcome }] }
-    if (name === "cms/aiSettings:sliceCreator") {
+    if (name === "cms/aiSettings:blockCreator") {
       if (mocks.aiOutcome === "off") throw new Error("AI_OFF")
       return { tuple: undefined }
     }
@@ -173,7 +173,7 @@ describe("Settings › AI local tools on localhost", () => {
   test("both tools signed in with a plan: Your AI providers and the local options for every assistant", async () => {
     await local({ ...localTools("plan", "plan"), claudePlan: "max" })
     expect([...screen.getByTestId("ai-rail").querySelectorAll("a")].map((a) => a.dataset.testid)).toEqual(["rail-assistants", "rail-providers"])
-    for (const id of ["writing", "translation", "help", "sliceCreator"]) {
+    for (const id of ["writing", "translation", "help", "blockCreator"]) {
       const shown = await options(id)
       expect(shown.slice(0, 2)).toEqual([["Claude Code", true], ["Codex", true]])
     }
@@ -348,10 +348,10 @@ describe("Settings › AI local tools on localhost", () => {
   // model is not offered says "Choose another model", not "Ready".
   test("a set-up tool whose saved model it no longer lists: Choose another model, on an assistant and the Block creator", async () => {
     const luna = { engine: "codex", model: "gpt-5.6-luna", effort: "low" } as const
-    await local(localTools("plan", "plan", { help: luna, sliceCreator: luna }))
+    await local(localTools("plan", "plan", { help: luna, blockCreator: luna }))
     expect(screen.getByTestId("assistant-status-help")).toHaveTextContent("Choose another model")
     expect(screen.getByTestId("assistant-status-help")).toHaveAttribute("data-tone", "warn")
-    expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent("Choose another model")
+    expect(screen.getByTestId("assistant-status-blockCreator")).toHaveTextContent("Choose another model")
     expect(screen.getByTestId("assistant-status-writing")).toHaveTextContent("Ready")
   })
 
@@ -439,9 +439,9 @@ describe("Settings › AI local tools on localhost", () => {
       ...localTools("plan", "plan"),
       menus: localToolMenus({ ...builtInLocalToolModels(), codex: { source: "installed", models: codexModels } }) as LocalToolsData["menus"],
     })
-    await choose("sliceCreator", "codex")
-    expect(model("sliceCreator")).toHaveTextContent("GPT-6.1 Sol")
-    expect(screen.getByTestId("effort-sliceCreator")).toHaveValue("medium")
+    await choose("blockCreator", "codex")
+    expect(model("blockCreator")).toHaveTextContent("GPT-6.1 Sol")
+    expect(screen.getByTestId("effort-blockCreator")).toHaveValue("medium")
   })
 
   test("a tool signed in with an API key or an unknown method is Ready; plan names show only for a plan", async () => {
@@ -460,19 +460,19 @@ describe("Settings › AI local tools on localhost", () => {
     expect(screen.queryByText(/Not installed/)).not.toBeInTheDocument()
     openTab("assistants")
     expect((await options("help")).slice(0, 2)).toEqual([["Claude Code · Signed out", false], ["Codex · Signed out", false]])
-    expect((await options("sliceCreator")).slice(0, 2)).toEqual([["Claude Code · Signed out", false], ["Codex · Signed out", false]])
+    expect((await options("blockCreator")).slice(0, 2)).toEqual([["Claude Code · Signed out", false], ["Codex · Signed out", false]])
   })
 
   test("Block creator on Codex: Ready, no key lines, and both saves", async () => {
-    await local(localTools("plan", "plan", { sliceCreator: { engine: "codex", model: "gpt-6.1-sol", effort: "high" } }))
-    expect(provider("sliceCreator")).toHaveTextContent("Codex")
-    expect(screen.getByTestId("assistant-status-sliceCreator")).toHaveTextContent("Ready")
+    await local(localTools("plan", "plan", { blockCreator: { engine: "codex", model: "gpt-6.1-sol", effort: "high" } }))
+    expect(provider("blockCreator")).toHaveTextContent("Codex")
+    expect(screen.getByTestId("assistant-status-blockCreator")).toHaveTextContent("Ready")
     // Instructions still go to Convex with the saved API service.
-    fireEvent.change(row("sliceCreator").getByRole("textbox"), { target: { value: "Block rules" } })
-    await choose("sliceCreator", "anthropic")
-    expect(row("sliceCreator").queryByText(/API_KEY|\.env\.local/)).not.toBeInTheDocument()
+    fireEvent.change(row("blockCreator").getByRole("textbox"), { target: { value: "Block rules" } })
+    await choose("blockCreator", "anthropic")
+    expect(row("blockCreator").queryByText(/API_KEY|\.env\.local/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
-    await waitFor(() => expect(mocks.saveLocal).toHaveBeenCalledWith({ sliceCreator: null }))
+    await waitFor(() => expect(mocks.saveLocal).toHaveBeenCalledWith({ blockCreator: null }))
     expect(mocks.saveCreator).toHaveBeenCalledWith({ tuple: anthropic, instructions: "Block rules" })
   })
 
@@ -480,16 +480,16 @@ describe("Settings › AI local tools on localhost", () => {
     await local(localTools("plan", "plan"), anthropicKey)
     fireEvent.change(row("translation").getByRole("textbox"), { target: { value: "Translate words" } })
     fireEvent.change(row("writing").getByRole("textbox"), { target: { value: "Write words" } })
-    fireEvent.change(row("sliceCreator").getByRole("textbox"), { target: { value: "Block words" } })
+    fireEvent.change(row("blockCreator").getByRole("textbox"), { target: { value: "Block words" } })
     await choose("help", "claude")
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
     await waitFor(() => expect(mocks.success).toHaveBeenCalledWith("Saved"))
     const order = [
       ...mocks.save.mock.invocationCallOrder.map((at, i) => [at, `setAssistant:${(mocks.save.mock.calls[i]![0] as { id: string }).id}`] as const),
-      ...mocks.saveCreator.mock.invocationCallOrder.map((at) => [at, "setSliceCreator"] as const),
+      ...mocks.saveCreator.mock.invocationCallOrder.map((at) => [at, "setBlockCreator"] as const),
       ...mocks.saveLocal.mock.invocationCallOrder.map((at) => [at, "localFile"] as const),
     ].sort((a, b) => a[0] - b[0]).map(([, name]) => name)
-    expect(order).toEqual(["setAssistant:translation", "setAssistant:writing", "setSliceCreator", "localFile"])
+    expect(order).toEqual(["setAssistant:translation", "setAssistant:writing", "setBlockCreator", "localFile"])
     expect(mocks.saveLocal).toHaveBeenCalledWith({ help: { engine: "claude", model: "claude-haiku-5-5", effort: "low" } })
   })
 
@@ -525,7 +525,7 @@ describe("off localhost", () => {
     expect(screen.getByTestId("group-api-keys")).toBeInTheDocument()
     openTab("assistants")
     // The Block creator's words follow its .env.local keys, and this computer has none.
-    expect((await options("sliceCreator")).map(([label]) => label)).toEqual(["Anthropic · Not set up", "OpenAI · Not set up", "OpenRouter · Not set up"])
+    expect((await options("blockCreator")).map(([label]) => label)).toEqual(["Anthropic · Not set up", "OpenAI · Not set up", "OpenRouter · Not set up"])
     expect((await options("help")).map(([label]) => label)).toEqual(["Anthropic", "OpenAI · Not set up", "OpenRouter"])
   })
 
@@ -562,7 +562,7 @@ describe("off localhost", () => {
   ])("guard: the Block creator readiness for %s is not ready and reads no local file", async (_label, arrange) => {
     mocks.isLocalToolRequest.mockResolvedValue(true)
     arrange()
-    await expect(ADMIN_AI_SETTINGS_SERVER_BINDING!.resolveSliceCreatorReady()).resolves.toBe(false)
+    await expect(ADMIN_AI_SETTINGS_SERVER_BINDING!.resolveBlockCreatorReady()).resolves.toBe(false)
     expect(mocks.readDevAiSelection).not.toHaveBeenCalled()
     expect(mocks.readFileSync).not.toHaveBeenCalled()
     expect(mocks.spawn).not.toHaveBeenCalled()
