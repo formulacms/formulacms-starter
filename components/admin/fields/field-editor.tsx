@@ -4,7 +4,7 @@ import { adminFieldMetadata } from "@/lib/i18n/admin-metadata"
 import { markStructuralListOperation } from "@/lib/editor-structure"
 
 import dynamic from "next/dynamic"
-import { useId, useState } from "react"
+import { useId, useLayoutEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import {
@@ -170,6 +170,53 @@ export function Field({
 }
 
 /**
+ * Applies a late AI answer through the newest `onResult`, and only to the
+ * field the owner asked about. `begin()` snapshots the editing language and
+ * the field's own value right before the request; the returned `apply` drops
+ * the answer with a toast when, by the time it arrives, the language changed,
+ * the field's value changed, or the button unmounted. The latest-callback ref
+ * is assigned in a layout effect (same pattern as `block-builder.tsx`), never
+ * during render.
+ */
+function useLateFieldAnswer(
+  locale: string,
+  currentValue: string | undefined,
+  onResult: (value: string) => void
+) {
+  const t = useTranslations("editor.fields")
+  const latest = useRef<{
+    locale: string
+    currentValue: string | undefined
+    onResult: (value: string) => void
+  } | null>(null)
+  useLayoutEffect(() => {
+    latest.current = { locale, currentValue, onResult }
+  })
+  useLayoutEffect(
+    () => () => {
+      latest.current = null
+    },
+    []
+  )
+  return function begin() {
+    const start = latest.current
+    return function apply(answer: string) {
+      const live = latest.current
+      if (
+        !start ||
+        !live ||
+        live.locale !== start.locale ||
+        live.currentValue !== start.currentValue
+      ) {
+        toast.error(t("changedDuringAi"))
+        return
+      }
+      live.onResult(answer)
+    }
+  }
+}
+
+/**
  * The "Translate" affordance shown at a field's label. Hidden only when the page
  * is monolingual (no `translate` source locale at all). When a source locale
  * exists but has no value for this field, the button shows *disabled* with an
@@ -184,6 +231,7 @@ export function FieldTranslateButton({
   translate,
   onResult,
   address,
+  locale,
 }: {
   /** Field label, named in the overwrite confirm. */
   label?: string
@@ -194,10 +242,13 @@ export function FieldTranslateButton({
   translate: FieldTranslate | undefined
   onResult: (value: string) => void
   address?: FieldAddress
+  /** The language being edited; a late answer is dropped if it changes. */
+  locale: string
 }) {
   const t = useTranslations("editor.fields")
   const confirm = useConfirm()
   const [busy, setBusy] = useState(false)
+  const beginAnswer = useLateFieldAnswer(locale, currentValue, onResult)
   if (!translate) return null
   if (kind === "text" && !translate.supportsPlainText) return null
   // Rich-text translate needs Production AI; when only the Development lane
@@ -221,8 +272,9 @@ export function FieldTranslateButton({
       if (!ok) return
     }
     setBusy(true)
+    const apply = beginAnswer()
     try {
-      onResult(await translate.run(sourceValue, kind, address))
+      apply(await translate.run(sourceValue, kind, address))
     } catch (err) {
       // A refused Save already told the owner why.
       if (!(err instanceof PageSaveRefusedError)) {
@@ -290,6 +342,7 @@ export function FieldWriteButton({
   profile,
   generate,
   onResult,
+  locale,
 }: {
   label?: string
   currentValue: string | undefined
@@ -297,11 +350,14 @@ export function FieldWriteButton({
   profile?: RichTextProfile
   generate: FieldGenerate | undefined
   onResult: (value: string) => void
+  /** The language being edited; a late answer is dropped if it changes. */
+  locale: string
 }) {
   const t = useTranslations("editor.fields")
   const promptUser = usePrompt()
   const confirm = useConfirm()
   const [busy, setBusy] = useState(false)
+  const beginAnswer = useLateFieldAnswer(locale, currentValue, onResult)
   if (!generate) return null
   async function run() {
     if (!generate) return
@@ -328,9 +384,10 @@ export function FieldWriteButton({
     })
     if (!brief) return
     setBusy(true)
+    const apply = beginAnswer()
     await tryAsync(
       async () => {
-        onResult(
+        apply(
           await generate.run(brief, label ?? t("genericField"), kind, profile)
         )
       },
@@ -373,16 +430,20 @@ export function FieldRefineButton({
   kind,
   generate,
   onResult,
+  locale,
 }: {
   label?: string
   currentValue: string | undefined
   kind: "text" | "richText"
   generate: FieldGenerate | undefined
   onResult: (value: string) => void
+  /** The language being edited; a late answer is dropped if it changes. */
+  locale: string
 }) {
   const t = useTranslations("editor.fields")
   const promptUser = usePrompt()
   const [busy, setBusy] = useState(false)
+  const beginAnswer = useLateFieldAnswer(locale, currentValue, onResult)
   if (!generate) return null
   const hasContent = fieldHasContent(currentValue)
   async function run() {
@@ -407,9 +468,10 @@ export function FieldRefineButton({
     })
     if (!instruction) return
     setBusy(true)
+    const apply = beginAnswer()
     await tryAsync(
       async () => {
-        onResult(
+        apply(
           await generate.runRefine(
             currentValue,
             instruction,
@@ -456,6 +518,7 @@ export function FieldLocaleActions({
   generate,
   onResult,
   address,
+  locale,
 }: {
   /** Field label, named in the overwrite confirms. */
   label?: string
@@ -467,6 +530,8 @@ export function FieldLocaleActions({
   generate: FieldGenerate | undefined
   onResult: (value: string) => void
   address?: FieldAddress
+  /** The language being edited; a late AI answer is dropped if it changes. */
+  locale: string
 }) {
   if (!translate && !generate) return null
   return (
@@ -478,6 +543,7 @@ export function FieldLocaleActions({
         profile={profile}
         generate={generate}
         onResult={onResult}
+        locale={locale}
       />
       <FieldRefineButton
         label={label}
@@ -485,6 +551,7 @@ export function FieldLocaleActions({
         kind={kind}
         generate={generate}
         onResult={onResult}
+        locale={locale}
       />
       <FieldTranslateButton
         label={label}
@@ -494,6 +561,7 @@ export function FieldLocaleActions({
         translate={translate}
         address={address}
         onResult={onResult}
+        locale={locale}
       />
     </div>
   )
@@ -539,6 +607,7 @@ function TextWidget({
   translate,
   generate,
   blockType,
+  locale,
 }: WidgetProps) {
   const cfg = def.config as {
     multiline?: boolean
@@ -578,6 +647,7 @@ function TextWidget({
           address={address}
           generate={generate}
           onResult={set}
+          locale={locale}
         />
       }
     >
@@ -619,6 +689,7 @@ function RichTextWidget({
   sourceValue,
   translate,
   generate,
+  locale,
 }: WidgetProps) {
   const contract = resolveFieldContract(
     def.config as {
@@ -671,6 +742,7 @@ function RichTextWidget({
           translate={translate}
           generate={fieldGenerate}
           onResult={onChange}
+          locale={locale}
         />
       }
     >
@@ -685,6 +757,7 @@ function RichTextWidget({
         sourceValue={currentSource}
         translate={translate}
         generate={fieldGenerate}
+        locale={locale}
       />
       </>)}
     </Field>

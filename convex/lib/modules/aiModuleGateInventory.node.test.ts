@@ -22,7 +22,6 @@ const groups = {
     "agents/helpAssistant": ["answer"],
     "cms/agents": ["getContentPresets"],
     "cms/aiJobs": [
-      "estimatePageJob",
       "startPageJob",
       "cancelPageJob",
       "resumePageJob",
@@ -36,7 +35,6 @@ const groups = {
     "cms/ai": ["isConfigured", "getModelsSettings"],
     "cms/aiSettings": [
       "setProductionAiConfiguration",
-      "setMonthlyAiCap",
       "status",
       "setAssistant",
       "setAssistantLocalTool",
@@ -44,7 +42,7 @@ const groups = {
       "setBlockCreator",
     ],
     "cms/aiConnections": ["validateProductionConnection"],
-    "cms/agents": ["listAgents", "updateAgent", "resetAgentPresets"],
+    "cms/agents": ["listAgents", "updateAgent"],
     // Owner session, AI module effective; no API connection needed.
     "cms/aiLocalJobs": ["startLocalPageJob", "resumeLocalPageJob"],
   },
@@ -128,7 +126,7 @@ function presentClassifications(
   )
 }
 
-test("every public AI function has exactly one C6 classification (35 plus S2a setup and the local job runner)", async () => {
+test("every public AI function has exactly one C6 classification (32 plus S2a setup and the local job runner)", async () => {
   const classified = Object.values(groups)
     .flatMap((group) =>
       Object.entries(group).flatMap(([path, names]) =>
@@ -136,8 +134,8 @@ test("every public AI function has exactly one C6 classification (35 plus S2a se
       )
     )
     .sort()
-  expect(classified).toHaveLength(48)
-  expect(new Set(classified).size).toBe(48)
+  expect(classified).toHaveLength(45)
+  expect(new Set(classified).size).toBe(45)
   expect(await inventory()).toEqual(
     presentClassifications(classified, Object.keys(functionModules))
   )

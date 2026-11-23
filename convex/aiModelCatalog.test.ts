@@ -112,16 +112,6 @@ async function seedOwner(t: ReturnType<typeof convexTest>) {
       configurationVersion: 1,
       enabledModules: [{ moduleId: "ai", configVersion: 1 }],
     })
-    await ctx.db.insert("roles", {
-      authId: "admin-1",
-      role: "admin",
-      assignedAt: Date.now(),
-    })
-    await ctx.db.insert("roles", {
-      authId: "editor-1",
-      role: "editor",
-      assignedAt: Date.now(),
-    })
     await ctx.db.insert("cmsOwner", {
       key: "owner",
       authId: "admin-1",

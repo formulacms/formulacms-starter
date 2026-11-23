@@ -7,6 +7,11 @@ import fr from "@/messages/admin/fr.json"
 import Dashboard from "@/app/(core)/admin/(authenticated)/page"
 import { formatLocalDate, formatLocalDateTime } from "./local-date-format"
 import { PUBLIC_MESSAGES } from "./public-messages"
+import { isActiveContentType } from "@/convex/lib/contentTypes"
+
+// A generated starter may not ship Post or Author (their labels are pruned).
+const postActive = isActiveContentType("post")
+const authorActive = isActiveContentType("author")
 
 const state = vi.hoisted(() => ({
   locale: "fr",
@@ -56,7 +61,7 @@ beforeEach(() => {
   state.media = []
   state.messages = null
 })
-test("French dashboard groups large counts, localizes badges/default, and preserves custom type identifiers", async () => {
+test.runIf(postActive)("French dashboard groups large counts, localizes badges/default, and preserves custom type identifiers", async () => {
   state.pages = Array.from({ length: 1001 }, (_, i): (typeof state.pages)[number] => ({
     _id: String(i),
     localizedTitles: i === 0 ? {} : { en: "Owner title" },
@@ -80,7 +85,7 @@ test("French dashboard groups large counts, localizes badges/default, and preser
     screen.getAllByText(new Date(1_800_000_000_000).toLocaleDateString("fr"))
   ).toHaveLength(10)
 })
-test("English dashboard compatibility keeps owner content and existing labels", async () => {
+test.runIf(authorActive)("English dashboard compatibility keeps owner content and existing labels", async () => {
   state.locale = "en"
   state.pages = [
     {

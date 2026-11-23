@@ -4,7 +4,7 @@ import { readdir, readFile } from "node:fs/promises"
 import { describe, expect, test } from "vitest"
 
 const RETIRED_ACCESS =
-  /requirePermission|requireExactAdmin|resolveRoleAndPermissions|assertPagePermission|myPermissions/g
+  /requirePermission|requireAnyPageTypePermission|requirePagePermission|canReadPrivate|permittedPageTypes|requireExactAdmin|resolveRoleAndPermissions|assertPagePermission|myPermissions/g
 
 type InventoryClass =
   | "activeF03OwnerSeam"
@@ -16,47 +16,28 @@ type InventoryClass =
   | "deferredF05"
   | "activeF03Fixture"
 
-/**
- * FR2e (D-7): rows for files the starter does not ship (the later Team
- * modules, the retired permission helpers, AI settings) live in the private
- * `f03verify.sourceInventory.ts`. Source merges them, so its inventory stays
- * exact; the starter copy is exact for what it ships.
- */
-type SourceOnlyInventory = {
-  legacyTokenFiles?: readonly string[]
-  explicitNonTokenConsumers?: readonly string[]
-  inventory?: Partial<Record<InventoryClass, readonly string[]>>
-}
-const SOURCE_ONLY: SourceOnlyInventory = (Object.values(
-  import.meta.glob("./f03verify.sourceInventory.ts", { eager: true, import: "default" })
-)[0] ?? {}) as SourceOnlyInventory
-
 // This is the bounded F03 source claim. It covers active application/backend
 // roots and the explicit owner-fixture helper; it is not a full-repository
 // claim and does not scan archived, generated, or starter-overlay sources.
-const LEGACY_TOKEN_FILES = [
-  "convex/cms/aiSettings.ts",
-  "convex/cms/media.ts",
-  "convex/cms/pages.ts",
-  "convex/cms/settings.ts",
-  "convexTestWithExplicitAdmin.ts",
-  ...(SOURCE_ONLY.legacyTokenFiles ?? []),
-]
+const LEGACY_TOKEN_FILES = ["convexTestWithExplicitAdmin.ts"]
 
 // F03 access consumers that remain relevant even after their old role-string
 // token was removed, so the bounded scanner adds them explicitly.
 const EXPLICIT_NON_TOKEN_CONSUMERS = [
-  ...(SOURCE_ONLY.explicitNonTokenConsumers ?? []),
+  "convex/cms/aiSettings.ts",
+  "convex/cms/media.ts",
+  "convex/cms/pages.ts",
+  "convex/cms/settings.ts",
 ]
 
-const SHIPPED_INVENTORY: Record<InventoryClass, readonly string[]> = {
-  activeF03OwnerSeam: [],
-  temporaryF03Shim: [
+const INVENTORY: Record<InventoryClass, readonly string[]> = {
+  activeF03OwnerSeam: [
     "convex/cms/aiSettings.ts",
     "convex/cms/media.ts",
     "convex/cms/pages.ts",
     "convex/cms/settings.ts",
   ],
+  temporaryF03Shim: [],
   deferredR01Compatibility: [],
   deferredT01: [],
   deferredT02: [],
@@ -64,13 +45,6 @@ const SHIPPED_INVENTORY: Record<InventoryClass, readonly string[]> = {
   deferredF05: [],
   activeF03Fixture: ["convexTestWithExplicitAdmin.ts"],
 }
-
-const INVENTORY = Object.fromEntries(
-  Object.entries(SHIPPED_INVENTORY).map(([key, files]) => [
-    key,
-    [...files, ...(SOURCE_ONLY.inventory?.[key as InventoryClass] ?? [])],
-  ])
-) as Record<InventoryClass, string[]>
 
 // FR2e (D-7): the Search and Forms public boundaries are checked in their
 // capability-owned suites.
@@ -122,14 +96,17 @@ describe("F03.verify access inventory", () => {
     const classified = Object.values(INVENTORY).flat()
     expect(new Set(classified).size).toBe(classified.length)
     expect(classified).toContain("convexTestWithExplicitAdmin.ts")
-    expect(classified).not.toContain(
-      "scripts/starter/overlay/convex/edition/roles.ts"
-    )
 
     const fixture = await readFile("convexTestWithExplicitAdmin.ts", "utf8")
     expect(fixture).toContain("seedCommunityOwner")
     expect(fixture).toContain("cmsOwner")
     expect(fixture).toMatch(/grants no[\s\S]*legacy/u)
+
+    for (const file of INVENTORY.activeF03OwnerSeam) {
+      const source = await readFile(file, "utf8")
+      expect(source, file).toContain("requireOperationAccess(ctx)")
+      expect(source, file).not.toMatch(RETIRED_ACCESS)
+    }
   })
 
   test("keeps intentional public boundaries free of retired access tokens", async () => {

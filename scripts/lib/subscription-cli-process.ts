@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { rm } from "node:fs/promises"
-import { join } from "node:path"
+import { delimiter, isAbsolute, join } from "node:path"
 import type { Readable, Writable } from "node:stream"
 import { parse as parseDotenv } from "dotenv"
 import { LOCAL_API_KEY_NAMES } from "@/lib/local-api-keys"
@@ -156,6 +156,18 @@ export function localToolEnvironment(
     if (value === undefined || FORMULACMS_KEY_NAMES.has(name)) continue
     if (fromFiles(name, value)) continue
     toolEnv[name] = value
+  }
+  // The native installer puts Claude Code here on macOS/Linux. A Next server
+  // started without an interactive shell may not inherit that PATH entry.
+  // Append after sanitization: keep earlier installations and never restore
+  // HOME/PATH values loaded from the project's files. Status, SDK discovery,
+  // executable identity and real runs all consume this same environment.
+  // https://code.claude.com/docs/en/setup#auto-updates
+  if (process.platform !== "win32" && toolEnv.HOME && isAbsolute(toolEnv.HOME) && toolEnv.PATH) {
+    const nativeBin = join(toolEnv.HOME, ".local", "bin")
+    if (!toolEnv.PATH.split(delimiter).includes(nativeBin)) {
+      toolEnv.PATH += `${delimiter}${nativeBin}`
+    }
   }
   return toolEnv
 }

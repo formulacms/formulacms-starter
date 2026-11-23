@@ -89,7 +89,6 @@ vi.mock("@/components/admin/command-palette", () => ({
   useRegisterAdminCommands: vi.fn(),
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({ DuplicatePageDialog: () => null }))
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: () => null,
 }))

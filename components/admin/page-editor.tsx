@@ -31,6 +31,7 @@ import {
   useConvex,
   type ReactMutation,
 } from "convex/react"
+import type { FunctionArgs } from "convex/server"
 import { api } from "@/convex/_generated/api"
 import { useRouter } from "next/navigation"
 import { useLocale, useTranslations } from "next-intl"
@@ -46,7 +47,6 @@ import {
   Search,
   Archive,
   Copy,
-  CopyPlus,
   ExternalLink,
   MoreHorizontal,
   PlusCircle,
@@ -77,7 +77,6 @@ import type {
   BlockPreviewClickSelection,
 } from "./visual-editing-types"
 import { useConfirm } from "@/components/providers/confirm-provider"
-import { DuplicatePageDialog } from "@/components/admin/duplicate-page-dialog"
 import { siteLocaleOrder } from "@/components/admin/pages-list-locales"
 import {
   UnpublishDialog,
@@ -133,6 +132,7 @@ import {
   type Page,
   type PageEditorRecoveryDraft,
   type PageSummaryRow,
+  type PrePublishChecklist,
   type TranslateMode,
   staleSaveMessage,
 } from "./page-editor/lib/types"
@@ -142,7 +142,6 @@ import { SeoPanel } from "./page-editor/components/seo-panel"
 import { PageHeaderMeta } from "./page-editor/components/page-header-meta"
 import { SettingsPanel } from "./page-editor/components/settings-panel"
 import { BlocksPanel } from "./page-editor/components/blocks-panel"
-import { ADMIN_HISTORY_BROWSER_BINDING } from "./contributions/history"
 import { SnapshotHistoryPanelSlot } from "./page-editor/components/snapshot-history-panel"
 import {
   usePageSave,
@@ -152,7 +151,6 @@ import {
   type RetainedPageSaveBase,
   type RetainedSharedPageSaveDraft,
   type SaveSnapshotEditorDraft,
-  type UpdateDraft,
   type UpdatePage,
 } from "./page-editor/hooks/use-page-save"
 import { usePrePublishChecklist } from "./page-editor/hooks/use-pre-publish-checklist"
@@ -351,6 +349,10 @@ async function runRetainedTargetDraftDeletion({
   }
 }
 
+type SnapshotEditorDraftArgs = NonNullable<
+  FunctionArgs<typeof api.cms.publication.saveEditorDraft>["localized"]
+>
+
 /**
  * Best-effort carry-over of descriptor-generic fields onto a recovered copy.
  * Module-level because it holds a `throw` inside `try` plus value blocks:
@@ -369,7 +371,6 @@ async function carryOverRecoveredCopyFields({
   sharedFieldValues,
   localizedFieldValues,
   presentationCatalog,
-  updateDraft,
   saveEditorSnapshotDraft,
 }: {
   convex: ReturnType<typeof useConvex>
@@ -384,7 +385,6 @@ async function carryOverRecoveredCopyFields({
   sharedFieldValues: Record<string, unknown>
   localizedFieldValues: Record<string, unknown>
   presentationCatalog: { revision: string } | null | undefined
-  updateDraft: ReactMutation<typeof api.cms.pages.updateDraft>
   saveEditorSnapshotDraft: ReactMutation<
     typeof api.cms.publication.saveEditorDraft
   >
@@ -397,14 +397,8 @@ async function carryOverRecoveredCopyFields({
     )
     const hasSharedFields = Object.keys(sharedFieldValues).length > 0
     if (hasLocalizedFields || hasSharedFields) {
-      const updateDraftArgs: Record<string, unknown> = {
-        pageId: newId,
-        // Legacy fresh page → no staging OCC token yet; server treats absent
-        // `expectedUpdatedAt` as lazy-create / no conflict.
-      }
-      if (hasLocalizedFields) {
-        updateDraftArgs.content = {
-          [currentLocale]: {
+      const localizedDraft = hasLocalizedFields
+        ? {
             pageType: blockBodyPageType,
             localized: {
               title:
@@ -414,56 +408,48 @@ async function carryOverRecoveredCopyFields({
               ...localizedFieldValues,
             },
             blocks,
-          },
-        }
-      }
-      if (hasSharedFields) {
-        updateDraftArgs.sharedFieldsJson = JSON.stringify(sharedFieldValues)
-      }
-      const copyDraftArgs = updateDraftArgs as Parameters<typeof updateDraft>[0]
+          }
+        : undefined
       const target = await convex.query(api.cms.pages.getForEdit, {
         id: newId,
       })
-      if (!target) throw new Error("Created page is unavailable")
-      if (target.publication) {
-        const targetPublication = target.publication
-        const localizedDraft = copyDraftArgs.content?.[currentLocale]
-        await saveEditorSnapshotDraft({
-          pageId: newId,
-          expectedLifecycleGeneration: targetPublication.lifecycleGeneration,
-          ...(presentationCatalog
-            ? {
-                expectedPresentationCatalogRevision:
-                  presentationCatalog.revision,
-              }
-            : {}),
-          ...(hasSharedFields
-            ? {
-                shared: {
-                  sharedFieldsJson: copyDraftArgs.sharedFieldsJson,
-                  expectedGeneration: targetPublication.sharedDraftGeneration,
-                },
-              }
-            : {}),
-          ...(localizedDraft
-            ? {
-                localized: {
-                  locale: currentLocale,
-                  slug:
-                    target.page.localizedSlugs?.[currentLocale] ??
-                    target.page.slug,
-                  draft: localizedDraft,
-                  expectedGeneration:
-                    targetPublication.locales.find(
-                      (entry) => entry.locale === currentLocale
-                    )?.draftGeneration ?? 0,
-                },
-              }
-            : {}),
-        })
-      } else {
-        await updateDraft(copyDraftArgs)
-      }
+      // A copy with no publishing state cannot take a draft write.
+      const targetPublication = target?.publication
+      if (!target || !targetPublication)
+        throw new Error("Created page is unavailable")
+      await saveEditorSnapshotDraft({
+        pageId: newId,
+        expectedLifecycleGeneration: targetPublication.lifecycleGeneration,
+        ...(presentationCatalog
+          ? {
+              expectedPresentationCatalogRevision:
+                presentationCatalog.revision,
+            }
+          : {}),
+        ...(hasSharedFields
+          ? {
+              shared: {
+                sharedFieldsJson: JSON.stringify(sharedFieldValues),
+                expectedGeneration: targetPublication.sharedDraftGeneration,
+              },
+            }
+          : {}),
+        ...(localizedDraft
+          ? {
+              localized: {
+                locale: currentLocale,
+                slug:
+                  target.page.localizedSlugs?.[currentLocale] ??
+                  target.page.slug,
+                draft: localizedDraft as SnapshotEditorDraftArgs["draft"],
+                expectedGeneration:
+                  targetPublication.locales.find(
+                    (entry) => entry.locale === currentLocale
+                  )?.draftGeneration ?? 0,
+              },
+            }
+          : {}),
+      })
     }
   } catch {
     // Descriptor-field carry-over failed — the recovered draft still
@@ -474,13 +460,13 @@ async function carryOverRecoveredCopyFields({
 
 type PageEditorProps = {
   page: Page
-  // ADR-0041 §Migration step 2 (item 1) — supplied by the editor page's
-  // `pages.getForEdit` server read. Seeds the "Unpublished changes" badge
-  // (via `hasStaging`) and the staging-row OCC token for the first
-  // `updateDraft` call (undefined = lazy-create).
+  // Supplied by the editor page's `pages.getForEdit` server read. Seeds the
+  // "Unpublished changes" badge (via `hasStaging`).
   hasStaging: boolean
   stagingUpdatedAt: number | undefined
-  publication?: SnapshotEditorPublication
+  // The page's publishing state (generations per language). Every editor
+  // runs on it; the route shows "not found" without it.
+  publication: SnapshotEditorPublication
   aiWritingRouteData?: AdminAiWritingRouteData
   aiTranslationRouteData?: AdminAiTranslationRouteData
   archiveStateVerificationFailure?: boolean
@@ -530,8 +516,7 @@ export function PageEditor(props: PageEditorProps) {
     restored &&
     restored.pageId === props.page._id &&
     ("draftGeneration" in restored
-      ? props.publication &&
-        props.publication.sharedDraftGeneration >=
+      ? props.publication.sharedDraftGeneration >=
           restored.sharedDraftGeneration &&
         props.publication.locales.some(
           (locale) =>
@@ -609,16 +594,17 @@ function PageEditorSession({
   const tLanguageChange = useTranslations("editor.page.languageChange")
   const readinessCopy = usePrePublishReadinessCopy()
   const tReadiness = useTranslations("editor.readiness")
+  const tPrePublish = useTranslations("editor.prePublish")
 
   const siteConfig = useQuery(api.cms.settings.getSiteConfig)
   // F09 row 39: set only during a content-language replacement.
   const sourcePublicationNotice = useQuery(
     api.cms.language.getSourcePublicationNotice,
-    publication ? { pageId: page._id } : "skip"
+    { pageId: page._id }
   )
   const retainedTargetRemedy = useQuery(
     api.cms.language.getRetainedTargetDraftRemedy,
-    publication && !targetDraftLocale ? { pageId: page._id } : "skip"
+    !targetDraftLocale ? { pageId: page._id } : "skip"
   )
   const workflow = useEditionPageWorkflow(page._id)
   const enabledLocales = siteConfig?.enabledLocales ?? ["en"]
@@ -714,16 +700,53 @@ function PageEditorSession({
     enabledLocales,
     homePageId: siteConfig?.homePageId ?? routeHomePageId,
   })
-  // The checklist refuses a language that is not switched on yet.
+  // An enabled language without a saved draft or verified frozen base has
+  // nothing for the server checklist to read yet. Use the editor projection,
+  // not the title (an empty saved title still needs its own checklist).
+  // Unloaded content, disabled locales and contradictory saved state remain
+  // subscribed so an actual validation/access error is never hidden.
+  const savedLocalePublication = publication.locales.find(
+    (entry) => entry.locale === currentLocale
+  )
+  const untranslatedLocale =
+    siteLocalesAtMount?.includes(currentLocale) === true &&
+    page.content !== undefined &&
+    page.content[currentLocale] === undefined &&
+    (!savedLocalePublication ||
+      savedLocalePublication.state === "not_translated") &&
+    !savedLocalePublication?.currentSnapshotId
   const { result: prePublishChecklistResult, retry: retryPrePublishChecklist } =
-    usePrePublishChecklist(page._id, currentLocale, !targetDraftLocale)
+    usePrePublishChecklist(
+      page._id,
+      currentLocale,
+      !targetDraftLocale && !untranslatedLocale
+    )
   const prePublishChecklistError = prePublishChecklistResult instanceof Error
-  const prePublishChecklist = prePublishChecklistError
-    ? undefined
-    : prePublishChecklistResult
+  // This known absent-language state is settled, not a pending request. Reuse
+  // the existing missing-translation blocker and copy until a saved draft
+  // arrives; only the server checklist can make a saved language publishable.
+  const prePublishChecklist: PrePublishChecklist | undefined = untranslatedLocale
+    ? {
+        canPublish: false,
+        blockers: [
+          {
+            code: "missing_enabled_locale_translation",
+            severity: "blocker",
+            message: tPrePublish("items.missingTranslation", {
+              locale: currentLocale.toUpperCase(),
+            }),
+            field: `content.${currentLocale}`,
+            locales: [currentLocale],
+          },
+        ],
+        warnings: [],
+      }
+    : prePublishChecklistError
+      ? undefined
+      : prePublishChecklistResult
   const publishReadinessUnavailable =
     !targetDraftLocale &&
-    (prePublishChecklistError || prePublishChecklistResult === undefined)
+    (prePublishChecklistError || prePublishChecklist === undefined)
   const publishReadinessDisabledReason = prePublishChecklistError
     ? tReadiness("publishWait")
     : tReadiness("checking")
@@ -735,6 +758,19 @@ function PageEditorSession({
   const [initialPageDraftHandoff] = useState(() =>
     readPageDraftHandoff(page._id)
   )
+
+  // The base slug is the address in the language the page was written in (or
+  // in the language that was the default when it was saved). When the default
+  // language was switched afterwards, a language with no content of its own yet
+  // does not own that address: it starts from its own title, so translating
+  // into it never inherits (or overwrites) the other language's address.
+  function isUntranslatedDefault(locale: Locale): boolean {
+    // The home page's address is its own: it never adopts a title's.
+    if ((siteConfig?.homePageId ?? routeHomePageId) === page._id) return false
+    const content = page.content ?? {}
+    if (getTitle(page, locale) || content[locale]) return false
+    return Object.keys(content).length > 0
+  }
 
   // The slug a locale starts from in the editor:
   //  - an explicit per-locale override, if one was saved;
@@ -753,18 +789,6 @@ function PageEditorSession({
       return page.slug || slugify(getTitle(page, locale))
     }
     return slugify(getTitle(page, locale))
-  }
-  // The base slug is the address in the language the page was written in (or
-  // in the language that was the default when it was saved). When the default
-  // language was switched afterwards, a language with no content of its own yet
-  // does not own that address: it starts from its own title, so translating
-  // into it never inherits (or overwrites) the other language's address.
-  function isUntranslatedDefault(locale: Locale): boolean {
-    // The home page's address is its own: it never adopts a title's.
-    if ((siteConfig?.homePageId ?? routeHomePageId) === page._id) return false
-    const content = page.content ?? {}
-    if (getTitle(page, locale) || content[locale]) return false
-    return Object.keys(content).length > 0
   }
   // Linked = the slug still tracks the slugified title (auto-generate on);
   // false once the user manually diverges.
@@ -891,7 +915,7 @@ function PageEditorSession({
   const [titleSaveRefused, setTitleSaveRefused] = useState(false)
   const titleRequiredId = useId()
   // Whether the last refused Save was the blank-title refusal, read by the
-  // dialog/popover callers that run a Save first (Duplicate, Copy from,
+  // dialog/popover callers that run a Save first (Copy from,
   // Translate from). `focusTitleOnCloseRef` asks the one that closes next to
   // hand focus to the title instead of back to its trigger.
   const titleRefusedRef = useRef(false)
@@ -1291,13 +1315,10 @@ function PageEditorSession({
     Record<string, LocaleContentSummary>
   >({})
 
-  // Published Snapshot history belongs to core Publication. Legacy draft
-  // revisions still require the optional History (M06) participant.
-  const HistoryPanelSlot = publication
-    ? targetDraftLocale
-      ? undefined
-      : SnapshotHistoryPanelSlot
-    : ADMIN_HISTORY_BROWSER_BINDING?.PanelSlot
+  // Published Snapshot history belongs to core Publication.
+  const HistoryPanelSlot = targetDraftLocale
+    ? undefined
+    : SnapshotHistoryPanelSlot
   const historyInstalled = HistoryPanelSlot !== undefined
   const activeEditors = useQuery(api.cms.pages.listActiveEditors, {
     pageId: page._id,
@@ -1311,15 +1332,13 @@ function PageEditorSession({
   const addressMessages = usePageAddressMessages(defaultLocale)
   const addressAvailability = useQuery(
     api.cms.publication.addressAvailability,
-    publication
-      ? {
-          pageId: page._id,
-          locale: currentLocale,
-          slug,
-          parentId: parentId ? (parentId as Id<"pages">) : null,
-          intent: slugLinked && !addressWasTyped ? "generated" : "typed",
-        }
-      : "skip"
+    {
+      pageId: page._id,
+      locale: currentLocale,
+      slug,
+      parentId: parentId ? (parentId as Id<"pages">) : null,
+      intent: slugLinked && !addressWasTyped ? "generated" : "typed",
+    }
   )
   const addressAllocation = addressAvailability?.entries.find(
     (entry) => entry.locale === currentLocale
@@ -1335,17 +1354,6 @@ function PageEditorSession({
     api.cms.blocks.getPresentationCatalog,
     {}
   )
-  // ADR-0041 §Migration step 2 (item 2) — editor writes go through the
-  // staging seam (`updateDraft` / `publish` / `discardDraft`). The legacy
-  // `pages.update` remains only for hierarchy moves, pageType changes,
-  // `expiresAt`, and status transitions. (`scheduledAt` moved onto
-  // staging in PR B — the cron reads `pageStaging.by_scheduledAt` and
-  // publishes via the shared `performPublish` helper.)
-  const updateDraft = useMutation(api.cms.pages.updateDraft)
-  const publishPageMutation = useMutation(api.cms.pages.publish)
-  const discardDraftMutation = useMutation(api.cms.pages.discardDraft)
-  const updatePage = useMutation(api.cms.pages.update)
-  const softDelete = useMutation(api.cms.pages.softDelete)
   const saveEditorSnapshotDraft = useMutation(
     api.cms.publication.saveEditorDraft
   )
@@ -1458,19 +1466,18 @@ function PageEditorSession({
     }
   }
 
-  // Under snapshot authority this tab must hold a base. A tab opened before a
-  // legacy-to-snapshot cutover has none, and the refreshed `publication` prop is
-  // never a base for content it did not load, so the write is refused through
-  // the existing stale-save path (recovery copy kept, Reload loads fresh).
+  // This tab must hold a base. The refreshed `publication` prop is never a
+  // base for content it did not load, so a write without one is refused
+  // through the existing stale-save path (recovery copy kept, Reload loads
+  // fresh).
   function snapshotBase() {
     const base = publicationRef.current
-    if (!base && publication) throw new Error(staleSaveMessage)
+    if (!base) throw new Error(staleSaveMessage)
     return base
   }
 
   function draftSaveBase(patch: Parameters<SaveSnapshotEditorDraft>[0]) {
     const base = snapshotBase()
-    if (!base) return undefined
     const locale = patch.localized?.locale ?? currentLocale
     const localized = patch.localized ? localeRefusal(locale) : undefined
     const shared = patch.shared
@@ -1497,7 +1504,7 @@ function PageEditorSession({
   // are separate transactions: if the shared half fails after the language
   // half saved, the owner sees the error and a retry resaves both.
   const persistTargetDraft: SaveSnapshotEditorDraft = async (patch) => {
-    const publicationState = draftSaveBase(patch)!
+    const publicationState = draftSaveBase(patch)
     if (patch.localized) {
       const localeState = localeBaseOf(publicationState, patch.localized.locale)
       const result = await saveTargetLocaleDraft({
@@ -1537,7 +1544,7 @@ function PageEditorSession({
 
   const persistSnapshotEditorDraft: SaveSnapshotEditorDraft = async (patch) => {
     if (targetDraftLocale) return persistTargetDraft(patch)
-    const publicationState = draftSaveBase(patch)!
+    const publicationState = draftSaveBase(patch)
     const localeState = patch.localized
       ? localeBaseOf(publicationState, patch.localized.locale)
       : undefined
@@ -1586,85 +1593,8 @@ function PageEditorSession({
     }
   }
 
-  const editorUpdateDraft: UpdateDraft = async (args) => {
+  const editorPublishPage: PublishPage = async () => {
     const publicationState = snapshotBase()
-    if (!publicationState) return updateDraft(args)
-    if (args.scheduledAt !== undefined) {
-      throw new Error(
-        "Scheduled publication is not available under snapshot authority yet"
-      )
-    }
-    const sharedChanged =
-      args.sharedFieldsJson !== undefined ||
-      args.seo !== undefined ||
-      args.authorIds !== undefined ||
-      args.tags !== undefined
-    const localizedInput = args.content?.[currentLocale]
-    const localizedChanged =
-      localizedInput !== undefined ||
-      args.slug !== undefined ||
-      args.localizedSlugs !== undefined
-    const fallbackLocalized = {
-      ...localizedFieldValues,
-      title,
-      ...(hasBlockBody(page)
-        ? {
-            metaTitle: metaTitle || undefined,
-            metaDescription: metaDescription || undefined,
-          }
-        : {}),
-    }
-    const addressResult = await persistSnapshotEditorDraft({
-      ...(args.expectedPresentationCatalogRevision
-        ? {
-            expectedPresentationCatalogRevision:
-              args.expectedPresentationCatalogRevision,
-          }
-        : {}),
-      ...(sharedChanged
-        ? {
-            shared: {
-              sharedFieldsJson: args.sharedFieldsJson,
-              seo: args.seo,
-              authorIds: args.authorIds,
-              tags: args.tags,
-            },
-          }
-        : {}),
-      ...(localizedChanged
-        ? {
-            localized: {
-              locale: currentLocale,
-              addressIntent: "generated",
-              slug:
-                currentLocale === defaultLocale
-                  ? (args.slug ?? slug).trim()
-                  : (args.localizedSlugs?.[currentLocale] ?? slug).trim(),
-              draft: (localizedInput ??
-                (hasBlockBody(page)
-                  ? {
-                      pageType: page.pageType,
-                      localized: fallbackLocalized,
-                      blocks,
-                    }
-                  : {
-                      pageType: page.pageType,
-                      localized: fallbackLocalized,
-                    })) as never,
-            },
-          }
-        : {}),
-    })
-    if (addressResult.slug && addressResult.slug !== slug) {
-      setSlug(addressResult.slug)
-      setAddressWasTyped(false)
-    }
-    return { updatedAt: addressResult.updatedAt }
-  }
-
-  const editorPublishPage: PublishPage = async (args) => {
-    const publicationState = snapshotBase()
-    if (!publicationState) return publishPageMutation(args)
     const localeState = currentPublicationLocale()!
     const result = await publishSnapshotLocale({
       pageId: page._id,
@@ -1681,9 +1611,8 @@ function PageEditorSession({
     return { updatedAt: result.publishedAt }
   }
 
-  const editorDiscardDraft: DiscardDraft = async (args) => {
+  const editorDiscardDraft: DiscardDraft = async () => {
     const publicationState = snapshotBase()
-    if (!publicationState) return discardDraftMutation(args)
     const localeState = currentPublicationLocale()!
     const result = await discardSnapshotLocaleDraft({
       pageId: page._id,
@@ -1695,22 +1624,9 @@ function PageEditorSession({
     return null
   }
 
+  // Status changes only: hierarchy moves save with the shared draft.
   const editorUpdatePage: UpdatePage = async (args) => {
     const publicationState = snapshotBase()
-    if (!publicationState) return updatePage(args)
-    if (args.pageType !== undefined || args.expiresAt !== undefined) {
-      throw new Error(
-        "Page type and expiry changes are not available under snapshot authority yet"
-      )
-    }
-    if (args.parentId !== undefined || args.clearParent) {
-      await persistSnapshotEditorDraft({
-        shared: {
-          parentId: args.parentId,
-          clearParent: args.clearParent,
-        },
-      })
-    }
     if (args.status === "draft") {
       if (page.status === "archived") {
         const result = await restoreSnapshotPage({
@@ -1740,10 +1656,7 @@ function PageEditorSession({
       })
       publicationState.lifecycleGeneration = result.lifecycleGeneration
     }
-    return {
-      updatedAt: currentTimestamp(),
-      staged: args.parentId !== undefined || args.clearParent === true,
-    }
+    return { updatedAt: currentTimestamp() }
   }
 
   const {
@@ -1773,6 +1686,7 @@ function PageEditorSession({
     unarchive: handleUnarchive,
   } = usePageSave({
     page,
+    localeOwnsBaseSlug: (locale) => !isUntranslatedDefault(locale),
     getRecoveryBase: recoveryBaseForLocale,
     getSharedRefusalBase: () => sharedBufferRef.current.refusalBase,
     retainedSaveBase: retainedHistoryBase?.save,
@@ -1890,8 +1804,7 @@ function PageEditorSession({
     },
     stagingUpdatedAt: initialStagingUpdatedAt,
     presentationCatalogRevision: presentationCatalog?.revision,
-    updateDraft: editorUpdateDraft,
-    saveSnapshotDraft: publication ? persistSnapshotEditorDraft : undefined,
+    saveSnapshotDraft: persistSnapshotEditorDraft,
     addressIntent: () =>
       (slugLinked || allocatedLinked) && !addressWasTyped
         ? "generated"
@@ -1940,15 +1853,6 @@ function PageEditorSession({
     if (open) focusTitleOnCloseRef.current = false
     setCopyOpenState(open)
   }
-  const [duplicateOpen, setDuplicateOpenState] = useState(false)
-  const duplicateOpenRef = useRef(false)
-  function setDuplicateOpen(open: boolean) {
-    duplicateOpenRef.current = open
-    if (open) focusTitleOnCloseRef.current = false
-    setDuplicateOpenState(open)
-  }
-  // The server refuses to duplicate a page under snapshot authority.
-  const canDuplicate = page.pageType !== "author" && !publication
   const tList = useTranslations("pages.list")
   const [unpublishAsk, setUnpublishAsk] = useState<UnpublishRequest | null>(
     null
@@ -1957,23 +1861,19 @@ function PageEditorSession({
   function requestUnpublish() {
     const isHome = (siteConfig?.homePageId ?? routeHomePageId) === page._id
     // A missing state reads as the header does: published when it has a snapshot.
-    const locales = (publication?.locales ?? []).map((entry) => ({
+    const locales = publication.locales.map((entry) => ({
       ...entry,
       state: entry.state ?? (entry.currentSnapshotId ? "published" : "draft"),
     }))
     const entry = locales.find((item) => item.locale === currentLocale)
-    // Snapshot authority, language not published: nothing to ask about; the
-    // action behaves as before this question existed.
-    if (publication && entry?.state !== "published") {
+    // Language not published: nothing to ask about; the action behaves as
+    // before this question existed.
+    if (entry?.state !== "published") {
       void handleUnpublish()
       return
     }
-    // Snapshot authority: the address this language is published at.
-    const path = publication
-      ? entry?.path
-      : isHome
-        ? "/"
-        : canonicalPathForPage(page, null, currentLocale, defaultLocale)
+    // The address this language is published at.
+    const path = entry.path
     setUnpublishAsk(
       unpublishRequest(tList, adminLocale, {
         locale: currentLocale,
@@ -2092,7 +1992,7 @@ function PageEditorSession({
     drafts.current[currentLocale] = currentDraft
     // First visit: this language's content comes from the current `page` prop,
     // so its base comes from the same payload. A revisit keeps its stored base.
-    if (!draft && publication && publicationRef.current)
+    if (!draft && publicationRef.current)
       adoptLocaleBase(publicationRef.current, publication, locale)
     setDraftSummaries((prev) => ({ ...prev, [currentLocale]: currentSummary }))
     commitPreparedLocale(prepared)
@@ -2431,7 +2331,6 @@ function PageEditorSession({
       // No parent state changes or writes occur until adoption succeeds.
       return
     }
-    // Legacy authority keeps its ordinary recovery behavior.
     let refusalBase = activeLocaleBufferRef.current.refusalBase
     const held = publicationRef.current
     if (
@@ -2562,7 +2461,6 @@ function PageEditorSession({
       sharedFieldValues,
       localizedFieldValues,
       presentationCatalog,
-      updateDraft,
       saveEditorSnapshotDraft,
     })
     if (!isCurrent()) return
@@ -2592,15 +2490,6 @@ function PageEditorSession({
       titleReports.current,
       removedTitleLinks
     )
-    if (!publication) {
-      onHistoryRestored({
-        pageId: page._id,
-        updatedAt,
-        locale: currentLocale,
-        removedTitleLinks: titleReports.current,
-        sharedSaveBase: captureSaveBase(currentLocale),
-      })
-    }
     rememberUpdatedAt(updatedAt)
     clearRecoveryDraftState()
     router.refresh()
@@ -2622,13 +2511,11 @@ function PageEditorSession({
     const isCurrent = captureEditorScope()
     return (result: HistoryRestoreResult) => {
       if (isCurrent() || !isEditorPageMounted()) return
-      const locale = publication
-        ? (result.locale ?? submittedLocale)
-        : submittedLocale
+      const locale = result.locale ?? submittedLocale
       onHistoryRestored({
         pageId: page._id,
         locale,
-        ...(publication && "draftGeneration" in result
+        ...("draftGeneration" in result
           ? {
               draftGeneration: result.draftGeneration,
               sharedDraftGeneration: result.sharedDraftGeneration,
@@ -2805,7 +2692,7 @@ function PageEditorSession({
     return isCurrent() && saved
   }
 
-  // Close-autofocus handler for the Duplicate dialog and Copy-from popover:
+  // Close-autofocus handler for the Copy-from popover:
   // after a blank-title refusal, focus goes to the title, not the trigger.
   function focusTitleOnCloseAutoFocus(event: Event) {
     if (!focusTitleOnCloseRef.current) return
@@ -2821,16 +2708,6 @@ function PageEditorSession({
   function returnToTitle(stillOpen: boolean) {
     if (stillOpen) focusTitleOnCloseRef.current = true
     else queueMicrotask(() => document.getElementById("page-title")?.focus())
-  }
-
-  async function saveBeforeDuplicate() {
-    titleRefusedRef.current = false
-    const saved = await ensureSaved()
-    if (!saved && titleRefusedRef.current) {
-      returnToTitle(duplicateOpenRef.current)
-      setDuplicateOpen(false)
-    }
-    return saved
   }
 
   function reopenTransfer(
@@ -3103,15 +2980,11 @@ function PageEditorSession({
     if (!ok || !isCurrent()) return
     try {
       const publicationState = snapshotBase()
-      if (publicationState) {
-        const result = await softDeleteSnapshotPage({
-          pageId: page._id,
-          expectedLifecycleGeneration: publicationState.lifecycleGeneration,
-        })
-        publicationState.lifecycleGeneration = result.lifecycleGeneration
-      } else {
-        await softDelete({ id: page._id })
-      }
+      const result = await softDeleteSnapshotPage({
+        pageId: page._id,
+        expectedLifecycleGeneration: publicationState.lifecycleGeneration,
+      })
+      publicationState.lifecycleGeneration = result.lifecycleGeneration
       if (!isCurrent()) return
       toast.success(t("trash.moved"))
       router.push("/admin/pages")
@@ -3152,7 +3025,7 @@ function PageEditorSession({
   // working draft or a verified base, so an unpublished page stays
   // publishable without a draft row (for example right after Unpublish).
   const localeHasDraft =
-    publication?.locales.find((entry) => entry.locale === currentLocale)
+    publication.locales.find((entry) => entry.locale === currentLocale)
       ?.state === "draft"
   const publishDisabled =
     hiddenByTranslationSwitch ||
@@ -3642,31 +3515,7 @@ function PageEditorSession({
                         {tPageSave("titleRequired")}
                       </span>
                     </span>
-                  ) : publication ? null : (
-                    <span className="max-w-50 min-w-0 truncate text-xs text-muted-foreground">
-                      /{slug}
-                    </span>
-                  )}
-                  {/* Snapshot sites show the active language's status in the
-                    header line below; the page-wide badge is legacy only. */}
-                  {!publication && (
-                    <Badge
-                      variant={
-                        page.status === "published"
-                          ? "default"
-                          : page.status === "archived"
-                            ? "outline"
-                            : "secondary"
-                      }
-                      className="shrink-0 text-xs"
-                    >
-                      {page.status === "published"
-                        ? t("status.published")
-                        : page.status === "archived"
-                          ? t("status.archived")
-                          : t("status.draft")}
-                    </Badge>
-                  )}
+                  ) : null}
                   {/* ADR-0041 §Consequences — surfaces the staging row's
                   presence so an editor knows there's unpublished work
                   awaiting a Publish click. Owner rule: plain language. */}
@@ -3682,22 +3531,20 @@ function PageEditorSession({
                     </Badge>
                   )}
                 </div>
-                {publication && (
-                  <div className="mt-1">
-                    <PageHeaderMeta
-                      locale={currentLocale}
-                      defaultLocale={defaultLocale}
-                      entry={publication.locales.find(
-                        (entry) => entry.locale === currentLocale
-                      )}
-                      pageType={page.pageType}
-                      isHome={
-                        (siteConfig?.homePageId ?? routeHomePageId) === page._id
-                      }
-                      archived={page.status === "archived"}
-                    />
-                  </div>
-                )}
+                <div className="mt-1">
+                  <PageHeaderMeta
+                    locale={currentLocale}
+                    defaultLocale={defaultLocale}
+                    entry={publication.locales.find(
+                      (entry) => entry.locale === currentLocale
+                    )}
+                    pageType={page.pageType}
+                    isHome={
+                      (siteConfig?.homePageId ?? routeHomePageId) === page._id
+                    }
+                    archived={page.status === "archived"}
+                  />
+                </div>
               </div>
             </div>
 
@@ -3936,7 +3783,7 @@ function PageEditorSession({
             <div className="mx-1 hidden h-6 w-px shrink-0 bg-border md:block" />
 
             {/* Lifecycle — More menu carries the low-frequency lifecycle actions
-              (Duplicate/Discard/Unpublish/Archive) so Save · Preview ·
+              (Discard/Unpublish/Archive) so Save · Preview ·
               Publish stay the visible primaries. Archived pages skip the menu
               entirely — Unarchive is the only meaningful action from there. */}
             <div className="col-start-3 row-start-2 flex items-center gap-1 sm:gap-2">
@@ -3955,12 +3802,6 @@ function PageEditorSession({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56">
                     <DropdownMenuLabel>{t("page")}</DropdownMenuLabel>
-                    {canDuplicate && (
-                      <DropdownMenuItem onSelect={() => setDuplicateOpen(true)}>
-                        <CopyPlus className="size-4" />
-                        {t("duplicate")}
-                      </DropdownMenuItem>
-                    )}
                     {/* ADR-0041 §9 — Discard is only meaningful when a
                       staging row exists; the handler uniformly reverts
                       to the last saved state. */}
@@ -3973,7 +3814,7 @@ function PageEditorSession({
                         {t("discard.menuAction")}
                       </DropdownMenuItem>
                     )}
-                    {(canDuplicate || hasStaging) &&
+                    {hasStaging &&
                       (page.status === "published" ||
                         page.status === "draft") && <DropdownMenuSeparator />}
                     {page.status === "published" && (
@@ -4160,21 +4001,6 @@ function PageEditorSession({
             void handleUnpublish()
           }}
         />
-
-        {duplicateOpen && page.pageType !== "author" && (
-          <DuplicatePageDialog
-            pageId={page._id}
-            sourceTitle={
-              (currentLocale === defaultLocale
-                ? title
-                : getTitle(page, defaultLocale)) || title
-            }
-            beforeDuplicate={saveBeforeDuplicate}
-            onCloseAutoFocus={focusTitleOnCloseAutoFocus}
-            onClose={() => setDuplicateOpen(false)}
-            onDuplicated={(newId) => router.push(`/admin/pages/${newId}`)}
-          />
-        )}
 
         {/* Body */}
         <div className="flex flex-1 overflow-hidden">
@@ -4408,12 +4234,8 @@ function PageEditorSession({
                 <HistoryPanelSlot
                   pageId={page._id}
                   pageType={page.pageType}
-                  restoreBlocked={Boolean(publication)}
-                  snapshotRestore={
-                    publication && !targetDraftLocale
-                      ? { locale: currentLocale }
-                      : undefined
-                  }
+                  restoreBlocked
+                  snapshotRestore={{ locale: currentLocale }}
                   readSnapshotRestore={readSnapshotRestore}
                   restoreDisabled={hasUnsaved || isSaving}
                   captureEditorScope={captureEditorScope}
@@ -4466,7 +4288,7 @@ function PageEditorSession({
     // An unloaded source language is read from the current `page` prop.
     const fromPageProp = locale !== currentLocale && !drafts.current[locale]
     writeLocaleDraft(drafts, locale, prepared)
-    if (fromPageProp && publication && publicationRef.current)
+    if (fromPageProp && publicationRef.current)
       adoptLocaleBase(publicationRef.current, publication, locale)
     return prepared
   }
@@ -4511,7 +4333,7 @@ function PageEditorSession({
     return {
       complete(draftGeneration: number) {
         // A language switch does not cancel the reload; only leaving the page.
-        if (!publication || !isEditorPageMounted()) return
+        if (!isEditorPageMounted()) return
         onHistoryRestored({
           pageId: page._id,
           locale,
@@ -4527,6 +4349,15 @@ function PageEditorSession({
     }
   }
 
+  function hasUnsavedTranslationTarget(locale: Locale) {
+    const draft = getLocaleEditorContentForTransfer(locale).draft
+    if (!draft) return false
+    // Only this language's edits conflict. Shared edits are saved by
+    // ensureSaved before Accept, and never authorize replacing this body.
+    const baseline = JSON.parse(captureSaveBase(locale).snapshot)
+    return hasUnsavedLocaleDraft(locale, { ...baseline, ...draft })
+  }
+
   function renderWithTranslation(
     writing: AdminAiWritingPageEditorHostResult | null
   ) {
@@ -4539,6 +4370,12 @@ function PageEditorSession({
         otherLocales={otherLocales}
         fieldSource={fieldSource}
         getLocaleSummary={getRenderLocaleSummary}
+        canTranslateCurrentLocale={
+          hasBlockBody(page)
+            ? blocks.length === 0
+            : !currentSummary.hasAny && page.content?.[currentLocale] === undefined
+        }
+        hasUnsavedTranslationTarget={hasUnsavedTranslationTarget}
         getActiveLocale={() => activeLocaleRef.current}
         ensureSaved={ensureSaved}
         prepareTransfer={prepareParticipantTransfer}

@@ -13,6 +13,7 @@ import {
 } from "./cms/language"
 import { digestCarryDecisionCorpus } from "./lib/language/carryDecisionDigest"
 import { readCurrentSnapshotProjection } from "./lib/publishing/snapshots"
+import { isActiveContentType } from "./lib/contentTypes"
 import schema from "./schema"
 
 // F09a proof: rows 1, 2, 4, 5, 6, 8, 9, 12, 28, 31, 34, 36, 37 and the F09a
@@ -3267,7 +3268,7 @@ describe("F09a preparation", () => {
     )
   })
 
-  test("row 34: hidden-target preparation orders ancestry and defers references to validation", async () => {
+  test.runIf(isActiveContentType("post") && isActiveContentType("author"))("row 34: hidden-target preparation orders ancestry and defers references to validation", async () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const homeId = await bootstrap(t, owner)

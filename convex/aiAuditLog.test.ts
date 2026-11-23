@@ -178,16 +178,6 @@ describe("aiAuditLog.deleteAuditLogForUser — admin-only erasure", () => {
     const t = convexTest(schema, modules)
     const now = Date.now()
     await t.run(async (ctx) => {
-      await ctx.db.insert("roles", {
-        authId: "admin-1",
-        role: "admin",
-        assignedAt: now,
-      })
-      await ctx.db.insert("roles", {
-        authId: "editor-1",
-        role: "editor",
-        assignedAt: now,
-      })
       await ctx.db.insert("cmsOwner", {
         key: "owner",
         authId: "admin-1",
@@ -219,16 +209,6 @@ describe("aiAuditLog.deleteAuditLogForUser — admin-only erasure", () => {
   test("non-admin (editor) is denied", async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      await ctx.db.insert("roles", {
-        authId: "admin-1",
-        role: "admin",
-        assignedAt: Date.now(),
-      })
-      await ctx.db.insert("roles", {
-        authId: "editor-1",
-        role: "editor",
-        assignedAt: Date.now(),
-      })
       await ctx.db.insert("cmsOwner", {
         key: "owner",
         authId: "admin-1",

@@ -1,35 +1,15 @@
 "use client"
 
-import { OptionalContribution } from "./optional-contribution"
-import { useModuleGate } from "./admin-module-state-provider"
-
 import { useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useLocale, useTranslations } from "next-intl"
-import { formatScheduleTime, formatTranslationCount } from "@/lib/i18n/admin-format"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
 import { useQuery, useMutation, usePaginatedQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
-import {
-  Archive,
-  ArchiveRestore,
-  Check,
-  Clock,
-  Languages,
-  Copy,
-  MoreHorizontal,
-  Trash2,
-  X,
-} from "lucide-react"
 import { toast } from "sonner"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { RowTitle, RowUrlName, WrappingBadge } from "./list-row-text"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { getLocaleDisplayName } from "@/lib/i18n/config"
 import { useConfirm } from "@/components/providers/confirm-provider"
-import { DuplicatePageDialog } from "@/components/admin/duplicate-page-dialog"
 import {
   PublicSiteUpdateStatus,
   RetryButton,
@@ -40,14 +20,7 @@ import {
   type AdminListSearchPage,
   type AdminListSearchResult,
 } from "@/components/admin/contributions/list-search"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { api } from "@/convex/_generated/api"
-import type { Doc } from "@/convex/_generated/dataModel"
 import {
   adminContentTypeSingularMessageKey,
   adminContentTypes,
@@ -64,33 +37,14 @@ import {
 } from "./pages-list-locales"
 import { CONTENT_TYPES, type ContentType } from "@/convex/lib/contentTypes"
 
-// ADR-0041 Deploy 2 PR B — the admin list queries (`list`, `listPaginated`)
-// enrich each row with two staged overlays: `scheduledAt` for the
-// "Publishes {date}" badge, and `effectiveTitles[locale]` so drafts whose
-// content lives on `pageStaging` (never-published or hoisted) still show a
-// title in the list. After Deploy 2 PR B item 3, `pages.content` is empty
-// for those drafts.
-type Page = Pick<
-  Doc<"pages">,
-  "_id" | "pageType" | "slug" | "status" | "updatedAt"
-> & {
-  content?: Doc<"pages">["content"]
-  localizedSlugs?: Record<string, string>
-  scheduledAt?: number
-  expiresAt?: number
-  effectiveTitles?: Record<string, string>
-  localizedTitles?: Record<string, string>
-  lifecycleState?: "active" | "archived" | "trashed"
-  restoreLifecycleState?: "active" | "archived"
-  lifecycleGeneration?: number
-}
-
 type PageTypeFilter = "all" | ContentType
 
 function isContentType(value: string): value is ContentType {
   return (CONTENT_TYPES as readonly string[]).includes(value)
 }
 
+// The page-wide statuses. The status filter offers them while publishing is
+// not set up (the list then keeps loading).
 const STATUSES = ["all", "published", "draft", "archived"] as const
 // Snapshot sites filter per language, so "not translated" is a status there.
 const SNAPSHOT_STATUSES = [
@@ -101,104 +55,26 @@ const SNAPSHOT_STATUSES = [
   "archived",
 ] as const
 
-function pickAnyEffectiveTitle(page: Page) {
-  const staged = page.localizedTitles ?? page.effectiveTitles
-  if (staged) {
-    for (const [locale, value] of Object.entries(staged)) {
-      const trimmed = value?.trim()
-      if (trimmed) return { title: trimmed, titleLocale: locale }
-    }
-  }
-  return undefined
-}
-
-function getTitle(page: Page, untitled: string) {
-  const first = Object.entries(page.content ?? {})[0]
-  const title = first?.[1]?.title?.trim()
-  return title
-    ? { title, titleLocale: first[0] }
-    : pickAnyEffectiveTitle(page) ?? { title: untitled, titleLocale: undefined }
-}
-
-function getDuplicateTitle(
-  page: Page,
-  defaultLocale: string | undefined,
-  untitled: string
-) {
-  if (defaultLocale) {
-    const stagedTitle = page.effectiveTitles?.[defaultLocale]?.trim()
-    if (stagedTitle) return stagedTitle
-    const storedTitle = page.content?.[defaultLocale]?.title?.trim()
-    if (storedTitle) return storedTitle
-  }
-  return getTitle(page, untitled).title
-}
-
-function getLocaleRow(
-  page: Page,
-  locale: string,
-  defaultLocale: string | undefined,
-  untitled: string,
-  missingLocaleTitle: string
-) {
-  if (locale === "all") {
-    return {
-      ...getTitle(page, untitled),
-      slug: page.slug || "",
-      slugLocale: page.slug ? defaultLocale : undefined,
-      titleMissing: false,
-      usingDefaultSlug: false,
-    }
-  }
-
-  const localeContent = page.content?.[locale]
-  const stagedTitle = (
-    page.localizedTitles?.[locale] ?? page.effectiveTitles?.[locale]
-  )?.trim()
-  const localizedTitle = localeContent?.title?.trim() || stagedTitle
-  const localizedSlug =
-    locale !== defaultLocale ? page.localizedSlugs?.[locale]?.trim() : undefined
-
-  return {
-    title: localizedTitle || missingLocaleTitle,
-    titleLocale: localizedTitle ? locale : undefined,
-    slugLocale:
-      locale !== defaultLocale && localizedSlug
-        ? locale
-        : page.slug ? defaultLocale : undefined,
-    slug:
-      locale === defaultLocale
-        ? page.slug || ""
-        : localizedSlug || page.slug || "missing-slug",
-    titleMissing: !localizedTitle,
-    usingDefaultSlug: locale !== defaultLocale && !localizedSlug,
-  }
-}
-
-function hasLocale(page: Page, locale: string) {
-  // Every arm carries `title`; only block-body arms carry `blocks` (plan
-  // 029 C10 pure-form testimonials don't). Read via a permissive shape so
-  // the check works uniformly — an empty testimonial locale has no title
-  // and no blocks, so it correctly reads as "no locale". `effectiveTitles`
-  // from the staged overlay counts as "the locale exists" for a draft
-  // whose `pages.content` is empty (Deploy 2 PR B item 3).
-  const bag = page.content?.[locale] as
-    { title?: string; blocks?: unknown[] } | undefined
-  const stagedTitle = (
-    page.localizedTitles?.[locale] ?? page.effectiveTitles?.[locale]
-  )?.trim()
-  return Boolean(bag?.title || bag?.blocks?.length || stagedTitle)
-}
-
-
 type PublicationAuthority =
   FunctionReturnType<typeof api.cms.publication.getAdminAuthority> | undefined
 type StatusFilter = (typeof SNAPSHOT_STATUSES)[number]
-type LegacyStatus = "draft" | "published" | "archived"
+type PageWideStatus = "draft" | "published" | "archived"
 
-/** The legacy list has no per-language status: only the three page-wide ones. */
-function legacyStatus(status: StatusFilter): LegacyStatus | undefined {
+/** The Search slot filters by page-wide status only. */
+function pageWideStatus(status: StatusFilter): PageWideStatus | undefined {
   return status === "all" || status === "notTranslated" ? undefined : status
+}
+
+/**
+ * The row's lifecycle generation for a lifecycle command. Module-level so the
+ * handlers hold no `throw` inside `try`: React Compiler 1.0.0 skips a whole
+ * component that contains one.
+ */
+function lifecycleGeneration(page: SnapshotListPage): number {
+  if (page.lifecycleGeneration === undefined) {
+    throw new Error("Snapshot lifecycle state is unavailable")
+  }
+  return page.lifecycleGeneration
 }
 
 /** A choice that follows the admin language: it resets when that changes. */
@@ -288,8 +164,8 @@ export function PagesListClient() {
   if (!SearchSlot) return surface(NO_PAGES_SEARCH)
   return (
     <SearchSlot
-      searchable={publicationAuthority === "legacy"}
-      status={legacyStatus(status)}
+      searchable={false}
+      status={pageWideStatus(status)}
     >
       {surface}
     </SearchSlot>
@@ -318,24 +194,18 @@ function PagesListSurface({
   const siteConfig = useQuery(api.cms.settings.getSiteConfig)
   const owner = useQuery(api.cms.owner.getOwnerSession)
   const canViewRevalidationHealth = owner !== undefined && owner !== null
-  const multilingual = useModuleGate("multilingual").state === "on"
-  const tShell = useTranslations("shell")
-  const tModules = useTranslations("settings.modules")
   // The Pages list is available to viewers, but health is operational settings
   // data. Skip the privileged subscription until its permission is known.
   const revalidationHealth = useQuery(
     api.cms.revalidate.getRevalidationHealth,
     canViewRevalidationHealth ? {} : "skip"
   )
-  const update = useMutation(api.cms.pages.update)
-  const softDelete = useMutation(api.cms.pages.softDelete)
   const archiveSnapshotPage = useMutation(api.cms.publication.archivePage)
   const restoreSnapshotPage = useMutation(api.cms.publication.restorePage)
   const softDeleteSnapshotPage = useMutation(api.cms.publication.softDeletePage)
   const confirm = useConfirm()
   const contentTypes = adminContentTypes()
   const locales = siteConfig?.enabledLocales ?? []
-  const [duplicateTarget, setDuplicateTarget] = useState<Page | null>(null)
 
   // The `?type=<slug>` search param IS the filter state — sidebar Content
   // group entries navigate by URL, and the dropdown mirrors that via
@@ -360,17 +230,6 @@ function PagesListSurface({
 
   const q = search.query
   const isSearching = q !== ""
-  const searchResults = search.results
-  const legacyPaginated = usePaginatedQuery(
-    api.cms.pages.listPaginated,
-    isSearching || publicationAuthority !== "legacy"
-      ? "skip"
-      : {
-          status: legacyStatus(status),
-          pageType: pageType !== "all" ? pageType : undefined,
-        },
-    { initialNumItems: 25 }
-  )
   const snapshotPaginated = usePaginatedQuery(
     api.cms.publication.listAdminPages,
     isSearching || publicationAuthority !== "snapshot_active"
@@ -379,24 +238,17 @@ function PagesListSurface({
     { initialNumItems: 25 }
   )
 
-  async function handleArchive(page: Page) {
+  async function handleArchive(page: SnapshotListPage) {
     const ok = await confirm({
       title: tList("archiveDialog.title"),
       description: tList("archiveDialog.description"),
     })
     if (!ok) return
     try {
-      if (publicationAuthority === "snapshot_active") {
-        if (page.lifecycleGeneration === undefined) {
-          throw new Error("Snapshot lifecycle state is unavailable")
-        }
-        await archiveSnapshotPage({
-          pageId: page._id,
-          expectedLifecycleGeneration: page.lifecycleGeneration,
-        })
-      } else {
-        await update({ id: page._id, status: "archived" })
-      }
+      await archiveSnapshotPage({
+        pageId: page._id,
+        expectedLifecycleGeneration: lifecycleGeneration(page),
+      })
       toast.success(tList("toast.archived"))
       router.refresh()
     } catch (err) {
@@ -410,24 +262,13 @@ function PagesListSurface({
     }
   }
 
-  async function handleUnarchive(page: Page) {
+  async function handleUnarchive(page: SnapshotListPage) {
     try {
-      if (publicationAuthority === "snapshot_active") {
-        if (page.lifecycleGeneration === undefined) {
-          throw new Error("Snapshot lifecycle state is unavailable")
-        }
-        await restoreSnapshotPage({
-          pageId: page._id,
-          expectedLifecycleGeneration: page.lifecycleGeneration,
-        })
-      } else {
-        await update({ id: page._id, status: "draft" })
-      }
-      toast.success(
-        publicationAuthority === "snapshot_active"
-          ? tList("toast.restored")
-          : tList("toast.restoredToDraft")
-      )
+      await restoreSnapshotPage({
+        pageId: page._id,
+        expectedLifecycleGeneration: lifecycleGeneration(page),
+      })
+      toast.success(tList("toast.restored"))
       router.refresh()
     } catch (err) {
       toast.error(
@@ -436,7 +277,7 @@ function PagesListSurface({
     }
   }
 
-  async function handleMoveToTrash(page: Page) {
+  async function handleMoveToTrash(page: SnapshotListPage) {
     const ok = await confirm({
       title: tList("trashDialog.title"),
       description: tList("trashDialog.description"),
@@ -445,17 +286,10 @@ function PagesListSurface({
     })
     if (!ok) return
     try {
-      if (publicationAuthority === "snapshot_active") {
-        if (page.lifecycleGeneration === undefined) {
-          throw new Error("Snapshot lifecycle state is unavailable")
-        }
-        await softDeleteSnapshotPage({
-          pageId: page._id,
-          expectedLifecycleGeneration: page.lifecycleGeneration,
-        })
-      } else {
-        await softDelete({ id: page._id })
-      }
+      await softDeleteSnapshotPage({
+        pageId: page._id,
+        expectedLifecycleGeneration: lifecycleGeneration(page),
+      })
       toast.success(tList("toast.movedToTrash"))
       router.refresh()
     } catch (err) {
@@ -483,30 +317,13 @@ function PagesListSurface({
       ? requestedLocale
       : (defaultLocale ?? "all")
     : (localeFilter ?? defaultLocale ?? "all")
+  // An unfinished publishing setup ("invalid") keeps the list loading, as
+  // before; a notice for it waits for the owner's decision.
   const isLoading = isSearching
-    ? publicationAuthority === undefined ||
-      (publicationAuthority === "legacy" && searchResults === undefined)
-    : publicationAuthority === undefined ||
-      (snapshotMode
-        ? snapshotPaginated.status === "LoadingFirstPage" ||
-          siteConfig === undefined
-        : legacyPaginated.status === "LoadingFirstPage")
-  const basePages: readonly Page[] = isSearching
-    ? publicationAuthority === "legacy"
-      ? (searchResults ?? [])
-      : []
-    : snapshotMode
-      ? []
-      : legacyPaginated.results
-
-  const filtered = basePages.filter((page) => {
-    if (isSearching && pageType !== "all" && page.pageType !== pageType)
-      return false
-    if (status !== "all" && page.status !== status) return false
-    if (effectiveLocale !== "all" && !hasLocale(page, effectiveLocale))
-      return false
-    return true
-  })
+    ? publicationAuthority === undefined
+    : !snapshotMode ||
+      snapshotPaginated.status === "LoadingFirstPage" ||
+      siteConfig === undefined
 
   // Snapshot rows expand into site languages, so the status filter runs on
   // the languages shown, not on a page-wide status.
@@ -521,7 +338,7 @@ function PagesListSurface({
       effectiveLocale === "all" ? siteLocales : [effectiveLocale]
     )
   })
-  const rowCount = snapshotMode ? snapshotFiltered.length : filtered.length
+  const rowCount = snapshotFiltered.length
 
   const isFiltering =
     q !== "" ||
@@ -533,15 +350,9 @@ function PagesListSurface({
       : effectiveLocale !== "all")
 
   const canLoadMore =
-    !isSearching &&
-    (publicationAuthority === "snapshot_active"
-      ? snapshotPaginated.status === "CanLoadMore"
-      : legacyPaginated.status === "CanLoadMore")
+    !isSearching && snapshotMode && snapshotPaginated.status === "CanLoadMore"
   const isLoadingMore =
-    !isSearching &&
-    (publicationAuthority === "snapshot_active"
-      ? snapshotPaginated.status === "LoadingMore"
-      : legacyPaginated.status === "LoadingMore")
+    !isSearching && snapshotMode && snapshotPaginated.status === "LoadingMore"
   return (
     <div className="rounded-lg border bg-card">
       {revalidationHealth && (
@@ -666,7 +477,7 @@ function PagesListSurface({
               {isFiltering ? tList("noMatches") : tList("empty")}
             </p>
           )
-        ) : snapshotMode ? (
+        ) : (
           <SnapshotPagesBody
             pages={snapshotFiltered}
             selected={effectiveLocale}
@@ -684,135 +495,6 @@ function PagesListSurface({
             onUnarchive={(page) => void handleUnarchive(page)}
             onTrash={(page) => void handleMoveToTrash(page)}
           />
-        ) : (
-          filtered.map((page) => {
-            const localeLabel = effectiveLocale.toUpperCase()
-            const row = getLocaleRow(
-              page,
-              effectiveLocale,
-              defaultLocale,
-              tList("untitled"),
-              tList("missingLocaleTitle", { locale: localeLabel })
-            )
-            const localeStates = locales.map((locale) => ({ locale, translated: hasLocale(page, locale) }))
-            const translated = localeStates.filter((state) => state.translated).length
-            const complete = translated === locales.length
-            return (
-              <div
-                key={page._id}
-                className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-accent/30"
-              >
-                <div className="min-w-[140px] flex-1">
-                  <RowTitle href={`/admin/pages/${page._id}${effectiveLocale === "all" ? "" : `?locale=${effectiveLocale}`}`} locale={row.titleLocale} muted={row.titleMissing}>
-                    {row.title}
-                  </RowTitle>
-                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                    <RowUrlName value={row.slug} locale={row.slugLocale} />
-                    {row.usingDefaultSlug && <WrappingBadge muted>{tList("defaultSlug")}</WrappingBadge>}
-                    {page.scheduledAt && page.status !== "published" && (
-                      <WrappingBadge icon={<Clock className="size-3" aria-hidden={true} />}>
-                        {tList("publishes", { date: formatScheduleTime(adminLocale, page.scheduledAt) })}
-                      </WrappingBadge>
-                    )}
-                    {page.expiresAt && page.status === "published" && (
-                      <WrappingBadge icon={<Clock className="size-3" aria-hidden={true} />}>
-                        {tList("expires", { date: formatScheduleTime(adminLocale, page.expiresAt) })}
-                      </WrappingBadge>
-                    )}
-                  </div>
-                </div>
-
-                <div className={`ms-auto flex shrink-0 items-center gap-2 ${multilingual ? "sm:-mt-1.5" : "sm:-mt-0.5"}`}>
-                  {multilingual && (
-                    <OptionalContribution moduleId="multilingual" slot="admin.page-languages" fallbackText={tShell("modulesUnavailable")} finishSetup={{ href: "/admin/settings/modules", label: tModules("title") }}>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className={`hidden w-28 tabular-nums sm:inline-flex ${complete ? "text-muted-foreground" : "border-amber-400 bg-amber-50 text-amber-900"}`}
-                          aria-label={tList("languagesDetails", { translated, total: locales.length })}
-                        >
-                          <Languages className="size-4" aria-hidden={true} />
-                          <span>{formatTranslationCount(translated, locales.length)}</span>
-                          {complete ? <Check className="size-4" aria-hidden={true} /> : <X className="size-4" aria-hidden={true} />}
-                          <span className="sr-only">{tList(complete ? "languagesComplete" : "languagesMissing")}</span>
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent align="end" className="max-w-[calc(100vw-2rem)]" aria-label={tList("languages")}>
-                        <p className="mb-2 text-sm font-semibold">{tList("languages")}</p>
-                        <ul>
-                          {[...localeStates].sort((a, b) => Number(a.translated) - Number(b.translated)).map(({ locale, translated: has }) => (
-                            <li key={locale} className="flex items-start gap-2 py-1.5 text-sm">
-                              <span className={`shrink-0 ${has ? "text-muted-foreground" : "text-amber-900"}`}>
-                                {has ? <Check className="size-4" aria-hidden={true} /> : <X className="size-4" aria-hidden={true} />}
-                                <span className="sr-only">{tList(has ? "translated" : "missingTranslation")}</span>
-                              </span>
-                              <span lang={locale} dir="auto" className="min-w-0 flex-1 wrap-break-word">{getLocaleDisplayName(locale)}</span>
-                              <Link className="shrink-0 text-xs underline underline-offset-4" href={`/admin/pages/${page._id}?locale=${locale}`} aria-label={tList("editLanguage", { locale: getLocaleDisplayName(locale) })}>{tList("edit")}</Link>
-                            </li>
-                          ))}
-                        </ul>
-                      </PopoverContent>
-                    </Popover>
-                    </OptionalContribution>
-                  )}
-                  <Badge
-                    variant={
-                      page.status === "published" ? "default" : "secondary"
-                    }
-                    className="text-xs"
-                  >
-                    {page.status === "published"
-                      ? tList("status.published")
-                      : page.status === "archived"
-                        ? tList("status.archived")
-                        : tList("status.draft")}
-                  </Badge>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      aria-label={tList("actionsFor", { title: row.title })}
-                      className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus:ring-1 focus:ring-ring focus:outline-none"
-                    >
-                      <MoreHorizontal className="size-4" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {page.pageType !== "author" && (
-                        <DropdownMenuItem
-                          onSelect={() => setDuplicateTarget(page)}
-                        >
-                          <Copy className="mr-2 size-4" />
-                          {tList("actions.duplicate")}
-                        </DropdownMenuItem>
-                      )}
-                      {page.status !== "archived" ? (
-                        <DropdownMenuItem onSelect={() => handleArchive(page)}>
-                          <Archive className="mr-2 size-4" />
-                          {tList("actions.archive")}
-                        </DropdownMenuItem>
-                      ) : (
-                        <>
-                          <DropdownMenuItem
-                            onSelect={() => handleUnarchive(page)}
-                          >
-                            <ArchiveRestore className="mr-2 size-4" />
-                            {tList("actions.unarchive")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={() => handleMoveToTrash(page)}
-                          >
-                            <Trash2 className="mr-2 size-4" />
-                            {tList("actions.moveToTrash")}
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
-            )
-          })
         )}
       </div>
       {canLoadMore && (
@@ -821,11 +503,7 @@ function PagesListSurface({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() =>
-              publicationAuthority === "snapshot_active"
-                ? snapshotPaginated.loadMore(25)
-                : legacyPaginated.loadMore(25)
-            }
+            onClick={() => snapshotPaginated.loadMore(25)}
             disabled={isLoadingMore}
           >
             {isLoadingMore
@@ -833,18 +511,6 @@ function PagesListSurface({
               : tList("pagination.loadMore")}
           </Button>
         </div>
-      )}
-      {duplicateTarget && duplicateTarget.pageType !== "author" && (
-        <DuplicatePageDialog
-          pageId={duplicateTarget._id}
-          sourceTitle={getDuplicateTitle(
-            duplicateTarget,
-            defaultLocale,
-            tList("untitled")
-          )}
-          onClose={() => setDuplicateTarget(null)}
-          onDuplicated={() => router.refresh()}
-        />
       )}
     </div>
   )

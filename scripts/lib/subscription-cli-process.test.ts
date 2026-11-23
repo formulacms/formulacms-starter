@@ -267,6 +267,28 @@ describe("localToolEnvironment", () => {
     return readFile
   }
 
+  test.skipIf(process.platform === "win32")("finds the native installer after the inherited PATH without changing its precedence", () => {
+    const env = { HOME: "/home/owner", PATH: "/opt/custom/bin:/usr/bin" }
+    const toolEnv = localToolEnvironment({ root: ROOT, readFile: files({}), env })
+    expect(toolEnv.PATH).toBe("/opt/custom/bin:/usr/bin:/home/owner/.local/bin")
+    expect(env.PATH).toBe("/opt/custom/bin:/usr/bin")
+    expect(localToolEnvironment({ root: ROOT, readFile: files({}), env: toolEnv }).PATH).toBe(toolEnv.PATH)
+  })
+
+  test.each([
+    { HOME: "/home/owner" },
+    { HOME: "/home/owner", PATH: "" },
+    { PATH: "/usr/bin" },
+    { HOME: "relative/home", PATH: "/usr/bin" },
+  ])("does not invent a home or search path: %j", (env) => {
+    expect(localToolEnvironment({ root: ROOT, readFile: files({}), env }).PATH).toBe(env.PATH)
+  })
+
+  test.each(["HOME=/home/owner", "PATH=/usr/bin"])("does not restore a project-loaded path variable: %s", (text) => {
+    const toolEnv = localToolEnvironment({ root: ROOT, readFile: files({ ".env.local": text }), env: { HOME: "/home/owner", PATH: "/usr/bin" } })
+    expect(toolEnv.PATH).toBe(text.startsWith("PATH=") ? undefined : "/usr/bin")
+  })
+
   test("keeps the terminal's variables and removes the values loaded from project .env files", () => {
     const readFile = files({
       ".env.local": "ANTHROPIC_API_KEY=from-file\nCONVEX_DEPLOYMENT=dev:one\n",
@@ -438,6 +460,8 @@ describe("local tool spawn sites", () => {
       vi.spyOn(process, "cwd").mockReturnValue(project)
       vi.stubEnv("ANTHROPIC_API_KEY", "from-file")
       vi.stubEnv("TERMINAL_ONLY", "kept")
+      vi.stubEnv("HOME", "/home/owner")
+      vi.stubEnv("PATH", "/usr/bin")
     })
 
     afterEach(() => {
@@ -463,6 +487,7 @@ describe("local tool spawn sites", () => {
       )
       expect(spawnedEnv().ANTHROPIC_API_KEY).toBeUndefined()
       expect(spawnedEnv().TERMINAL_ONLY).toBe("kept")
+      if (process.platform !== "win32") expect(spawnedEnv().PATH).toBe("/usr/bin:/home/owner/.local/bin")
     })
 
     test("a tool run never receives it when .env.local starts with a byte-order mark", async () => {
@@ -507,6 +532,19 @@ describe("local tool spawn sites", () => {
       expect(runCommand).toHaveBeenCalledWith("claude", ["auth", "status"], {
         TERMINAL_ONLY: "kept",
       })
+    })
+
+    test.skipIf(process.platform === "win32")("the status check receives the same native PATH fallback as a real run", async () => {
+      runCommand.mockResolvedValueOnce({ exitCode: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai" }) })
+      await expect(inspectDevAiConnection("claude", { runCommand })).resolves.toEqual({ state: "authenticated", method: "plan" })
+      const call = runCommand.mock.lastCall!
+      expect(call[0]).toBe("claude")
+      expect(call[1]).toEqual(["auth", "status"])
+      // Assert only these fields: a red guard must never print the inherited
+      // environment (which may include terminal credentials).
+      expect(call[2].PATH).toBe("/usr/bin:/home/owner/.local/bin")
+      expect(call[2].HOME).toBe("/home/owner")
+      expect(Boolean(call[2].ANTHROPIC_API_KEY)).toBe(false)
     })
   })
 

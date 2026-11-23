@@ -6,16 +6,14 @@ import { createSampleBlock } from "@/convex/lib/blocks/sample"
 import { blockProfile } from "@/test-utils/block-profile"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import { expect, test, describe, vi } from "vitest"
-import { api, internal } from "./_generated/api"
+import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
-import type { FunctionArgs } from "convex/server"
 import type { Block } from "./lib/blocks"
 import { CONTENT_TYPES, isActiveContentType } from "./lib/contentTypes"
 import schema from "./schema"
-import actionRetrierTest from "@convex-dev/action-retrier/test"
-import { approveDueEditionPagesForTest } from "../editionTestHelpers"
 
-import { enableRedirectsForTest } from "../redirectsTestHelpers"
+import migrationsTest from "@convex-dev/migrations/test"
+import { ID_BATCH_MAX } from "./lib/pages/types"
 
 const canonicalBody = (text: string) =>
   JSON.stringify({
@@ -29,8 +27,6 @@ const canonicalBody = (text: string) =>
   })
 
 const modules = import.meta.glob("./**/*.ts")
-const testimonialActive = isActiveContentType("testimonial")
-const activeTestimonialTest = testimonialActive ? test : test.skip
 
 const TEST_USER = {
   subject: "test-user",
@@ -47,76 +43,109 @@ function pageTest() {
   })
 }
 
+const postActive = isActiveContentType("post")
+const authorActive = isActiveContentType("author")
 /**
- * Read a page's stored revisions newest first. Core writers record revisions
- * through `createPageRevision`; listing them is History (M06), so core tests
- * read the `pageRevisions` compatibility table directly.
+ * `skip: false` inside a block profile wins over `test.runIf`, so a test that
+ * also needs an installed content type combines both conditions here.
  */
-async function readPageRevisions(
-  t: ReturnType<typeof pageTest>,
-  pageId: Id<"pages">,
-  limit: number
-) {
-  return t.run(async (ctx) => {
-    const rows = await ctx.db
-      .query("pageRevisions")
-      .withIndex("by_pageId_and_revisionNumber", (q) => q.eq("pageId", pageId))
-      .order("desc")
-      .take(limit)
-    return rows.map((row) => ({
-      ...row,
-      content:
-        row.contentJson === undefined
-          ? undefined
-          : (JSON.parse(row.contentJson) as Record<string, { title?: string }>),
-    }))
-  })
+function whenActive<T extends { skip: boolean }>(profile: T, active: boolean): T {
+  return { ...profile, skip: profile.skip || !active }
 }
 
-async function createTestAuthor(
-  t: ReturnType<typeof convexTest>,
-  actor: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
-  args: Omit<FunctionArgs<typeof api.cms.pages.create>, "pageType">
-): Promise<Id<"pages">> {
-  const { status, ...rest } = args
-  const pageId = await actor.mutation(api.cms.pages.create, {
-    ...rest,
-    pageType: "author",
-    status: "draft",
+/**
+ * A fresh site through the real installation command: the owner, a published
+ * Home page slot, one language, or two when `extraLocale` turns Multilingual
+ * on and adds it (the same steps the admin takes).
+ */
+async function bootstrappedSite(defaultLocale = "en", extraLocale?: string) {
+  const t = pageTest()
+  const owner = t.withIdentity(TEST_USER)
+  await owner.mutation(api.cms.settings.bootstrapInstallation, {
+    siteName: "Site",
+    timezone: "UTC",
+    defaultLocale,
   })
-  if (status === "published") {
-    await actor.mutation(api.cms.pages.publish, { pageId })
-  } else if (status === "archived") {
-    await actor.mutation(api.cms.pages.update, {
-      id: pageId,
-      status: "archived",
+  if (extraLocale) {
+    const changes = [{ moduleId: "multilingual", enabled: true }]
+    const preview = await owner.query(api.cms.modules.preview, { changes })
+    await owner.mutation(api.cms.modules.commit, {
+      changes,
+      expectedConfigurationVersion: preview.configurationVersion,
     })
+    const { commandTokens } = await owner.query(
+      api.cms.multilingual.getMultilingualState,
+      {}
+    )
+    if (commandTokens.settingsUpdatedAt === null)
+      throw new Error("Missing bootstrapped settings")
+    const added = await owner.mutation(api.cms.multilingual.addSiteLanguage, {
+      locale: extraLocale,
+      expectedSettingsUpdatedAt: commandTokens.settingsUpdatedAt,
+      expectedModuleConfigurationVersion:
+        commandTokens.moduleConfigurationVersion,
+      expectedAuthorityVersion: commandTokens.authorityVersion,
+    })
+    expect(added.ok).toBe(true)
   }
-  return pageId
+  const { languageVersion } = await t.query(api.cms.settings.getSiteConfig, {})
+  return { t, owner, languageVersion }
 }
+type BootstrappedSite = Awaited<ReturnType<typeof bootstrappedSite>>
 
-/**
- * Schedule a page's publish via the ADR-0041 staging seam. Replaces the
- * legacy `pages.update({ scheduledAt })` calls after PR B moved
- * scheduling off `pages`. Acquires the editor lock first (with `force`)
- * because updateDraft requires it — tests don't route through the
- * editor's presence-based lock acquisition.
- */
-async function scheduleViaDraft(
-  asUser: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+/** First publication of one language of a freshly created page. */
+function publishFirst(
+  owner: BootstrappedSite["owner"],
   pageId: Id<"pages">,
-  scheduledAt: number
+  locale = "en",
+  expectedDraftGeneration = 1
 ) {
-  await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
+  return owner.mutation(api.cms.publication.publishLocale, {
     pageId,
-    force: true,
-  })
-  await asUser.mutation(api.cms.pages.updateDraft, {
-    pageId,
-    scheduledAt,
+    locale,
+    expectedDraftGeneration,
+    expectedSharedDraftGeneration: 1,
+    expectedPublicGeneration: 0,
+    expectedLifecycleGeneration: 1,
+    expectedReleaseGeneration: 0,
   })
 }
 
+/** Publish one language with the generations the page has right now. */
+async function publishNow(
+  t: BootstrappedSite["t"],
+  owner: BootstrappedSite["owner"],
+  pageId: Id<"pages">,
+  locale = "en"
+) {
+  const g = await t.run(async (ctx) => ({
+    locale: (await ctx.db
+      .query("pageLocalePublicationStates")
+      .withIndex("by_pageId_and_locale", (q) =>
+        q.eq("pageId", pageId).eq("locale", locale)
+      )
+      .unique())!,
+    page: (await ctx.db
+      .query("pagePublicationPageStates")
+      .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+      .unique())!,
+    shared: (await ctx.db
+      .query("pageSharedDrafts")
+      .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+      .unique())!,
+  }))
+  return owner.mutation(api.cms.publication.publishLocale, {
+    pageId,
+    locale,
+    expectedDraftGeneration: g.locale.draftGeneration,
+    expectedSharedDraftGeneration: g.shared.generation,
+    expectedPublicGeneration: g.locale.publicGeneration,
+    expectedLifecycleGeneration: g.page.lifecycleGeneration,
+    expectedReleaseGeneration: g.locale.releaseGeneration,
+  })
+}
+
+/** Insert raw page rows that only count against the pilot envelope. */
 async function insertPilotFixturePages(
   t: ReturnType<typeof convexTest>,
   options: {
@@ -147,597 +176,6 @@ async function insertPilotFixturePages(
     return ids
   })
 }
-
-/**
- * Compat helper for tests written against the retired
- * `updateLocaleContent` mutation (ADR-0041 Deploy 3 Narrow).
- *
- * Original semantics: write the locale bag onto `pages.content`
- * immediately (live) + mirror the same bag onto `pageStaging.content`
- * for non-published pages. Callers asserted `getById().content[locale]`
- * right after the call, so "immediately live" was load-bearing.
- *
- * New pipeline: `updateDraft` writes to staging only; `pages.publish`
- * promotes staging → live and deletes staging. This helper reproduces
- * the "immediately live" behavior by chaining lock + `updateDraft` +
- * `pages.publish`, which is the only way a save reaches
- * `pages.content` post-Deploy 2. Tests that specifically want the
- * draft-only working-copy semantics call `updateDraft` directly and
- * read via `getStagedPreviewById`.
- *
- * `expectedUpdatedAt` is deliberately ignored: the retired mutation
- * gated on `pages.updatedAt`, but `updateDraft`'s OCC token is
- * `pageStaging.updatedAt` (a different clock). The two disagree for
- * seeded-staging pages, and forwarding the page token would trip
- * `assertStagingFresh` spuriously. Tests that specifically prove the
- * stale-save gate must call `updateDraft` directly with a staging
- * token from `getStagedPreviewById.stagingUpdatedAt`.
- *
- * Consequence: every helper call now generates a `"publish"` revision
- * instead of `"manual_save"`. Tests asserting on revision reasons were
- * updated in this deploy to expect `"publish"`.
- *
- * Slug routing mirrors the retired mutation: the base `slug` is
- * written on the DEFAULT locale, and other locales set
- * `localizedSlugs[locale]`. Tests never invoke this helper before
- * completing onboarding with a non-`"en"` default locale, so hardcoding
- * `"en"` matches every existing caller (a stray non-`"en"` default
- * would surface as a slug-not-updated assertion, not a silent skew).
- */
-async function callUpdateLocaleContent(
-  asUser: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
-  args: {
-    pageId: Id<"pages">
-    locale: string
-    title: string
-    blocks?: Block[]
-    slug?: string
-    metaTitle?: string
-    metaDescription?: string
-    expectedUpdatedAt?: number
-  }
-) {
-  const stored = await asUser.query(api.cms.pages.getById, { id: args.pageId })
-  if (!stored) throw new Error(`page ${args.pageId} not found`)
-  const blockBodyPageType = stored.pageType as Exclude<
-    typeof stored.pageType,
-    "testimonial"
-  >
-  await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-    pageId: args.pageId,
-    force: true,
-  })
-  // Per-locale slug routing — default locale writes the base `slug`;
-  // other locales stage a `localizedSlugs[locale]` override.
-  const defaultLocale = "en"
-  const slugArgs: {
-    slug?: string
-    localizedSlugs?: Record<string, string>
-  } = {}
-  if (args.slug !== undefined) {
-    if (args.locale === defaultLocale) {
-      slugArgs.slug = args.slug
-    } else {
-      slugArgs.localizedSlugs = {
-        ...(stored.localizedSlugs ?? {}),
-        [args.locale]: args.slug,
-      }
-    }
-  }
-  const staged = await asUser.mutation(api.cms.pages.updateDraft, {
-    pageId: args.pageId,
-    ...slugArgs,
-    content: {
-      [args.locale]: {
-        pageType: blockBodyPageType,
-        localized: {
-          title: args.title,
-          ...(args.metaTitle !== undefined
-            ? { metaTitle: args.metaTitle }
-            : {}),
-          ...(args.metaDescription !== undefined
-            ? { metaDescription: args.metaDescription }
-            : {}),
-        },
-        blocks: args.blocks ?? [],
-      },
-    },
-  })
-  await asUser.mutation(api.cms.pages.publish, { pageId: args.pageId })
-  return staged
-}
-
-describe("pages — slug uniqueness", () => {
-  test("two pages cannot share the same slug", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await asUser.mutation(api.cms.pages.create, {
-      slug: "about",
-      pageType: "landing-page",
-      status: "draft",
-      title: "About",
-    })
-
-    await expect(
-      asUser.mutation(api.cms.pages.create, {
-        slug: "about",
-        pageType: "landing-page",
-        status: "draft",
-        title: "About 2",
-      })
-    ).rejects.toThrow("already taken")
-  })
-
-  test(
-    "create keeps today's address for ASCII and Latin-accented titles",
-    blockProfile([]),
-    async () => {
-      const t = pageTest()
-      const asUser = t.withIdentity(TEST_USER)
-      const expected: Array<[string, string]> = [
-        ["Hello World", "hello-world"],
-        ["Résultats 2026", "resultats-2026"],
-        ["a_b c", "a-b-c"],
-        ["  --x--  ", "x"],
-        ["Ça va?", "ca-va"],
-        ["Иван 2", "2"],
-      ]
-      for (const [title, slug] of expected) {
-        const id = await asUser.mutation(api.cms.pages.create, {
-          pageType: "landing-page",
-          status: "draft",
-          title,
-        })
-        const page = await t.run((ctx) => ctx.db.get("pages", id))
-        expect(page?.slug, title).toBe(slug)
-      }
-    }
-  )
-
-  test(
-    "create gives a non-Latin title a stable page-<hash> address",
-    blockProfile([]),
-    async () => {
-      const t = pageTest()
-      const asUser = t.withIdentity(TEST_USER)
-      const titles: Array<[string, string]> = [
-        ["Иван", "page-114d4170"],
-        ["東京", "page-06271ed0"],
-        ["서울", "page-f1ca7419"],
-        ["नमस्ते", "page-a4718a3d"],
-      ]
-      for (const [title, slug] of titles) {
-        const id = await asUser.mutation(api.cms.pages.create, {
-          pageType: "landing-page",
-          status: "draft",
-          title,
-        })
-        const page = await t.run((ctx) => ctx.db.get("pages", id))
-        expect(page?.slug, title).toBe(slug)
-      }
-    }
-  )
-
-  test(
-    "two pages with the same non-Latin title collide like two ASCII pages do",
-    blockProfile([]),
-    async () => {
-      const t = pageTest()
-      const asUser = t.withIdentity(TEST_USER)
-      for (const title of ["Same title", "Иван"]) {
-        const firstId = await asUser.mutation(api.cms.pages.create, {
-          pageType: "landing-page",
-          status: "draft",
-          title,
-        })
-        await expect(
-          asUser.mutation(api.cms.pages.create, {
-            pageType: "landing-page",
-            status: "draft",
-            title,
-          })
-        ).rejects.toThrow("already taken")
-        const first = await t.run((ctx) => ctx.db.get("pages", firstId))
-        expect(first?.slug).not.toBe("")
-        const sameAddress = await t.run((ctx) =>
-          ctx.db
-            .query("pages")
-            .collect()
-            .then((rows) => rows.filter((row) => row.slug === first?.slug))
-        )
-        expect(sameAddress).toHaveLength(1)
-      }
-    }
-  )
-
-  // Publish validates every changed slug in ONE table scan instead of one scan
-  // per slug. These cover the collision shapes that batching could have
-  // regressed: a localized slug colliding with another page, and two locales
-  // on the SAME page colliding with each other (only reachable once the checks
-  // share a pass).
-  test("publish rejects a localized slug that collides with another page", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await asUser.mutation(api.cms.pages.create, {
-      slug: "taken-by-other",
-      pageType: "landing-page",
-      status: "published",
-      title: "Other",
-    })
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Mine",
-      content: { en: { title: "Mine", blocks: [] } },
-    })
-
-    await asUser.mutation(api.cms.pages.heartbeatPageEditor, { pageId })
-    await asUser.mutation(api.cms.pages.updateDraft, {
-      pageId,
-      localizedSlugs: { fr: "taken-by-other" },
-    })
-
-    await expect(
-      asUser.mutation(api.cms.pages.publish, { pageId })
-    ).rejects.toThrow("already taken")
-  })
-
-  test("publish rejects two locales staging the same slug", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Dup locales",
-      content: { en: { title: "Dup locales", blocks: [] } },
-    })
-
-    await asUser.mutation(api.cms.pages.heartbeatPageEditor, { pageId })
-    await asUser.mutation(api.cms.pages.updateDraft, {
-      pageId,
-      localizedSlugs: { fr: "same-slug", es: "same-slug" },
-    })
-
-    await expect(
-      asUser.mutation(api.cms.pages.publish, { pageId })
-    ).rejects.toThrow("already taken")
-  })
-
-  test("publish accepts distinct localized slugs", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Distinct locales",
-      content: { en: { title: "Distinct locales", blocks: [] } },
-    })
-
-    await asUser.mutation(api.cms.pages.heartbeatPageEditor, { pageId })
-    await asUser.mutation(api.cms.pages.updateDraft, {
-      pageId,
-      localizedSlugs: { fr: "distinct-fr", es: "distinct-es" },
-    })
-
-    await asUser.mutation(api.cms.pages.publish, { pageId })
-    const published = await asUser.query(api.cms.pages.getById, { id: pageId })
-    expect(published?.status).toBe("published")
-  })
-
-  test("slug is auto-generated from title if not provided", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const id = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "My First Page",
-    })
-
-    const page = await asUser.query(api.cms.pages.getById, { id })
-    expect(page?.slug).toBe("my-first-page")
-  })
-})
-
-describe("pages — duplicate", () => {
-  test("uses the confirmed title for the default locale without flattening translations", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const sourceId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "page",
-      status: "draft",
-      title: "About",
-      content: {
-        en: { title: "About", blocks: [] },
-        fr: { title: "À propos", blocks: [] },
-      },
-    })
-
-    const duplicateId = await asUser.mutation(api.cms.pages.duplicate, {
-      id: sourceId,
-      title: "  Our story  ",
-    })
-    const duplicate = await asUser.query(api.cms.pages.getStagedPreviewById, {
-      id: duplicateId,
-    })
-
-    expect(duplicate?.page.content?.en.title).toBe("Our story")
-    expect(duplicate?.page.content?.fr.title).toBe("À propos (Copy)")
-  })
-
-  test("rejects a blank confirmed title", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const sourceId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "page",
-      status: "draft",
-      title: "About",
-    })
-
-    await expect(
-      asUser.mutation(api.cms.pages.duplicate, {
-        id: sourceId,
-        title: "   ",
-      })
-    ).rejects.toThrow("Title is required")
-  })
-})
-
-describe("pages — homepage locale resolution", () => {
-  test("serves a published home/homepage landing page at default-locale root", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const id = await asUser.mutation(api.cms.pages.create, {
-      slug: "home",
-      pageType: "landing-page",
-      status: "published",
-      title: "Home",
-      content: {
-        en: { title: "Home", blocks: [] },
-      },
-    })
-
-    await expect(
-      t.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/",
-        locale: "en",
-      })
-    ).resolves.toBe(id)
-
-    await expect(
-      t.query(api.cms.settings.getSiteConfig, {})
-    ).resolves.toMatchObject({
-      homePageId: id,
-    })
-
-    await expect(
-      t.query(api.cms.pages.getPublicLocaleAlternates, {
-        languageVersion: 0,
-        pageId: id,
-      })
-    ).resolves.toContainEqual(
-      expect.objectContaining({ locale: "en", url: "/" })
-    )
-  })
-
-  test("ignores a stale configured homePageId and falls back to the published homepage", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const staleId = await asUser.mutation(api.cms.pages.create, {
-      slug: "old-home",
-      pageType: "landing-page",
-      status: "draft",
-      title: "Old home",
-      content: {
-        en: { title: "Old home", blocks: [] },
-      },
-    })
-    const homeId = await asUser.mutation(api.cms.pages.create, {
-      slug: "homepage",
-      pageType: "landing-page",
-      status: "published",
-      title: "Home",
-      content: {
-        en: { title: "Home", blocks: [] },
-      },
-    })
-
-    await t.run((ctx) =>
-      ctx.db.insert("siteSettings", {
-        siteName: "Site",
-        siteUrl: "",
-        defaultLocale: "en",
-        enabledLocales: ["en"],
-        homePageId: staleId,
-        timezone: "UTC",
-        updatedAt: Date.now(),
-      })
-    )
-
-    await expect(
-      t.query(api.cms.settings.getSiteConfig, {})
-    ).resolves.toMatchObject({
-      homePageId: homeId,
-    })
-
-    await expect(
-      t.query(api.cms.pages.getLocalizedPathsByIds, {
-        languageVersion: 0,
-        ids: [homeId],
-        locale: "en",
-      })
-    ).resolves.toMatchObject({
-      [homeId]: "/",
-    })
-  })
-
-  test("serves a locale-specific home slug at the locale root", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await asUser.mutation(api.cms.settings.completeOnboarding, {
-      siteName: "Site",
-      siteUrl: "https://example.com",
-      timezone: "UTC",
-      defaultLocale: "en",
-      enabledLocales: ["en", "fr"],
-    })
-
-    const id = await asUser.mutation(api.cms.pages.create, {
-      slug: "accuiel",
-      pageType: "landing-page",
-      status: "published",
-      title: "Accueil",
-      content: {
-        en: { title: "Accueil", blocks: [] },
-        fr: { title: "Accueil", blocks: [] },
-      },
-    })
-
-    await expect(
-      t.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/",
-        locale: "fr",
-      })
-    ).resolves.toBe(id)
-
-    await expect(
-      t.query(api.cms.pages.getPublicLocaleAlternates, {
-        languageVersion: 0,
-        pageId: id,
-      })
-    ).resolves.toContainEqual(
-      expect.objectContaining({ locale: "fr", url: "/fr" })
-    )
-  })
-
-  test("hides default-locale Home content from an unavailable enabled locale", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const id = await asUser.mutation(api.cms.pages.create, {
-      slug: "home",
-      pageType: "landing-page",
-      status: "published",
-      title: "Home",
-      content: { en: { title: "Home", blocks: [] } },
-    })
-    await t.run((ctx) =>
-      ctx.db.insert("siteSettings", {
-        siteName: "Site",
-        siteUrl: "",
-        defaultLocale: "en",
-        enabledLocales: ["en", "es"],
-        homePageId: id,
-        timezone: "UTC",
-        updatedAt: Date.now(),
-      })
-    )
-
-    await expect(
-      t.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/",
-        locale: "es",
-      })
-    ).resolves.toBeNull()
-
-    // Authentication cannot turn the public resolver into a draft reader.
-    await expect(
-      asUser.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/",
-        locale: "es",
-      })
-    ).resolves.toBeNull()
-  })
-})
-
-describe("pages — public sitemap listing", () => {
-  test("legacy authority lists published pages per locale without auth and exposes only sitemap fields", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await asUser.mutation(api.cms.pages.create, {
-      slug: "services",
-      pageType: "page",
-      status: "published",
-      title: "Services",
-      content: {
-        en: { title: "Services", blocks: [] },
-        fr: { title: "Services FR", blocks: [] },
-      },
-    })
-    await asUser.mutation(api.cms.pages.create, {
-      slug: "draft",
-      pageType: "page",
-      status: "draft",
-      title: "Draft",
-      content: {
-        en: { title: "Draft", blocks: [] },
-      },
-    })
-    const deletedId = await asUser.mutation(api.cms.pages.create, {
-      slug: "deleted",
-      pageType: "page",
-      status: "published",
-      title: "Deleted",
-      content: {
-        en: { title: "Deleted", blocks: [] },
-      },
-    })
-    await t.run((ctx) => ctx.db.patch("pages", deletedId, { deletedAt: Date.now() }))
-    await t.run((ctx) =>
-      ctx.db.insert("siteSettings", {
-        siteName: "Site",
-        siteUrl: "",
-        defaultLocale: "en",
-        enabledLocales: ["en", "fr"],
-        timezone: "UTC",
-        updatedAt: Date.now(),
-      })
-    )
-
-    // M05 C5a: the legacy authority has one version-0 child per locale.
-    const child = (locale: string) =>
-      t.query(api.cms.pages.getSitemapChild, {
-        languageVersion: 0,
-        manifestVersion: 0,
-        locale,
-        ordinal: 0,
-      })
-    const en = await child("en")
-    const fr = await child("fr")
-    const alternates = [
-      { locale: "en", url: "/services" },
-      { locale: "fr", url: "/fr/services" },
-    ]
-    expect(en).toMatchObject({
-      status: "ok",
-      entries: [{ url: "/services", alternates }],
-    })
-    expect(fr).toMatchObject({
-      status: "ok",
-      entries: [{ url: "/fr/services", alternates }],
-    })
-    const entry = en.status === "ok" ? en.entries[0] : undefined
-    expect(Object.keys(entry ?? {}).toSorted()).toEqual([
-      "alternates",
-      "lastModified",
-      "priority",
-      "url",
-    ])
-  })
-})
 
 describe("pages — bounded pilot envelope", () => {
   test("signals the 80% capacity warning before the 499-page maximum", blockProfile([]), async () => {
@@ -812,10 +250,21 @@ describe("pages — bounded pilot envelope", () => {
   test("ordinary creation cannot make a bounded read reach 500 rows", blockProfile([]), async () => {
     const t = pageTest()
     const asUser = t.withIdentity(TEST_USER)
+    // The Home page the installation creates is the 498th row.
+    await asUser.mutation(api.cms.settings.bootstrapInstallation, {
+      siteName: "Pilot",
+      timezone: "UTC",
+      defaultLocale: "en",
+    })
     await insertPilotFixturePages(t, {
       start: 0,
-      count: 498,
+      count: 497,
       status: "draft",
+    })
+    // The raw rows bypass the write counter; the next create measures again.
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("pilotEnvelope").take(2))
+        await ctx.db.delete("pilotEnvelope", row._id)
     })
 
     await expect(
@@ -836,194 +285,69 @@ describe("pages — bounded pilot envelope", () => {
     ).rejects.toThrow(/Bounded pilot envelope reached.*499 pages/)
   })
 
-  test("ordinary promotion refuses a legacy tree that already reaches the sentinel", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    await insertPilotFixturePages(t, {
-      start: 0,
-      count: 499,
-      status: "published",
-    })
-    const [draftId] = await insertPilotFixturePages(t, {
-      start: 499,
-      count: 1,
-      status: "draft",
-    })
-    await t.run(async (ctx) => {
-      await ctx.db.insert("pageStaging", {
-        pageId: draftId!,
-        pageType: "page",
-        createdBy: TEST_USER.subject,
-        updatedAt: Date.now(),
-        content: { en: { title: "Legacy draft", blocks: [] } },
-      })
-    })
-
-    await expect(
-      asUser.mutation(api.cms.pages.publish, { pageId: draftId! })
-    ).rejects.toThrow(/Bounded pilot envelope reached.*499 pages/)
-  })
-
-  test("hard deletion releases the transactionally reserved page slot", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "page",
-      status: "published",
-      title: "Disposable pilot page",
-      content: { en: { title: "Disposable pilot page", blocks: [] } },
-    })
-
-    await asUser.mutation(api.cms.pages.remove, { id: pageId })
-    await t.run(async (ctx) => {
-      const ledger = await ctx.db.query("pilotEnvelope").first()
-      expect(ledger).toMatchObject({
-        totalPageCount: 0,
-        publishedPageCount: 0,
-      })
-    })
-  })
 })
 
 describe("pages — public read boundaries", () => {
-  test("anonymous raw page reads stay private while the public reader admits only live rows", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const publishedId = await asUser.mutation(api.cms.pages.create, {
-      slug: "public-page",
-      pageType: "page",
-      status: "published",
-      title: "Public page",
-      content: { en: { title: "Public page", blocks: [] } },
-    })
-    const draftId = await asUser.mutation(api.cms.pages.create, {
-      slug: "private-draft",
-      pageType: "page",
-      status: "draft",
-      title: "Private Draft",
-      content: { en: { title: "Private Draft", blocks: [] } },
-    })
-    const archivedId = await asUser.mutation(api.cms.pages.create, {
-      slug: "private-archived",
-      pageType: "page",
-      status: "archived",
-      title: "Private Archived",
-      content: { en: { title: "Private Archived", blocks: [] } },
-    })
-    const deletedId = await asUser.mutation(api.cms.pages.create, {
-      slug: "private-deleted",
-      pageType: "page",
-      status: "published",
-      title: "Private Deleted",
-      content: { en: { title: "Private Deleted", blocks: [] } },
-    })
-    await t.run((ctx) => ctx.db.patch("pages", deletedId, { deletedAt: Date.now() }))
-
-    await expect(
-      t.query(api.cms.pages.getById, { id: draftId })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.getById, { id: publishedId })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.getById, { id: archivedId })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.getPublishedById, { id: publishedId })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.getPublishedById, { id: deletedId })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.getPublicPageById, {
-        languageVersion: 0,
-        id: publishedId,
-        locale: "en",
-      })
-    ).resolves.toMatchObject({
-      _id: publishedId,
-      pageType: "page",
-      content: { en: { title: "Public page" } },
-    })
-    await expect(
-      t.query(api.cms.pages.getPublicPageById, {
-        languageVersion: 0,
-        id: draftId,
-        locale: "en",
-      })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.getPublicPageById, {
-        languageVersion: 0,
-        id: archivedId,
-        locale: "en",
-      })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.getPublicPageById, {
-        languageVersion: 0,
-        id: deletedId,
-        locale: "en",
-      })
-    ).resolves.toBeNull()
-    await expect(
-      asUser.query(api.cms.pages.getById, { id: draftId })
-    ).resolves.toMatchObject({ status: "draft" })
-  })
-
   test("public page projection is exact, locale-strict, and excludes private system fields", blockProfile([]), async () => {
     const t = pageTest()
-    const pageId = await t.run(async (ctx) => {
-      const now = Date.now()
-      return await ctx.db.insert("pages", {
-        slug: "projection-boundary",
-        pageType: "page",
-        status: "published",
-        createdAt: now,
-        updatedAt: now,
-        createdBy: "private-owner-id",
-        template: "internal-template",
-        ancestryPath: "/private-parent",
-        hierarchyDepth: 4,
-        showOnHomepage: true,
-        displayMode: "both",
-        cardExcerpt: "private card copy",
-        seo: {
-          metaTitle: "Public metadata",
-          noIndex: true,
-          focusKeyword: "private keyword",
-          keywords: ["private", "taxonomy"],
-          canonicalUrl: "https://private.example.test/override",
-          seoScore: 100,
+    const asUser = t.withIdentity(TEST_USER)
+    await asUser.mutation(api.cms.settings.bootstrapInstallation, {
+      siteName: "Projection",
+      timezone: "UTC",
+      defaultLocale: "en",
+    })
+    const pageId = await asUser.mutation(api.cms.pages.create, {
+      slug: "projection-boundary",
+      pageType: "page",
+      status: "draft",
+      template: "internal-template",
+      showOnHomepage: true,
+      displayMode: "both",
+      cardExcerpt: "private card copy",
+      seo: {
+        metaTitle: "Public metadata",
+        noIndex: true,
+        focusKeyword: "private keyword",
+        keywords: ["private", "taxonomy"],
+        canonicalUrl: "https://private.example.test/override",
+        seoScore: 100,
+      },
+      content: {
+        en: {
+          title: "Public English title",
+          metaTitle: "Public English meta",
+          metaDescription: "Public English description",
+          blocks: [],
         },
-        content: {
-          en: {
-            title: "Public English title",
-            metaTitle: "Public English meta",
-            metaDescription: "Public English description",
-            blocks: [],
-          },
-          fr: {
-            title: "French title must not cross an English response",
-            metaTitle: "French secret meta",
-            metaDescription: "French secret description",
-            blocks: [],
-          },
-        },
-      })
+      },
+    })
+    await asUser.mutation(api.cms.publication.publishLocale, {
+      pageId,
+      locale: "en",
+      expectedDraftGeneration: 1,
+      expectedSharedDraftGeneration: 1,
+      expectedPublicGeneration: 0,
+      expectedLifecycleGeneration: 1,
+      expectedReleaseGeneration: 0,
     })
 
+    const { languageVersion } = await t.query(api.cms.settings.getSiteConfig, {})
     const projection = await t.query(api.cms.pages.getPublicPageById, {
-      languageVersion: 0,
+      languageVersion,
       id: pageId,
       locale: "en",
     })
-    expect(projection).toEqual({
+    expect(Object.keys(projection ?? {}).sort()).toEqual([
+      "_id",
+      "content",
+      "pageType",
+      "publishedAt",
+      "seo",
+      "updatedAt",
+    ])
+    expect(projection).toMatchObject({
       _id: pageId,
       pageType: "page",
-      updatedAt: expect.any(Number),
-      seo: { metaTitle: "Public metadata", noIndex: true },
       content: {
         en: {
           title: "Public English title",
@@ -1035,733 +359,32 @@ describe("pages — public read boundaries", () => {
     })
     const serialized = JSON.stringify(projection)
     for (const privateValue of [
-      "private-owner-id",
       "internal-template",
-      "private-parent",
       "private card copy",
       "private keyword",
       "private.example.test",
-      "French title must not cross an English response",
-      "French secret meta",
     ]) {
       expect(serialized).not.toContain(privateValue)
     }
+    // A language the site does not publish is never served.
     await expect(
       t.query(api.cms.pages.getPublicPageById, {
-        languageVersion: 0,
+        languageVersion,
         id: pageId,
         locale: "fr",
       })
     ).resolves.toBeNull()
   })
-
-  test("anonymous callers cannot opt into draft route resolution", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await asUser.mutation(api.cms.pages.create, {
-      slug: "draft-route",
-      pageType: "page",
-      status: "draft",
-      title: "Draft Route",
-      content: { en: { title: "Draft Route", blocks: [] } },
-    })
-
-    await expect(
-      t.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/draft-route",
-        locale: "en",
-        // @ts-expect-error — the public contract deliberately has no draft switch.
-        includeDrafts: true,
-      })
-    ).rejects.toThrow()
-    await expect(
-      t.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/draft-route",
-        locale: "en",
-      })
-    ).resolves.toBeNull()
-  })
-
-  test("public route resolution requires requested-locale content while preview may fall back", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await asUser.mutation(api.cms.settings.completeOnboarding, {
-      siteName: "Site",
-      siteUrl: "https://example.com",
-      timezone: "UTC",
-      defaultLocale: "en",
-      enabledLocales: ["en", "fr"],
-    })
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      slug: "english-only",
-      pageType: "page",
-      status: "published",
-      content: { en: { title: "English only", blocks: [] } },
-    })
-
-    await expect(
-      t.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/english-only",
-        locale: "fr",
-      })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/english-only",
-        locale: "en",
-      })
-    ).resolves.toBe(pageId)
-    await expect(
-      t.query(api.cms.pages.getLocalizedPathsByIds, {
-        languageVersion: 0,
-        ids: [pageId],
-        locale: "fr",
-      })
-    ).resolves.toEqual({})
-    await expect(
-      asUser.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/english-only",
-        locale: "fr",
-      })
-    ).resolves.toBeNull()
-  })
-
-  test("public route resolution hides content for a disabled locale", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      slug: "disabled-french",
-      pageType: "page",
-      status: "published",
-      content: {
-        en: { title: "English", blocks: [] },
-        fr: { title: "Français", blocks: [] },
-      },
-    })
-
-    await expect(
-      t.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/disabled-french",
-        locale: "fr",
-      })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.getLocalizedPathsByIds, {
-        languageVersion: 0,
-        ids: [pageId],
-        locale: "fr",
-      })
-    ).resolves.toEqual({})
-    await expect(
-      asUser.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/disabled-french",
-        locale: "fr",
-      })
-    ).resolves.toBeNull()
-  })
-
-  test("anonymous helper reads keep raw documents private and expose only public route metadata", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const publishedId = await asUser.mutation(api.cms.pages.create, {
-      slug: "published-helper",
-      pageType: "page",
-      status: "published",
-      title: "Published Helper",
-      content: { en: { title: "Published Helper", blocks: [] } },
-    })
-    const draftId = await asUser.mutation(api.cms.pages.create, {
-      slug: "draft-helper",
-      pageType: "page",
-      status: "draft",
-      title: "Draft Helper",
-      content: { en: { title: "Draft Helper", blocks: [] } },
-    })
-    const archivedId = await asUser.mutation(api.cms.pages.create, {
-      slug: "archived-helper",
-      pageType: "page",
-      status: "archived",
-      title: "Archived Helper",
-      content: { en: { title: "Archived Helper", blocks: [] } },
-    })
-    const deletedId = await asUser.mutation(api.cms.pages.create, {
-      slug: "deleted-helper",
-      pageType: "page",
-      status: "published",
-      title: "Deleted Helper",
-      content: { en: { title: "Deleted Helper", blocks: [] } },
-    })
-    await t.run((ctx) => ctx.db.patch("pages", deletedId, { deletedAt: Date.now() }))
-
-    await expect(
-      t.query(api.cms.pages.getBySlug, { slug: "published-helper" })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.getBySlug, { slug: "draft-helper" })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.getBySlug, { slug: "archived-helper" })
-    ).resolves.toBeNull()
-    await expect(
-      t.query(api.cms.pages.getBySlug, { slug: "deleted-helper" })
-    ).resolves.toBeNull()
-
-    const byIds = await t.query(api.cms.pages.getByIds, {
-      ids: [publishedId, draftId, archivedId, deletedId],
-    })
-    expect(byIds).toEqual([])
-
-    await expect(
-      t.query(api.cms.pages.getPublicLocaleAlternates, {
-        languageVersion: 0,
-        pageId: publishedId,
-      })
-    ).resolves.toEqual([
-      { locale: "en", url: "/published-helper", indexable: true },
-    ])
-    await expect(
-      t.query(api.cms.pages.getPublicLocaleAlternates, {
-        languageVersion: 0,
-        pageId: draftId,
-      })
-    ).resolves.toEqual([])
-
-    const paths = await t.query(api.cms.pages.getLocalizedPathsByIds, {
-      languageVersion: 0,
-      ids: [publishedId, draftId, archivedId, deletedId],
-      locale: "en",
-    })
-    expect(paths).toEqual({ [publishedId]: "/published-helper" })
-
-    await expect(
-      t.query(api.cms.pages.getBreadcrumb, { pageId: draftId })
-    ).resolves.toEqual([])
-    await expect(
-      t.query(api.cms.pages.getLocalizedBreadcrumb, {
-        languageVersion: 0,
-        pageId: draftId,
-        locale: "en",
-      })
-    ).resolves.toEqual([])
-  })
-
-  test("authorized helper reads can access draft pages", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const draftId = await asUser.mutation(api.cms.pages.create, {
-      slug: "authorized-draft-helper",
-      pageType: "page",
-      status: "draft",
-      title: "Authorized Draft Helper",
-      content: { en: { title: "Authorized Draft Helper", blocks: [] } },
-    })
-
-    await expect(
-      asUser.query(api.cms.pages.getBySlug, {
-        slug: "authorized-draft-helper",
-      })
-    ).resolves.toMatchObject({ _id: draftId })
-
-    const byIds = await asUser.query(api.cms.pages.getByIds, {
-      ids: [draftId],
-    })
-    expect(byIds.map((page) => page._id)).toEqual([draftId])
-
-    const paths = await asUser.query(api.cms.pages.getLocalizedPathsByIds, {
-      languageVersion: 0,
-      ids: [draftId],
-      locale: "en",
-    })
-    expect(paths).toEqual({ [draftId]: "/authorized-draft-helper" })
-  })
-
-  test("anonymous callers cannot probe slug availability", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await asUser.mutation(api.cms.pages.create, {
-      slug: "private-slug-probe",
-      pageType: "page",
-      status: "draft",
-      title: "Private Slug Probe",
-    })
-
-    await expect(
-      t.query(api.cms.pages.isSlugAvailable, { slug: "private-slug-probe" })
-    ).rejects.toThrow("UNAUTHENTICATED")
-    await expect(
-      asUser.query(api.cms.pages.isSlugAvailable, {
-        slug: "private-slug-probe",
-      })
-    ).resolves.toEqual({ available: false, slug: "private-slug-probe" })
-  })
-})
-
-describe("pages — soft delete", () => {
-  test("soft-deleted pages do not appear in list", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const id = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Page to delete",
-    })
-
-    // Only archived pages can be moved to trash.
-    await asUser.mutation(api.cms.pages.update, { id, status: "archived" })
-    await asUser.mutation(api.cms.pages.softDelete, { id })
-
-    const pages = await asUser.query(api.cms.pages.list, {})
-    expect(pages.find((p) => p._id === id)).toBeUndefined()
-  })
-
-  test("non-archived pages cannot be moved to trash", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const id = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Still a draft",
-    })
-
-    await expect(
-      asUser.mutation(api.cms.pages.softDelete, { id })
-    ).rejects.toThrow(/archived/i)
-  })
-
-  test("soft-deleted pages can be restored", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const id = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Page to restore",
-    })
-
-    await asUser.mutation(api.cms.pages.update, { id, status: "archived" })
-    await asUser.mutation(api.cms.pages.softDelete, { id })
-    await asUser.mutation(api.cms.pages.restore, { id })
-
-    const pages = await asUser.query(api.cms.pages.list, {})
-    expect(pages.find((p) => p._id === id)).toBeDefined()
-  })
-})
-
-describe("pages — permanent delete impact", () => {
-  test("remove blocks a trashed page with a child page", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const parentId = await asUser.mutation(api.cms.pages.create, {
-      slug: "parent",
-      pageType: "landing-page",
-      status: "draft",
-      title: "Parent",
-    })
-    await asUser.mutation(api.cms.pages.create, {
-      slug: "child",
-      pageType: "page",
-      status: "draft",
-      title: "Child",
-      parentId,
-    })
-
-    await asUser.mutation(api.cms.pages.update, {
-      id: parentId,
-      status: "archived",
-    })
-    await asUser.mutation(api.cms.pages.softDelete, { id: parentId })
-
-    await expect(
-      asUser.mutation(api.cms.pages.remove, { id: parentId })
-    ).rejects.toThrow(/child page/i)
-    const page = await asUser.query(api.cms.pages.getById, { id: parentId })
-    expect(page).toBeDefined()
-  })
-
-  test("remove deletes redirects pointing to a trashed page", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await enableRedirectsForTest(asUser)
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      slug: "target-page",
-      pageType: "landing-page",
-      status: "draft",
-      title: "Target Page",
-    })
-    await asUser.mutation(api.cms.redirects.create, {
-      fromPath: "/old-target",
-      toPageId: pageId,
-      statusCode: 301,
-    })
-
-    await asUser.mutation(api.cms.pages.update, {
-      id: pageId,
-      status: "archived",
-    })
-    await asUser.mutation(api.cms.pages.softDelete, { id: pageId })
-    await asUser.mutation(api.cms.pages.remove, { id: pageId })
-
-    const page = await asUser.query(api.cms.pages.getById, { id: pageId })
-    expect(page).toBeNull()
-    const redirects = await asUser.query(api.cms.redirects.list, {})
-    expect(
-      redirects.find((redirect) => redirect.fromPath === "/old-target")
-    ).toBeUndefined()
-  })
-
-  test("remove blocks a live menu reference and succeeds after the link is removed", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      slug: "menu-target",
-      pageType: "landing-page",
-      status: "draft",
-      title: "Menu Target",
-    })
-    // M05 C6: `saveCanonical` accepts only an enabled language, so the site
-    // needs its settings row (a fresh install always has one).
-    await t.run((ctx) =>
-      ctx.db.insert("siteSettings", {
-        siteName: "Site",
-        siteUrl: "",
-        defaultLocale: "en",
-        enabledLocales: ["en"],
-        updatedAt: 1,
-      })
-    )
-    await asUser.mutation(api.cms.menus.createCanonical, { slug: "primary" })
-    await asUser.mutation(api.cms.menus.saveCanonical, {
-      slug: "primary",
-      locale: "en",
-      nav: [
-        {
-          id: "target",
-          label: { en: "Target" },
-          target: { type: "internal", pageId },
-        },
-      ],
-    })
-    await asUser.mutation(api.cms.pages.update, {
-      id: pageId,
-      status: "archived",
-    })
-    await asUser.mutation(api.cms.pages.softDelete, { id: pageId })
-
-    await expect(
-      asUser.mutation(api.cms.pages.remove, { id: pageId })
-    ).rejects.toThrow(/primary/)
-    expect(
-      await asUser.query(api.cms.pages.getById, { id: pageId })
-    ).not.toBeNull()
-
-    await asUser.mutation(api.cms.menus.saveCanonical, {
-      slug: "primary",
-      locale: "en",
-      nav: [],
-    })
-    await expect(
-      asUser.mutation(api.cms.pages.remove, { id: pageId })
-    ).resolves.toBeNull()
-    expect(await asUser.query(api.cms.pages.getById, { id: pageId })).toBeNull()
-  })
-
-  test("remove succeeds after the referencing menu is soft-deleted", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      slug: "soft-deleted-menu-target",
-      pageType: "landing-page",
-      status: "draft",
-      title: "Soft-deleted Menu Target",
-    })
-    // M05 C6: `saveCanonical` accepts only an enabled language, so the site
-    // needs its settings row (a fresh install always has one).
-    await t.run((ctx) =>
-      ctx.db.insert("siteSettings", {
-        siteName: "Site",
-        siteUrl: "",
-        defaultLocale: "en",
-        enabledLocales: ["en"],
-        updatedAt: 1,
-      })
-    )
-    const menuId = await asUser.mutation(api.cms.menus.createCanonical, {
-      slug: "footer",
-    })
-    await asUser.mutation(api.cms.menus.saveCanonical, {
-      slug: "footer",
-      locale: "en",
-      nav: [
-        {
-          id: "target",
-          label: { en: "Target" },
-          target: { type: "internal", pageId },
-        },
-      ],
-    })
-    await asUser.mutation(api.cms.pages.update, {
-      id: pageId,
-      status: "archived",
-    })
-    await asUser.mutation(api.cms.pages.softDelete, { id: pageId })
-
-    await expect(
-      asUser.mutation(api.cms.pages.remove, { id: pageId })
-    ).rejects.toThrow(/footer/)
-
-    await asUser.mutation(api.cms.menus.softDelete, { id: menuId })
-    await expect(
-      asUser.mutation(api.cms.pages.remove, { id: pageId })
-    ).resolves.toBeNull()
-  })
-
-  test("deleteImpact reports children, redirects, and menu slugs", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await enableRedirectsForTest(asUser)
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      slug: "referenced-page",
-      pageType: "landing-page",
-      status: "draft",
-      title: "Referenced Page",
-    })
-    const childId = await asUser.mutation(api.cms.pages.create, {
-      slug: "referenced-child",
-      pageType: "page",
-      status: "draft",
-      title: "Referenced Child",
-      parentId: pageId,
-    })
-    await asUser.mutation(api.cms.redirects.create, {
-      fromPath: "/old-referenced",
-      toPageId: pageId,
-      statusCode: 302,
-    })
-    // M05 C6: `saveCanonical` accepts only an enabled language, so the site
-    // needs its settings row (a fresh install always has one).
-    await t.run((ctx) =>
-      ctx.db.insert("siteSettings", {
-        siteName: "Site",
-        siteUrl: "",
-        defaultLocale: "en",
-        enabledLocales: ["en"],
-        updatedAt: 1,
-      })
-    )
-    await asUser.mutation(api.cms.menus.createCanonical, { slug: "main" })
-    await asUser.mutation(api.cms.menus.saveCanonical, {
-      slug: "main",
-      locale: "en",
-      nav: [
-        {
-          id: "nav-1",
-          label: { en: "Panel" },
-          panel: {
-            columns: 1,
-            sections: [
-              {
-                id: "links",
-                kind: "linkGroup",
-                links: [
-                  {
-                    id: "nested-reference",
-                    label: { en: "Referenced" },
-                    target: { type: "internal", pageId },
-                  },
-                ],
-              },
-            ],
-          },
-        },
-      ],
-    })
-
-    const impact = await asUser.query(api.cms.pages.deleteImpact, {
-      id: pageId,
-    })
-    expect(impact.children).toEqual([
-      { _id: childId, title: "Referenced Child", slug: "referenced-child" },
-    ])
-    expect(impact.redirects).toBe(1)
-    expect(impact.menus).toEqual(["main"])
-  })
-
-  // B8 (M01 recovery design): required delete impact and the purge ignore
-  // Redirects module state. The M01d blocker refuses a disable while a rule
-  // exists and deletes none, so the targeting rule is created while enabled,
-  // the refused disable is proven, and the retained row is then re-seeded
-  // after the owner removes it and disables.
-  test("deleteImpact and remove still count and delete targeting redirects while Redirects is disabled", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await enableRedirectsForTest(asUser)
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      slug: "disabled-redirects-target",
-      pageType: "landing-page",
-      status: "draft",
-      title: "Disabled Redirects Target",
-    })
-    const ruleId = await asUser.mutation(api.cms.redirects.create, {
-      fromPath: "/old-disabled-target",
-      toPageId: pageId,
-      statusCode: 301,
-    })
-    await expect(
-      asUser.mutation(api.cms.modules.commit, {
-        expectedConfigurationVersion: 1,
-        changes: [{ moduleId: "redirects", enabled: false }],
-      })
-    ).rejects.toThrow("CMS_MODULE_TRANSITION_BLOCKED")
-    await asUser.mutation(api.cms.redirects.remove, { id: ruleId })
-    await expect(
-      asUser.mutation(api.cms.modules.commit, {
-        expectedConfigurationVersion: 1,
-        changes: [{ moduleId: "redirects", enabled: false }],
-      })
-    ).resolves.toMatchObject({ committed: true, configurationVersion: 2 })
-    // A retained targeting rule while disabled, which no guarded entry can
-    // write (for example a pre-successor row on an adapted installation).
-    await t.run(async (ctx) => {
-      const now = Date.now()
-      await ctx.db.insert("redirects", {
-        fromPath: "/old-disabled-target",
-        toPageId: pageId,
-        statusCode: 301,
-        createdAt: now,
-        updatedAt: now,
-        origin: "manual",
-      })
-    })
-    await expect(asUser.query(api.cms.redirects.list, {})).rejects.toThrow(
-      "CMS_MODULE_DISABLED"
-    )
-    const targeting = () =>
-      t.run((ctx) =>
-        ctx.db
-          .query("redirects")
-          .withIndex("by_fromPath", (q) =>
-            q.eq("fromPath", "/old-disabled-target")
-          )
-          .take(2)
-      )
-    expect(await targeting()).toHaveLength(1)
-
-    await expect(
-      asUser.query(api.cms.pages.deleteImpact, { id: pageId })
-    ).resolves.toMatchObject({ redirects: 1 })
-    await asUser.mutation(api.cms.pages.update, {
-      id: pageId,
-      status: "archived",
-    })
-    await asUser.mutation(api.cms.pages.softDelete, { id: pageId })
-    await asUser.mutation(api.cms.pages.remove, { id: pageId })
-
-    expect(await asUser.query(api.cms.pages.getById, { id: pageId })).toBeNull()
-    expect(await targeting()).toEqual([])
-  })
-
-  test("deleteImpact is empty for an unreferenced page", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      slug: "unreferenced",
-      pageType: "landing-page",
-      status: "draft",
-      title: "Unreferenced",
-    })
-
-    const impact = await asUser.query(api.cms.pages.deleteImpact, {
-      id: pageId,
-    })
-    expect(impact.children).toEqual([])
-    expect(impact.redirects).toBe(0)
-    expect(impact.menus).toEqual([])
-  })
-})
-
-describe("pages — hierarchy", () => {
-  test("child page gets ancestry path from parent", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const parentId = await asUser.mutation(api.cms.pages.create, {
-      slug: "services",
-      pageType: "landing-page",
-      status: "published",
-      title: "Services",
-    })
-
-    const childId = await asUser.mutation(api.cms.pages.create, {
-      slug: "web-design",
-      pageType: "landing-page",
-      status: "draft",
-      title: "Web Design",
-      parentId,
-    })
-
-    const child = await asUser.query(api.cms.pages.getById, { id: childId })
-    expect(child?.ancestryPath).toBe("/services")
-    expect(child?.hierarchyDepth).toBe(1)
-  })
-
-  test("hierarchy depth is capped at 10 levels", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    let parentId = await asUser.mutation(api.cms.pages.create, {
-      slug: "root",
-      pageType: "landing-page",
-      status: "published",
-      title: "Root",
-    })
-
-    for (let i = 1; i <= 10; i++) {
-      parentId = await asUser.mutation(api.cms.pages.create, {
-        slug: `level-${i}`,
-        pageType: "landing-page",
-        status: "draft",
-        title: `Level ${i}`,
-        parentId,
-      })
-    }
-
-    const deepPage = await asUser.query(api.cms.pages.getById, { id: parentId })
-    expect(deepPage?.hierarchyDepth ?? 0).toBeLessThanOrEqual(10)
-  })
 })
 
 describe("pages — relation cards", () => {
-  test("projects published pages and hides drafts unless preview is enabled", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
+  test("projects published pages and hides drafts unless preview is enabled", whenActive(blockProfile(["hero-agency"]), postActive), async () => {
+    const { t, owner, languageVersion } = await bootstrappedSite()
 
-    const publishedId = await asUser.mutation(api.cms.pages.create, {
+    const publishedId = await owner.mutation(api.cms.pages.create, {
       slug: "published-post",
       pageType: "post",
-      status: "published",
+      status: "draft",
       title: "Published Post",
       cardExcerpt: "Published excerpt",
       content: {
@@ -1771,16 +394,18 @@ describe("pages — relation cards", () => {
         },
       },
     })
-    const draftId = await asUser.mutation(api.cms.pages.create, {
+    await publishFirst(owner, publishedId)
+    const draftId = await owner.mutation(api.cms.pages.create, {
       slug: "draft-post",
       pageType: "post",
       status: "draft",
       title: "Draft Post",
+      content: { en: { title: "Draft Post", blocks: [] } },
     })
 
     const publicCards = await t.query(
       api.cms.pages.getPublicRelationCardsByIds,
-      { languageVersion: 0, ids: [publishedId, draftId], locale: "en" }
+      { languageVersion, ids: [publishedId, draftId], locale: "en" }
     )
     expect(publicCards[publishedId]?.title).toBe("Published Post")
     expect(publicCards[publishedId]).not.toHaveProperty("excerpt")
@@ -1794,7 +419,7 @@ describe("pages — relation cards", () => {
       })
     ).rejects.toThrow("UNAUTHENTICATED")
 
-    const previewCards = await asUser.query(
+    const previewCards = await owner.query(
       api.cms.pages.getRelationCardsByIds,
       {
         ids: [draftId],
@@ -1802,1335 +427,407 @@ describe("pages — relation cards", () => {
         includeDrafts: true,
       }
     )
-    expect(previewCards[draftId]?.title).toBe("Draft Post")
+    // Preview resolves the draft that the public reader hides. (It still reads
+    // the page row, not the working draft, so only the row's own title is
+    // checked here; see the 0.5.1 report.)
+    expect(previewCards[draftId]).toMatchObject({
+      pageId: draftId,
+      pageType: "post",
+    })
   })
 
-  test("public relation cards respect active selection and descriptor exposure fields", blockProfile([]), async () => {
-    const t = pageTest()
-    const testimonialId = await t.run(async (ctx) => {
-      const now = Date.now()
-      return await ctx.db.insert("pages", {
-        slug: "internal-testimonial-handle",
-        pageType: "testimonial",
-        status: "published",
-        createdAt: now,
-        updatedAt: now,
-        createdBy: "private-editor",
-        cardExcerpt: "private generic excerpt",
-        personName: "Ada Lovelace",
-        content: {
-          en: {
-            title: "Internal testimonial label",
-            quote: "Public quote for English readers",
-          },
-          fr: {
-            title: "French internal label",
-            quote: "Citation publique française",
-          },
-        },
-      })
-    })
-
-    const cards = await t.query(api.cms.pages.getPublicRelationCardsByIds, {
-      languageVersion: 0,
-      ids: [testimonialId],
-      locale: "en",
-    })
-    if (!testimonialActive) {
-      expect(cards).toEqual({ [testimonialId]: null })
-      return
-    }
-    expect(cards[testimonialId]).toEqual({
-      pageId: testimonialId,
-      pageType: "testimonial",
-      title: "Ada Lovelace",
-      excerpt: "Public quote for English readers",
-    })
-    const serialized = JSON.stringify(cards[testimonialId])
-    expect(serialized).not.toContain("private-editor")
-    expect(serialized).not.toContain("private generic excerpt")
-    expect(serialized).not.toContain("Internal testimonial label")
-    expect(serialized).not.toContain("French internal label")
-    expect(serialized).not.toContain("Citation publique française")
-
-    await expect(
-      t.query(api.cms.pages.getPublicRelationCardsByIds, {
-        languageVersion: 0,
-        ids: [testimonialId],
-        locale: "fr",
-      })
-    ).resolves.toEqual({ [testimonialId]: null })
-  })
-
-  test("recent public relation cards are bounded, newest-first, and locale-strict", blockProfile([]), async () => {
-    const t = pageTest()
-    await t.run(async (ctx) => {
-      await ctx.db.insert("siteSettings", {
-        siteName: "Test",
-        siteUrl: "https://example.test",
-        defaultLocale: "en",
-        enabledLocales: ["en", "fr"],
-        updatedAt: 1,
-      })
+  test("recent public relation cards are bounded, newest-first, and locale-strict", whenActive(blockProfile([]), postActive), async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1_000_000)
+      const { t, owner, languageVersion } = await bootstrappedSite("en", "fr")
+      let clock = 1_000_000
       for (const page of [
-        { slug: "old", publishedAt: 100, en: "Old", fr: "Ancien" },
-        { slug: "new", publishedAt: 300, en: "New" },
-        { slug: "middle", publishedAt: 200, en: "Middle", fr: "Milieu" },
+        { slug: "old", en: "Old", fr: "Ancien" },
+        { slug: "middle", en: "Middle", fr: "Milieu" },
+        { slug: "new", en: "New", fr: undefined },
       ]) {
-        await ctx.db.insert("pages", {
+        const pageId = await owner.mutation(api.cms.pages.create, {
           slug: page.slug,
           pageType: "post",
-          status: "published",
-          createdAt: page.publishedAt,
-          updatedAt: page.publishedAt,
-          publishedAt: page.publishedAt,
-          featured: false,
-          promoteToFront: false,
-          content: {
-            en: { title: page.en, blocks: [] },
-            ...(page.fr ? { fr: { title: page.fr, blocks: [] } } : {}),
-          },
-        })
-      }
-    })
-
-    await expect(
-      t.query(api.cms.pages.listRecentPublicRelationCards, {
-        languageVersion: 0,
-        pageType: "post",
-        limit: 2,
-        locale: "en",
-      })
-    ).resolves.toMatchObject([{ title: "New" }, { title: "Middle" }])
-    await expect(
-      t.query(api.cms.pages.listRecentPublicRelationCards, {
-        languageVersion: 0,
-        pageType: "post",
-        limit: 3,
-        locale: "fr",
-      })
-    ).resolves.toMatchObject([{ title: "Milieu" }, { title: "Ancien" }])
-    await expect(
-      t.query(api.cms.pages.listRecentPublicRelationCards, {
-        languageVersion: 0,
-        pageType: "post",
-        limit: 3,
-        locale: "de",
-      })
-    ).resolves.toEqual([])
-    await expect(
-      t.query(api.cms.pages.listRecentPublicRelationCards, {
-        languageVersion: 0,
-        pageType: "post",
-        limit: 13,
-        locale: "en",
-      })
-    ).rejects.toThrow(/integer.*1.*12/i)
-  })
-})
-
-describe("pages — localized ancestry", () => {
-  async function siteWithFr(t: ReturnType<typeof convexTest>) {
-    const asUser = t.withIdentity(TEST_USER)
-    await asUser.mutation(api.cms.settings.completeOnboarding, {
-      siteName: "Site",
-      siteUrl: "https://example.com",
-      timezone: "UTC",
-      defaultLocale: "en",
-      enabledLocales: ["en", "fr"],
-    })
-    return asUser
-  }
-
-  test("create populates a child's per-locale ancestry from its parent", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = await siteWithFr(t)
-
-    const parentId = await asUser.mutation(api.cms.pages.create, {
-      slug: "my-products",
-      pageType: "landing-page",
-      status: "published",
-      content: { en: { title: "My products" }, fr: { title: "Mes produits" } },
-    })
-    const childId = await asUser.mutation(api.cms.pages.create, {
-      slug: "product-1",
-      pageType: "page",
-      status: "published",
-      parentId,
-      content: { en: { title: "Product 1" }, fr: { title: "Produit 1" } },
-    })
-
-    const child = await asUser.query(api.cms.pages.getById, { id: childId })
-    // Parent has no FR slug yet → FR ancestry falls back to the base slug.
-    expect(child?.ancestryPath).toBe("/my-products")
-    expect(child?.localizedAncestryPaths?.fr).toBe("/my-products")
-  })
-
-  test("changing a parent's FR slug cascades to descendant localizedAncestryPaths", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = await siteWithFr(t)
-
-    const parentId = await asUser.mutation(api.cms.pages.create, {
-      slug: "my-products",
-      pageType: "landing-page",
-      status: "published",
-      content: { en: { title: "My products" }, fr: { title: "Mes produits" } },
-    })
-    const childId = await asUser.mutation(api.cms.pages.create, {
-      slug: "product-1",
-      pageType: "page",
-      status: "published",
-      parentId,
-      content: { en: { title: "Product 1" }, fr: { title: "Produit 1" } },
-    })
-
-    // Give the PARENT a French slug → cascade must rewrite the child's FR ancestry.
-    await callUpdateLocaleContent(asUser, {
-      pageId: parentId,
-      locale: "fr",
-      title: "Mes produits",
-      slug: "mes-produits",
-    })
-
-    const child = await asUser.query(api.cms.pages.getById, { id: childId })
-    expect(child?.ancestryPath).toBe("/my-products") // base unchanged
-    expect(child?.localizedAncestryPaths?.fr).toBe("/mes-produits")
-
-    // And the full localized public path reflects the localized ancestry.
-    const paths = await t.query(api.cms.pages.getLocalizedPathsByIds, {
-      languageVersion: 0,
-      ids: [childId],
-      locale: "fr",
-    })
-    expect(paths[childId]).toBe("/fr/mes-produits/product-1")
-
-    const en = await t.query(api.cms.pages.getLocalizedPathsByIds, {
-      languageVersion: 0,
-      ids: [childId],
-      locale: "en",
-    })
-    expect(en[childId]).toBe("/my-products/product-1") // default locale unaffected
-  })
-})
-
-describe("pages — pre-publish checklist", () => {
-  test("reports blockers and warnings with stable codes", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Untitled draft",
-      content: { en: { title: "", blocks: [] } },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-
-    expect(checklist.canPublish).toBe(false)
-    expect(checklist.blockers.map((item) => item.code)).toEqual([
-      "missing_default_locale_title",
-    ])
-    expect(checklist.warnings.map((item) => item.code)).toEqual([
-      "missing_default_locale_content",
-      "missing_seo_title",
-      "missing_seo_description",
-    ])
-  })
-
-  test("checks the unpublished working draft of a published page", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "published",
-      title: "Published title",
-      content: {
-        en: {
-          title: "Published title",
-          blocks: [
-            {
-              id: "hero-1",
-              type: "hero-agency",
-              enabled: true,
-              primary: {
-                eyebrow: "Agency",
-                title: "Published title",
-                description: canonicalBody("Published copy"),
-              },
-              items: [],
-            },
-          ],
-        },
-      },
-    })
-
-    await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-      pageId,
-      force: true,
-    })
-    await asUser.mutation(api.cms.pages.updateDraft, {
-      pageId,
-      content: {
-        en: {
-          pageType: "landing-page",
-          localized: { title: "" },
-          blocks: [],
-        },
-      },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-    expect(checklist.blockers.map((item) => item.code)).toContain(
-      "missing_default_locale_title"
-    )
-
-    // The public/live row remains unchanged until Publish promotes staging.
-    await expect(
-      asUser.query(api.cms.pages.getById, { id: pageId })
-    ).resolves.toMatchObject({
-      content: { en: { title: "Published title" } },
-    })
-  })
-
-  test("warns when default locale has no content sections", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Title only",
-      content: { en: { title: "Title only", blocks: [] } },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-
-    expect(checklist.canPublish).toBe(true)
-    expect(checklist.warnings.map((item) => item.code)).toContain(
-      "missing_default_locale_content"
-    )
-  })
-
-  test("does not warn when default locale has content sections", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "With content",
-      content: {
-        en: {
-          title: "With content",
-          blocks: [
-            {
-              id: "hero-1",
-              type: "hero-agency",
-              enabled: true,
-              primary: {
-                eyebrow: "Agency",
-                title: "With content",
-                description: canonicalBody("Copy"),
-              },
-              items: [],
-            },
-          ],
-        },
-      },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-
-    expect(checklist.warnings.map((item) => item.code)).not.toContain(
-      "missing_default_locale_content"
-    )
-  })
-
-  test("warns when enabled locale content is missing", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await asUser.mutation(api.cms.settings.completeOnboarding, {
-      siteName: "Site",
-      siteUrl: "https://example.com",
-      timezone: "UTC",
-      defaultLocale: "en",
-      enabledLocales: ["en", "fr"],
-    })
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "English only",
-      content: { en: { title: "English only", blocks: [] } },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-
-    expect(checklist.warnings.map((item) => item.code)).toContain(
-      "missing_enabled_locale_translation"
-    )
-  })
-
-  test("blocks publish when enabled blocks have missing required fields", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Incomplete block",
-      content: {
-        en: {
-          title: "Incomplete block",
-          blocks: [
-            {
-              id: "hero-1",
-              type: "hero-agency",
-              enabled: true,
-              primary: {
-                eyebrow: "Agency",
-                title: "",
-                description: canonicalBody("Copy"),
-              },
-              items: [],
-            },
-          ],
-        },
-      },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-
-    expect(checklist.canPublish).toBe(false)
-    expect(checklist.blockers.map((item) => item.code)).toContain(
-      "missing_required_block_field"
-    )
-  })
-
-  test("blocks publish when a real block image has no alt text", blockProfile(["hero-with-image"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Image without alt",
-      content: {
-        en: {
-          title: "Image without alt",
-          blocks: [
-            {
-              id: "hero-1",
-              type: "hero-with-image",
-              enabled: true,
-              primary: {
-                eyebrow: "Launch",
-                eyebrowLink: { type: "none" },
-                title: "Image without alt",
-                description: canonicalBody("Copy"),
-                image: { url: "https://example.com/image.jpg", alt: "" },
-              },
-              items: [],
-            },
-          ],
-        },
-      },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-
-    expect(checklist.canPublish).toBe(false)
-    expect(checklist.blockers.map((item) => item.code)).toContain(
-      "missing_image_alt_text"
-    )
-  })
-
-  test("blocks publish when blocks link to unavailable pages", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const targetId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "page",
-      status: "draft",
-      title: "Draft target",
-    })
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Linked page",
-      content: {
-        en: {
-          title: "Linked page",
-          blocks: [
-            {
-              id: "hero-1",
-              type: "hero-agency",
-              enabled: true,
-              primary: {
-                eyebrow: "Agency",
-                title: "Linked page",
-                description: canonicalBody("Copy"),
-              },
-              items: [
-                {
-                  label: "Read more",
-                  link: { type: "internal", pageId: targetId },
-                  withIcon: false,
-                  enabled: true,
-                },
-              ],
-            },
-          ],
-        },
-      },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-
-    expect(checklist.canPublish).toBe(false)
-    expect(checklist.blockers.map((item) => item.code)).toContain(
-      "archived_relation_target"
-    )
-  })
-
-  test("warnings do not block publish", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Publishable",
-      content: { en: { title: "Publishable", blocks: [] } },
-    })
-    // ADR-0041 Deploy 2 PR B item 3 — `create({status:"draft"})` seeds
-    // staging; use `pages.publish` (promotes the seeded staging) instead
-    // of the legacy `pages.update({status:"published"})` transition.
-    await expect(
-      asUser.mutation(api.cms.pages.publish, { pageId })
-    ).resolves.toEqual(
-      expect.objectContaining({ updatedAt: expect.any(Number) })
-    )
-  })
-
-  test("hard blockers prevent immediate publish", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Untitled draft",
-      content: { en: { title: "", blocks: [] } },
-    })
-
-    // ADR-0041 Deploy 2 PR B item 3 — publish via `pages.publish`;
-    // staging carries the seeded (empty-title) content, checklist blocks.
-    await expect(
-      asUser.mutation(api.cms.pages.publish, { pageId })
-    ).rejects.toThrow(/Resolve pre-publish blockers/)
-
-    await expect(
-      asUser.query(api.cms.pages.getById, { id: pageId })
-    ).resolves.toMatchObject({ status: "draft" })
-  })
-
-  test("scheduled publish rechecks blockers before going live", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const now = Date.now()
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Scheduled",
-      content: { en: { title: "Scheduled", blocks: [] } },
-    })
-    await scheduleViaDraft(asUser, pageId, now - 1_000)
-    // Stage an empty-title content edit — the cron's publish call must
-    // catch the checklist violation. Use `updateDraft` directly (no
-    // publish) so the helper doesn't itself trip the checklist before
-    // the cron runs.
-    await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-      pageId,
-      force: true,
-    })
-    await asUser.mutation(api.cms.pages.updateDraft, {
-      pageId,
-      content: {
-        en: {
-          pageType: "landing-page",
-          localized: { title: "" },
-          blocks: [],
-        },
-      },
-    })
-
-    await expect(
-      t.mutation(internal.cms.pages.processScheduledTransitions, {})
-    ).resolves.toMatchObject({ published: 0 })
-    const afterTransition = await asUser.query(api.cms.pages.getById, {
-      id: pageId,
-    })
-    expect(afterTransition?.status).toBe("draft")
-    // ADR-0041 Deploy 2 PR B — the cron clears the staged scheduledAt on
-    // a failed checklist so it doesn't hot-loop retrying every minute.
-    // The staging row itself lives on — the editor can still fix the
-    // blockers and reschedule.
-    const stagedAfter = await t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-        .first()
-      return row?.scheduledAt ?? null
-    })
-    expect(stagedAfter).toBeNull()
-  })
-
-  test("requiresBodyContent (post): empty blocks is a blocker, not a warning", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "post",
-      status: "draft",
-      title: "Empty post",
-      content: {
-        en: { title: "Empty post", blocks: [] },
-      },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-
-    expect(checklist.canPublish).toBe(false)
-    expect(checklist.blockers.map((item) => item.code)).toContain(
-      "missing_required_field"
-    )
-    const bodyBlocker = checklist.blockers.find(
-      (item) => item.code === "missing_required_field" && item.field === "body"
-    )
-    expect(bodyBlocker).toBeDefined()
-    // The soft warning MUST NOT co-exist with the strict blocker — the
-    // requiresBodyContent branch replaces it entirely.
-    expect(checklist.warnings.map((item) => item.code)).not.toContain(
-      "missing_default_locale_content"
-    )
-  })
-
-  test("requiresBodyContent (post): disabled-only blocks still trip the blocker", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "post",
-      status: "draft",
-      title: "Disabled-only post",
-      content: {
-        en: {
-          title: "Disabled-only post",
-          blocks: [
-            {
-              id: "hero-1",
-              type: "hero-agency",
-              enabled: false,
-              primary: {
-                eyebrow: "Agency",
-                title: "Disabled",
-                description: canonicalBody("Copy"),
-              },
-              items: [],
-            },
-          ],
-        },
-      },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-
-    const bodyBlocker = checklist.blockers.find(
-      (item) => item.code === "missing_required_field" && item.field === "body"
-    )
-    expect(bodyBlocker).toBeDefined()
-  })
-
-  test("requiresBodyContent (post): one enabled block clears the blocker", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "post",
-      status: "draft",
-      title: "Filled post",
-      content: {
-        en: {
-          title: "Filled post",
-          blocks: [
-            {
-              id: "hero-1",
-              type: "hero-agency",
-              enabled: true,
-              primary: {
-                eyebrow: "Agency",
-                title: "Filled",
-                description: canonicalBody("Copy"),
-              },
-              items: [],
-            },
-          ],
-        },
-      },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-
-    const bodyBlocker = checklist.blockers.find(
-      (item) => item.code === "missing_required_field" && item.field === "body"
-    )
-    expect(bodyBlocker).toBeUndefined()
-  })
-
-  test("requiresBodyContent (landing-page): empty blocks stays a warning", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Empty landing",
-      content: {
-        en: { title: "Empty landing", blocks: [] },
-      },
-    })
-
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId,
-    })
-
-    // Landing-page = requiresBodyContent:false, so the soft warning path
-    // still fires — no blocker on `body`.
-    expect(checklist.warnings.map((item) => item.code)).toContain(
-      "missing_default_locale_content"
-    )
-    const bodyBlocker = checklist.blockers.find(
-      (item) => item.code === "missing_required_field" && item.field === "body"
-    )
-    expect(bodyBlocker).toBeUndefined()
-  })
-})
-
-describe("pages — revisions and restore", () => {
-  test("saving content creates a recoverable previous revision", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    // ADR-0041 Deploy 3 (Narrow): create as `published` so the seed
-    // content lands on `pages.content`. A draft create would seed
-    // staging (leaving `pages.content` empty), and the subsequent
-    // publish would archive an empty outgoing snapshot — the
-    // `revisions[0].content?.en.title === "Original"` assertion needs
-    // the outgoing snapshot to actually carry the original title.
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "published",
-      title: "Original",
-      content: { en: { title: "Original", blocks: [] } },
-    })
-    const page = await asUser.query(api.cms.pages.getById, { id: pageId })
-
-    await callUpdateLocaleContent(asUser, {
-      pageId,
-      locale: "en",
-      title: "Changed",
-      blocks: [],
-      expectedUpdatedAt: page?.updatedAt,
-    })
-
-    const revisions = await readPageRevisions(t, pageId, 10)
-    // The compatibility helper promotes each save through the canonical
-    // publisher. Team's create-published fixture also leaves an initial
-    // publish revision; Community's preserved direct-create path does not.
-    // In both editions, the newest outgoing-live snapshot is the contract.
-    expect(revisions.length).toBeGreaterThanOrEqual(1)
-    expect(revisions[0].reason).toBe("publish")
-    expect(revisions[0].content?.en.title).toBe("Original")
-    expect(revisions[0].metadata.summary).toContain("Title changed in EN")
-  })
-
-  test("publishing snapshots the previous draft state", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Draft",
-      content: { en: { title: "Draft", blocks: [] } },
-    })
-
-    // ADR-0041 Deploy 2 PR B item 3 — `create` seeded staging; publish
-    // via `pages.publish` to promote it.
-    await asUser.mutation(api.cms.pages.publish, { pageId })
-
-    const revisions = await readPageRevisions(t, pageId, 10)
-    expect(revisions[0].reason).toBe("publish")
-    expect(revisions[0].status).toBe("draft")
-    expect(revisions[0].metadata.checklist).toMatchObject({
-      blockerCount: 0,
-      warningCount: 3,
-    })
-    expect(
-      revisions[0].metadata.checklist?.warnings.map((item) => item.code)
-    ).toEqual([
-      "missing_default_locale_content",
-      "missing_seo_title",
-      "missing_seo_description",
-    ])
-  })
-
-  // This cron fires every minute — 43,200 times a month. Convex's tightest
-  // free-plan limit is database I/O, not function calls, so an idle tick has
-  // to stay cheap: it must return before `getLocaleConfig`, which reads
-  // `siteSettings` and can scan up to ~20 full page documents looking for a
-  // default homepage. The guard is what keeps a doing-nothing tick at ~2
-  // index reads instead of ~100 KB.
-  test("an idle tick returns without doing any work", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    // A published page and an unscheduled draft: nothing is due either way.
-    await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Not scheduled",
-      content: { en: { title: "Not scheduled", blocks: [] } },
-    })
-
-    await expect(
-      t.mutation(internal.cms.pages.processScheduledTransitions, {})
-    ).resolves.toEqual({ published: 0, expired: 0, hasMore: false })
-  })
-
-  test("scheduled publish flips due drafts and records a revision", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const now = Date.now()
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Scheduled Draft",
-      content: { en: { title: "Scheduled Draft", blocks: [] } },
-    })
-    await scheduleViaDraft(asUser, pageId, now - 1_000)
-
-    await approveDueEditionPagesForTest(t)
-    await t.mutation(internal.cms.pages.processScheduledTransitions, {})
-
-    const published = await asUser.query(api.cms.pages.getById, { id: pageId })
-    expect(published?.status).toBe("published")
-    // Publish deletes the staging row (§9 path 1) so the staged
-    // scheduledAt goes with it. This is the promoted-and-gone assertion.
-    const stagedAfter = await t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-        .first()
-      return row?.scheduledAt ?? null
-    })
-    expect(stagedAfter).toBeNull()
-    expect(published?.publishedAt).toBeGreaterThanOrEqual(now)
-
-    const revisions = await readPageRevisions(t, pageId, 10)
-    expect(revisions[0].reason).toBe("scheduled_publish")
-    expect(revisions[0].status).toBe("draft")
-    expect(revisions[0].metadata.checklist).toMatchObject({
-      blockerCount: 0,
-      warningCount: 3,
-    })
-    expect(
-      revisions[0].metadata.checklist?.warnings.map((item) => item.code)
-    ).toEqual([
-      "missing_default_locale_content",
-      "missing_seo_title",
-      "missing_seo_description",
-    ])
-  })
-
-  test("scheduled transitions make bounded progress on large due pages", blockProfile([]), async () => {
-    const t = convexTest({
-      schema,
-      modules,
-      transactionLimits: true,
-      ownerIdentity: TEST_USER,
-    })
-    const asUser = t.withIdentity(TEST_USER)
-    const ids: Id<"pages">[] = []
-
-    for (let index = 0; index < 50; index += 1) {
-      const id = await asUser.mutation(api.cms.pages.create, {
-        pageType: "landing-page",
-        status: "draft",
-        title: `Scheduled large page ${index}`,
-        content: {
-          en: { title: `Scheduled large page ${index}`, blocks: [] },
-        },
-      })
-      await scheduleViaDraft(asUser, id, Date.now() - 1_000)
-      await t.run(async (ctx) => {
-        await ctx.db.patch("pages", id, { cardExcerpt: "x".repeat(300_000) })
-      })
-      ids.push(id)
-    }
-
-    await approveDueEditionPagesForTest(t)
-    await expect(
-      t.mutation(internal.cms.pages.processScheduledTransitions, {})
-    ).resolves.toEqual({ published: 1, expired: 0, hasMore: true })
-
-    const statuses = await Promise.all(
-      ids.map(
-        async (id) =>
-          (await asUser.query(api.cms.pages.getById, { id }))?.status
-      )
-    )
-    expect(statuses.filter((status) => status === "published")).toHaveLength(1)
-    expect(statuses.filter((status) => status === "draft")).toHaveLength(49)
-  })
-
-  // OD-1 (FR2.0 rev1 §3.1 row W): page webhooks leave the legacy writers.
-  // Webhooks has no catalog module, and no successor publication path emits
-  // page events, so an enabled, subscribed endpoint must receive nothing from
-  // create, update, publish, or the scheduled-transition cron. The retrier is
-  // registered so a regression fails on these delivery rows, not on a
-  // missing component.
-  test("legacy writers stop emitting page webhooks", blockProfile([]), async () => {
-    const t = pageTest()
-    actionRetrierTest.register(t)
-    const asUser = t.withIdentity(TEST_USER)
-    const now = Date.now()
-    await t.run((ctx) =>
-      ctx.db.insert("webhookEndpoints", {
-        url: "https://example.com/hooks/pages",
-        secret: "secret-pages",
-        events: ["page.published", "page.unpublished"],
-        enabled: true,
-        createdAt: now,
-        updatedAt: now,
-      })
-    )
-    const deliveredEvents = () =>
-      t.run(async (ctx) =>
-        (await ctx.db.query("webhookDeliveries").collect()).map(
-          (delivery) => delivery.event
-        )
-      )
-    const eventsAfter: Record<string, string[]> = {}
-
-    const createdId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "published",
-      title: "Published on create",
-      content: { en: { title: "Published on create", blocks: [] } },
-    })
-    eventsAfter.create = await deliveredEvents()
-
-    await asUser.mutation(api.cms.pages.update, {
-      id: createdId,
-      status: "archived",
-    })
-    eventsAfter.update = await deliveredEvents()
-
-    const draftId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Published by publish",
-      content: { en: { title: "Published by publish", blocks: [] } },
-    })
-    await asUser.mutation(api.cms.pages.publish, { pageId: draftId })
-    eventsAfter.publish = await deliveredEvents()
-
-    const scheduledId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Published by schedule",
-      content: { en: { title: "Published by schedule", blocks: [] } },
-    })
-    await scheduleViaDraft(asUser, scheduledId, Date.now() - 1_000)
-    const expiringId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "published",
-      title: "Archived by expiry",
-      content: { en: { title: "Archived by expiry", blocks: [] } },
-    })
-    await asUser.mutation(api.cms.pages.update, {
-      id: expiringId,
-      expiresAt: Date.now() - 1_000,
-    })
-    await approveDueEditionPagesForTest(t)
-    await expect(
-      t.mutation(internal.cms.pages.processScheduledTransitions, {})
-    ).resolves.toMatchObject({ published: 1, expired: 1 })
-    eventsAfter.scheduledTransitions = await deliveredEvents()
-
-    expect(eventsAfter).toEqual({
-      create: [],
-      update: [],
-      publish: [],
-      scheduledTransitions: [],
-    })
-  })
-
-  test("scheduled transition continuation drains the due backlog", blockProfile([]), async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-07-12T21:00:00Z"))
-    try {
-      const t = convexTest({
-        schema,
-        modules,
-        transactionLimits: true,
-        ownerIdentity: TEST_USER,
-      })
-      const asUser = t.withIdentity(TEST_USER)
-      const ids: Id<"pages">[] = []
-
-      for (let index = 0; index < 3; index += 1) {
-        const id = await asUser.mutation(api.cms.pages.create, {
-          pageType: "landing-page",
           status: "draft",
-          title: `Scheduled continuation page ${index}`,
-          content: {
-            en: { title: `Scheduled continuation page ${index}`, blocks: [] },
-          },
+          title: page.en,
+          content: { en: { title: page.en, blocks: [] } },
         })
-        await scheduleViaDraft(asUser, id, Date.now() - 1_000)
-        ids.push(id)
+        if (page.fr)
+          await owner.mutation(api.cms.publication.saveLocaleDraft, {
+            pageId,
+            locale: "fr",
+            slug: page.slug,
+            expectedDraftGeneration: 0,
+            expectedLifecycleGeneration: 1,
+            draft: {
+              pageType: "post",
+              localized: { title: page.fr },
+              blocks: [],
+            },
+          })
+        clock += 1000
+        vi.setSystemTime(clock)
+        await publishFirst(owner, pageId, "en")
+        if (page.fr) await publishFirst(owner, pageId, "fr")
       }
 
-      await approveDueEditionPagesForTest(t)
-      await t.mutation(internal.cms.pages.processScheduledTransitions, {})
-      await t.finishAllScheduledFunctions(vi.runAllTimers)
-
-      const statuses = await Promise.all(
-        ids.map(
-          async (id) =>
-            (await asUser.query(api.cms.pages.getById, { id }))?.status
-        )
-      )
-      expect(statuses).toEqual(["published", "published", "published"])
+      const recent = (locale: string, limit: number) =>
+        t.query(api.cms.pages.listRecentPublicRelationCards, {
+          languageVersion,
+          pageType: "post",
+          limit,
+          locale,
+        })
+      await expect(recent("en", 2)).resolves.toMatchObject([
+        { title: "New" },
+        { title: "Middle" },
+      ])
+      await expect(recent("fr", 3)).resolves.toMatchObject([
+        { title: "Milieu" },
+        { title: "Ancien" },
+      ])
+      await expect(recent("de", 3)).resolves.toEqual([])
+      await expect(recent("en", 13)).rejects.toThrow(/integer.*1.*12/i)
     } finally {
       vi.useRealTimers()
     }
   })
+})
 
-  test("scheduled expiry archives due published pages and records a revision", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const now = Date.now()
+describe("pages — localized ancestry", () => {
+  test("changing a parent's FR slug moves the descendant's public path once the descendant is published again", blockProfile([]), async () => {
+    const { t, owner, languageVersion } = await bootstrappedSite("en", "fr")
 
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "published",
-      title: "Expiring Page",
-      content: { en: { title: "Expiring Page", blocks: [] } },
-    })
-    const page = await asUser.query(api.cms.pages.getById, { id: pageId })
-    await asUser.mutation(api.cms.pages.update, {
-      id: pageId,
-      expiresAt: now - 1_000,
-      expectedUpdatedAt: page?.updatedAt,
-    })
+    const newPage = async (
+      slug: string,
+      frSlug: string,
+      parentId?: Id<"pages">
+    ) => {
+      const pageId = await owner.mutation(api.cms.pages.create, {
+        slug,
+        pageType: "page",
+        status: "draft",
+        title: slug,
+        content: { en: { title: slug, blocks: [] } },
+      })
+      await owner.mutation(api.cms.publication.saveLocaleDraft, {
+        pageId,
+        locale: "fr",
+        slug: frSlug,
+        expectedDraftGeneration: 0,
+        expectedLifecycleGeneration: 1,
+        draft: { pageType: "page", localized: { title: frSlug }, blocks: [] },
+      })
+      if (parentId)
+        await owner.mutation(api.cms.publication.saveEditorDraft, {
+          pageId,
+          expectedLifecycleGeneration: 1,
+          shared: { expectedGeneration: 1, parentId },
+        })
+      await publishNow(t, owner, pageId, "en")
+      await publishNow(t, owner, pageId, "fr")
+      return pageId
+    }
+    const parentId = await newPage("my-products", "produits")
+    const childId = await newPage("product-1", "produit-1", parentId)
+    const pathsOf = (locale: string) =>
+      t.query(api.cms.pages.getLocalizedPathsByIds, {
+        languageVersion,
+        ids: [childId],
+        locale,
+      })
+    expect((await pathsOf("fr"))[childId]).toBe("/fr/produits/produit-1")
 
-    await t.mutation(internal.cms.pages.processScheduledTransitions, {})
-
-    const expired = await asUser.query(api.cms.pages.getById, { id: pageId })
-    expect(expired?.status).toBe("archived")
-    expect(expired?.expiresAt).toBeUndefined()
-
-    const revisions = await readPageRevisions(t, pageId, 10)
-    expect(revisions[0].reason).toBe("scheduled_expiry")
-    expect(revisions[0].status).toBe("published")
-  })
-
-  test("scheduled transitions ignore future publish and expiry times", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const future = Date.now() + 60_000
-
-    const draftId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Future Draft",
-      content: { en: { title: "Future Draft", blocks: [] } },
-    })
-    await scheduleViaDraft(asUser, draftId, future)
-
-    const publishedId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "published",
-      title: "Future Expiry",
-      content: { en: { title: "Future Expiry", blocks: [] } },
-    })
-    const published = await asUser.query(api.cms.pages.getById, {
-      id: publishedId,
-    })
-    await asUser.mutation(api.cms.pages.update, {
-      id: publishedId,
-      expiresAt: future,
-      expectedUpdatedAt: published?.updatedAt,
-    })
-
-    const result = await t.mutation(
-      internal.cms.pages.processScheduledTransitions,
-      {}
-    )
-
-    await expect(
-      asUser.query(api.cms.pages.getById, { id: draftId })
-    ).resolves.toMatchObject({
-      status: "draft",
-    })
-    await expect(
-      asUser.query(api.cms.pages.getById, { id: publishedId })
-    ).resolves.toMatchObject({ status: "published" })
-    expect(result).toMatchObject({ published: 0, expired: 0 })
-  })
-
-  test("scheduled transitions clear staged scheduledAt on non-draft pages (cron runaway guard)", blockProfile([]), async () => {
-    // ADR-0041 Deploy 2 PR B — `pageStaging.by_scheduledAt` has no status
-    // filter (the old `by_status_and_scheduledAt` on `pages` did). Any
-    // matched staging row on a non-draft page (published, archived, or
-    // soft-deleted) MUST have its `scheduledAt` cleared during the tick,
-    // not merely skipped. Otherwise the take(1) batch returns the same
-    // smallest-`scheduledAt` row next tick, `published` stays 0,
-    // `hasMore` stays true, and the cron reschedules itself immediately
-    // forever — starving every legitimate scheduled publish behind it.
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    // Set up: a published page with a stray staged scheduledAt (the
-    // reachable state = user edits schedule on a published page, or
-    // schedules a draft then archives it).
-    const publishedId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "published",
-      title: "Published",
-      content: { en: { title: "Published", blocks: [] } },
-    })
-    await t.run(async (ctx) => {
-      await ctx.db.insert("pageStaging", {
-        pageId: publishedId,
-        pageType: "landing-page",
-        updatedAt: Date.now(),
-        scheduledAt: Date.now() - 1_000,
-      } as Parameters<typeof ctx.db.insert<"pageStaging">>[1])
-    })
-
-    const before = await t.run(async (ctx) =>
+    // Give the PARENT a new French slug and republish French: the child's
+    // French path follows it, and English is unaffected.
+    const frDraft = await t.run(async (ctx) =>
       ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", publishedId))
-        .first()
+        .query("pageLocalePublicationStates")
+        .withIndex("by_pageId_and_locale", (q) =>
+          q.eq("pageId", parentId).eq("locale", "fr")
+        )
+        .unique()
     )
-    expect(before?.scheduledAt).toBeDefined()
-
-    const result = await t.mutation(
-      internal.cms.pages.processScheduledTransitions,
-      {}
-    )
-    expect(result.published).toBe(0)
-
-    const after = await t.run(async (ctx) =>
-      ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", publishedId))
-        .first()
-    )
-    // Cleared — the staging row itself survives (an editor may still
-    // reschedule), but the void schedule is gone.
-    expect(after?.scheduledAt).toBeUndefined()
-    // `hasMore` may still be true only if OTHER due rows exist; with a
-    // single row we prove the batch drained by seeing the cleared field.
-  })
-
-  test("stale updates are rejected", blockProfile([]), async () => {
-    // ADR-0041 Deploy 3 (Narrow): the OCC token now gates against
-    // `pageStaging.updatedAt` (via `assertStagingFresh`), not the live
-    // `pages.updatedAt`. The rejection path is exercised by holding
-    // a token against a staging row that subsequently advanced.
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Draft",
-      content: { en: { title: "Draft", blocks: [] } },
-    })
-    // Draft create seeds staging; capture the seeded staging updatedAt
-    // as the "opened-at" token — this is what an editor session would
-    // hold from its initial `getStagedPreviewById` read.
-    const initialStaging = await asUser.query(
-      api.cms.pages.getStagedPreviewById,
-      { id: pageId }
-    )
-    const staleToken = initialStaging?.stagingUpdatedAt
-
-    await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-      pageId,
-      force: true,
-    })
-    await asUser.mutation(api.cms.pages.updateDraft, {
-      pageId,
-      expectedUpdatedAt: staleToken,
-      content: {
-        en: {
-          pageType: "landing-page",
-          localized: { title: "Newer save" },
+    await owner.mutation(api.cms.publication.saveEditorDraft, {
+      pageId: parentId,
+      expectedLifecycleGeneration: 1,
+      localized: {
+        locale: "fr",
+        slug: "mes-produits",
+        expectedGeneration: frDraft!.draftGeneration,
+        draft: {
+          pageType: "page",
+          localized: { title: "Mes produits" },
           blocks: [],
         },
       },
     })
+    await publishNow(t, owner, parentId, "fr")
+    // A published child captures its ancestry when it is published, so the
+    // child's French draft is published again to pick up the parent's new slug.
+    await publishNow(t, owner, childId, "fr")
 
-    // Staging updatedAt has advanced past `staleToken` — a second save
-    // presenting the same token trips `assertStagingFresh`.
-    await expect(
-      asUser.mutation(api.cms.pages.updateDraft, {
-        pageId,
-        expectedUpdatedAt: staleToken,
-        content: {
-          en: {
-            pageType: "landing-page",
-            localized: { title: "Stale save" },
-            blocks: [],
-          },
-        },
-      })
-    ).rejects.toThrow(/took over editing/i)
+    expect((await pathsOf("fr"))[childId]).toBe("/fr/mes-produits/produit-1")
+    expect((await pathsOf("en"))[childId]).toBe("/my-products/product-1")
   })
+})
 
-  test("page updates persist updatedAt for stale-save checks", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
+describe("pages — pre-publish checklist", () => {
+  const heroAgency = (title: string, enabled = true): Block => ({
+    id: "hero-1",
+    type: "hero-agency",
+    enabled,
+    primary: {
+      eyebrow: "Agency",
+      title,
+      description: canonicalBody("Copy"),
+    },
+    items: [],
+  })
+  const heroWithImage = (alt: string): Block => ({
+    id: "hero-1",
+    type: "hero-with-image",
+    enabled: true,
+    primary: {
+      eyebrow: "Launch",
+      eyebrowLink: { type: "none" },
+      title: "Image page",
+      description: canonicalBody("Copy"),
+      image: { url: "https://example.com/image.jpg", alt },
+    },
+    items: [],
+  })
+  async function checklistFor(
+    pageType: "landing-page" | "post",
+    title: string,
+    blocks: Block[]
+  ) {
+    const { owner } = await bootstrappedSite()
+    const pageId = await owner.mutation(api.cms.pages.create, {
+      pageType,
+      status: "draft",
+      slug: "checklist-page",
+      title,
+      content: { en: { title, blocks } },
+    })
+    return owner.query(api.cms.pages.getPrePublishChecklist, { pageId })
+  }
+  const codes = (items: { code: string }[]) => items.map((item) => item.code)
 
-    const pageId = await asUser.mutation(api.cms.pages.create, {
+  // Each case: the blocks a page carries, the profile they need, and the
+  // codes the checklist must report.
+  const landingCases: {
+    name: string
+    types: string[]
+    title: string
+    blocks: () => Block[]
+    blockers?: string[]
+    blockersInclude?: string[]
+    warnings?: string[]
+    warningsInclude?: string[]
+    warningsExclude?: string[]
+  }[] = [
+    {
+      name: "a title with no content sections only warns about content and search metadata",
+      types: [],
+      title: "Title only",
+      blocks: (): Block[] => [],
+      blockers: [],
+      warnings: [
+        "missing_default_locale_content",
+        "missing_seo_title",
+        "missing_seo_description",
+      ],
+    },
+    {
+      name: "a content section removes the missing-content warning",
+      types: ["hero-agency"],
+      title: "With content",
+      blocks: (): Block[] => [heroAgency("With content")],
+      blockers: [],
+      warningsExclude: ["missing_default_locale_content"],
+    },
+    {
+      name: "an enabled block with a missing required field blocks",
+      types: ["hero-agency"],
+      title: "Incomplete block",
+      blocks: (): Block[] => [heroAgency("")],
+      blockersInclude: ["missing_required_block_field"],
+    },
+    {
+      name: "a real block image without alt text blocks",
+      types: ["hero-with-image"],
+      title: "Image page",
+      blocks: (): Block[] => [heroWithImage("")],
+      blockersInclude: ["missing_image_alt_text"],
+    },
+  ]
+  for (const c of landingCases) {
+    test(`landing page: ${c.name}`, blockProfile(c.types), async () => {
+      const checklist = await checklistFor("landing-page", c.title, c.blocks())
+      if (c.blockers) expect(codes(checklist.blockers)).toEqual(c.blockers)
+      if (c.blockersInclude)
+        for (const code of c.blockersInclude)
+          expect(codes(checklist.blockers)).toContain(code)
+      if (c.warnings) expect(codes(checklist.warnings)).toEqual(c.warnings)
+      for (const code of c.warningsInclude ?? [])
+        expect(codes(checklist.warnings)).toContain(code)
+      for (const code of c.warningsExclude ?? [])
+        expect(codes(checklist.warnings)).not.toContain(code)
+      expect(checklist.canPublish).toBe(
+        codes(checklist.blockers).length === 0
+      )
+    })
+  }
+
+  test("a block link to a page that is not published blocks", blockProfile(["hero-agency"]), async () => {
+    const { owner } = await bootstrappedSite()
+    const targetId = await owner.mutation(api.cms.pages.create, {
+      pageType: "page",
+      status: "draft",
+      slug: "draft-target",
+      title: "Draft target",
+      content: { en: { title: "Draft target", blocks: [] } },
+    })
+    const block = heroAgency("Linked page")
+    if (block.type !== "hero-agency") throw new Error("Expected Hero Agency")
+    block.items = [
+      {
+        label: "Read more",
+        link: { type: "internal", pageId: targetId },
+        withIcon: false,
+        enabled: true,
+      },
+    ]
+    const pageId = await owner.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
-      title: "Draft",
-      content: { en: { title: "Draft", blocks: [] } },
+      slug: "linked-page",
+      title: "Linked page",
+      content: { en: { title: "Linked page", blocks: [block] } },
     })
-    const opened = await asUser.query(api.cms.pages.getById, { id: pageId })
-    await new Promise((resolve) => setTimeout(resolve, 2))
-
-    const result = await asUser.mutation(api.cms.pages.update, {
-      id: pageId,
-      title: "Renamed draft",
-      expectedUpdatedAt: opened?.updatedAt,
+    const checklist = await owner.query(api.cms.pages.getPrePublishChecklist, {
+      pageId,
     })
-    const updated = await asUser.query(api.cms.pages.getById, { id: pageId })
-
-    expect(updated?.updatedAt).toBe(result.updatedAt)
-    await expect(
-      asUser.mutation(api.cms.pages.update, {
-        id: pageId,
-        title: "Stale rename",
-        expectedUpdatedAt: opened?.updatedAt,
-      })
-    ).rejects.toThrow(/changed since you opened it/i)
+    expect(checklist.canPublish).toBe(false)
+    expect(codes(checklist.blockers)).toContain("archived_relation_target")
   })
 
-  test("revision history retains only the newest fifty snapshots", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
+  test("a page type that requires body content blocks an empty body but a landing page only warns", whenActive(blockProfile([]), postActive), async () => {
+    const post = await checklistFor("post", "Empty post", [])
+    expect(post.canPublish).toBe(false)
+    expect(
+      post.blockers.find(
+        (item) => item.code === "missing_required_field" && item.field === "body"
+      )
+    ).toBeDefined()
+    // The strict blocker replaces the soft warning entirely.
+    expect(codes(post.warnings)).not.toContain("missing_default_locale_content")
+    const landing = await checklistFor("landing-page", "Empty landing", [])
+    expect(codes(landing.warnings)).toContain("missing_default_locale_content")
+    expect(
+      landing.blockers.find((item) => item.field === "body")
+    ).toBeUndefined()
+  })
 
-    const pageId = await asUser.mutation(api.cms.pages.create, {
+  test("only an enabled block satisfies a required body", whenActive(blockProfile(["hero-agency"]), postActive), async () => {
+    const disabledOnly = await checklistFor("post", "Disabled-only post", [
+      heroAgency("Disabled", false),
+    ])
+    expect(
+      disabledOnly.blockers.find(
+        (item) => item.code === "missing_required_field" && item.field === "body"
+      )
+    ).toBeDefined()
+    const filled = await checklistFor("post", "Filled post", [
+      heroAgency("Filled"),
+    ])
+    expect(
+      filled.blockers.find(
+        (item) => item.code === "missing_required_field" && item.field === "body"
+      )
+    ).toBeUndefined()
+  })
+
+  test("a language with no draft yet has no checklist", blockProfile([]), async () => {
+    const { owner } = await bootstrappedSite("en", "fr")
+    const pageId = await owner.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
-      title: "Draft 0",
-      content: { en: { title: "Draft 0", blocks: [] } },
+      slug: "english-only",
+      title: "English only",
+      content: { en: { title: "English only", blocks: [] } },
     })
-
-    for (let i = 1; i <= 55; i++) {
-      const page = await asUser.query(api.cms.pages.getById, { id: pageId })
-      await callUpdateLocaleContent(asUser, {
+    await expect(
+      owner.query(api.cms.pages.getPrePublishChecklist, {
         pageId,
+        locale: "fr",
+      })
+    ).rejects.toThrow("PAGE_LOCALE_DRAFT_REQUIRED")
+  })
+
+  test("checks the unpublished working draft of a published page", blockProfile(["hero-agency"]), async () => {
+    const { t, owner } = await bootstrappedSite()
+    const pageId = await owner.mutation(api.cms.pages.create, {
+      pageType: "landing-page",
+      status: "draft",
+      slug: "published-title",
+      title: "Published title",
+      content: {
+        en: { title: "Published title", blocks: [heroAgency("Published title")] },
+      },
+    })
+    await publishNow(t, owner, pageId, "en")
+    const state = await t.run((ctx) =>
+      ctx.db
+        .query("pageLocalePublicationStates")
+        .withIndex("by_pageId_and_locale", (q) =>
+          q.eq("pageId", pageId).eq("locale", "en")
+        )
+        .unique()
+    )
+    await owner.mutation(api.cms.publication.saveEditorDraft, {
+      pageId,
+      expectedLifecycleGeneration: 1,
+      localized: {
         locale: "en",
-        title: `Draft ${i}`,
-        blocks: [],
-        expectedUpdatedAt: page?.updatedAt,
-      })
-    }
-
-    const revisions = await readPageRevisions(t, pageId, 50)
-    expect(revisions).toHaveLength(50)
-    expect(revisions[0].revisionNumber).toBe(55)
-    expect(revisions.at(-1)?.revisionNumber).toBe(6)
-  })
-
-  test("hard page delete cascades its pageRevisions (no orphans)", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "published",
-      title: "First",
-      content: { en: { title: "First", blocks: [] } },
+        slug: "published-title",
+        expectedGeneration: state!.draftGeneration,
+        draft: { pageType: "landing-page", localized: { title: "" }, blocks: [] },
+      },
     })
-    const first = await asUser.query(api.cms.pages.getById, { id: pageId })
-    await callUpdateLocaleContent(asUser, {
+    const checklist = await owner.query(api.cms.pages.getPrePublishChecklist, {
+      pageId,
+    })
+    expect(codes(checklist.blockers)).toContain("missing_default_locale_title")
+    // The public page is still the published title until Publish runs.
+    const { languageVersion } = await t.query(api.cms.settings.getSiteConfig, {})
+    await expect(
+      t.query(api.cms.pages.getPublicPageById, {
+        languageVersion,
+        id: pageId,
+        locale: "en",
+      })
+    ).resolves.toMatchObject({ content: { en: { title: "Published title" } } })
+    await owner.mutation(api.cms.publication.discardLocaleDraft, {
       pageId,
       locale: "en",
-      title: "Second",
-      blocks: [],
-      expectedUpdatedAt: first?.updatedAt,
+      expectedDraftGeneration: state!.draftGeneration + 1,
+      expectedLifecycleGeneration: 1,
     })
-
-    const before = await t.run((ctx) =>
-      ctx.db
-        .query("pageRevisions")
-        .withIndex("by_pageId_and_revisionNumber", (q) =>
-          q.eq("pageId", pageId)
-        )
-        .collect()
-    )
-    expect(before.length).toBeGreaterThan(0)
-
-    await asUser.mutation(api.cms.pages.remove, { id: pageId })
-
-    const after = await t.run((ctx) =>
-      ctx.db
-        .query("pageRevisions")
-        .withIndex("by_pageId_and_revisionNumber", (q) =>
-          q.eq("pageId", pageId)
-        )
-        .collect()
-    )
-    expect(after).toHaveLength(0)
+    // No working row remains: both editor and checklist must use the verified
+    // frozen base, rather than confusing it with an untranslated language.
+    const frozenEditor = await owner.query(api.cms.pages.getForEdit, { id: pageId })
+    expect(frozenEditor).toMatchObject({
+      hasStaging: false,
+      page: { content: { en: { title: "Published title" } } },
+    })
+    const frozenChecklist = await owner.query(api.cms.pages.getPrePublishChecklist, {
+      pageId, locale: "en",
+    })
+    expect(frozenChecklist.canPublish).toBe(true)
   })
 })
 
@@ -3178,6 +875,71 @@ describe("pages — owner presence and locks", () => {
     })
     expect(expired).toEqual([])
   })
+
+  test.each([
+    ["presence", api.cms.pages.leavePagePresence],
+    ["lock", api.cms.pages.releasePageEditorLock],
+  ] as const)(
+    "signed-out %s cleanup is a no-op; authenticated cleanup stays owner-scoped",
+    blockProfile([]),
+    async (_kind, cleanup) => {
+      const t = pageTest()
+      const owner = t.withIdentity(TEST_USER)
+      const pageId = await owner.mutation(api.cms.pages.create, {
+        pageType: "landing-page",
+        status: "draft",
+        title: "Cleanup boundary",
+      })
+      await owner.mutation(api.cms.pages.heartbeatPageEditor, { pageId })
+      const foreign = await t.run(async (ctx) => {
+        const now = Date.now()
+        return {
+          presence: await ctx.db.insert("pagePresence", {
+            pageId,
+            userId: "previous-owner",
+            lastActiveAt: now,
+            updatedAt: now,
+          }),
+          lock: await ctx.db.insert("pageEditorLocks", {
+            pageId,
+            userId: "previous-owner",
+            acquiredAt: now,
+            lastActiveAt: now,
+            updatedAt: now,
+          }),
+        }
+      })
+      const snapshot = () =>
+        t.run(async (ctx) => ({
+          page: await ctx.db.get("pages", pageId),
+          presence: await ctx.db.query("pagePresence").collect(),
+          locks: await ctx.db.query("pageEditorLocks").collect(),
+          shared: await ctx.db.query("pageSharedDrafts").collect(),
+          localized: await ctx.db.query("pageLocaleDrafts").collect(),
+        }))
+      const before = await snapshot()
+      await expect(t.mutation(cleanup, { pageId })).resolves.toBeNull()
+      expect(await snapshot()).toEqual(before)
+      await expect(
+        t
+          .withIdentity({ subject: "unrelated-owner" })
+          .mutation(cleanup, { pageId })
+      ).rejects.toThrow("CMS_OWNER_REQUIRED")
+      expect(await snapshot()).toEqual(before)
+      await expect(owner.mutation(cleanup, { pageId })).resolves.toBeNull()
+      const after = await snapshot()
+      expect(after.page).toEqual(before.page)
+      expect(after.shared).toEqual(before.shared)
+      expect(after.localized).toEqual(before.localized)
+      if (_kind === "presence") {
+        expect(after.presence.map((row) => row._id)).toEqual([foreign.presence])
+        expect(after.locks).toEqual(before.locks)
+      } else {
+        expect(after.locks.map((row) => row._id)).toEqual([foreign.lock])
+        expect(after.presence).toEqual(before.presence)
+      }
+    }
+  )
 
   test("leaving the editor removes the user's presence", blockProfile([]), async () => {
     const t = pageTest()
@@ -3410,120 +1172,6 @@ describe.skip("pages — multi-editor presence", () => {
   })
 })
 
-describe("redirects — resolution", () => {
-  test("redirect is resolved before page lookup", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await enableRedirectsForTest(asUser)
-    await asUser.mutation(api.cms.redirects.create, {
-      fromPath: "/old-path",
-      toPath: "/new-path",
-      statusCode: 301,
-    })
-
-    const redirect = await t.query(api.cms.redirects.resolve, {
-      languageVersion: 0,
-      path: "/old-path",
-    })
-
-    expect(redirect?.destination).toBe("/new-path")
-    expect(redirect?.statusCode).toBe(301)
-  })
-
-  test("returns null for unknown paths", blockProfile([]), async () => {
-    const t = pageTest()
-    await enableRedirectsForTest(t.withIdentity(TEST_USER))
-
-    const redirect = await t.query(api.cms.redirects.resolve, {
-      languageVersion: 0,
-      path: "/does-not-exist",
-    })
-
-    expect(redirect).toBeNull()
-  })
-})
-
-describe("locale URLs — honor configured default locale", () => {
-  test("default locale is unprefixed, other locales are prefixed", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    // Configure the site with a non-"en" default locale.
-    await asUser.mutation(api.cms.settings.completeOnboarding, {
-      siteName: "Site",
-      siteUrl: "https://example.com",
-      timezone: "UTC",
-      defaultLocale: "fr",
-      enabledLocales: ["fr", "en"],
-    })
-
-    const id = await asUser.mutation(api.cms.pages.create, {
-      slug: "about",
-      pageType: "landing-page",
-      status: "published",
-      content: {
-        fr: { title: "À propos" },
-        en: { title: "About" },
-      },
-      defaultLocale: "fr",
-    })
-
-    const alternates = await t.query(api.cms.pages.getPublicLocaleAlternates, {
-      languageVersion: 0,
-      pageId: id,
-    })
-    const urls = Object.fromEntries(
-      alternates.map(({ locale, url }) => [locale, url])
-    )
-
-    expect(urls.fr).toBe("/about")
-    expect(urls.en).toBe("/en/about")
-  })
-
-  test("a sole non-English locale resolves and stays unprefixed", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await asUser.mutation(api.cms.settings.completeOnboarding, {
-      siteName: "Site",
-      siteUrl: "https://example.com",
-      timezone: "UTC",
-      defaultLocale: "fr",
-      enabledLocales: ["fr"],
-    })
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      slug: "a-propos",
-      pageType: "page",
-      status: "published",
-      content: { fr: { title: "À propos", blocks: [] } },
-      defaultLocale: "fr",
-    })
-
-    await expect(
-      t.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: "/a-propos",
-        locale: "fr",
-      })
-    ).resolves.toBe(pageId)
-    await expect(
-      t.query(api.cms.pages.getPublicLocaleAlternates, {
-        languageVersion: 0,
-        pageId,
-      })
-    ).resolves.toEqual([{ locale: "fr", url: "/a-propos", indexable: true }])
-    await expect(
-      t.query(api.cms.pages.getAllLocalizedPageUrls, { languageVersion: 0 })
-    ).resolves.toContainEqual({
-      pageId,
-      locale: "fr",
-      url: "/a-propos",
-    })
-  })
-})
-
 function legacyIdentityHeroBlock(id: string, title: string): Block {
   return {
     id,
@@ -3546,31 +1194,63 @@ const INVALID_BLOCK_IDENTITY_ERROR =
   "Each block on a page must have its own non-empty ID. Refresh the editor and save again."
 
 describe("pages — sibling Block identity", () => {
+  async function draftPage(site: BootstrappedSite) {
+    return site.owner.mutation(api.cms.pages.create, {
+      pageType: "landing-page",
+      status: "draft",
+      slug: "identity-page",
+      title: "Identity",
+      content: { en: { title: "Identity", blocks: [] } },
+    })
+  }
+  const saveEnglish = (
+    site: BootstrappedSite,
+    pageId: Id<"pages">,
+    blocks: Block[]
+  ) =>
+    site.owner.mutation(api.cms.publication.saveEditorDraft, {
+      pageId,
+      expectedLifecycleGeneration: 1,
+      localized: {
+        locale: "en",
+        slug: "identity-page",
+        expectedGeneration: 1,
+        draft: {
+          pageType: "landing-page",
+          localized: { title: "Identity" },
+          blocks,
+        },
+      },
+    })
+
   test("allows the same Block ID in independent locale lists", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
+    const site = await bootstrappedSite("en", "fr")
     const localizedBlock = identityHeroBlock("locale-local", "Localized")
+    const pageId = await draftPage(site)
+    await saveEnglish(site, pageId, [localizedBlock])
 
     await expect(
-      asUser.mutation(api.cms.pages.create, {
-        pageType: "landing-page",
-        status: "draft",
-        title: "Localized identity",
-        content: {
-          en: { title: "English", blocks: [localizedBlock] },
-          fr: { title: "Français", blocks: [localizedBlock] },
+      site.owner.mutation(api.cms.publication.saveLocaleDraft, {
+        pageId,
+        locale: "fr",
+        slug: "identity-page",
+        expectedDraftGeneration: 0,
+        expectedLifecycleGeneration: 1,
+        draft: {
+          pageType: "landing-page",
+          localized: { title: "Français" },
+          blocks: [localizedBlock],
         },
       })
-    ).resolves.toEqual(expect.any(String))
+    ).resolves.toBeDefined()
   })
 
-  test("rejects duplicate sibling Block IDs on create", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
+  test("rejects duplicate sibling Block IDs on create and on save", blockProfile(["hero-agency"]), async () => {
+    const site = await bootstrappedSite()
     const duplicateBlock = identityHeroBlock("duplicate-block", "Duplicate")
 
     await expect(
-      asUser.mutation(api.cms.pages.create, {
+      site.owner.mutation(api.cms.pages.create, {
         pageType: "landing-page",
         status: "draft",
         title: "Duplicate blocks",
@@ -3582,515 +1262,20 @@ describe("pages — sibling Block identity", () => {
         },
       })
     ).rejects.toThrow(INVALID_BLOCK_IDENTITY_ERROR)
-  })
 
-  test("rejects empty sibling Block IDs on the live editor save path", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Editor identity",
-      content: { en: { title: "Editor identity", blocks: [] } },
-    })
-    await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-      pageId,
-      force: true,
-    })
-
+    const pageId = await draftPage(site)
     await expect(
-      asUser.mutation(api.cms.pages.updateDraft, {
-        pageId,
-        content: {
-          en: {
-            pageType: "landing-page",
-            localized: { title: "Editor identity" },
-            blocks: [identityHeroBlock("   ", "Editor identity")],
-          },
-        },
-      })
+      saveEnglish(site, pageId, [duplicateBlock, duplicateBlock])
     ).rejects.toThrow(INVALID_BLOCK_IDENTITY_ERROR)
   })
 
-  test("rejects duplicate sibling Block IDs on the legacy update path", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Legacy identity",
-      content: { en: { title: "Legacy identity", blocks: [] } },
-    })
-    const duplicateBlock = identityHeroBlock(
-      "legacy-duplicate",
-      "Legacy identity"
-    )
+  test("rejects empty sibling Block IDs on the live editor save path", blockProfile(["hero-agency"]), async () => {
+    const site = await bootstrappedSite()
+    const pageId = await draftPage(site)
 
     await expect(
-      asUser.mutation(api.cms.pages.update, {
-        id: pageId,
-        content: {
-          en: {
-            title: "Legacy identity",
-            blocks: [duplicateBlock, duplicateBlock],
-          },
-        },
-      })
+      saveEnglish(site, pageId, [identityHeroBlock("   ", "Editor identity")])
     ).rejects.toThrow(INVALID_BLOCK_IDENTITY_ERROR)
-  })
-
-  test("repairs legacy staging IDs before interactive publish", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Publish identity",
-      content: { en: { title: "Publish identity", blocks: [] } },
-    })
-    const duplicateBlock = legacyIdentityHeroBlock(
-      "staged-duplicate",
-      "Publish identity"
-    )
-    const legacyRows = [
-      duplicateBlock,
-      {
-        ...duplicateBlock,
-        primary: {
-          ...duplicateBlock.primary,
-          description: JSON.stringify({
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-                content: [
-                  { type: "text", text: "Second " },
-                  {
-                    type: "text",
-                    text: "body",
-                    marks: [{ type: "link", attrs: { href: "/second" } }],
-                  },
-                ],
-              },
-            ],
-          }),
-        },
-      },
-      {
-        ...duplicateBlock,
-        id: "",
-        primary: {
-          ...duplicateBlock.primary,
-          description: JSON.stringify({
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-                content: [
-                  { type: "text", text: "Third " },
-                  {
-                    type: "text",
-                    text: "body",
-                    marks: [{ type: "link", attrs: { href: "/third" } }],
-                  },
-                ],
-              },
-            ],
-          }),
-        },
-      },
-    ] as Block[]
-    const sourceBytes = JSON.stringify(legacyRows)
-    await t.run(async (ctx) => {
-      const staging = await ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-        .unique()
-      if (!staging) throw new Error("Expected a staging row")
-      await ctx.db.patch("pageStaging", staging._id, {
-        content: {
-          en: {
-            title: "Publish identity",
-            blocks: legacyRows,
-          },
-        },
-      })
-    })
-
-    await asUser.mutation(api.cms.pages.publish, { pageId })
-
-    const published = await asUser.query(api.cms.pages.getById, { id: pageId })
-    if (published?.pageType !== "landing-page") {
-      throw new Error("Expected a published landing page")
-    }
-    const ids = published.content?.en.blocks.map((block) => block.id) ?? []
-    expect(ids[0]).toBe("staged-duplicate")
-    expect(ids[1]).toEqual(expect.any(String))
-    expect(new Set(ids).size).toBe(ids.length)
-    expect(ids).toHaveLength(3)
-    expect(
-      published.content?.en.blocks.map(
-        (row) => (row.primary as { description: string }).description
-      )
-    ).toEqual(
-      legacyRows.map(
-        (row) => (row.primary as { description: string }).description
-      )
-    )
-    expect(JSON.stringify(legacyRows)).toBe(sourceBytes)
-  })
-
-  test("repairs legacy live IDs when publishing unrelated staged fields", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Legacy live identity",
-      content: { en: { title: "Legacy live identity", blocks: [] } },
-    })
-    const duplicateBlock = legacyIdentityHeroBlock(
-      "live-duplicate",
-      "Legacy live identity"
-    )
-    const legacyRows = [
-      duplicateBlock,
-      {
-        ...duplicateBlock,
-        primary: {
-          ...duplicateBlock.primary,
-          description: JSON.stringify({
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-                content: [
-                  { type: "text", text: "Second " },
-                  {
-                    type: "text",
-                    text: "body",
-                    marks: [{ type: "link", attrs: { href: "/second" } }],
-                  },
-                ],
-              },
-            ],
-          }),
-        },
-      },
-      {
-        ...duplicateBlock,
-        id: "",
-        primary: {
-          ...duplicateBlock.primary,
-          description: JSON.stringify({
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-                content: [
-                  { type: "text", text: "Third " },
-                  {
-                    type: "text",
-                    text: "body",
-                    marks: [{ type: "link", attrs: { href: "/third" } }],
-                  },
-                ],
-              },
-            ],
-          }),
-        },
-      },
-    ] as Block[]
-    const sourceBytes = JSON.stringify(legacyRows)
-    await t.run(async (ctx) => {
-      await ctx.db.patch("pages", pageId, {
-        content: {
-          en: {
-            title: "Legacy live identity",
-            blocks: legacyRows,
-          },
-        },
-      })
-      const staging = await ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-        .unique()
-      if (!staging) throw new Error("Expected a staging row")
-      await ctx.db.patch("pageStaging", staging._id, {
-        content: undefined,
-        slug: "legacy-live-identity-published",
-      })
-    })
-
-    await asUser.mutation(api.cms.pages.publish, { pageId })
-
-    const published = await asUser.query(api.cms.pages.getById, { id: pageId })
-    if (published?.pageType !== "landing-page") {
-      throw new Error("Expected a published landing page")
-    }
-    const ids = published.content?.en.blocks.map((block) => block.id) ?? []
-    expect(ids[0]).toBe("live-duplicate")
-    expect(ids[1]).toEqual(expect.any(String))
-    expect(new Set(ids).size).toBe(ids.length)
-    expect(ids).toHaveLength(3)
-    expect(
-      published.content?.en.blocks.map(
-        (row) => (row.primary as { description: string }).description
-      )
-    ).toEqual(
-      legacyRows.map(
-        (row) => (row.primary as { description: string }).description
-      )
-    )
-    expect(JSON.stringify(legacyRows)).toBe(sourceBytes)
-  })
-
-  test("repairs legacy staging IDs before scheduled publish", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Scheduled identity",
-      content: { en: { title: "Scheduled identity", blocks: [] } },
-    })
-    const duplicateBlock = legacyIdentityHeroBlock(
-      "scheduled-duplicate",
-      "Scheduled identity"
-    )
-    const legacyRows = [
-      duplicateBlock,
-      {
-        ...duplicateBlock,
-        primary: {
-          ...duplicateBlock.primary,
-          description: JSON.stringify({
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-                content: [
-                  { type: "text", text: "Second " },
-                  {
-                    type: "text",
-                    text: "body",
-                    marks: [{ type: "link", attrs: { href: "/second" } }],
-                  },
-                ],
-              },
-            ],
-          }),
-        },
-      },
-      {
-        ...duplicateBlock,
-        id: "",
-        primary: {
-          ...duplicateBlock.primary,
-          description: JSON.stringify({
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-                content: [
-                  { type: "text", text: "Third " },
-                  {
-                    type: "text",
-                    text: "body",
-                    marks: [{ type: "link", attrs: { href: "/third" } }],
-                  },
-                ],
-              },
-            ],
-          }),
-        },
-      },
-    ] as Block[]
-    const sourceBytes = JSON.stringify(legacyRows)
-    await t.run(async (ctx) => {
-      const staging = await ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-        .unique()
-      if (!staging) throw new Error("Expected a staging row")
-      await ctx.db.patch("pageStaging", staging._id, {
-        scheduledAt: Date.now() - 1_000,
-        content: {
-          en: {
-            title: "Scheduled identity",
-            blocks: legacyRows,
-          },
-        },
-      })
-    })
-
-    await approveDueEditionPagesForTest(t)
-    await expect(
-      t.mutation(internal.cms.pages.processScheduledTransitions, {})
-    ).resolves.toMatchObject({ published: 1 })
-
-    const published = await asUser.query(api.cms.pages.getById, { id: pageId })
-    if (published?.pageType !== "landing-page") {
-      throw new Error("Expected a published landing page")
-    }
-    const ids = published.content?.en.blocks.map((block) => block.id) ?? []
-    expect(ids[0]).toBe("scheduled-duplicate")
-    expect(ids[1]).toEqual(expect.any(String))
-    expect(new Set(ids).size).toBe(ids.length)
-    expect(ids).toHaveLength(3)
-    expect(
-      published.content?.en.blocks.map(
-        (row) => (row.primary as { description: string }).description
-      )
-    ).toEqual(
-      legacyRows.map(
-        (row) => (row.primary as { description: string }).description
-      )
-    )
-    expect(JSON.stringify(legacyRows)).toBe(sourceBytes)
-  })
-})
-
-describe("pages — rich-text write-path gate", () => {
-  const heroAgency = (description: unknown) => ({
-    id: "s1",
-    type: "hero-agency" as const,
-    enabled: true,
-    primary: {
-      eyebrow: "Agency",
-      title: "Valid",
-      description:
-        typeof description === "string"
-          ? description
-          : JSON.stringify(description),
-    },
-    items: [],
-  })
-
-  test("accepts an inline-profile document", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const id = await asUser.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Valid",
-      content: {
-        en: {
-          title: "Valid",
-          blocks: [
-            heroAgency({
-              type: "doc",
-              content: [
-                { type: "paragraph", content: [{ type: "text", text: "ok" }] },
-              ],
-            }),
-          ],
-        },
-      },
-    })
-    expect(id).toBeDefined()
-  })
-
-  test("rejects a block with a node disallowed by the inline profile", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    await expect(
-      asUser.mutation(api.cms.pages.create, {
-        pageType: "landing-page",
-        status: "draft",
-        title: "Bad",
-        content: {
-          en: {
-            title: "Bad",
-            blocks: [
-              heroAgency({
-                type: "doc",
-                content: [
-                  {
-                    type: "table",
-                    content: [
-                      {
-                        type: "tableRow",
-                        content: [
-                          {
-                            type: "tableCell",
-                            content: [{ type: "paragraph" }],
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              }),
-            ],
-          },
-        },
-      })
-    ).rejects.toThrow("Invalid rich-text content")
-  })
-
-  test("refuses raw authored HTML and saves parent-prepared historical content", blockProfile(["hero-agency"]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const raw = heroAgency("<p>old content</p>")
-    const authored = {
-      pageType: "landing-page" as const,
-      status: "draft" as const,
-      title: "Legacy",
-      content: { en: { title: "Legacy", blocks: [raw] } },
-    }
-    const before = await t.run((ctx) => ctx.db.query("pages").collect())
-    await expect(
-      asUser.mutation(api.cms.pages.create, authored)
-    ).rejects.toThrow("Invalid rich-text content")
-    expect(await t.run((ctx) => ctx.db.query("pages").collect())).toEqual(
-      before
-    )
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      ...authored,
-      content: { en: { title: "Legacy", blocks: [] } },
-    })
-    // Historical bytes enter through the documented mock DB boundary, never create.
-    await t.run(async (ctx) => {
-      const staging = await ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-        .unique()
-      await ctx.db.patch("pageStaging", staging!._id, { content: authored.content })
-    })
-    const opened = await asUser.query(api.cms.pages.getStagedPreviewById, {
-      id: pageId,
-    })
-    const { adoptHeroTitles } =
-      await import("../lib/rich-text/adopt-hero-titles")
-    if (opened?.page.pageType !== "landing-page")
-      throw new Error("Expected a landing page")
-    const prepared = adoptHeroTitles(opened.page.content!.en.blocks, "en")
-    await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-      pageId,
-      force: true,
-    })
-    await asUser.mutation(api.cms.pages.updateDraft, {
-      pageId,
-      content: {
-        en: {
-          pageType: "landing-page",
-          localized: { title: "Legacy" },
-          blocks: prepared.value,
-        },
-      },
-    })
-    const saved = await asUser.query(api.cms.pages.getStagedPreviewById, {
-      id: pageId,
-    })
-    if (saved?.page.pageType !== "landing-page")
-      throw new Error("Expected a landing page")
-    expect(saved.page.content!.en.blocks[0].primary).toMatchObject({
-      description: canonicalBody("old content"),
-    })
-    expect(raw.primary.description).toBe("<p>old content</p>")
   })
 })
 
@@ -4103,730 +1288,311 @@ describe("pages — rich-text write-path gate", () => {
  * (ADR-0037 §4). These tests turn that browser gate into a deterministic one.
  */
 describe("pages — getPublicByline (C7)", () => {
-  test("published author with locale roleTitle → {name, roleTitle, avatarUrl}", blockProfile([]), async () => {
-    const t = pageTest()
-    const authorId = await t.run(async (ctx) => {
-      const now = Date.now()
-      return await ctx.db.insert("pages", {
-        slug: "jean-dupont",
-        pageType: "author",
-        status: "published",
-        name: "Jean Dupont",
-        content: {
-          en: {
-            title: "Jean Dupont",
-            roleTitle: "Senior Editor",
-            blocks: [],
-          },
-          fr: {
-            title: "Jean Dupont",
-            roleTitle: "Rédacteur en chef",
+  async function newAuthor(
+    site: BootstrappedSite,
+    locales: Record<string, { title: string; roleTitle?: string }>,
+    slug = "jean-dupont"
+  ) {
+    const [defaultLocale] = Object.keys(locales)
+    const { title, roleTitle } = locales[defaultLocale!]!
+    const pageId = await site.owner.mutation(api.cms.pages.create, {
+      slug,
+      pageType: "author",
+      status: "draft",
+      name: "Jean Dupont",
+      title,
+      defaultLocale,
+      content: { [defaultLocale!]: { title, blocks: [] } },
+    })
+    if (roleTitle)
+      await site.owner.mutation(api.cms.publication.saveEditorDraft, {
+        pageId,
+        expectedLifecycleGeneration: 1,
+        localized: {
+          locale: defaultLocale!,
+          slug,
+          expectedGeneration: 1,
+          draft: {
+            pageType: "author",
+            localized: { title, roleTitle },
             blocks: [],
           },
         },
-        createdAt: now,
-        updatedAt: now,
       })
+    return pageId
+  }
+  const byline = (site: BootstrappedSite, id: Id<"pages">, locale: string) =>
+    site.t.query(api.cms.pages.getPublicByline, {
+      languageVersion: site.languageVersion,
+      authorPageId: id,
+      locale,
     })
-    const result = await t.query(api.cms.pages.getPublicByline, {
-      languageVersion: 0,
-      authorPageId: authorId,
-      locale: "en",
+
+  test("published author with locale roleTitle → {name, roleTitle, avatarUrl}", whenActive(blockProfile([]), authorActive), async () => {
+    const site = await bootstrappedSite()
+    const authorId = await newAuthor(site, {
+      en: { title: "Jean Dupont", roleTitle: "Senior Editor" },
     })
-    expect(result).toEqual({
+    await publishNow(site.t, site.owner, authorId)
+    expect(await byline(site, authorId, "en")).toEqual({
       name: "Jean Dupont",
       roleTitle: "Senior Editor",
       avatarUrl: null,
     })
   })
 
-  test("[locale] roleTitle missing stays absent instead of borrowing another locale", blockProfile([]), async () => {
-    const t = pageTest()
-    await t.run(async (ctx) => {
-      await ctx.db.insert("siteSettings", {
-        siteName: "Site",
-        siteUrl: "https://example.test",
-        defaultLocale: "fr",
-        enabledLocales: ["fr", "de"],
-        updatedAt: Date.now(),
-      })
+  test("[locale] roleTitle missing stays absent instead of borrowing another locale", whenActive(blockProfile([]), authorActive), async () => {
+    const site = await bootstrappedSite("fr", "en")
+    const authorId = await newAuthor(site, {
+      fr: { title: "Jean Dupont", roleTitle: "Rédacteur en chef" },
     })
-    const authorId = await t.run(async (ctx) => {
-      const now = Date.now()
-      return await ctx.db.insert("pages", {
-        slug: "jean-dupont",
+    await site.owner.mutation(api.cms.publication.saveLocaleDraft, {
+      pageId: authorId,
+      locale: "en",
+      slug: "jean-dupont",
+      expectedDraftGeneration: 0,
+      expectedLifecycleGeneration: 1,
+      draft: {
         pageType: "author",
-        status: "published",
-        name: "Jean Dupont",
-        content: {
-          fr: {
-            title: "Jean Dupont",
-            roleTitle: "Rédacteur en chef",
-            blocks: [],
-          },
-          de: { title: "Jean Dupont", blocks: [] },
-        },
-        createdAt: now,
-        updatedAt: now,
-      })
+        localized: { title: "Jean Dupont" },
+        blocks: [],
+      },
     })
-    const result = await t.query(api.cms.pages.getPublicByline, {
-      languageVersion: 0,
-      authorPageId: authorId,
-      locale: "de",
-    })
+    await publishNow(site.t, site.owner, authorId, "fr")
+    await publishNow(site.t, site.owner, authorId, "en")
+    const result = await byline(site, authorId, "en")
     expect(result?.name).toBe("Jean Dupont")
     expect(result?.roleTitle).toBeUndefined()
     expect(result?.avatarUrl).toBeNull()
   })
 
-  test("draft author → null (no draft leaks through a published post's byline)", blockProfile([]), async () => {
-    const t = pageTest()
-    const authorId = await t.run(async (ctx) => {
-      const now = Date.now()
-      return await ctx.db.insert("pages", {
-        slug: "draft-author",
-        pageType: "author",
-        status: "draft",
-        name: "Draft Author",
-        content: { en: { title: "Draft Author", blocks: [] } },
-        createdAt: now,
-        updatedAt: now,
-      })
-    })
-    const result = await t.query(api.cms.pages.getPublicByline, {
-      languageVersion: 0,
-      authorPageId: authorId,
-      locale: "en",
-    })
-    expect(result).toBeNull()
+  test("draft author → null (no draft leaks through a published post's byline)", whenActive(blockProfile([]), authorActive), async () => {
+    const site = await bootstrappedSite()
+    const authorId = await newAuthor(site, {
+      en: { title: "Draft Author" },
+    }, "draft-author")
+    expect(await byline(site, authorId, "en")).toBeNull()
   })
 
-  test("soft-deleted author → null", blockProfile([]), async () => {
-    const t = pageTest()
-    const authorId = await t.run(async (ctx) => {
-      const now = Date.now()
-      return await ctx.db.insert("pages", {
-        slug: "trashed-author",
-        pageType: "author",
-        status: "published",
-        name: "Trashed Author",
-        content: { en: { title: "Trashed Author", blocks: [] } },
-        deletedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
+  test("soft-deleted author → null", whenActive(blockProfile([]), authorActive), async () => {
+    const site = await bootstrappedSite()
+    const authorId = await newAuthor(site, {
+      en: { title: "Trashed Author" },
+    }, "trashed-author")
+    await publishNow(site.t, site.owner, authorId)
+    expect(await byline(site, authorId, "en")).not.toBeNull()
+    await site.owner.mutation(api.cms.publication.archivePage, {
+      pageId: authorId,
+      expectedLifecycleGeneration: 1,
     })
-    const result = await t.query(api.cms.pages.getPublicByline, {
-      languageVersion: 0,
-      authorPageId: authorId,
-      locale: "en",
+    await site.owner.mutation(api.cms.publication.softDeletePage, {
+      pageId: authorId,
+      expectedLifecycleGeneration: 2,
     })
-    expect(result).toBeNull()
+    expect(await byline(site, authorId, "en")).toBeNull()
   })
 
   test("non-author target → null", blockProfile([]), async () => {
-    const t = pageTest()
-    const postId = await t.run(async (ctx) => {
-      const now = Date.now()
-      return await ctx.db.insert("pages", {
-        slug: "not-an-author",
-        pageType: "post",
-        status: "published",
-        content: { en: { title: "Not An Author", blocks: [] } },
-        featured: false,
-        promoteToFront: false,
-        createdAt: now,
-        updatedAt: now,
-      })
+    const site = await bootstrappedSite()
+    const pageId = await site.owner.mutation(api.cms.pages.create, {
+      slug: "not-an-author",
+      pageType: "page",
+      status: "draft",
+      title: "Not An Author",
+      content: { en: { title: "Not An Author", blocks: [] } },
     })
-    const result = await t.query(api.cms.pages.getPublicByline, {
-      languageVersion: 0,
-      authorPageId: postId,
-      locale: "en",
-    })
-    expect(result).toBeNull()
+    await publishNow(site.t, site.owner, pageId)
+    expect(await byline(site, pageId, "en")).toBeNull()
   })
 })
 
-describe("pages — updateDraft descriptor-shaped save (C8)", () => {
-  test("rejects a cross-arm draft (draft.pageType !== stored)", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "page",
+describe("pages — descriptor-shaped save (C8)", () => {
+  async function newAuthor(site: BootstrappedSite, name: string, slug: string) {
+    return site.owner.mutation(api.cms.pages.create, {
+      pageType: "author",
       status: "draft",
-      title: "Regular page",
-      content: { en: { title: "Regular page", blocks: [] } },
+      slug,
+      title: name,
+      name,
+      content: { en: { title: name, blocks: [] } },
     })
-    const opened = await asUser.query(api.cms.pages.getById, { id: pageId })
-    // Acquire lock BEFORE probing the cross-arm guard — `updateDraft`
-    // checks the lock before the pageType guard, so an unlocked call
-    // would throw the lock error instead of the guard we're testing.
-    await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
+  }
+  const sharedGeneration = (site: BootstrappedSite, pageId: Id<"pages">) =>
+    site.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("pageSharedDrafts")
+        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+        .unique()
+      return row!.generation
+    })
+  async function saveShared(
+    site: BootstrappedSite,
+    pageId: Id<"pages">,
+    fields: { sharedFieldsJson?: string; authorIds?: Id<"pages">[] }
+  ) {
+    return site.owner.mutation(api.cms.publication.saveSharedDraft, {
       pageId,
-      force: true,
+      expectedSharedDraftGeneration: await sharedGeneration(site, pageId),
+      expectedLifecycleGeneration: 1,
+      ...fields,
     })
-    await expect(
-      asUser.mutation(api.cms.pages.updateDraft, {
-        pageId,
-        expectedUpdatedAt: opened?.updatedAt,
-        // WRONG arm — stored is `page`, `content.en.pageType` claims `post`.
-        // Convex validates the discriminated union; the mutation guard also
-        // rejects if the union somehow narrows through (belt-and-braces per
-        // plan 029 §Phase 2 server invariant #2).
-        content: {
-          en: {
-            pageType: "post",
-            localized: { title: "Wrong arm" },
-            blocks: [],
-          },
-        },
-      })
-    ).rejects.toThrow(/Cannot save post content on a page/)
-  })
-
-  test("clearing an optional localized field round-trips (author roleTitle: '' → omitted from stored bag)", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    // `pages.create`'s `localizedContentInput` validator only accepts
-    // title/meta/blocks today; descriptor fields (roleTitle/bio) can only
-    // be set via `pages.updateDraft` (C8) until C10 widens `create`.
-    const authorId = await createTestAuthor(t, asUser, {
-      status: "draft",
-      title: "Ada Lovelace",
-      name: "Ada Lovelace",
-      content: { en: { title: "Ada Lovelace" } },
-    })
-    const created = await asUser.query(api.cms.pages.getById, { id: authorId })
-    // ADR-0041 Deploy 3 (Narrow): the retired `updateLocaleContent` wrote
-    // to `pages.content` synchronously; the new pipeline stages via
-    // `updateDraft` and promotes with `publish`. The lock + publish pair
-    // reproduces the "immediately live" semantic these assertions depend
-    // on (Bucket A per the ADR triage).
-    await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-      pageId: authorId,
-      force: true,
-    })
-    await asUser.mutation(api.cms.pages.updateDraft, {
-      pageId: authorId,
-      expectedUpdatedAt: created?.updatedAt,
-      content: {
-        en: {
-          pageType: "author",
-          localized: {
-            title: "Ada Lovelace",
-            roleTitle: "Mathematician",
-          },
-          blocks: [],
-        },
-      },
-    })
-    await asUser.mutation(api.cms.pages.publish, { pageId: authorId })
-    const opened = await asUser.query(api.cms.pages.getById, { id: authorId })
-    expect(
-      (opened as { content?: Record<string, { roleTitle?: string }> })?.content
-        ?.en?.roleTitle
-    ).toBe("Mathematician")
-
-    // Clear roleTitle by sending empty string — the server's omit-empties
-    // rule should drop it from stored content[locale].
-    await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-      pageId: authorId,
-      force: true,
-    })
-    await asUser.mutation(api.cms.pages.updateDraft, {
-      pageId: authorId,
-      expectedUpdatedAt: opened?.updatedAt,
-      content: {
-        en: {
-          pageType: "author",
-          localized: {
-            title: "Ada Lovelace",
-            roleTitle: "",
-          },
-          blocks: [],
-        },
-      },
-    })
-    await asUser.mutation(api.cms.pages.publish, { pageId: authorId })
-
-    const reloaded = await asUser.query(api.cms.pages.getById, {
-      id: authorId,
-    })
-    expect(
-      (reloaded as { content?: Record<string, { roleTitle?: string }> })
-        ?.content?.en?.roleTitle
-    ).toBeUndefined()
-  })
-
-  test("persists a non-empty descriptor localized field (author roleTitle sets, reloads)", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const authorId = await createTestAuthor(t, asUser, {
-      status: "draft",
-      title: "Grace Hopper",
-      name: "Grace Hopper",
-      content: { en: { title: "Grace Hopper" } },
-    })
-    const opened = await asUser.query(api.cms.pages.getById, { id: authorId })
-    // ADR-0041 Deploy 3 (Narrow) Bucket A — `pages.content` reads only
-    // reflect saved content after a publish promotes staging to live.
-    await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-      pageId: authorId,
-      force: true,
-    })
-    await asUser.mutation(api.cms.pages.updateDraft, {
-      pageId: authorId,
-      expectedUpdatedAt: opened?.updatedAt,
-      content: {
-        en: {
-          pageType: "author",
-          localized: {
-            title: "Grace Hopper",
-            roleTitle: "Rear Admiral",
-          },
-          blocks: [],
-        },
-      },
-    })
-    await asUser.mutation(api.cms.pages.publish, { pageId: authorId })
-    const reloaded = await asUser.query(api.cms.pages.getById, {
-      id: authorId,
-    })
-    const en = (
-      reloaded as {
+  }
+  const edited = async (site: BootstrappedSite, pageId: Id<"pages">) =>
+    (await site.owner.query(api.cms.pages.getForEdit, { id: pageId }))!.page as
+      unknown as {
+        name?: string
+        socials?: { platform: string; url: string }[]
         content?: Record<string, { roleTitle?: string }>
       }
-    ).content?.en
-    expect(en?.roleTitle).toBe("Rear Admiral")
-    // Plan 029 C10 task 6: `bio` deleted per ADR-0038 §Blocks-as-body —
-    // formatted intros are now a `rich-text-body` block on the canvas.
-  })
 
-  test("author name / socials round-trip through pages.update (C8 shared-field save wiring)", blockProfile([]), async () => {
-    // Discriminating check for the advisor-flagged data-loss risk: the
-    // generic Content panel edits `sharedFieldValues` which must reach
-    // `pages.update`. If the wiring is missing, the toast says "Saved" but
-    // the DB row is unchanged.
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const authorId = await createTestAuthor(t, asUser, {
+  test("a draft written for a different page type is refused and nothing is stored", blockProfile([]), async () => {
+    const site = await bootstrappedSite()
+    const pageId = await site.owner.mutation(api.cms.pages.create, {
+      pageType: "landing-page",
       status: "draft",
-      title: "Original",
-      name: "Original",
-      content: { en: { title: "Original" } },
-    })
-    const opened = await asUser.query(api.cms.pages.getById, { id: authorId })
-    await asUser.mutation(api.cms.pages.update, {
-      id: authorId,
-      name: "Renamed via update",
-      socials: [{ platform: "GitHub", url: "https://github.com/x" }],
-      expectedUpdatedAt: opened?.updatedAt,
-    })
-    const reloaded = await asUser.query(api.cms.pages.getById, {
-      id: authorId,
-    })
-    expect((reloaded as { name?: string })?.name).toBe("Renamed via update")
-    expect(
-      (
-        reloaded as {
-          socials?: { platform: string; url: string }[]
-        }
-      ).socials
-    ).toEqual([
-      {
-        platform: "GitHub",
-        url: "https://github.com/x",
-        itemId: expect.any(String),
-      },
-    ])
-  })
-
-  test("post category round-trips through pages.update", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const postId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "post",
-      status: "draft",
-      title: "A post",
-      content: { en: { title: "A post" } },
-    })
-    const opened = await asUser.query(api.cms.pages.getById, { id: postId })
-    await asUser.mutation(api.cms.pages.update, {
-      id: postId,
-      category: "engineering",
-      expectedUpdatedAt: opened?.updatedAt,
-    })
-    const reloaded = await asUser.query(api.cms.pages.getById, { id: postId })
-    expect((reloaded as { category?: string })?.category).toBe("engineering")
-  })
-
-  test("null on pages.update clears optional descriptor sharedFields (category, socials)", blockProfile([]), async () => {
-    // Plan 029 C9a — the "cleared shared field is a no-op" C8 follow-up.
-    // Convex serializes `undefined` args as omitted, so the generic panel's
-    // spread of `{ ...changedSharedFields, id }` with a cleared key never
-    // reached the server's clear branch. The widened args accept `null` as
-    // the clear signal, and the handler translates it to `undefined` on
-    // the patch (Convex's remove-field signal).
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const postId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "post",
-      status: "draft",
-      title: "Cleared post",
-      category: "engineering",
-    })
-    let opened = await asUser.query(api.cms.pages.getById, { id: postId })
-    expect((opened as { category?: string })?.category).toBe("engineering")
-    await asUser.mutation(api.cms.pages.update, {
-      id: postId,
-      category: null,
-      expectedUpdatedAt: opened?.updatedAt,
-    })
-    opened = await asUser.query(api.cms.pages.getById, { id: postId })
-    expect((opened as { category?: string })?.category).toBeUndefined()
-
-    // Same clear semantics for author.socials.
-    const authorId = await createTestAuthor(t, asUser, {
-      status: "draft",
-      title: "Author",
-      name: "Author",
-      socials: [{ platform: "GitHub", url: "https://github.com/x" }],
-      content: { en: { title: "Author" } },
-    })
-    let author = await asUser.query(api.cms.pages.getById, { id: authorId })
-    expect((author as { socials?: unknown[] }).socials?.length).toBe(1)
-    await asUser.mutation(api.cms.pages.update, {
-      id: authorId,
-      socials: null,
-      expectedUpdatedAt: author?.updatedAt,
-    })
-    author = await asUser.query(api.cms.pages.getById, { id: authorId })
-    expect((author as { socials?: unknown[] }).socials).toBeUndefined()
-  })
-
-  test("post byline add-then-clear-then-add lifecycle keeps documentReferences honest", blockProfile([]), async () => {
-    // Plan 029 C9a — the references refresh coverage test. authorId is
-    // the only live descriptor `relation()` today; each save should
-    // emit exactly one shared-field row while the byline is set and
-    // none while cleared.
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const author1 = await createTestAuthor(t, asUser, {
-      status: "published",
-      title: "Author One",
-      name: "Author One",
-    })
-    const author2 = await createTestAuthor(t, asUser, {
-      status: "published",
-      title: "Author Two",
-      name: "Author Two",
-    })
-    const postId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "post",
-      status: "draft",
-      title: "Live post",
-    })
-
-    const countRefs = () =>
-      t.run(async (ctx) => {
-        const rows = await ctx.db
-          .query("documentReferences")
-          .withIndex("by_source", (q) => q.eq("sourceId", postId))
-          .collect()
-        return rows
-      })
-
-    expect(await countRefs()).toHaveLength(0)
-
-    // Add byline → 1 row targeting author1.
-    let opened = await asUser.query(api.cms.pages.getById, { id: postId })
-    await asUser.mutation(api.cms.pages.update, {
-      id: postId,
-      authorIds: [author1],
-      expectedUpdatedAt: opened?.updatedAt,
-    })
-    const afterAdd = await countRefs()
-    expect(afterAdd).toHaveLength(1)
-    expect(afterAdd[0].targetId).toBe(author1)
-    expect(afterAdd[0].source).toBe("shared-field")
-    // Plan 029 C10 — `authorIds` is a list, walker emits per-index path.
-    expect(afterAdd[0].path).toBe("authorIds[0]")
-
-    // Clear byline → 0 rows (empty array = clear).
-    opened = await asUser.query(api.cms.pages.getById, { id: postId })
-    await asUser.mutation(api.cms.pages.update, {
-      id: postId,
-      authorIds: [],
-      expectedUpdatedAt: opened?.updatedAt,
-    })
-    expect(await countRefs()).toHaveLength(0)
-
-    // Add a different byline → 1 row targeting author2.
-    opened = await asUser.query(api.cms.pages.getById, { id: postId })
-    await asUser.mutation(api.cms.pages.update, {
-      id: postId,
-      authorIds: [author2],
-      expectedUpdatedAt: opened?.updatedAt,
-    })
-    const afterReadd = await countRefs()
-    expect(afterReadd).toHaveLength(1)
-    expect(afterReadd[0].targetId).toBe(author2)
-  })
-
-  test("checklist blocks publish on empty required descriptor shared field (author.name)", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const authorId = await createTestAuthor(t, asUser, {
-      status: "draft",
-      title: "Placeholder",
-      name: "Placeholder",
-      content: { en: { title: "Placeholder" } },
-    })
-    // Directly zap `name` at the storage layer to exercise the shared
-    // required-field check; the mutation path defends against this
-    // (name.trim() must be non-empty) so we simulate legacy data.
-    await t.run(async (ctx) => {
-      await ctx.db.patch("pages", authorId, { name: "" })
-    })
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId: authorId,
-    })
-    expect(checklist.canPublish).toBe(false)
-    const codes = checklist.blockers.map((item) => item.code)
-    expect(codes).toContain("missing_required_field")
-    const nameBlocker = checklist.blockers.find((item) => item.field === "name")
-    expect(nameBlocker).toBeDefined()
-    expect(nameBlocker?.locales).toBeUndefined()
-  })
-
-  test("scheduling a publish with a draft byline is caught by the scheduled-publish cron (intent='publish' fires)", blockProfile(["hero-agency"]), async () => {
-    // Plan 029 C9a — advisor-flagged scheduled-publish bug. The v1 gate
-    // read `page.status === "published"` which is always false when
-    // scheduling a draft AND when `processScheduledTransitions` fires
-    // against the queued draft (still draft at that moment). Descriptor
-    // byline check has to run at cron-time — that's what the explicit
-    // `"publish"` intent arg accomplishes.
-    //
-    // ADR-0041 Deploy 2 PR B moved scheduling onto staging;
-    // `pages.updateDraft` intentionally defers checklist validation to
-    // publish/cron (the schedulingPublish permission gate still fires at
-    // schedule time). This test now asserts the cron catch: schedule
-    // succeeds, cron runs the checklist with intent="publish" against
-    // the overlaid page, sees the draft-byline blocker, clears the
-    // staged scheduledAt so the row doesn't hot-loop.
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const draftAuthorId = await createTestAuthor(t, asUser, {
-      status: "draft",
-      title: "Draft Author",
-      name: "Draft Author",
-      content: { en: { title: "Draft Author" } },
-    })
-    const postId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "post",
-      status: "draft",
-      title: "Scheduled post",
-      authorIds: [draftAuthorId],
-      content: {
-        en: {
-          title: "Scheduled post",
-          blocks: [
-            {
-              id: "hero-1",
-              type: "hero-agency",
-              enabled: true,
-              primary: {
-                eyebrow: "News",
-                title: "Scheduled post",
-                description: canonicalBody("Body"),
-              },
-              items: [],
-            },
-          ],
-        },
-      },
-    })
-    // Schedule via the staging seam; make the schedule due immediately so
-    // the cron picks it up in this tick.
-    await scheduleViaDraft(asUser, postId, Date.now() - 1_000)
-
-    const result = await t.mutation(
-      internal.cms.pages.processScheduledTransitions,
-      {}
-    )
-    expect(result.published).toBe(0)
-    // Cron cleared the staged scheduledAt via the failed-checklist branch.
-    const stagedAfter = await t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", postId))
-        .first()
-      return row?.scheduledAt ?? null
-    })
-    expect(stagedAfter).toBeNull()
-    // Page stays draft (never promoted).
-    const after = await asUser.query(api.cms.pages.getById, { id: postId })
-    expect(after?.status).toBe("draft")
-  })
-
-  test("descriptor byline relation blocker uses descriptor-aware wording, not block-worded", blockProfile(["hero-agency"]), async () => {
-    // Plan 029 C9a — advisor-flagged post-C9a bug: descriptor byline
-    // relations were feeding through the block walk's shared referenced-
-    // page loop, so a draft-author byline emitted "A block references …"
-    // Fixed by running descriptor relations through their own loop with
-    // descriptor wording + field/locales metadata + publish-state gate.
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    // Draft author (so the post-publish flow would surface the target).
-    const draftAuthorId = await createTestAuthor(t, asUser, {
-      status: "draft",
-      title: "Draft Author",
-      name: "Draft Author",
-      content: { en: { title: "Draft Author" } },
-    })
-    // Post that we'll publish — draft-author byline should block, with
-    // descriptor wording and `field="authorIds"`.
-    const postId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "post",
-      status: "draft",
-      title: "Live post",
-      authorIds: [draftAuthorId],
-      content: {
-        en: {
-          title: "Live post",
-          blocks: [
-            {
-              id: "hero-1",
-              type: "hero-agency",
-              enabled: true,
-              primary: {
-                eyebrow: "News",
-                title: "Live post",
-                description: canonicalBody("Body"),
-              },
-              items: [],
-            },
-          ],
-        },
-      },
-    })
-    // Attempt to publish → the owner-facing refusal should identify the
-    // unpublished related page without exposing the internal field name or
-    // calling it "a block".
-    // ADR-0041 Deploy 3 (Narrow): publish is `pages.publish` exclusively,
-    // and it requires a staging row (assertPrePublishAllowed runs after
-    // the staging load). Seed staging via updateDraft so publish reaches
-    // the checklist branch we're asserting on.
-    await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-      pageId: postId,
-      force: true,
-    })
-    await asUser.mutation(api.cms.pages.updateDraft, {
-      pageId: postId,
-      content: {
-        en: {
-          pageType: "post",
-          localized: { title: "Live post" },
-          blocks: [
-            {
-              id: "hero-1",
-              type: "hero-agency",
-              enabled: true,
-              primary: {
-                eyebrow: "News",
-                title: "Live post",
-                description: canonicalBody("Body"),
-              },
-              items: [],
-            },
-          ],
-        },
-      },
+      slug: "typed-page",
+      title: "Typed page",
+      content: { en: { title: "Typed page", blocks: [] } },
     })
     await expect(
-      asUser.mutation(api.cms.pages.publish, { pageId: postId })
-    ).rejects.toThrow(/isn't published/i)
-    // The checklist itself should surface the descriptor-wording blocker
-    // with `field` metadata rather than the anonymous block message.
-    // Also confirm we did not double-fire the block-worded variant.
-    const checklist = await asUser.query(api.cms.pages.getPrePublishChecklist, {
-      pageId: postId,
-    })
-    // The editor's readiness query is specifically the truth surface behind
-    // the Publish button. It must block a guaranteed refusal before the owner
-    // is offered "Publish anyway". Ordinary Save remains unaffected because
-    // the checklist is queried separately from the save mutation.
-    const bylineBlockers = checklist.blockers.filter((item) =>
-      item.field?.startsWith("authorIds")
-    )
-    expect(bylineBlockers).toHaveLength(1)
-    expect(bylineBlockers[0]).toMatchObject({
-      code: "archived_relation_target",
-      severity: "blocker",
-      field: "authorIds[0]",
-    })
-    expect(bylineBlockers[0]?.message).not.toContain("A block")
-  })
-
-  test("saves the localized bag independently per locale (≥3 locales, no leakage)", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    await asUser.mutation(api.cms.settings.completeOnboarding, {
-      siteName: "Site",
-      siteUrl: "https://example.com",
-      timezone: "UTC",
-      defaultLocale: "en",
-      enabledLocales: ["en", "fr", "ar"],
-    })
-    const authorId = await createTestAuthor(t, asUser, {
-      status: "draft",
-      title: "Author",
-      name: "Author",
-      content: {
-        en: { title: "Author" },
-        fr: { title: "Auteur" },
-        ar: { title: "المؤلف" },
-      },
-    })
-    for (const locale of ["en", "fr", "ar"]) {
-      const opened = await asUser.query(api.cms.pages.getById, { id: authorId })
-      // ADR-0041 Deploy 3 (Narrow) Bucket A — publish each locale save so
-      // the round-trip on `pages.content` is visible to the reload assertion.
-      await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-        pageId: authorId,
-        force: true,
-      })
-      await asUser.mutation(api.cms.pages.updateDraft, {
-        pageId: authorId,
-        expectedUpdatedAt: opened?.updatedAt,
-        content: {
-          [locale]: {
-            pageType: "author",
-            localized: {
-              title: `Author (${locale})`,
-              roleTitle: `role-${locale}`,
-            },
+      site.owner.mutation(api.cms.publication.saveEditorDraft, {
+        pageId,
+        expectedLifecycleGeneration: 1,
+        localized: {
+          locale: "en",
+          slug: "typed-page",
+          expectedGeneration: 1,
+          draft: {
+            pageType: "page",
+            localized: { title: "Wrong type" },
             blocks: [],
           },
         },
       })
-      await asUser.mutation(api.cms.pages.publish, { pageId: authorId })
-    }
-    const final = await asUser.query(api.cms.pages.getById, { id: authorId })
-    const bags =
-      (
-        final as {
-          content?: Record<string, { roleTitle?: string; title?: string }>
-        }
-      ).content ?? {}
-    expect(bags.en?.roleTitle).toBe("role-en")
-    expect(bags.fr?.roleTitle).toBe("role-fr")
-    expect(bags.ar?.roleTitle).toBe("role-ar")
-    expect(bags.en?.title).toBe("Author (en)")
-    expect(bags.fr?.title).toBe("Author (fr)")
-    expect(bags.ar?.title).toBe("Author (ar)")
+    ).rejects.toThrow("PAGE_TYPE_MISMATCH")
+    const states = await site.t.run((ctx) =>
+      ctx.db
+        .query("pageLocalePublicationStates")
+        .withIndex("by_pageId_and_locale", (q) =>
+          q.eq("pageId", pageId).eq("locale", "en")
+        )
+        .unique()
+    )
+    expect(states?.draftGeneration).toBe(1)
+  })
+
+  test("a shared field the page type does not have is refused", blockProfile([]), async () => {
+    const site = await bootstrappedSite()
+    const pageId = await site.owner.mutation(api.cms.pages.create, {
+      pageType: "landing-page",
+      status: "draft",
+      slug: "shared-page",
+      title: "Shared page",
+      content: { en: { title: "Shared page", blocks: [] } },
+    })
+    await expect(
+      saveShared(site, pageId, {
+        sharedFieldsJson: JSON.stringify({ notAField: "x" }),
+      })
+    ).rejects.toThrow("SHARED_FIELD_INVALID")
+    expect(await sharedGeneration(site, pageId)).toBe(1)
+  })
+
+  test("clearing an optional localized field round-trips (author roleTitle: '' → omitted from the draft)", whenActive(blockProfile([]), authorActive), async () => {
+    const site = await bootstrappedSite()
+    const authorId = await newAuthor(site, "Ada Lovelace", "ada-lovelace")
+    const saveRoleTitle = (roleTitle: string, expectedGeneration: number) =>
+      site.owner.mutation(api.cms.publication.saveEditorDraft, {
+        pageId: authorId,
+        expectedLifecycleGeneration: 1,
+        localized: {
+          locale: "en",
+          slug: "ada-lovelace",
+          expectedGeneration,
+          draft: {
+            pageType: "author",
+            localized: { title: "Ada Lovelace", roleTitle },
+            blocks: [],
+          },
+        },
+      })
+    await saveRoleTitle("Mathematician", 1)
+    expect((await edited(site, authorId)).content?.en?.roleTitle).toBe(
+      "Mathematician"
+    )
+
+    // An empty string clears the field. The draft may keep the empty text,
+    // but the published language content never carries it.
+    await saveRoleTitle("", 2)
+    expect((await edited(site, authorId)).content?.en?.roleTitle).toBeFalsy()
+    await publishNow(site.t, site.owner, authorId)
+    const byline = await site.t.query(api.cms.pages.getPublicByline, {
+      languageVersion: site.languageVersion,
+      authorPageId: authorId,
+      locale: "en",
+    })
+    expect(byline).toMatchObject({ name: "Ada Lovelace" })
+    expect(byline?.roleTitle).toBeUndefined()
+  })
+
+  test("author name and socials save through the shared draft, and an empty list clears the socials", whenActive(blockProfile([]), authorActive), async () => {
+    const site = await bootstrappedSite()
+    const authorId = await newAuthor(site, "Original", "original")
+    await saveShared(site, authorId, {
+      sharedFieldsJson: JSON.stringify({
+        name: "Renamed via save",
+        socials: [{ platform: "GitHub", url: "https://github.com/x" }],
+      }),
+    })
+    const saved = await edited(site, authorId)
+    expect(saved.name).toBe("Renamed via save")
+    expect(saved.socials).toMatchObject([
+      { platform: "GitHub", url: "https://github.com/x" },
+    ])
+
+    await saveShared(site, authorId, {
+      sharedFieldsJson: JSON.stringify({ socials: [] }),
+    })
+    expect((await edited(site, authorId)).socials ?? []).toEqual([])
+  })
+
+  test("post byline add-then-clear-then-add lifecycle keeps the stored references honest", whenActive(blockProfile([]), postActive && authorActive), async () => {
+    const site = await bootstrappedSite()
+    const author1 = await newAuthor(site, "Author One", "author-one")
+    const author2 = await newAuthor(site, "Author Two", "author-two")
+    const postId = await site.owner.mutation(api.cms.pages.create, {
+      pageType: "post",
+      status: "draft",
+      slug: "live-post",
+      title: "Live post",
+      content: { en: { title: "Live post", blocks: [] } },
+    })
+    const sharedRefs = () =>
+      site.t.run((ctx) =>
+        ctx.db
+          .query("pagePublicationDocumentReferences")
+          .withIndex("by_pageId_and_sourceKind", (q) =>
+            q.eq("pageId", postId).eq("sourceKind", "shared_draft")
+          )
+          .collect()
+      )
+    expect(await sharedRefs()).toHaveLength(0)
+
+    // Add a byline: one reference to author one.
+    await saveShared(site, postId, { authorIds: [author1] })
+    const afterAdd = await sharedRefs()
+    expect(afterAdd).toHaveLength(1)
+    expect(afterAdd[0]!.targetId).toBe(author1)
+
+    // Clear it: no reference left.
+    await saveShared(site, postId, { authorIds: [] })
+    expect(await sharedRefs()).toHaveLength(0)
+
+    // Add a different byline: one reference to author two.
+    await saveShared(site, postId, { authorIds: [author2] })
+    const afterReadd = await sharedRefs()
+    expect(afterReadd).toHaveLength(1)
+    expect(afterReadd[0]!.targetId).toBe(author2)
   })
 })
 
@@ -4836,379 +1602,6 @@ describe("pages — updateDraft descriptor-shaped save (C8)", () => {
  * restore. ADR-0029 heterogeneous-by-design: legacy revisions with the
  * field absent restore safely.
  */
-describe("pages — post.promoteToFront sticky auto-unset (C10 task 10)", () => {
-  test("updating a second post to sticky demotes the first", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const postAId = await asUser.mutation(api.cms.pages.create, {
-      slug: "post-a",
-      pageType: "post",
-      status: "draft",
-      title: "Post A",
-      promoteToFront: true,
-    })
-    const postBId = await asUser.mutation(api.cms.pages.create, {
-      slug: "post-b",
-      pageType: "post",
-      status: "draft",
-      title: "Post B",
-    })
-
-    // Sanity — A is sticky, B is not.
-    const beforeA = await asUser.query(api.cms.pages.getById, { id: postAId })
-    const beforeB = await asUser.query(api.cms.pages.getById, { id: postBId })
-    expect((beforeA as { promoteToFront?: boolean }).promoteToFront).toBe(true)
-    expect((beforeB as { promoteToFront?: boolean }).promoteToFront).toBe(false)
-
-    // Flip B sticky — A should demote.
-    await asUser.mutation(api.cms.pages.update, {
-      id: postBId,
-      promoteToFront: true,
-    })
-    const afterA = await asUser.query(api.cms.pages.getById, { id: postAId })
-    const afterB = await asUser.query(api.cms.pages.getById, { id: postBId })
-    expect((afterA as { promoteToFront?: boolean }).promoteToFront).toBe(false)
-    expect((afterB as { promoteToFront?: boolean }).promoteToFront).toBe(true)
-  })
-
-  test("creating a sticky post demotes an existing sticky post", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    const oldStickyId = await asUser.mutation(api.cms.pages.create, {
-      slug: "old-sticky",
-      pageType: "post",
-      status: "draft",
-      title: "Old sticky",
-      promoteToFront: true,
-    })
-    const newStickyId = await asUser.mutation(api.cms.pages.create, {
-      slug: "new-sticky",
-      pageType: "post",
-      status: "draft",
-      title: "New sticky",
-      promoteToFront: true,
-    })
-
-    const oldRow = await asUser.query(api.cms.pages.getById, {
-      id: oldStickyId,
-    })
-    const newRow = await asUser.query(api.cms.pages.getById, {
-      id: newStickyId,
-    })
-    expect((oldRow as { promoteToFront?: boolean }).promoteToFront).toBe(false)
-    expect((newRow as { promoteToFront?: boolean }).promoteToFront).toBe(true)
-  })
-
-  test("clearing sticky on the current post does not demote anyone else", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-
-    // Even though only one post can be sticky at a time by design,
-    // clearing your own sticky is a legal no-op for the demotion path:
-    // nobody else is holding the flag, so nothing to unset.
-    const postId = await asUser.mutation(api.cms.pages.create, {
-      slug: "clearable",
-      pageType: "post",
-      status: "draft",
-      title: "Clearable",
-      promoteToFront: true,
-    })
-    await asUser.mutation(api.cms.pages.update, {
-      id: postId,
-      promoteToFront: false,
-    })
-    const row = await asUser.query(api.cms.pages.getById, { id: postId })
-    expect((row as { promoteToFront?: boolean }).promoteToFront).toBe(false)
-  })
-})
-
-describe("pages — testimonial pure-form editor (C10 task 13)", () => {
-  activeTestimonialTest(
-    "create seeds personName + testimonial content bag; localized quote/title round-trip",
-    async () => {
-      const t = pageTest()
-      const asUser = t.withIdentity(TEST_USER)
-      // `pages.create` widens to accept testimonial (task 13 fix). Title
-      // seeds `personName` on the row; content bag carries `{title, quote:
-      // ""}` per locale — no `blocks` field on the pure-form arm.
-      const id = await asUser.mutation(api.cms.pages.create, {
-        pageType: "testimonial",
-        status: "draft",
-        title: "Grace Hopper @ Yale, 1980",
-        defaultLocale: "en",
-      })
-      // ADR-0041 Deploy 2 PR B item 3 — the seeded testimonial content
-      // bag now lives on `pageStaging`, not `pages.content`. Read the
-      // overlaid view via `getForEdit`, which the editor also uses.
-      const createdRow = await asUser.query(api.cms.pages.getById, { id })
-      const createdEdit = await asUser.query(api.cms.pages.getForEdit, { id })
-      const created = createdEdit?.page
-      expect(createdRow?.pageType).toBe("testimonial")
-      expect((createdRow as { personName?: string }).personName).toBe(
-        "Grace Hopper @ Yale, 1980"
-      )
-      expect(
-        (
-          created as {
-            content?: Record<string, { quote?: string; blocks?: unknown }>
-          }
-        ).content?.en?.quote
-      ).toBe("")
-      expect(
-        (created as { content?: Record<string, { blocks?: unknown }> }).content
-          ?.en?.blocks
-      ).toBeUndefined()
-
-      // Save the descriptor localized bag — pure-form arm carries no
-      // blocks, no metaTitle/metaDescription. ADR-0041 Deploy 3 (Narrow)
-      // Bucket A: publish so `pages.content` reflects the save.
-      await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-        pageId: id,
-        force: true,
-      })
-      await asUser.mutation(api.cms.pages.updateDraft, {
-        pageId: id,
-        expectedUpdatedAt: created?.updatedAt,
-        content: {
-          en: {
-            pageType: "testimonial",
-            localized: {
-              title: "Grace Hopper @ Yale, 1980",
-              quote:
-                "The most damaging phrase is 'we've always done it this way.'",
-            },
-          },
-        },
-      })
-      await asUser.mutation(api.cms.pages.publish, { pageId: id })
-      const reloaded = await asUser.query(api.cms.pages.getById, { id })
-      expect(
-        (reloaded as { content?: Record<string, { quote?: string }> }).content
-          ?.en?.quote
-      ).toBe("The most damaging phrase is 'we've always done it this way.'")
-    }
-  )
-
-  activeTestimonialTest(
-    "shared fields fan through pages.update (personName + optional siblings)",
-    async () => {
-      const t = pageTest()
-      const asUser = t.withIdentity(TEST_USER)
-      const id = await asUser.mutation(api.cms.pages.create, {
-        pageType: "testimonial",
-        status: "draft",
-        title: "Grace Hopper",
-        defaultLocale: "en",
-      })
-      const created = await asUser.query(api.cms.pages.getById, { id })
-      await asUser.mutation(api.cms.pages.update, {
-        id,
-        expectedUpdatedAt: created?.updatedAt,
-        personName: "Grace Hopper",
-        personRole: "Rear Admiral",
-        personCompany: "United States Navy",
-        sourceUrl: "https://example.com/grace",
-      })
-      const reloaded = await asUser.query(api.cms.pages.getById, { id })
-      const row = reloaded as {
-        personName?: string
-        personRole?: string
-        personCompany?: string
-        sourceUrl?: string
-      }
-      expect(row.personName).toBe("Grace Hopper")
-      expect(row.personRole).toBe("Rear Admiral")
-      expect(row.personCompany).toBe("United States Navy")
-      expect(row.sourceUrl).toBe("https://example.com/grace")
-
-      // Optional shared field clears via `null` (null-as-clear pattern).
-      await asUser.mutation(api.cms.pages.update, {
-        id,
-        expectedUpdatedAt: reloaded?.updatedAt,
-        personRole: null,
-      })
-      const cleared = await asUser.query(api.cms.pages.getById, { id })
-      expect((cleared as { personRole?: string }).personRole).toBeUndefined()
-    }
-  )
-
-  test("shared-field cross-arm gate: personName rejected on non-testimonial rows", blockProfile([]), async () => {
-    const t = pageTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      pageType: "page",
-      status: "draft",
-      title: "Regular page",
-    })
-    const created = await asUser.query(api.cms.pages.getById, { id: pageId })
-    await expect(
-      asUser.mutation(api.cms.pages.update, {
-        id: pageId,
-        expectedUpdatedAt: created?.updatedAt,
-        personName: "Not a testimonial",
-      })
-    ).rejects.toThrow(/personName is only valid on pageType='testimonial'/)
-  })
-
-  activeTestimonialTest(
-    "personImage set/clear via pages.update fans through refreshPageReferences → mediaReferences",
-    async () => {
-      const t = pageTest()
-      const asUser = t.withIdentity(TEST_USER)
-      const { mediaId, storageId } = await t.run(async (ctx) => {
-        const storage = await ctx.storage.store(
-          new Blob(["x"], { type: "image/png" })
-        )
-        const media = await ctx.db.insert("media", {
-          filename: "person.png",
-          storageId: storage,
-          url: "https://example.com/person.png",
-          size: 1,
-          mimeType: "image/png",
-          uploadedAt: Date.now(),
-        })
-        return { mediaId: media, storageId: storage }
-      })
-      const id = await asUser.mutation(api.cms.pages.create, {
-        pageType: "testimonial",
-        status: "draft",
-        title: "Grace Hopper",
-      })
-      const created = await asUser.query(api.cms.pages.getById, { id })
-      // Set personImage → refreshPageReferences (invoked by pages.update)
-      // fans it into a mediaReferences row via the descriptor-image walker
-      // (plan 029 C10 Unit A). This is the vertical integration test that
-      // proves the pure-form writer preserves media orphan-safety.
-      await asUser.mutation(api.cms.pages.update, {
-        id,
-        expectedUpdatedAt: created?.updatedAt,
-        personImage: {
-          storageId,
-          url: "https://example.com/person.png",
-        },
-      })
-      const rowsAfterSet = await t.run(async (ctx) =>
-        ctx.db.query("mediaReferences").take(10)
-      )
-      const testimonialRows = rowsAfterSet.filter(
-        (r) => r.source === "descriptor-image" && r.path === "personImage"
-      )
-      expect(testimonialRows.length).toBe(1)
-      expect(testimonialRows[0].mediaId).toBe(mediaId)
-
-      // Clear personImage via null-as-clear → row disappears.
-      const reloaded = await asUser.query(api.cms.pages.getById, { id })
-      await asUser.mutation(api.cms.pages.update, {
-        id,
-        expectedUpdatedAt: reloaded?.updatedAt,
-        personImage: null,
-      })
-      const rowsAfterClear = await t.run(async (ctx) =>
-        ctx.db
-          .query("mediaReferences")
-          .take(10)
-          .then((rows) =>
-            rows.filter(
-              (r) => r.source === "descriptor-image" && r.path === "personImage"
-            )
-          )
-      )
-      expect(rowsAfterClear).toEqual([])
-    }
-  )
-
-  activeTestimonialTest(
-    "empty personName is rejected on testimonial row",
-    async () => {
-      const t = pageTest()
-      const asUser = t.withIdentity(TEST_USER)
-      const id = await asUser.mutation(api.cms.pages.create, {
-        pageType: "testimonial",
-        status: "draft",
-        title: "Grace Hopper",
-      })
-      const created = await asUser.query(api.cms.pages.getById, { id })
-      await expect(
-        asUser.mutation(api.cms.pages.update, {
-          id,
-          expectedUpdatedAt: created?.updatedAt,
-          personName: "   ",
-        })
-      ).rejects.toThrow(/Testimonial personName cannot be empty/)
-    }
-  )
-
-  activeTestimonialTest(
-    "public search index carries quote + personName but not the admin-only title",
-    async () => {
-      const t = pageTest()
-      const asUser = t.withIdentity(TEST_USER)
-      const id = await asUser.mutation(api.cms.pages.create, {
-        pageType: "testimonial",
-        status: "draft",
-        // Admin-only internal identifier (localized title). The words
-        // "Yale" + "1980" only appear here — they must NOT show up in the
-        // public search index. `personName` starts equal to `title` after
-        // create (task 13 seed), so we rename it below to prove the title
-        // itself isn't crossing the exposure gate.
-        title: "Grace Hopper @ Yale, 1980",
-        defaultLocale: "en",
-      })
-      let created = await asUser.query(api.cms.pages.getById, { id })
-      // Rename personName so no other public field shares the words we're
-      // asserting against.
-      await asUser.mutation(api.cms.pages.update, {
-        id,
-        expectedUpdatedAt: created?.updatedAt,
-        personName: "Grace Hopper",
-      })
-      created = await asUser.query(api.cms.pages.getById, { id })
-      // ADR-0041 Deploy 3 (Narrow) Bucket A — `pageSearch` syncs only on
-      // publish (not on `updateDraft`), and the assertion further down
-      // reads the `pageSearch` blob for "cobol is a language". Publishing
-      // ensures the search row reflects the newly-saved quote.
-      await asUser.mutation(api.cms.pages.acquirePageEditorLock, {
-        pageId: id,
-        force: true,
-      })
-      // No `expectedUpdatedAt` — draft-created testimonials seed
-      // staging, so page.updatedAt and staging.updatedAt are on
-      // different clocks after the `pages.update(personName)` above.
-      await asUser.mutation(api.cms.pages.updateDraft, {
-        pageId: id,
-        content: {
-          en: {
-            pageType: "testimonial",
-            localized: {
-              title: "Grace Hopper @ Yale, 1980",
-              quote: "COBOL is a language for the ages",
-            },
-          },
-        },
-      })
-      await asUser.mutation(api.cms.pages.publish, { pageId: id })
-      const rows = await t.run(async (ctx) => {
-        return ctx.db
-          .query("pageSearch")
-          .withIndex("by_pageId", (q) => q.eq("pageId", id))
-          .collect()
-      })
-      const enRows = rows.filter((r) => r.locale === "en")
-      expect(enRows.length).toBe(1)
-      const text = enRows[0].text.toLowerCase()
-      expect(text).toContain("cobol is a language")
-      expect(text).toContain("grace hopper")
-      // Admin-only localized `title` must NOT leak into the public search
-      // index — ADR-0038's exposure gate. The stored title is
-      // "Grace Hopper @ Yale, 1980"; assert the admin-only "yale, 1980"
-      // fragment is filtered out even though personName shares the name.
-      expect(text).not.toContain("yale, 1980")
-    }
-  )
-})
-
 
 test.each([0, -1, 13, 1.5])("snapshot recent cards reject invalid limit %s before index reads", blockProfile([]), async (limit) => {
   const t = pageTest()
@@ -5219,6 +1612,136 @@ test.each([0, -1, 13, 1.5])("snapshot recent cards reject invalid limit %s befor
   await expect(t.query(api.cms.pages.listRecentPublicRelationCards, {
     languageVersion: 0, pageType: "post", locale: "en", limit,
   })).rejects.toThrow("integer from 1 to 12")
+})
+
+test("a menu link to the home page renders / and /fr", blockProfile([]), async () => {
+  const { t, owner, languageVersion } = await bootstrappedSite("en", "fr")
+  const config = await owner.query(api.cms.settings.getSiteConfig, {})
+  const homeId = config.homePageId!
+  expect(homeId).toBeTruthy()
+
+  for (const [locale, slug] of [
+    ["en", "home"],
+    ["fr", "accueil"],
+  ] as const) {
+    const state = await t.run((ctx) =>
+      ctx.db
+        .query("pageLocalePublicationStates")
+        .withIndex("by_pageId_and_locale", (q) =>
+          q.eq("pageId", homeId).eq("locale", locale)
+        )
+        .unique()
+    )
+    await owner.mutation(api.cms.publication.saveLocaleDraft, {
+      pageId: homeId,
+      locale,
+      slug,
+      expectedDraftGeneration: state?.draftGeneration ?? 0,
+      expectedLifecycleGeneration: 1,
+      draft: {
+        pageType: "landing-page",
+        localized: { title: locale === "en" ? "Home" : "Accueil" },
+        blocks: [],
+      },
+    })
+    await publishNow(t, owner, homeId, locale)
+  }
+
+  const nav = [
+    {
+      id: "home",
+      label: { en: "Home", fr: "Accueil" },
+      target: { type: "internal" as const, pageId: homeId },
+    },
+  ]
+  await owner.mutation(api.cms.menus.saveCanonical, {
+    slug: "primary",
+    locale: "en",
+    nav: [{ ...nav[0]!, label: { en: "Home" } }],
+  })
+  await owner.mutation(api.cms.menus.saveCanonical, {
+    slug: "primary",
+    locale: "fr",
+    nav,
+  })
+
+  for (const [locale, href] of [
+    ["en", "/"],
+    ["fr", "/fr"],
+  ] as const) {
+    const menu = await t.query(api.cms.menus.getWithResolvedLinks, {
+      slug: "primary",
+      locale,
+      languageVersion,
+    })
+    expect(menu?.nav).toHaveLength(1)
+    expect(menu?.nav[0]?.target).toEqual({ type: "internal", url: href })
+  }
+})
+
+test("a French-default site menu links home to / and English home to /en", blockProfile([]), async () => {
+  const { t, owner, languageVersion } = await bootstrappedSite("fr", "en")
+  const config = await owner.query(api.cms.settings.getSiteConfig, {})
+  const homeId = config.homePageId!
+  expect(homeId).toBeTruthy()
+
+  for (const [locale, slug] of [
+    ["fr", "accueil"],
+    ["en", "home"],
+  ] as const) {
+    const state = await t.run((ctx) =>
+      ctx.db
+        .query("pageLocalePublicationStates")
+        .withIndex("by_pageId_and_locale", (q) =>
+          q.eq("pageId", homeId).eq("locale", locale)
+        )
+        .unique()
+    )
+    await owner.mutation(api.cms.publication.saveLocaleDraft, {
+      pageId: homeId,
+      locale,
+      slug,
+      expectedDraftGeneration: state?.draftGeneration ?? 0,
+      expectedLifecycleGeneration: 1,
+      draft: {
+        pageType: "landing-page",
+        localized: { title: locale === "en" ? "Home" : "Accueil" },
+        blocks: [],
+      },
+    })
+    await publishNow(t, owner, homeId, locale)
+  }
+
+  const nav = [
+    {
+      id: "home",
+      label: { en: "Home", fr: "Accueil" },
+      target: { type: "internal" as const, pageId: homeId },
+    },
+  ]
+  await owner.mutation(api.cms.menus.saveCanonical, {
+    slug: "primary",
+    locale: "fr",
+    nav: [{ ...nav[0]!, label: { fr: "Accueil" } }],
+  })
+  await owner.mutation(api.cms.menus.saveCanonical, {
+    slug: "primary",
+    locale: "en",
+    nav,
+  })
+
+  for (const [locale, href] of [
+    ["fr", "/"],
+    ["en", "/en"],
+  ] as const) {
+    const menu = await t.query(api.cms.menus.getWithResolvedLinks, {
+      slug: "primary",
+      locale,
+      languageVersion,
+    })
+    expect(menu?.nav).toHaveLength(1)
+    expect(menu?.nav[0]?.target).toEqual({ type: "internal", url: href })
+  }
 })
 
 // Round A: exercise the same successor and menu writers as a fresh FR site.
@@ -5312,6 +1835,67 @@ describe("menu picker successor writer seam", () => {
       expectedLifecycleGeneration: 1,
       expectedReleaseGeneration: 0,
     })
+
+  test.each(["fr", "en"])("link picker paths include localized ancestry and keep home words: %s", async (locale) => {
+    const { t, owner } = await pickerSite()
+    const parentId = await newPage(owner, "parent")
+    for (const lang of ["fr", "en"]) await publishNow(t, owner, parentId, lang)
+    const pageId = await newPage(owner, "child")
+    await owner.mutation(api.cms.publication.saveSharedDraft, {
+      pageId,
+      expectedSharedDraftGeneration: 1,
+      expectedLifecycleGeneration: 1,
+      parentId,
+    })
+    const path = locale === "fr" ? "/parent/child" : "/english-parent/english-child"
+    const draftRows = await owner.query(api.cms.pages.listLinkablePages, { locale })
+    expect(draftRows.find((row) => row._id === pageId)).toHaveProperty("path", path)
+    await publishNow(t, owner, pageId, locale)
+    const publishedRows = await owner.query(api.cms.pages.listLinkablePages, { locale, includeDrafts: false })
+    expect(publishedRows.find((row) => row._id === pageId)).toHaveProperty("path", path)
+    // Published addresses remain authoritative when a Working Draft is renamed.
+    await owner.mutation(api.cms.publication.saveLocaleDraft, {
+      pageId, locale, slug: "new-child",
+      expectedDraftGeneration: locale === "fr" ? 2 : 1,
+      expectedLifecycleGeneration: 1,
+      draft: { pageType: "landing-page", localized: { title: "Renamed child" }, blocks: [] },
+    })
+    const renamedRows = await owner.query(api.cms.pages.listLinkablePages, { locale, search: path })
+    expect(renamedRows.find((row) => row._id === pageId)).toHaveProperty("path", path)
+    const settings = await t.run((ctx) => ctx.db.query("siteSettings").unique())
+    const homeId = settings!.homePageId!
+    const homeState = await t.run((ctx) => ctx.db.query("pageLocalePublicationStates")
+      .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", homeId).eq("locale", locale))
+      .unique())
+    await owner.mutation(api.cms.publication.saveLocaleDraft, {
+      pageId: homeId, locale, slug: locale === "fr" ? "accueil" : "home",
+      expectedDraftGeneration: homeState?.draftGeneration ?? 0, expectedLifecycleGeneration: 1,
+      draft: { pageType: "landing-page", localized: { title: "Home" }, blocks: [] },
+    })
+    await publishNow(t, owner, homeId, locale)
+    const homeRows = await owner.query(api.cms.pages.listLinkablePages, { locale })
+    expect(homeRows.find((row) => row._id === homeId)).toHaveProperty("path", locale === "fr" ? "/accueil" : "/home")
+  })
+
+  test.runIf(isActiveContentType("author"))("link picker paths include the content type prefix in both locales", async () => {
+    const { t, owner } = await pickerSite()
+    const pageId = await owner.mutation(api.cms.pages.create, {
+      pageType: "author", status: "draft", slug: "ada", title: "Ada", name: "Ada", defaultLocale: "fr",
+      content: { fr: { title: "Ada", blocks: [] }, en: { title: "Ada EN", blocks: [] } },
+    })
+    await owner.mutation(api.cms.publication.saveLocaleDraft, {
+      pageId, locale: "en", slug: "ada-en", expectedDraftGeneration: 1, expectedLifecycleGeneration: 1,
+      draft: { pageType: "author", localized: { title: "Ada EN" }, blocks: [] },
+    })
+    for (const locale of ["fr", "en"]) {
+      const path = locale === "fr" ? "/authors/ada" : "/authors/ada-en"
+      const draftRows = await owner.query(api.cms.pages.listLinkablePages, { locale })
+      expect(draftRows.find((row) => row._id === pageId)).toHaveProperty("path", path)
+      await publishNow(t, owner, pageId, locale)
+      const publishedRows = await owner.query(api.cms.pages.listLinkablePages, { locale, includeDrafts: false })
+      expect(publishedRows.find((row) => row._id === pageId)).toHaveProperty("path", path)
+    }
+  })
 
   for (const incomplete of ["blank-title"] as const) {
     test.each(["list", "selection"] as const)(
@@ -5609,64 +2193,6 @@ describe("menu picker successor writer seam", () => {
       await expect(call()).rejects.toThrow(/PUBLISHED_SNAPSHOT_CUTOVER_INVALID/)
   })
 
-  test("legacyAuthorityFixture lists staged drafts without claiming staged translations are published", async () => {
-    // The explicit-admin harness's named legacy authority fixture is necessary:
-    // bootstrapInstallation deliberately always establishes snapshot authority.
-    const t = pageTest(),
-      owner = t.withIdentity(TEST_USER)
-    const pageId = await owner.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "published",
-      slug: "legacy",
-      defaultLocale: "fr",
-      content: { fr: { title: "Publié FR", blocks: [] } },
-    })
-    await owner.mutation(api.cms.pages.acquirePageEditorLock, {
-      pageId,
-      force: true,
-    })
-    await owner.mutation(api.cms.pages.updateDraft, {
-      pageId,
-      content: {
-        fr: {
-          pageType: "landing-page",
-          localized: { title: "Brouillon FR" },
-          blocks: [],
-        },
-        en: {
-          pageType: "landing-page",
-          localized: { title: "English staged" },
-          blocks: [],
-        },
-      },
-    })
-    for (const locale of ["fr", "en"]) {
-      const rows = await owner.query(api.cms.pages.listLinkablePages, {
-        locale,
-      })
-      const selected = await owner.query(
-        api.cms.pages.getLinkablePageSelection,
-        { pageId }
-      )
-      expect(rows).toEqual([
-        expect.objectContaining({
-          _id: pageId,
-          localizedTitles: { fr: "Brouillon FR", en: "English staged" },
-          localePublicationStates: { fr: "published", en: "draft" },
-        }),
-      ])
-      expect(selected).toEqual({ status: "available", page: rows[0] })
-      expect(
-        (
-          await owner.query(api.cms.pages.listLinkablePages, {
-            locale,
-            includeDrafts: false,
-          })
-        ).length
-      ).toBe(locale === "fr" ? 1 : 0)
-    }
-  })
-
   test.each(["existing-empty", "copy-empty", "missing", "cleared", "typed-cleared"] as const)(
     "decorative_alt_survives_secondary_save_and_copy through real saveCanonical: %s",
     async (mode) => {
@@ -5936,7 +2462,7 @@ describe("menu picker successor writer seam", () => {
       ).toMatchObject({ titleFallback: "untitled" })
     })
 
-    test("an author card shows the current name after a rename", async () => {
+    test.runIf(authorActive)("an author card shows the current name after a rename", async () => {
       const { owner } = await pickerSite()
       const authorId = await owner.mutation(api.cms.pages.create, {
         pageType: "author",
@@ -5974,5 +2500,208 @@ describe("menu picker successor writer seam", () => {
       expect(rows).toHaveLength(100)
       expect(rows.every((row) => row.localizedTitles.fr && row.localizedTitles.en)).toBe(true)
     }, 120_000)
+  })
+})
+
+// VISITOR-LIMITS (0.5.1): one anonymous call to an id-batch query does bounded
+// work. ID_BATCH_MAX ids per call; the site's own readers split longer lists.
+describe("pages — id batch limits", () => {
+  const OWNER = {
+    subject: "id-batch-owner",
+    tokenIdentifier: "id-batch-owner",
+    name: "Id Batch Owner",
+    email: "owner@example.com",
+  }
+
+  async function snapshotSite() {
+    const t = convexTest({
+      schema,
+      modules,
+      ownerIdentity: OWNER,
+      publicationAuthority: "missing",
+    })
+    migrationsTest.register(t)
+    const owner = t.withIdentity(OWNER)
+    await owner.mutation(api.cms.publication.initializeEmptySnapshotAuthority, {})
+    const homePageId = await owner.mutation(api.cms.pages.create, {
+      pageType: "landing-page",
+      status: "draft",
+      slug: "home",
+      title: "Home",
+      content: { en: { title: "Home", blocks: [] } },
+    })
+    await t.run(async (ctx) => {
+      await ctx.db.insert("siteSettings", {
+        siteName: "Id batch",
+        siteUrl: "",
+        defaultLocale: "en",
+        enabledLocales: ["en"],
+        homePageId,
+        updatedAt: Date.now(),
+      })
+    })
+    return { t, owner }
+  }
+  type Site = Awaited<ReturnType<typeof snapshotSite>>
+
+  /** Raw page rows: valid `pages` ids that are not publicly readable. */
+  async function insertPageRows(t: Site["t"], count: number) {
+    return t.run(async (ctx) => {
+      const now = Date.now()
+      const ids: Id<"pages">[] = []
+      for (let index = 0; index < count; index += 1) {
+        ids.push(
+          await ctx.db.insert("pages", {
+            slug: `id-batch-${index}`,
+            pageType: "page",
+            status: "published",
+            createdAt: now,
+            updatedAt: now,
+            publishedAt: now,
+            content: { en: { title: `Id batch ${index}`, blocks: [] } },
+          })
+        )
+      }
+      return ids
+    })
+  }
+
+  async function createPublished(
+    site: Site,
+    slug: string,
+    parentId?: Id<"pages">
+  ) {
+    const pageId = await site.owner.mutation(api.cms.pages.create, {
+      pageType: "page",
+      status: "draft",
+      slug,
+      title: slug,
+      content: { en: { title: slug, blocks: [] } },
+      ...(parentId ? { parentId } : {}),
+    })
+    if (parentId) {
+      await site.t.run(async (ctx) => {
+        const shared = await ctx.db
+          .query("pageSharedDrafts")
+          .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+          .unique()
+        if (shared && shared.system?.parentId !== parentId) {
+          await ctx.db.patch("pageSharedDrafts", shared._id, {
+            system: { ...(shared.system ?? {}), parentId },
+          })
+        }
+      })
+    }
+    await site.owner.mutation(api.cms.publication.publishLocale, {
+      pageId,
+      locale: "en",
+      expectedDraftGeneration: 1,
+      expectedSharedDraftGeneration: 1,
+      expectedPublicGeneration: 0,
+      expectedLifecycleGeneration: 1,
+      expectedReleaseGeneration: 0,
+    })
+    return pageId
+  }
+
+  const publicArgs = (ids: Id<"pages">[]) => ({
+    languageVersion: 0,
+    ids,
+    locale: "en",
+  })
+
+  test("the cap is 50", () => {
+    expect(ID_BATCH_MAX).toBe(50)
+  })
+
+  describe.each([
+    ["getLocalizedPathsByIds", api.cms.pages.getLocalizedPathsByIds],
+    ["getPublicRelationCardsByIds", api.cms.pages.getPublicRelationCardsByIds],
+  ] as const)("%s (anonymous)", (_name, query) => {
+    test("50 distinct ids resolve", async () => {
+      const { t } = await snapshotSite()
+      const ids = await insertPageRows(t, 51)
+      await expect(
+        t.query(query, publicArgs(ids.slice(0, 50)))
+      ).resolves.toBeTypeOf("object")
+    })
+
+    test("51 distinct ids reject with TOO_MANY_IDS", async () => {
+      const { t } = await snapshotSite()
+      const ids = await insertPageRows(t, 51)
+      await expect(t.query(query, publicArgs(ids))).rejects.toThrow(
+        /TOO_MANY_IDS/
+      )
+    })
+
+    test("51 copies of one id reject with TOO_MANY_IDS", async () => {
+      const { t } = await snapshotSite()
+      const [id] = await insertPageRows(t, 1)
+      const copies = Array.from({ length: 51 }, () => id!)
+      await expect(t.query(query, publicArgs(copies))).rejects.toThrow(
+        /TOO_MANY_IDS/
+      )
+    })
+  })
+
+  describe("getRelationCardsByIds", () => {
+    test("the owner resolves 50 ids and 51 reject with TOO_MANY_IDS", async () => {
+      const site = await snapshotSite()
+      const ids = await insertPageRows(site.t, 51)
+      await expect(
+        site.owner.query(api.cms.pages.getRelationCardsByIds, {
+          ids: ids.slice(0, 50),
+          locale: "en",
+        })
+      ).resolves.toBeTypeOf("object")
+      await expect(
+        site.owner.query(api.cms.pages.getRelationCardsByIds, {
+          ids,
+          locale: "en",
+        })
+      ).rejects.toThrow(/TOO_MANY_IDS/)
+    })
+
+    test("an anonymous caller gets the auth error, not the size error", async () => {
+      const { t } = await snapshotSite()
+      const ids = await insertPageRows(t, 51)
+      await expect(
+        t.query(api.cms.pages.getRelationCardsByIds, { ids, locale: "en" })
+      ).rejects.toThrow(/UNAUTHENTICATED/)
+    })
+  })
+
+  test("getLocalizedPathsByIds returns nested snapshot paths, once per duplicate id", async () => {
+    const site = await snapshotSite()
+    const parentId = await createPublished(site, "parent")
+    const childId = await createPublished(site, "child", parentId)
+    const paths = await site.t.query(
+      api.cms.pages.getLocalizedPathsByIds,
+      publicArgs([childId, parentId, childId, parentId, childId])
+    )
+    expect(paths).toEqual({
+      [parentId]: "/parent",
+      [childId]: "/parent/child",
+    })
+  })
+
+  test("getLocalizedPathsByIds resolves 40 depth-3 pages, each with its own chain, in one call", { timeout: 60_000 }, async () => {
+    const site = await snapshotSite()
+    const leaves: Id<"pages">[] = []
+    const expected: Record<string, string> = {}
+    for (let chain = 0; chain < 40; chain += 1) {
+      const g3 = await createPublished(site, `c${chain}-great-grandparent`)
+      const g2 = await createPublished(site, `c${chain}-grandparent`, g3)
+      const g1 = await createPublished(site, `c${chain}-parent`, g2)
+      const leaf = await createPublished(site, `c${chain}-leaf`, g1)
+      leaves.push(leaf)
+      expected[leaf] =
+        `/c${chain}-great-grandparent/c${chain}-grandparent/c${chain}-parent/c${chain}-leaf`
+    }
+    const paths = await site.t.query(
+      api.cms.pages.getLocalizedPathsByIds,
+      publicArgs(leaves)
+    )
+    expect(paths).toEqual(expected)
   })
 })

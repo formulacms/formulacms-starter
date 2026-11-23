@@ -9,6 +9,15 @@ Entry format: `**Term**:` on its own line, then the definition on the lines that
 **Page**:
 A shared content identity that owns Page-wide structure and lifecycle and holds zero or more Localized Contents. A Page may be active with no published locale; publication belongs to Localized Content, never to the Page.
 _Avoid_: Document, entry, node
+_Important_ (owner, 2026-11-22): a Page is any item of any content type that has a public URL: a page, a post, a landing page, an author page, a product page, or any later routable type. It is never the same thing as the **Page content type**. When a sentence, a label, a filter or a test means one content type, write "the Page content type" (code: `pageType: "page"`). When it means everything with a public URL, write "page" or "published content". Lists offered to the owner for linking (menus, links in blocks) show published content of every routable type, never one type.
+
+**Page content type**:
+One content type among several (code: `pageType: "page"`), next to landing page, post, author and the types an owner adds. It is not the Page entity defined above.
+_Avoid_: "Pages" when every content type is meant
+
+**Menu item**:
+A link that the owner adds to a menu by hand, one by one, as in every formulacms release up to 0.3. The owner picks it from the published content in the menu's language (every routable content type) or types any other link. A menu never fills itself with content.
+_Avoid_: Dynamic list (owner, 2026-11-22: "meaningless for end user")
 
 **Home Page**:
 The single Page assigned to the site's public root. Content for each enabled locale is independent. After a Default Language Change the Home Page may have no content in the new default locale until the owner writes and publishes it; nothing is created or substituted for it.

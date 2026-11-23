@@ -64,13 +64,13 @@ test("list Publish shows the specific approved route refusal and no success", as
       kind: "taken",
       path: "/news",
       locale: "en",
-      holder: { pageId: "holder", pageType: "post", title: "News" },
+      holder: { pageId: "holder", pageType: "landing-page", title: "News" },
     })
   )
   const { result } = renderHook(() => usePageRowActions(), { wrapper })
   await act(() => result.current.publish(target))
   expect(mocks.error).toHaveBeenCalledWith(
-    "This page can’t be published: /news is already used by “News” (Post). Change the URL identifier, then try again."
+    "This page can’t be published: /news is already used by “News” (Landing page). Change the URL identifier, then try again."
   )
   expect(mocks.success).not.toHaveBeenCalled()
 })
@@ -94,11 +94,11 @@ test("list never exposes the editor-only parent refusal text", async () => {
   expect(mocks.error).toHaveBeenCalledWith(en.pages.list.toast.publishFailed)
 })
 test.each([
-  ["en", en, "Not shown on the site: translation is off for Posts."],
+  ["en", en, "Not shown on the site: translation is off for Pages."],
   [
     "fr",
     fr,
-    "Non affiché sur le site : la traduction est désactivée pour les articles.",
+    "Non affiché sur le site : la traduction est désactivée pour les pages.",
   ],
 ] as const)(
   "list Publish names the content type the translation switch hides (%s)",
@@ -114,7 +114,7 @@ test.each([
       ),
     })
     await act(() =>
-      result.current.publish({ ...target, pageType: "post", locale: "fr" })
+      result.current.publish({ ...target, pageType: "page", locale: "fr" })
     )
     expect(mocks.error).toHaveBeenCalledWith(expected)
   }

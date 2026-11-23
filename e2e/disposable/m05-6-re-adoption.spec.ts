@@ -97,7 +97,7 @@ test("M05 stage 6 re-adopts and reveals retained translations without republishi
     expect(englishBefore.noindex).toBe(true)
     await assertNotFoundWithNoindex(request, required("FR6_E2E_M05_EN_PREFIXED_PATH"))
     expect((await client.query(api.cms.modules.effective, {})).modules).toContainEqual({ id: "redirects", outcome: "on" })
-    expect(await client.query(api.cms.redirects.list, {})).toEqual(expect.arrayContaining([
+    expect((await client.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } })).page).toEqual(expect.arrayContaining([
       expect.objectContaining({ locale: "fr", fromPath: required("FR6_E2E_M05_MANUAL_FR_PATH") }),
     ]))
     expect(JSON.stringify(await client.query(api.cms.menus.getCanonical, {

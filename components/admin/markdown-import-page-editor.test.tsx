@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn(async () => []),
   refresh: vi.fn(),
   success: vi.fn(),
-  updateDraft: vi.fn(),
+  saveEditorDraft: vi.fn(),
   useMutation: vi.fn(),
   useQuery: vi.fn(),
 }))
@@ -72,10 +72,6 @@ vi.mock("@/components/providers/confirm-provider", () => ({
 
 vi.mock("./command-palette", () => ({
   useRegisterAdminCommands: vi.fn(),
-}))
-
-vi.mock("./duplicate-page-dialog", () => ({
-  DuplicatePageDialog: () => null,
 }))
 
 vi.mock("./locale-tabs", () => ({
@@ -143,11 +139,13 @@ describe("Markdown import draft handoff", () => {
     window.localStorage.clear()
     window.sessionStorage.clear()
     mocks.createPage.mockResolvedValue(pageId)
-    mocks.updateDraft.mockResolvedValue({ updatedAt: 101 })
+    mocks.saveEditorDraft.mockResolvedValue({ updatedAt: 101 })
     mocks.useMutation.mockImplementation((reference) => {
       const name = getFunctionName(reference)
       if (name === "cms/pages:create") return mocks.createPage
-      if (name === "cms/pages:updateDraft") return mocks.updateDraft
+      if (name === "cms/publication:saveEditorDraft") {
+        return mocks.saveEditorDraft
+      }
       return mocks.defaultMutation
     })
     mocks.useQuery.mockImplementation((reference) => {
@@ -212,6 +210,19 @@ describe("Markdown import draft handoff", () => {
           page={emptyImportedPage()}
           hasStaging={false}
           stagingUpdatedAt={undefined}
+          publication={{
+            authority: "snapshot_active",
+            lifecycleGeneration: 1,
+            sharedDraftGeneration: 1,
+            locales: [
+              {
+                locale: "en",
+                draftGeneration: 0,
+                publicGeneration: 0,
+                releaseGeneration: 0,
+              },
+            ],
+          }}
         />
       </StrictMode>
     )
@@ -224,11 +235,12 @@ describe("Markdown import draft handoff", () => {
     await waitFor(() => expect(readPageDraftHandoff(pageId)).toBeNull())
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
-    await waitFor(() => expect(mocks.updateDraft).toHaveBeenCalledOnce())
-    expect(mocks.updateDraft).toHaveBeenCalledWith(
+    await waitFor(() => expect(mocks.saveEditorDraft).toHaveBeenCalledOnce())
+    expect(mocks.saveEditorDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: {
-          en: expect.objectContaining({
+        localized: expect.objectContaining({
+          locale: "en",
+          draft: expect.objectContaining({
             blocks: [
               expect.objectContaining({
                 type: "rich-text-body",
@@ -238,7 +250,7 @@ describe("Markdown import draft handoff", () => {
               }),
             ],
           }),
-        },
+        }),
       })
     )
   })

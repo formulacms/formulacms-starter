@@ -925,7 +925,7 @@ function conversionSection(index: number, region: string): PanelSection {
       id,
       kind: "dynamicList",
       heading,
-      source: { pageType: "post", limit: 3 },
+      source: { pageType: "page", limit: 3 },
       seeAll: { label: { fr: "Tout", en: "All", nl: "Alles" }, target },
     }
   return {

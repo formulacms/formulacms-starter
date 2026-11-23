@@ -100,7 +100,7 @@ describe("AdminCommandPaletteProvider Content Type creation", () => {
   })
 
   test("filters archived New commands after archive state is ready", async () => {
-    mocks.archive = ["author"]
+    mocks.archive = ["page"]
     renderPalette()
 
     fireEvent.click(
@@ -108,12 +108,12 @@ describe("AdminCommandPaletteProvider Content Type creation", () => {
     )
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: /New post/i })
+        screen.getByRole("button", { name: /New landing page/i })
       ).toBeInTheDocument()
     })
 
     expect(
-      screen.queryByRole("button", { name: /New author/i })
+      screen.queryByRole("button", { name: /New page/i })
     ).not.toBeInTheDocument()
   })
 
@@ -130,7 +130,7 @@ describe("AdminCommandPaletteProvider Content Type creation", () => {
       ).toBeInTheDocument()
     })
     expect(
-      screen.queryByRole("button", { name: /New post/i })
+      screen.queryByRole("button", { name: /New landing page/i })
     ).not.toBeInTheDocument()
   })
 
@@ -157,9 +157,11 @@ describe("AdminCommandPaletteProvider Content Type creation", () => {
     const input = await screen.findByRole("textbox", {
       name: "Search commands",
     })
-    fireEvent.change(input, { target: { value: "post" } })
+    fireEvent.change(input, { target: { value: "landing" } })
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /New post/i })).toBeVisible()
+      expect(
+        screen.getByRole("button", { name: /New landing page/i })
+      ).toBeVisible()
     })
 
     const event = new KeyboardEvent("keydown", {
@@ -183,15 +185,19 @@ describe("AdminCommandPaletteProvider Content Type creation", () => {
     const input = await screen.findByRole("textbox", {
       name: "Search commands",
     })
-    fireEvent.change(input, { target: { value: "post" } })
+    fireEvent.change(input, { target: { value: "landing" } })
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /New post/i })).toBeVisible()
+      expect(
+        screen.getByRole("button", { name: /New landing page/i })
+      ).toBeVisible()
     })
 
     fireEvent.keyDown(input, { key: "Enter", isComposing: false })
 
     await waitFor(() => {
-      expect(mocks.push).toHaveBeenCalledWith("/admin/pages/new?type=post")
+      expect(mocks.push).toHaveBeenCalledWith(
+        "/admin/pages/new?type=landing-page"
+      )
     })
   })
 
@@ -223,7 +229,9 @@ describe("AdminCommandPaletteProvider Content Type creation", () => {
       screen.getByRole("button", { name: /Tableau de bord/ })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: /Nouveau contenu : article/i })
+      screen.getByRole("button", {
+        name: /Nouveau contenu : page d.atterrissage/i,
+      })
     ).toBeInTheDocument()
     expect(screen.getByText("/bonjour · publié")).toBeInTheDocument()
 

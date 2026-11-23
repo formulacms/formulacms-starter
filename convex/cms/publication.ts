@@ -3,7 +3,6 @@ import {
   occurrenceUsageInternalMutation as internalMutation,
   occurrenceUsageMutation as mutation,
 } from "../lib/publishing/staging"
-import { nextUpdatedAt } from "../lib/versions"
 import {
   writePageContent,
   writeLocaleContent,
@@ -24,6 +23,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { OwnerPrincipal } from "../lib/access/owner"
 import { requireOperationAccess } from "../lib/access/policy"
 import { contentTypeDefs, isActiveContentType } from "../lib/contentTypes"
+import type { DescriptorFieldMap } from "../lib/contentTypes/types"
 import { contentDraftInputValidator } from "../lib/domains/contentModel"
 import {
   validateFieldMapRichText,
@@ -46,7 +46,6 @@ import {
   runPublicationContributions,
 } from "../lib/publishing/publicationContributions"
 import {
-  assertLegacyPublicationWriterBlocked,
   currentSnapshotIndexFields,
   readFrozenSnapshotProjection,
   readHiddenTargetSnapshotProjection,
@@ -116,7 +115,6 @@ import {
   type LocalePublicationAncestryItem,
   type LocalePublicationCandidatePayload,
 } from "../lib/publishing/localeCandidate"
-import { LEGACY_SNAPSHOT_MIGRATION_INSTALLED } from "../lib/publishing/legacyMigration"
 import {
   PAGE_PURGE_MAX_BATCH_ITEMS,
   PAGE_PURGE_PHASES,
@@ -129,9 +127,6 @@ import {
   readPagePurgeMarker,
   runPurgeBatch,
 } from "../lib/publishing/pagePurge"
-import { overlayStagingOnPage } from "../lib/publishing/staging"
-import { resolveEffectiveHomePageId } from "../lib/pages/home"
-import { homeSlugsForLocale } from "../../lib/pages/home-aliases"
 
 export const getSnapshotAuthorityForSeed = internalQuery({
   args: {},
@@ -444,14 +439,14 @@ export async function snapshotAdminPageRow(
 
 export const getAdminAuthority = query({
   args: {},
-  returns: v.union(
-    v.literal("legacy"),
-    v.literal("snapshot_active"),
-    v.literal("invalid")
-  ),
+  returns: v.union(v.literal("snapshot_active"), v.literal("invalid")),
   handler: async (ctx) => {
     await requireOperationAccess(ctx)
-    return readPublicationAuthority(ctx)
+    // Fresh installs only run the snapshot path. Any other phase, including
+    // the old `legacy`, `preparing` and `ready` phases, is not usable.
+    return (await readPublicationAuthority(ctx)) === "snapshot_active"
+      ? ("snapshot_active" as const)
+      : ("invalid" as const)
   },
 })
 
@@ -964,6 +959,31 @@ function mergeRecord(
   patch: Record<string, unknown>
 ): Record<string, unknown> {
   return { ...current, ...patch }
+}
+
+/** JSON null clears only declared optional fields; omitted fields keep their value. */
+function mergeSharedDescriptor(
+  current: Record<string, unknown>,
+  patch: Record<string, unknown>,
+  fields: DescriptorFieldMap,
+  options: WriteOptions
+): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  const next = { ...current }
+  for (const [key, value] of Object.entries(patch)) {
+    const field = fields[key]
+    if (!field) throw new ConvexError("SHARED_FIELD_INVALID")
+    if (value === null) {
+      if (field.validator.isOptional !== "optional")
+        throw new ConvexError("SHARED_FIELD_REQUIRED")
+      delete next[key]
+    } else {
+      values[key] = value
+    }
+  }
+  const written = writeFieldMap(fields, values, options)
+  validateFieldMapRichText(fields, written)
+  return { ...next, ...written }
 }
 
 async function clearSourceReferences(
@@ -1718,13 +1738,6 @@ export async function initializeEmptySnapshotAuthorityForOwner(
     ctx.db.query("pageRevisions").take(1),
     ctx.db.query("pagePresence").take(1),
     ctx.db.query("pageEditorLocks").take(1),
-    ctx.db.query("pagePublicationStates").take(1),
-    ctx.db.query("pagePublicationCandidates").take(1),
-    ctx.db.query("pagePublicationReleases").take(1),
-    ctx.db.query("pagePublicationExpiries").take(1),
-    ctx.db.query("pageCandidateDocumentReferences").take(1),
-    ctx.db.query("pageCandidateMediaReferences").take(1),
-    ctx.db.query("pageCandidateBlockReferences").take(1),
     ctx.db.query("documentReferences").take(1),
     ctx.db.query("mediaReferences").take(1),
     ctx.db.query("pagePublicationPageStates").take(1),
@@ -1739,7 +1752,6 @@ export async function initializeEmptySnapshotAuthorityForOwner(
     ctx.db.query("pagePublicationBlockReferences").take(1),
     ctx.db.query("pageHistoricalLocaleRoutes").take(1),
     ctx.db.query("pagePublicationRevalidationIntents").take(1),
-    ctx.db.query("pagePublicationMigrationPages").take(1),
     ctx.db.query("pagePublicationPreviewSessions").take(1),
   ])
   if (retainedFamilies.some((rows) => rows.length > 0)) {
@@ -1771,1462 +1783,6 @@ export const initializeEmptySnapshotAuthority = mutation({
     const owner = await requireOperationAccess(ctx)
     void owner
     return initializeEmptySnapshotAuthorityForOwner(ctx)
-  },
-})
-
-async function cutoverSingleton(ctx: PublicationCtx) {
-  const rows = await ctx.db
-    .query("pagePublicationCutover")
-    .withIndex("by_key", (q) => q.eq("key", "published-snapshot-v1"))
-    .take(2)
-  if (rows.length !== 1)
-    throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
-  return rows[0]!
-}
-
-function sharedParts(page: Doc<"pages">) {
-  const descriptor = contentTypeDefs[page.pageType]
-  const record = page as unknown as Record<string, unknown>
-  const sharedDescriptor: Record<string, unknown> = {}
-  // Cutover only: the old shared shape, including a moved field (post category).
-  for (const key of Object.keys(descriptor.sharedValidator.fields)) {
-    if (record[key] !== undefined) sharedDescriptor[key] = record[key]
-  }
-  const system: Record<string, unknown> = {}
-  for (const key of [
-    "seo",
-    "template",
-    "parentId",
-    "siblingOrder",
-    "showOnHomepage",
-    "displayMode",
-    "cardImageMediaId",
-    "cardExcerpt",
-  ])
-    if (record[key] !== undefined) system[key] = record[key]
-  return { system, descriptor: sharedDescriptor }
-}
-
-async function integrityDigest(value: unknown): Promise<string> {
-  return digestLocalePublicationCandidate(canonicalJson(value))
-}
-
-const LEGACY_STAGING_CLEANUP_BATCH = 64
-
-/**
- * F08c post-cutover cleanup of retained legacy `pageStaging` rows. It runs
- * only in the snapshot epoch of the activated migration run, whose closure
- * digest already bound every manifest's successor artifact digest. A row is
- * deleted only while it still reproduces its manifest's exact
- * `sourceStagingDigest`; drifted or duplicate rows are retained. Pages, drafts
- * and successor artifacts are never touched, and no locale command calls it.
- */
-export const cleanupMigratedLegacyStaging = internalMutation({
-  args: { cursor: v.optional(v.union(v.string(), v.null())) },
-  returns: v.object({
-    scanned: v.number(),
-    deleted: v.number(),
-    retained: v.number(),
-    hasMore: v.boolean(),
-  }),
-  handler: async (
-    ctx,
-    { cursor }
-  ): Promise<{
-    scanned: number
-    deleted: number
-    retained: number
-    hasMore: boolean
-  }> => {
-    const idle = { scanned: 0, deleted: 0, retained: 0, hasMore: false }
-    const cutovers = await ctx.db
-      .query("pagePublicationCutover")
-      .withIndex("by_key", (q) => q.eq("key", "published-snapshot-v1"))
-      .take(2)
-    if (cutovers.length > 1) {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
-    }
-    const cutover = cutovers[0]
-    if (
-      !cutover ||
-      cutover.phase !== "snapshot_active" ||
-      cutover.migrationRunId === undefined
-    ) {
-      return idle
-    }
-    if (cutover.closureDigest === undefined) {
-      throw new ConvexError("PUBLICATION_MIGRATION_CLOSURE_REQUIRED")
-    }
-    const migrationRunId = cutover.migrationRunId
-    if (cutover.cleanupStartedAt === undefined) {
-      await ctx.db.patch("pagePublicationCutover", cutover._id, { cleanupStartedAt: Date.now() })
-    }
-    const manifests = await ctx.db
-      .query("pagePublicationMigrationPages")
-      .withIndex("by_run_and_pageId", (q) =>
-        q.eq("migrationRunId", migrationRunId)
-      )
-      .paginate({
-        numItems: LEGACY_STAGING_CLEANUP_BATCH,
-        cursor: cursor ?? null,
-      })
-    let deleted = 0
-    let retained = 0
-    for (const manifest of manifests.page) {
-      if (!manifest.sourceStagingDigest || !manifest.successorArtifactDigest) {
-        continue
-      }
-      const staging = await ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", manifest.pageId))
-        .take(2)
-      const row = staging[0]
-      if (!row) continue
-      if (
-        staging.length !== 1 ||
-        (await integrityDigest(row)) !== manifest.sourceStagingDigest
-      ) {
-        retained += 1
-        continue
-      }
-      await occurrenceUsageWrites(ctx).delete("pageStaging", row._id)
-      deleted += 1
-    }
-    if (!manifests.isDone) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.cms.publication.cleanupMigratedLegacyStaging,
-        { cursor: manifests.continueCursor }
-      )
-    }
-    return {
-      scanned: manifests.page.length,
-      deleted,
-      retained,
-      hasMore: !manifests.isDone,
-    }
-  },
-})
-
-/**
- * FR2.0 rev1 §3.2: the legacy migration exports refuse before auth, reads or
- * writes when the installation ships without the legacy migration.
- */
-function assertLegacySnapshotMigrationInstalled(): void {
-  if (!LEGACY_SNAPSHOT_MIGRATION_INSTALLED) {
-    throw new ConvexError("LEGACY_SNAPSHOT_MIGRATION_NOT_INSTALLED")
-  }
-}
-
-/** Install the explicit legacy epoch on an existing installation. */
-export const initializeLegacySnapshotAuthority = mutation({
-  args: {},
-  returns: v.object({ phase: v.literal("legacy"), revision: v.number() }),
-  handler: async (ctx) => {
-    assertLegacySnapshotMigrationInstalled()
-    await requireOperationAccess(ctx)
-    const rows = await ctx.db
-      .query("pagePublicationCutover")
-      .withIndex("by_key", (q) => q.eq("key", "published-snapshot-v1"))
-      .take(2)
-    if (rows.length > 1)
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
-    if (rows.length === 1) {
-      if (rows[0]!.phase !== "legacy")
-        throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_ALREADY_INITIALIZED")
-      return { phase: "legacy" as const, revision: rows[0]!.revision }
-    }
-    await ctx.db.insert("pagePublicationCutover", {
-      key: "published-snapshot-v1",
-      phase: "legacy",
-      revision: 1,
-      updatedAt: Date.now(),
-    })
-    return { phase: "legacy" as const, revision: 1 }
-  },
-})
-
-/** Freeze the effective legacy home identity before migration preparation. */
-export const normalizeLegacyHomeIdentity = mutation({
-  args: { expectedSettingsUpdatedAt: v.number() },
-  returns: v.object({
-    homePageId: v.id("pages"),
-    settingsUpdatedAt: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    assertLegacySnapshotMigrationInstalled()
-    await requireOperationAccess(ctx)
-    await assertLegacyPublicationWriterBlocked(
-      ctx,
-      "publication.normalizeLegacyHomeIdentity"
-    )
-    const settingsRows = await ctx.db.query("siteSettings").take(2)
-    if (
-      settingsRows.length !== 1 ||
-      settingsRows[0]!.updatedAt !== args.expectedSettingsUpdatedAt
-    ) {
-      throw new ConvexError("PUBLICATION_HOME_CONFIGURATION_STALE")
-    }
-    const settings = settingsRows[0]!
-    const effective = await resolveEffectiveHomePageId(ctx, settings.homePageId)
-    if (!effective) throw new ConvexError("PUBLICATION_HOME_REQUIRED")
-    const settingsUpdatedAt = nextUpdatedAt(settings.updatedAt, Date.now())
-    await ctx.db.patch("siteSettings", settings._id, {
-      homePageId: effective,
-      updatedAt: settingsUpdatedAt,
-    })
-    return { homePageId: effective, settingsUpdatedAt }
-  },
-})
-
-export const beginSnapshotMigration = mutation({
-  args: { migrationRunId: v.string(), expectedRevision: v.number() },
-  returns: v.object({
-    migrationRunId: v.string(),
-    expectedPageCount: v.number(),
-    revision: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    assertLegacySnapshotMigrationInstalled()
-    await requireOperationAccess(ctx)
-    const row = await cutoverSingleton(ctx)
-    if (
-      row.phase !== "legacy" ||
-      row.revision !== args.expectedRevision ||
-      !args.migrationRunId.trim()
-    ) {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_STALE")
-    }
-    const settingsRows = await ctx.db.query("siteSettings").take(2)
-    if (settingsRows.length !== 1 || !settingsRows[0]!.homePageId) {
-      throw new ConvexError("PUBLICATION_HOME_NOT_NORMALIZED")
-    }
-    if (
-      (await resolveEffectiveHomePageId(ctx, settingsRows[0]!.homePageId)) !==
-      settingsRows[0]!.homePageId
-    ) {
-      throw new ConvexError("PUBLICATION_HOME_NOT_NORMALIZED")
-    }
-    const revision = row.revision + 1
-    await ctx.db.patch("pagePublicationCutover", row._id, {
-      phase: "preparing",
-      revision,
-      migrationRunId: args.migrationRunId,
-      expectedPageCount: 0,
-      preparedPageCount: 0,
-      closurePhase: "manifests",
-      closureCursor: undefined,
-      closurePageCount: 0,
-      closureRollingDigest: undefined,
-      closureDigest: undefined,
-      updatedAt: Date.now(),
-    })
-    return {
-      migrationRunId: args.migrationRunId,
-      expectedPageCount: 0,
-      revision,
-    }
-  },
-})
-
-/** Bounded source inventory. Call until `isDone` before preparing Pages. */
-export const scanSnapshotMigrationSources = mutation({
-  args: { migrationRunId: v.string(), expectedRevision: v.number() },
-  returns: v.object({
-    scanned: v.number(),
-    expectedPageCount: v.number(),
-    isDone: v.boolean(),
-  }),
-  handler: async (ctx, args) => {
-    assertLegacySnapshotMigrationInstalled()
-    await requireOperationAccess(ctx)
-    const cutover = await cutoverSingleton(ctx)
-    if (
-      cutover.phase !== "preparing" ||
-      cutover.migrationRunId !== args.migrationRunId ||
-      cutover.revision !== args.expectedRevision ||
-      cutover.closurePhase !== "manifests"
-    ) {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_STALE")
-    }
-    const batch = await ctx.db.query("pages").paginate({
-      numItems: 64,
-      cursor: cutover.closureCursor ?? null,
-    })
-    const expectedPageCount =
-      (cutover.expectedPageCount ?? 0) + batch.page.length
-    await ctx.db.patch("pagePublicationCutover", cutover._id, {
-      expectedPageCount,
-      ...(batch.isDone
-        ? { closurePhase: "routes" as const, closureCursor: undefined }
-        : { closureCursor: batch.continueCursor }),
-      updatedAt: Date.now(),
-    })
-    return {
-      scanned: batch.page.length,
-      expectedPageCount,
-      isDone: batch.isDone,
-    }
-  },
-})
-
-async function preparedAncestry(
-  ctx: MutationCtx,
-  parentId: Id<"pages"> | undefined,
-  locale: string
-): Promise<LocalePublicationAncestryItem[]> {
-  if (!parentId) return []
-  const stateRows = await ctx.db
-    .query("pageLocalePublicationStates")
-    .withIndex("by_pageId_and_locale", (q) =>
-      q.eq("pageId", parentId).eq("locale", locale)
-    )
-    .take(2)
-  if (stateRows.length !== 1 || !stateRows[0]!.currentSnapshotId) {
-    throw new ConvexError("PUBLICATION_MIGRATION_PARENT_NOT_PREPARED")
-  }
-  const state = stateRows[0]!
-  const snapshotId = state.currentSnapshotId
-  if (!snapshotId)
-    throw new ConvexError("PUBLICATION_MIGRATION_PARENT_NOT_PREPARED")
-  const snapshot = await ctx.db.get("pagePublishedSnapshots", snapshotId)
-  const candidate = snapshot ? await ctx.db.get("pageLocalePublicationCandidates", snapshot.candidateId) : null
-  const payload = candidate
-    ? await reconstructLocalePublicationCandidate(candidate)
-    : null
-  if (!snapshot || !payload || payload.route.kind !== "routable") {
-    throw new ConvexError("PUBLICATION_MIGRATION_PARENT_NOT_PREPARED")
-  }
-  const localized = payload.localized.content
-  const title =
-    typeof localized.title === "string"
-      ? localized.title
-      : typeof payload.shared.descriptor.name === "string"
-        ? payload.shared.descriptor.name
-        : typeof payload.shared.descriptor.personName === "string"
-          ? payload.shared.descriptor.personName
-          : ""
-  return [
-    ...payload.route.ancestry,
-    {
-      pageId: String(parentId),
-      snapshotId: String(snapshot._id),
-      publicGeneration: snapshot.generation,
-      title,
-      canonicalPath: payload.route.canonicalPath,
-    },
-  ]
-}
-
-/** Prepare exactly one legacy Page without mutating its legacy row or staging. */
-export const prepareSnapshotMigrationPage = mutation({
-  args: { migrationRunId: v.string(), pageId: v.id("pages") },
-  returns: v.object({ pageId: v.id("pages"), prepared: v.boolean() }),
-  handler: async (ctx, args) => {
-    assertLegacySnapshotMigrationInstalled()
-    await requireOperationAccess(ctx)
-    const cutover = await cutoverSingleton(ctx)
-    if (
-      cutover.phase !== "preparing" ||
-      cutover.migrationRunId !== args.migrationRunId ||
-      cutover.closurePhase !== "routes"
-    ) {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_MIGRATION_NOT_PREPARING")
-    }
-    const existingManifest = await ctx.db
-      .query("pagePublicationMigrationPages")
-      .withIndex("by_pageId_and_run", (q) =>
-        q.eq("pageId", args.pageId).eq("migrationRunId", args.migrationRunId)
-      )
-      .take(2)
-    if (existingManifest.length > 1)
-      throw new ConvexError("PUBLICATION_MIGRATION_MANIFEST_INVALID")
-    if (existingManifest.length === 1)
-      return { pageId: args.pageId, prepared: false }
-    const page = await ctx.db.get("pages", args.pageId)
-    if (!page || !isActiveContentType(page.pageType))
-      throw new ConvexError("PUBLICATION_MIGRATION_PAGE_INVALID")
-    const [
-      stagingRows,
-      settingsRows,
-      oldStates,
-      oldCandidates,
-      oldReleases,
-      oldExpiries,
-    ] = await Promise.all([
-      ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", args.pageId))
-        .take(2),
-      ctx.db.query("siteSettings").take(2),
-      ctx.db
-        .query("pagePublicationStates")
-        .withIndex("by_pageId", (q) => q.eq("pageId", args.pageId))
-        .take(2),
-      ctx.db
-        .query("pagePublicationCandidates")
-        .withIndex("by_pageId", (q) => q.eq("pageId", args.pageId))
-        .take(513),
-      ctx.db
-        .query("pagePublicationReleases")
-        .withIndex("by_pageId", (q) => q.eq("pageId", args.pageId))
-        .take(513),
-      ctx.db
-        .query("pagePublicationExpiries")
-        .withIndex("by_pageId", (q) => q.eq("pageId", args.pageId))
-        .take(513),
-    ])
-    if (
-      stagingRows.length > 1 ||
-      settingsRows.length !== 1 ||
-      oldStates.length > 1 ||
-      oldCandidates.length > 512 ||
-      oldReleases.length > 512 ||
-      oldExpiries.length > 512
-    ) {
-      throw new ConvexError("PUBLICATION_MIGRATION_SOURCE_INVALID")
-    }
-    if (
-      oldReleases.some(
-        (row) => row.status === "pending" || row.status === "held"
-      ) ||
-      oldExpiries.some(
-        (row) => row.status === "pending" || row.status === "held"
-      )
-    ) {
-      throw new ConvexError("PUBLICATION_MIGRATION_IN_FLIGHT_RELEASE")
-    }
-    const settings = settingsRows[0]!
-    if (!settings.homePageId || !settings.enabledLocales?.length) {
-      throw new ConvexError("PUBLICATION_MIGRATION_LOCALE_CONFIG_INVALID")
-    }
-    const sourcePageDigest = await integrityDigest(page)
-    const sourceStagingDigest = stagingRows[0]
-      ? await integrityDigest(stagingRows[0])
-      : undefined
-    const sourcePageWidePublicationDigest = await integrityDigest({
-      oldStates,
-      oldCandidates,
-      oldReleases,
-      oldExpiries,
-    })
-    const sourceLocaleHomeConfigDigest = await integrityDigest({
-      defaultLocale: settings.defaultLocale,
-      enabledLocales: settings.enabledLocales,
-      homePageId: settings.homePageId,
-    })
-    const effective = overlayStagingOnPage(page, stagingRows[0] ?? null)
-    const effectiveContent = (effective.content ?? {}) as Record<
-      string,
-      Record<string, unknown>
-    >
-    // Inspect both retained source bags before initializing or freezing any
-    // successor content. Staging cannot conceal malformed live metadata.
-    await assertBlockMutationIntegrity(
-      ctx,
-      diffBlockMutations(effectiveContent as never, effectiveContent as never),
-      {
-        existingContent: page.content,
-        content: effectiveContent,
-        operation: "restore",
-      }
-    )
-    await initializeSuccessorPage(
-      ctx,
-      effective,
-      { kind: "migration", migrationRunId: args.migrationRunId },
-      effectiveContent
-    )
-    const pageState = await onePageState(ctx, page._id)
-    const sharedDraft = await oneSharedDraft(ctx, page._id)
-    const localeStates = await ctx.db
-      .query("pageLocalePublicationStates")
-      .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
-      .take(513)
-    const localeDrafts = await Promise.all(
-      localeStates.map(async (state) => {
-        const rows = await ctx.db
-          .query("pageLocaleDrafts")
-          .withIndex("by_pageId_and_locale", (q) =>
-            q.eq("pageId", page._id).eq("locale", state.locale)
-          )
-          .take(2)
-        if (rows.length !== 1)
-          throw new ConvexError("PUBLICATION_MIGRATION_DRAFT_INVALID")
-        return rows[0]!
-      })
-    )
-    const candidateIds: Id<"pageLocalePublicationCandidates">[] = []
-    const releaseIds: Id<"pageLocalePublicationReleases">[] = []
-    const snapshotIds: Id<"pagePublishedSnapshots">[] = []
-    let historicalRouteCount = 0
-    const migrationAttribution = {
-      kind: "migration" as const,
-      migrationRunId: args.migrationRunId,
-    }
-    const rawShared = sharedParts(page)
-    if (page.status === "published" && page.deletedAt === undefined) {
-      for (const [locale, localizedValue] of Object.entries(
-        page.content ?? {}
-      )) {
-        if (
-          !settings.enabledLocales.includes(locale) ||
-          !isRecord(localizedValue)
-        )
-          continue
-        const state = localeStates.find((row) => row.locale === locale)
-        const draft = localeDrafts.find((row) => row.locale === locale)
-        if (!state || !draft)
-          throw new ConvexError("PUBLICATION_MIGRATION_DRAFT_INVALID")
-        const ancestry = await preparedAncestry(
-          ctx,
-          rawShared.system.parentId as Id<"pages"> | undefined,
-          locale
-        )
-        const slug =
-          locale === settings.defaultLocale
-            ? page.slug
-            : (page.localizedSlugs?.[locale] ?? page.slug)
-        const path = !isRoutableContentType(page.pageType)
-          ? null
-          : settings.homePageId === page._id
-            ? "/"
-            : buildLocaleRelativePath({
-                pageType: page.pageType,
-                slug,
-                ancestry: ancestry.at(-1)?.canonicalPath,
-              })
-        const payload = buildPayload(
-          page,
-          rawShared,
-          locale,
-          slug,
-          localizedValue as Record<string, unknown>,
-          path,
-          ancestry,
-          { keepLegacyShared: true }
-        )
-        const serialized = serializeLocalePublicationCandidate(payload)
-        const digest = await digestLocalePublicationCandidate(
-          serialized.payloadJson
-        )
-        const now = Date.now()
-        const candidateId = await occurrenceUsageWrites(ctx).insert(
-          "pageLocalePublicationCandidates",
-          {
-            pageId: page._id,
-            locale,
-            pageType: page.pageType,
-            sourceDraftGeneration: draft.generation,
-            sourceSharedDraftGeneration: sharedDraft.generation,
-            sourcePublicGeneration: 0,
-            sourceLifecycleGeneration: pageState.lifecycleGeneration,
-            attribution: migrationAttribution,
-            formatVersion: 1,
-            ...serialized,
-            digest,
-            createdAt: now,
-          }
-        )
-        const releaseId = await ctx.db.insert("pageLocalePublicationReleases", {
-          pageId: page._id,
-          locale,
-          candidateId,
-          generation: 1,
-          expectedPublicGeneration: 0,
-          expectedLifecycleGeneration: pageState.lifecycleGeneration,
-          executeAt: now,
-          status: "published",
-          attribution: migrationAttribution,
-          createdAt: now,
-          updatedAt: now,
-        })
-        if (path !== null)
-          refusePageAddress(
-            await checkPageAddress(ctx, {
-              pageId: page._id,
-              pageType: page.pageType,
-              locale,
-              slug: draft.slug,
-              parentId: sharedDraft.system.parentId,
-              homePageId: settings.homePageId,
-              path,
-            }),
-            "migration"
-          )
-        const snapshotId = await occurrenceUsageWrites(ctx).insert(
-          "pagePublishedSnapshots",
-          {
-            pageId: page._id,
-            locale,
-            generation: 1,
-            candidateId,
-            candidateDigest: digest,
-            sourceDraftGeneration: draft.generation,
-            sourceSharedDraftGeneration: sharedDraft.generation,
-            sourcePublicGeneration: 0,
-            sourceLifecycleGeneration: pageState.lifecycleGeneration,
-            releaseId,
-            publishedAt: now,
-            attribution: migrationAttribution,
-          }
-        )
-        await ctx.db.patch("pageLocalePublicationReleases", releaseId, {
-          publishedSnapshotId: snapshotId,
-          publishedAt: now,
-          updatedAt: now,
-        })
-        const source = {
-          _id: page._id,
-          _creationTime: page._creationTime,
-          pageType: page.pageType,
-          ...rawShared.descriptor,
-          ...rawShared.system,
-          slug,
-          status: "published",
-          content: { [locale]: localizedValue },
-          updatedAt: now,
-          publishedAt: now,
-        } as unknown as Doc<"pages">
-        await writeReferences(
-          ctx,
-          source,
-          page._id,
-          locale,
-          "candidate",
-          candidateId,
-          draft.generation,
-          digest,
-          now,
-          ancestry,
-          false
-        )
-        await writeReferences(
-          ctx,
-          source,
-          page._id,
-          locale,
-          "current_public",
-          snapshotId,
-          1,
-          undefined,
-          now,
-          ancestry,
-          false
-        )
-        await occurrenceUsageWrites(ctx).patch("pageLocalePublicationStates", state._id, {
-          draftBaseSnapshotId: snapshotId,
-          publicGeneration: 1,
-          releaseGeneration: 1,
-          currentReleaseId: undefined,
-          currentSnapshotId: snapshotId,
-          hasCurrentSnapshot: true,
-          ...currentSnapshotIndexFields(state, {
-            pageType: page.pageType,
-            firstPublicAt: page.publishedAt ?? state.currentPublishedAt,
-          }),
-          ...(path === null
-            ? { currentPath: undefined }
-            : { currentPath: path }),
-          currentPublishedAt: now,
-          updatedAt: now,
-        })
-        if (settings.homePageId === page._id && path === "/") {
-          for (const alias of homeSlugsForLocale(
-            locale,
-            settings.defaultLocale
-          )) {
-            const fromPath = `/${alias}`
-            const [currentOwners, historicalOwners] = await Promise.all([
-              ctx.db
-                .query("pageLocalePublicationStates")
-                .withIndex("by_locale_and_currentPath", (q) =>
-                  q.eq("locale", locale).eq("currentPath", fromPath)
-                )
-                .take(2),
-              ctx.db
-                .query("pageHistoricalLocaleRoutes")
-                .withIndex("by_locale_and_fromPath", (q) =>
-                  q.eq("locale", locale).eq("fromPath", fromPath)
-                )
-                .take(2),
-            ])
-            if (currentOwners.length > 0 || historicalOwners.length > 0) {
-              throw new ConvexError("PUBLICATION_MIGRATION_HOME_ALIAS_CONFLICT")
-            }
-            await ctx.db.insert("pageHistoricalLocaleRoutes", {
-              pageId: page._id,
-              locale,
-              fromPath,
-              createdFromSnapshotId: snapshotId,
-              createdAt: now,
-            })
-            historicalRouteCount += 1
-          }
-        }
-        candidateIds.push(candidateId)
-        releaseIds.push(releaseId)
-        snapshotIds.push(snapshotId)
-      }
-    }
-    // Prepare and finalize must count through the same bounded helper, or the
-    // successor artifact digest comparison drifts.
-    const workingReferenceCount = await countWorkingPageReferences(
-      ctx,
-      page._id
-    )
-    const candidateReferenceCount = await countPageReferences(
-      ctx,
-      page._id,
-      "candidate"
-    )
-    const publicReferenceCount = await countPageReferences(
-      ctx,
-      page._id,
-      "current_public"
-    )
-    const successorArtifactDigest = await integrityDigest({
-      pageStateId: pageState._id,
-      sharedDraftId: sharedDraft._id,
-      localeDraftIds: localeDrafts.map((row) => row._id),
-      localeStateIds: localeStates.map((row) => row._id),
-      candidateIds,
-      releaseIds,
-      snapshotIds,
-      workingReferenceCount,
-      candidateReferenceCount,
-      publicReferenceCount,
-      historicalRouteCount,
-    })
-    await ctx.db.insert("pagePublicationMigrationPages", {
-      pageId: page._id,
-      migrationRunId: args.migrationRunId,
-      sourcePageDigest,
-      ...(sourceStagingDigest ? { sourceStagingDigest } : {}),
-      sourcePageWidePublicationDigest,
-      sourceLocaleHomeConfigDigest,
-      pageStateId: pageState._id,
-      sharedDraftId: sharedDraft._id,
-      localeDraftIds: localeDrafts.map((row) => row._id),
-      localeStateIds: localeStates.map((row) => row._id),
-      candidateIds,
-      releaseIds,
-      snapshotIds,
-      workingReferenceCount,
-      candidateReferenceCount,
-      publicReferenceCount,
-      successorArtifactDigest,
-      preparedAt: Date.now(),
-    })
-    await ctx.db.patch("pagePublicationCutover", cutover._id, {
-      preparedPageCount: (cutover.preparedPageCount ?? 0) + 1,
-      updatedAt: Date.now(),
-    })
-    return { pageId: args.pageId, prepared: true }
-  },
-})
-
-async function countPageReferences(
-  ctx: MutationCtx,
-  pageId: Id<"pages">,
-  sourceKind: "shared_draft" | "locale_draft" | "candidate" | "current_public"
-): Promise<number> {
-  const [documents, media, blocks] = await Promise.all([
-    ctx.db
-      .query("pagePublicationDocumentReferences")
-      .withIndex("by_pageId_and_sourceKind", (q) =>
-        q.eq("pageId", pageId).eq("sourceKind", sourceKind)
-      )
-      .take(513),
-    ctx.db
-      .query("pagePublicationMediaReferences")
-      .withIndex("by_pageId_and_sourceKind", (q) =>
-        q.eq("pageId", pageId).eq("sourceKind", sourceKind)
-      )
-      .take(513),
-    ctx.db
-      .query("pagePublicationBlockReferences")
-      .withIndex("by_pageId_and_sourceKind", (q) =>
-        q.eq("pageId", pageId).eq("sourceKind", sourceKind)
-      )
-      .take(513),
-  ])
-  if (documents.length > 512 || media.length > 512 || blocks.length > 512)
-    throw new ConvexError("PUBLICATION_REFERENCE_LIMIT")
-  return documents.length + media.length + blocks.length
-}
-
-async function countWorkingPageReferences(
-  ctx: MutationCtx,
-  pageId: Id<"pages">
-): Promise<number> {
-  return (
-    (await countPageReferences(ctx, pageId, "shared_draft")) +
-    (await countPageReferences(ctx, pageId, "locale_draft"))
-  )
-}
-
-function sameIds(
-  actual: readonly { _id: string }[],
-  expected: readonly string[]
-): boolean {
-  return (
-    actual
-      .map((row) => String(row._id))
-      .sort()
-      .join("\0") === expected.map(String).sort().join("\0")
-  )
-}
-
-async function verifyMigrationPublicReferences(
-  ctx: MutationCtx,
-  manifest: Doc<"pagePublicationMigrationPages">
-): Promise<void> {
-  const candidateIds = new Set(manifest.candidateIds.map(String))
-  const snapshotIds = new Set(manifest.snapshotIds.map(String))
-  for (const sourceKind of ["candidate", "current_public"] as const) {
-    const [documents, media, blocks] = await Promise.all([
-      ctx.db
-        .query("pagePublicationDocumentReferences")
-        .withIndex("by_pageId_and_sourceKind", (q) =>
-          q.eq("pageId", manifest.pageId).eq("sourceKind", sourceKind)
-        )
-        .take(513),
-      ctx.db
-        .query("pagePublicationMediaReferences")
-        .withIndex("by_pageId_and_sourceKind", (q) =>
-          q.eq("pageId", manifest.pageId).eq("sourceKind", sourceKind)
-        )
-        .take(513),
-      ctx.db
-        .query("pagePublicationBlockReferences")
-        .withIndex("by_pageId_and_sourceKind", (q) =>
-          q.eq("pageId", manifest.pageId).eq("sourceKind", sourceKind)
-        )
-        .take(513),
-    ])
-    if (documents.length > 512 || media.length > 512 || blocks.length > 512) {
-      throw new ConvexError("PUBLICATION_MIGRATION_ARTIFACT_DRIFT")
-    }
-    const expectedSources =
-      sourceKind === "candidate" ? candidateIds : snapshotIds
-    for (const ref of [...documents, ...media, ...blocks]) {
-      if (
-        ref.sourceKind !== sourceKind ||
-        !("locale" in ref) ||
-        !expectedSources.has(String(ref.sourceId)) ||
-        !ref.locale
-      ) {
-        throw new ConvexError("PUBLICATION_MIGRATION_ARTIFACT_DRIFT")
-      }
-    }
-    for (const ref of documents) {
-      if (
-        ref.sourceKind !== sourceKind ||
-        !("locale" in ref) ||
-        ref.targetLocale !== ref.locale
-      ) {
-        throw new ConvexError("PUBLICATION_MIGRATION_REFERENCE_INVALID")
-      }
-      const locale = ref.locale
-      const [targetStates, targetPageStates] = await Promise.all([
-        ctx.db
-          .query("pageLocalePublicationStates")
-          .withIndex("by_pageId_and_locale", (q) =>
-            q.eq("pageId", ref.targetId).eq("locale", locale)
-          )
-          .take(2),
-        ctx.db
-          .query("pagePublicationPageStates")
-          .withIndex("by_pageId", (q) => q.eq("pageId", ref.targetId))
-          .take(2),
-      ])
-      const targetState = targetStates.length === 1 ? targetStates[0]! : null
-      if (
-        !targetState?.hasCurrentSnapshot ||
-        !targetState.currentSnapshotId ||
-        targetPageStates.length !== 1 ||
-        targetPageStates[0]!.lifecycleState !== "active" ||
-        !(await readFrozenSnapshotProjection(
-          ctx,
-          targetState.currentSnapshotId,
-          ref.targetId,
-          locale
-        ))
-      ) {
-        throw new ConvexError("PUBLICATION_MIGRATION_REFERENCE_INVALID")
-      }
-    }
-    for (const ref of media) {
-      const mediaRow = await ctx.db.get("media", ref.mediaId)
-      if (
-        !mediaRow ||
-        mediaRow.storageId !== ref.storageId ||
-        !(await ctx.db.system.get("_storage", ref.storageId))
-      ) {
-        throw new ConvexError("PUBLICATION_MIGRATION_REFERENCE_INVALID")
-      }
-    }
-  }
-}
-
-async function countHistoricalRoutesForSnapshots(
-  ctx: MutationCtx,
-  snapshotIds: readonly Id<"pagePublishedSnapshots">[]
-): Promise<number> {
-  let count = 0
-  for (const snapshotId of snapshotIds) {
-    const rows = await ctx.db
-      .query("pageHistoricalLocaleRoutes")
-      .withIndex("by_createdFromSnapshotId", (q) =>
-        q.eq("createdFromSnapshotId", snapshotId)
-      )
-      .take(513)
-    if (rows.length > 512) throw new ConvexError("PUBLICATION_REFERENCE_LIMIT")
-    count += rows.length
-  }
-  return count
-}
-
-function isMigrationAttribution(value: unknown, migrationRunId: string) {
-  return (
-    isRecord(value) &&
-    value.kind === "migration" &&
-    value.migrationRunId === migrationRunId
-  )
-}
-
-/**
- * Proves a migration manifest names exactly the successor fan-out owned by its
- * Page and run: each family matches the Page index in both directions, every
- * row keeps this run's attribution and in-manifest linkage, and the bounded
- * recount reproduces `successorArtifactDigest`. Finalize and abort both call
- * this before trusting any manifest ID. It performs no writes.
- */
-async function verifyMigrationManifestArtifacts(
-  ctx: MutationCtx,
-  manifest: Doc<"pagePublicationMigrationPages">,
-  expected: { pageId: Id<"pages">; migrationRunId: string }
-): Promise<{ snapshots: Doc<"pagePublishedSnapshots">[] }> {
-  const runId = expected.migrationRunId
-  if (
-    manifest.pageId !== expected.pageId ||
-    manifest.migrationRunId !== runId ||
-    [
-      manifest.localeDraftIds,
-      manifest.localeStateIds,
-      manifest.candidateIds,
-      manifest.releaseIds,
-      manifest.snapshotIds,
-    ].some((ids) => ids.length > 512)
-  ) {
-    throw new ConvexError("PUBLICATION_MIGRATION_ARTIFACT_DRIFT")
-  }
-  const pageId = manifest.pageId
-  const [
-    pageStates,
-    sharedDrafts,
-    localeDrafts,
-    localeStates,
-    candidates,
-    releases,
-    snapshots,
-  ] = await Promise.all([
-    ctx.db
-      .query("pagePublicationPageStates")
-      .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-      .take(2),
-    ctx.db
-      .query("pageSharedDrafts")
-      .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-      .take(2),
-    ctx.db
-      .query("pageLocaleDrafts")
-      .withIndex("by_pageId_and_updatedAt", (q) => q.eq("pageId", pageId))
-      .take(513),
-    ctx.db
-      .query("pageLocalePublicationStates")
-      .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-      .take(513),
-    ctx.db
-      .query("pageLocalePublicationCandidates")
-      .withIndex("by_pageId_and_locale_and_createdAt", (q) =>
-        q.eq("pageId", pageId)
-      )
-      .take(513),
-    ctx.db
-      .query("pageLocalePublicationReleases")
-      .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", pageId))
-      .take(513),
-    ctx.db
-      .query("pagePublishedSnapshots")
-      .withIndex("by_pageId_and_locale_and_generation", (q) =>
-        q.eq("pageId", pageId)
-      )
-      .take(513),
-  ])
-  if (
-    !sameIds(pageStates, [manifest.pageStateId]) ||
-    !sameIds(sharedDrafts, [manifest.sharedDraftId]) ||
-    !sameIds(localeDrafts, manifest.localeDraftIds) ||
-    !sameIds(localeStates, manifest.localeStateIds) ||
-    !sameIds(candidates, manifest.candidateIds) ||
-    !sameIds(releases, manifest.releaseIds) ||
-    !sameIds(snapshots, manifest.snapshotIds)
-  ) {
-    throw new ConvexError("PUBLICATION_MIGRATION_ARTIFACT_DRIFT")
-  }
-  const candidateIds = new Set(manifest.candidateIds.map(String))
-  const releaseIds = new Set(manifest.releaseIds.map(String))
-  if (
-    !isMigrationAttribution(sharedDrafts[0]!.updatedBy, runId) ||
-    localeDrafts.some((row) => !isMigrationAttribution(row.updatedBy, runId)) ||
-    candidates.some((row) => !isMigrationAttribution(row.attribution, runId)) ||
-    releases.some(
-      (row) =>
-        !isMigrationAttribution(row.attribution, runId) ||
-        !candidateIds.has(String(row.candidateId))
-    ) ||
-    snapshots.some(
-      (row) =>
-        !isMigrationAttribution(row.attribution, runId) ||
-        !candidateIds.has(String(row.candidateId)) ||
-        !releaseIds.has(String(row.releaseId))
-    )
-  ) {
-    throw new ConvexError("PUBLICATION_MIGRATION_ARTIFACT_DRIFT")
-  }
-  const workingReferenceCount = await countWorkingPageReferences(ctx, pageId)
-  const candidateReferenceCount = await countPageReferences(
-    ctx,
-    pageId,
-    "candidate"
-  )
-  const publicReferenceCount = await countPageReferences(
-    ctx,
-    pageId,
-    "current_public"
-  )
-  const successorDigest = await integrityDigest({
-    pageStateId: manifest.pageStateId,
-    sharedDraftId: manifest.sharedDraftId,
-    localeDraftIds: manifest.localeDraftIds,
-    localeStateIds: manifest.localeStateIds,
-    candidateIds: manifest.candidateIds,
-    releaseIds: manifest.releaseIds,
-    snapshotIds: manifest.snapshotIds,
-    workingReferenceCount,
-    candidateReferenceCount,
-    publicReferenceCount,
-    historicalRouteCount: await countHistoricalRoutesForSnapshots(
-      ctx,
-      manifest.snapshotIds
-    ),
-  })
-  if (
-    manifest.workingReferenceCount !== workingReferenceCount ||
-    manifest.candidateReferenceCount !== candidateReferenceCount ||
-    manifest.publicReferenceCount !== publicReferenceCount ||
-    successorDigest !== manifest.successorArtifactDigest
-  ) {
-    throw new ConvexError("PUBLICATION_MIGRATION_ARTIFACT_DRIFT")
-  }
-  return { snapshots }
-}
-
-/** Post-delete proof that no successor row for the Page survived an abort. */
-async function assertPageSuccessorArtifactsAbsent(
-  ctx: MutationCtx,
-  pageId: Id<"pages">
-): Promise<void> {
-  const sourceKinds = [
-    "shared_draft",
-    "locale_draft",
-    "candidate",
-    "current_public",
-  ] as const
-  const remaining = await Promise.all([
-    ctx.db
-      .query("pagePublicationPageStates")
-      .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-      .take(1),
-    ctx.db
-      .query("pageSharedDrafts")
-      .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-      .take(1),
-    ctx.db
-      .query("pageLocaleDrafts")
-      .withIndex("by_pageId_and_updatedAt", (q) => q.eq("pageId", pageId))
-      .take(1),
-    ctx.db
-      .query("pageLocalePublicationStates")
-      .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-      .take(1),
-    ctx.db
-      .query("pageLocalePublicationCandidates")
-      .withIndex("by_pageId_and_locale_and_createdAt", (q) =>
-        q.eq("pageId", pageId)
-      )
-      .take(1),
-    ctx.db
-      .query("pageLocalePublicationReleases")
-      .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", pageId))
-      .take(1),
-    ctx.db
-      .query("pagePublishedSnapshots")
-      .withIndex("by_pageId_and_locale_and_generation", (q) =>
-        q.eq("pageId", pageId)
-      )
-      .take(1),
-    ctx.db
-      .query("pageHistoricalLocaleRoutes")
-      .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", pageId))
-      .take(1),
-    ...sourceKinds.map((sourceKind) =>
-      ctx.db
-        .query("pagePublicationDocumentReferences")
-        .withIndex("by_pageId_and_sourceKind", (q) =>
-          q.eq("pageId", pageId).eq("sourceKind", sourceKind)
-        )
-        .take(1)
-    ),
-    ...sourceKinds.map((sourceKind) =>
-      ctx.db
-        .query("pagePublicationMediaReferences")
-        .withIndex("by_pageId_and_sourceKind", (q) =>
-          q.eq("pageId", pageId).eq("sourceKind", sourceKind)
-        )
-        .take(1)
-    ),
-    ...sourceKinds.map((sourceKind) =>
-      ctx.db
-        .query("pagePublicationBlockReferences")
-        .withIndex("by_pageId_and_sourceKind", (q) =>
-          q.eq("pageId", pageId).eq("sourceKind", sourceKind)
-        )
-        .take(1)
-    ),
-  ])
-  if (remaining.some((rows) => rows.length > 0))
-    throw new ConvexError("PUBLICATION_MIGRATION_ABORT_RESIDUAL")
-}
-
-export const finalizeSnapshotMigration = mutation({
-  args: { migrationRunId: v.string(), expectedRevision: v.number() },
-  returns: v.object({
-    phase: v.union(v.literal("preparing"), v.literal("ready")),
-    isDone: v.boolean(),
-    closureDigest: v.optional(v.string()),
-    revision: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    assertLegacySnapshotMigrationInstalled()
-    await requireOperationAccess(ctx)
-    const cutover = await cutoverSingleton(ctx)
-    if (
-      cutover.phase !== "preparing" ||
-      cutover.migrationRunId !== args.migrationRunId ||
-      cutover.revision !== args.expectedRevision ||
-      (cutover.closurePhase !== "routes" &&
-        cutover.closurePhase !== "references")
-    ) {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_STALE")
-    }
-    const [pageBatch, settingsRows] = await Promise.all([
-      ctx.db.query("pages").paginate({
-        numItems: 32,
-        cursor: cutover.closureCursor ?? null,
-      }),
-      ctx.db.query("siteSettings").take(2),
-    ])
-    const pages = pageBatch.page
-    const manifests = await Promise.all(
-      pages.map(async (page) => {
-        const rows = await ctx.db
-          .query("pagePublicationMigrationPages")
-          .withIndex("by_pageId_and_run", (q) =>
-            q.eq("pageId", page._id).eq("migrationRunId", args.migrationRunId)
-          )
-          .take(2)
-        return rows.length === 1 ? rows[0]! : null
-      })
-    )
-    if (
-      settingsRows.length !== 1 ||
-      manifests.some((manifest) => manifest === null)
-    ) {
-      throw new ConvexError("PUBLICATION_MIGRATION_CLOSURE_INCOMPLETE")
-    }
-    const manifestByPage = new Map(
-      manifests.map((manifest) => [manifest!.pageId, manifest!])
-    )
-    const settings = settingsRows[0]!
-    const configDigest = await integrityDigest({
-      defaultLocale: settings.defaultLocale,
-      enabledLocales: settings.enabledLocales,
-      homePageId: settings.homePageId,
-    })
-    for (const page of pages) {
-      const manifest = manifestByPage.get(page._id)
-      if (
-        !manifest ||
-        manifest.sourcePageDigest !== (await integrityDigest(page)) ||
-        manifest.sourceLocaleHomeConfigDigest !== configDigest
-      ) {
-        throw new ConvexError("PUBLICATION_MIGRATION_SOURCE_DRIFT")
-      }
-      const staging = await ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
-        .take(2)
-      const digest = staging[0] ? await integrityDigest(staging[0]) : undefined
-      if (staging.length > 1 || digest !== manifest.sourceStagingDigest) {
-        throw new ConvexError("PUBLICATION_MIGRATION_SOURCE_DRIFT")
-      }
-      const [oldStates, oldCandidates, oldReleases, oldExpiries] =
-        await Promise.all([
-          ctx.db
-            .query("pagePublicationStates")
-            .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
-            .take(2),
-          ctx.db
-            .query("pagePublicationCandidates")
-            .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
-            .take(513),
-          ctx.db
-            .query("pagePublicationReleases")
-            .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
-            .take(513),
-          ctx.db
-            .query("pagePublicationExpiries")
-            .withIndex("by_pageId", (q) => q.eq("pageId", page._id))
-            .take(513),
-        ])
-      if (
-        manifest.sourcePageWidePublicationDigest !==
-        (await integrityDigest({
-          oldStates,
-          oldCandidates,
-          oldReleases,
-          oldExpiries,
-        }))
-      )
-        throw new ConvexError("PUBLICATION_MIGRATION_SOURCE_DRIFT")
-      const { snapshots } = await verifyMigrationManifestArtifacts(
-        ctx,
-        manifest,
-        { pageId: page._id, migrationRunId: args.migrationRunId }
-      )
-      for (const snapshot of snapshots) {
-        if (
-          !(await readFrozenSnapshotProjection(
-            ctx,
-            snapshot._id,
-            page._id,
-            snapshot.locale
-          ))
-        )
-          throw new ConvexError("PUBLICATION_MIGRATION_ARTIFACT_DRIFT")
-      }
-      await verifyMigrationPublicReferences(ctx, manifest)
-    }
-    const batchEntries = manifests.map((manifest) => ({
-      pageId: String(manifest!.pageId),
-      digest: manifest!.successorArtifactDigest,
-    }))
-    const closureDigest = await integrityDigest({
-      previous: cutover.closureRollingDigest ?? null,
-      entries: batchEntries,
-    })
-    const closurePageCount = (cutover.closurePageCount ?? 0) + pages.length
-    if (!pageBatch.isDone) {
-      await ctx.db.patch("pagePublicationCutover", cutover._id, {
-        closurePhase: "references",
-        closureCursor: pageBatch.continueCursor,
-        closurePageCount,
-        closureRollingDigest: closureDigest,
-        updatedAt: Date.now(),
-      })
-      return {
-        phase: "preparing" as const,
-        isDone: false,
-        revision: cutover.revision,
-      }
-    }
-    if (
-      closurePageCount !== cutover.expectedPageCount ||
-      closurePageCount !== cutover.preparedPageCount
-    ) {
-      throw new ConvexError("PUBLICATION_MIGRATION_CLOSURE_INCOMPLETE")
-    }
-    await ctx.db.patch("pagePublicationCutover", cutover._id, {
-      phase: "ready",
-      closurePhase: "references",
-      closureCursor: undefined,
-      closurePageCount,
-      closureRollingDigest: closureDigest,
-      closureDigest,
-      updatedAt: Date.now(),
-    })
-    return {
-      phase: "ready" as const,
-      isDone: true,
-      closureDigest,
-      revision: cutover.revision,
-    }
-  },
-})
-
-export const activateSnapshotAuthority = mutation({
-  args: {
-    migrationRunId: v.string(),
-    expectedRevision: v.number(),
-    expectedClosureDigest: v.string(),
-  },
-  returns: v.object({
-    phase: v.literal("snapshot_active"),
-    revision: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    assertLegacySnapshotMigrationInstalled()
-    await requireOperationAccess(ctx)
-    const cutover = await cutoverSingleton(ctx)
-    if (
-      cutover.phase !== "ready" ||
-      cutover.migrationRunId !== args.migrationRunId ||
-      cutover.revision !== args.expectedRevision ||
-      cutover.closureDigest !== args.expectedClosureDigest ||
-      cutover.closurePageCount !== cutover.expectedPageCount ||
-      cutover.preparedPageCount !== cutover.expectedPageCount
-    ) {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_STALE")
-    }
-    const revision = cutover.revision + 1
-    await ctx.db.patch("pagePublicationCutover", cutover._id, {
-      phase: "snapshot_active",
-      revision,
-      updatedAt: Date.now(),
-    })
-    return { phase: "snapshot_active" as const, revision }
-  },
-})
-
-export const abortSnapshotMigrationPage = mutation({
-  args: { migrationRunId: v.string(), pageId: v.id("pages") },
-  returns: v.object({ pageId: v.id("pages"), removed: v.boolean() }),
-  handler: async (ctx, args) => {
-    assertLegacySnapshotMigrationInstalled()
-    await requireOperationAccess(ctx)
-    const cutover = await cutoverSingleton(ctx)
-    if (
-      (cutover.phase !== "preparing" && cutover.phase !== "ready") ||
-      cutover.migrationRunId !== args.migrationRunId
-    ) {
-      throw new ConvexError("PUBLICATION_MIGRATION_ABORT_FORBIDDEN")
-    }
-    const manifests = await ctx.db
-      .query("pagePublicationMigrationPages")
-      .withIndex("by_pageId_and_run", (q) =>
-        q.eq("pageId", args.pageId).eq("migrationRunId", args.migrationRunId)
-      )
-      .take(2)
-    if (manifests.length === 0) return { pageId: args.pageId, removed: false }
-    if (manifests.length !== 1)
-      throw new ConvexError("PUBLICATION_MIGRATION_MANIFEST_INVALID")
-    const manifest = manifests[0]!
-    // Close the whole owned fan-out before the first write. A drifted or
-    // tampered manifest rejects here, so it can never delete or unreference
-    // another Page's successor artifacts.
-    await verifyMigrationManifestArtifacts(ctx, manifest, {
-      pageId: args.pageId,
-      migrationRunId: args.migrationRunId,
-    })
-    const historicalRoutes: Doc<"pageHistoricalLocaleRoutes">[] = []
-    for (const id of manifest.snapshotIds) {
-      const routes = await ctx.db
-        .query("pageHistoricalLocaleRoutes")
-        .withIndex("by_createdFromSnapshotId", (q) =>
-          q.eq("createdFromSnapshotId", id)
-        )
-        .take(513)
-      if (routes.length > 512)
-        throw new ConvexError("PUBLICATION_REFERENCE_LIMIT")
-      if (routes.some((route) => route.pageId !== manifest.pageId))
-        throw new ConvexError("PUBLICATION_MIGRATION_ARTIFACT_DRIFT")
-      historicalRoutes.push(...routes)
-    }
-
-    for (const id of manifest.snapshotIds)
-      await clearSourceReferences(ctx, "current_public", id)
-    for (const id of manifest.candidateIds)
-      await clearSourceReferences(ctx, "candidate", id)
-    for (const id of manifest.localeDraftIds)
-      await clearSourceReferences(ctx, "locale_draft", id)
-    await clearSourceReferences(ctx, "shared_draft", manifest.sharedDraftId)
-    await Promise.all(historicalRoutes.map((route) => ctx.db.delete("pageHistoricalLocaleRoutes", route._id)))
-    for (const id of manifest.snapshotIds)
-      await occurrenceUsageWrites(ctx).delete("pagePublishedSnapshots", id)
-    for (const id of manifest.releaseIds) await ctx.db.delete("pageLocalePublicationReleases", id)
-    for (const id of manifest.candidateIds)
-      await occurrenceUsageWrites(ctx).delete("pageLocalePublicationCandidates", id)
-    for (const id of manifest.localeDraftIds)
-      await occurrenceUsageWrites(ctx).delete("pageLocaleDrafts", id)
-    for (const id of manifest.localeStateIds)
-      await occurrenceUsageWrites(ctx).delete("pageLocalePublicationStates", id)
-    await occurrenceUsageWrites(ctx).delete("pageSharedDrafts", manifest.sharedDraftId)
-    await occurrenceUsageWrites(ctx).delete("pagePublicationPageStates", manifest.pageStateId)
-    await assertPageSuccessorArtifactsAbsent(ctx, manifest.pageId)
-    await ctx.db.delete("pagePublicationMigrationPages", manifest._id)
-    await ctx.db.patch("pagePublicationCutover", cutover._id, {
-      phase: "preparing",
-      preparedPageCount: Math.max(0, (cutover.preparedPageCount ?? 1) - 1),
-      closurePhase: undefined,
-      closureCursor: undefined,
-      closurePageCount: 0,
-      closureRollingDigest: undefined,
-      closureDigest: undefined,
-      updatedAt: Date.now(),
-    })
-    return { pageId: args.pageId, removed: true }
-  },
-})
-
-export const finishSnapshotMigrationAbort = mutation({
-  args: { migrationRunId: v.string(), expectedRevision: v.number() },
-  returns: v.object({ phase: v.literal("legacy"), revision: v.number() }),
-  handler: async (ctx, args) => {
-    assertLegacySnapshotMigrationInstalled()
-    await requireOperationAccess(ctx)
-    const cutover = await cutoverSingleton(ctx)
-    if (
-      cutover.phase !== "preparing" ||
-      cutover.migrationRunId !== args.migrationRunId ||
-      cutover.revision !== args.expectedRevision
-    )
-      throw new ConvexError("PUBLICATION_MIGRATION_ABORT_FORBIDDEN")
-    const remaining = await ctx.db
-      .query("pagePublicationMigrationPages")
-      .withIndex("by_run_and_pageId", (q) =>
-        q.eq("migrationRunId", args.migrationRunId)
-      )
-      .take(1)
-    if (remaining.length > 0)
-      throw new ConvexError("PUBLICATION_MIGRATION_ABORT_INCOMPLETE")
-    const revision = cutover.revision + 1
-    await ctx.db.patch("pagePublicationCutover", cutover._id, {
-      phase: "legacy",
-      revision,
-      migrationRunId: undefined,
-      expectedPageCount: undefined,
-      preparedPageCount: undefined,
-      closurePhase: undefined,
-      closureCursor: undefined,
-      closurePageCount: undefined,
-      closureRollingDigest: undefined,
-      closureDigest: undefined,
-      updatedAt: Date.now(),
-    })
-    return { phase: "legacy" as const, revision }
   },
 })
 
@@ -3603,15 +2159,12 @@ export const saveSharedDraft = mutation({
       descriptorPatch.authorIds = args.authorIds.map((pageId) => ({ pageId }))
     }
     if (args.tags !== undefined) descriptorPatch.tags = args.tags
-    for (const key of Object.keys(descriptorPatch)) {
-      if (!(key in descriptor.sharedFields))
-        throw new ConvexError("SHARED_FIELD_INVALID")
-    }
-    Object.assign(
+    const nextDescriptor = mergeSharedDescriptor(
+      shared.descriptor as unknown as Record<string, unknown>,
       descriptorPatch,
-      writeFieldMap(descriptor.sharedFields, descriptorPatch, writeOptions)
+      descriptor.sharedFields,
+      writeOptions
     )
-    validateFieldMapRichText(descriptor.sharedFields, descriptorPatch)
     const systemPatch: Record<string, unknown> = {}
     // The per-language seo values and the card excerpt are no longer shared
     // (ADR-0037 amendment, 2026-11-17); an old client's copies are ignored.
@@ -3635,10 +2188,6 @@ export const saveSharedDraft = mutation({
       parentId: (nextSystem.parentId as Id<"pages"> | undefined) ?? null,
     })
     const now = Date.now()
-    const nextDescriptor = mergeRecord(
-      shared.descriptor as unknown as Record<string, unknown>,
-      descriptorPatch
-    )
     await occurrenceUsageWrites(ctx).patch("pageSharedDrafts", shared._id, {
       generation: shared.generation + 1,
       system: nextSystem,
@@ -3651,7 +2200,12 @@ export const saveSharedDraft = mutation({
       ctx,
       {
         ...page,
-        ...nextDescriptor,
+        ...Object.fromEntries(
+          Object.keys(descriptor.sharedFields).map((key) => [
+            key,
+            nextDescriptor[key],
+          ])
+        ),
         ...nextSystem,
         content: {},
       } as Doc<"pages">,
@@ -3956,19 +2510,11 @@ export const saveEditorDraft = mutation({
       }
       if (args.shared.tags !== undefined)
         descriptorPatch.tags = args.shared.tags
-      for (const key of Object.keys(descriptorPatch)) {
-        if (!(key in descriptor.sharedFields)) {
-          throw new ConvexError("SHARED_FIELD_INVALID")
-        }
-      }
-      Object.assign(
-        descriptorPatch,
-        writeFieldMap(descriptor.sharedFields, descriptorPatch, writeOptions)
-      )
-      validateFieldMapRichText(descriptor.sharedFields, descriptorPatch)
-      const nextDescriptor = mergeRecord(
+      const nextDescriptor = mergeSharedDescriptor(
         shared.descriptor as unknown as Record<string, unknown>,
-        descriptorPatch
+        descriptorPatch,
+        descriptor.sharedFields,
+        writeOptions
       )
       const nextSystem = mergeRecord(
         (shared.system as unknown as Record<string, unknown>) ?? {},
@@ -3998,7 +2544,12 @@ export const saveEditorDraft = mutation({
         ctx,
         {
           ...page,
-          ...nextDescriptor,
+          ...Object.fromEntries(
+            Object.keys(descriptor.sharedFields).map((key) => [
+              key,
+              nextDescriptor[key],
+            ])
+          ),
           ...nextSystem,
           content: {},
         } as Doc<"pages">,
@@ -5601,7 +4152,7 @@ export const purgeTrashedPages = mutation({
         .withIndex("by_pageId", (q) => q.eq("pageId", item.pageId))
         .first()
       const page = await ctx.db.get("pages", item.pageId)
-      // The same check `requirePagePermission(..., "delete")` makes for pages.
+      // The same check `assertActivePageType` makes for ordinary page access.
       if (page && !isActiveContentType(page.pageType))
         throw new ConvexError(
           `Content Type "${page.pageType}" is not active in this starter.`

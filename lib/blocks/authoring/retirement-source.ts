@@ -216,7 +216,7 @@ function assertEmptyBootstrap(source: string) {
   )
     refuse("The bootstrap source cannot be parsed.")
   const writerBindings = occurrenceWriterBindings(file)
-  for (const name of ["bootstrapInstallation", "completeOnboarding"]) {
+  for (const name of ["bootstrapInstallation"]) {
     const declarations: ts.VariableDeclaration[] = []
     const find = (node: ts.Node) => {
       if (
@@ -265,20 +265,14 @@ function assertEmptyBootstrap(source: string) {
     )
       refuse(`The ${name} Home creation path is unknown.`)
     const content = property(pages[0]!.arguments[1], "content")
-    if (name === "bootstrapInstallation") {
-      if (
-        !content ||
-        !ts.isObjectLiteralExpression(content) ||
-        content.properties.length !== 0 ||
-        successors.length !== 1
-      )
-        refuse("The snapshot bootstrap Home creation path is unknown.")
-      assertEmptyLocaleContent(successors[0]!.arguments[3])
-    } else {
-      if (successors.length !== 0)
-        refuse("The legacy bootstrap path is unknown.")
-      assertEmptyLocaleContent(content)
-    }
+    if (
+      !content ||
+      !ts.isObjectLiteralExpression(content) ||
+      content.properties.length !== 0 ||
+      successors.length !== 1
+    )
+      refuse("The snapshot bootstrap Home creation path is unknown.")
+    assertEmptyLocaleContent(successors[0]!.arguments[3])
   }
 }
 

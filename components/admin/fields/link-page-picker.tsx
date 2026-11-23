@@ -137,6 +137,7 @@ export function LinkPagePicker({
       return (
         titleFor(page, locale).toLowerCase().includes(query) ||
         slugFor(page, locale).toLowerCase().includes(query) ||
+        page.path?.toLowerCase().includes(query) ||
         page.pageType.toLowerCase().includes(query)
       )
     })
@@ -252,9 +253,12 @@ export function LinkPagePicker({
                       {titleFor(page, locale)}
                     </span>
                     <span className="truncate text-xs text-muted-foreground">
-                      /{slugFor(page, locale)}
+                      {page.path ?? `/${slugFor(page, locale)}`}
                     </span>
                   </span>
+                  <Badge variant="secondary" className="shrink-0 text-xs">
+                    {resolvePageTypeLabel(page.pageType)}
+                  </Badge>
                 </button>
               ))
             )}

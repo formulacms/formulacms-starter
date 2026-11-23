@@ -116,7 +116,7 @@ type (`blockBody: false` with `routing`) needs a custom public renderer.
 
 The default public page of a new type shows only its title and its blocks.
 To show the type's own public fields, add `"renderer": "custom"` to the specification before you generate the type; the generator then writes and registers `components/content-types/<type>.tsx`.
-For a type that exists already, use the shipped `author` type as the model: write a renderer like `components/content-types/author.tsx`, set `renderer`, `rendererModule` and `rendererExport` in the type's entry in `convex/lib/contentTypes/content-types.manifest.json` as the `author` entry does, then run `pnpm content-types:sync` and `pnpm typecheck`.
+For a type that exists already, use the shipped `page` type as the model: write a renderer like `components/content-types/page.tsx`, set `renderer`, `rendererModule` and `rendererExport` in the type's entry in `convex/lib/contentTypes/content-types.manifest.json` as the `page` entry does (a pure-form type sets `renderer` to `custom-pure-form` instead of `custom-block-body`), then run `pnpm content-types:sync` and `pnpm typecheck`.
 
 Verify:
 

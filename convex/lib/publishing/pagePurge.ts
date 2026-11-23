@@ -158,51 +158,10 @@ export const PAGE_KEYED_TABLES: Record<string, PageKeyedRole> = {
     reason:
       "Only `complete` rows are deleted. The worker waits at the start of the intents phase (and again in the final step) while a row is pending or running; failed rows stay until the existing drain finishes them (it never reads the Page).",
   },
-  pagePublicationMigrationPages: {
-    role: "owned",
-    phase: "legacy",
-    reason: "Snapshot migration manifest rows.",
-  },
   pagePublicationPreviewSessions: {
     role: "owned",
     phase: "previews",
     reason: "Preview sessions.",
-  },
-  pagePublicationStates: {
-    role: "owned",
-    phase: "legacy",
-    reason: "Legacy publication state.",
-  },
-  pagePublicationCandidates: {
-    role: "owned",
-    phase: "legacy",
-    reason: "Legacy candidates.",
-  },
-  pagePublicationReleases: {
-    role: "owned",
-    phase: "legacy",
-    reason: "Legacy releases.",
-  },
-  pagePublicationExpiries: {
-    role: "owned",
-    phase: "legacy",
-    reason: "Legacy expiries.",
-  },
-  pageCandidateMediaReferences: {
-    role: "owned",
-    phase: "legacy",
-    reason: "Deleted through the legacy candidate id.",
-  },
-  pageCandidateDocumentReferences: {
-    role: "owned",
-    phase: "legacy",
-    reason:
-      "Deleted through the legacy candidate id. `targetId` rows of other Pages are frozen since the cutover (legacy writers are blocked) and do not block.",
-  },
-  pageCandidateBlockReferences: {
-    role: "owned",
-    phase: "legacy",
-    reason: "Deleted through the legacy candidate id.",
   },
   menuReferences: {
     role: "blocks",
@@ -1092,74 +1051,6 @@ async function runLegacy(
             .withIndex("by_source", (q) => q.eq("sourceId", pageId))
             .take(take),
         async (row) => ctx.db.delete("documentReferences", row._id)
-      ),
-    () =>
-      drain(
-        budget,
-        () =>
-          ctx.db
-            .query("pagePublicationMigrationPages")
-            .withIndex("by_pageId_and_run", (q) => q.eq("pageId", pageId))
-            .take(take),
-        async (row) => ctx.db.delete("pagePublicationMigrationPages", row._id)
-      ),
-    () =>
-      drain(
-        budget,
-        () =>
-          ctx.db
-            .query("pagePublicationStates")
-            .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-            .take(take),
-        async (row) => ctx.db.delete("pagePublicationStates", row._id)
-      ),
-    () =>
-      drain(
-        budget,
-        () =>
-          ctx.db
-            .query("pagePublicationReleases")
-            .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-            .take(take),
-        async (row) => ctx.db.delete("pagePublicationReleases", row._id)
-      ),
-    () =>
-      drain(
-        budget,
-        () =>
-          ctx.db
-            .query("pagePublicationExpiries")
-            .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-            .take(take),
-        async (row) => ctx.db.delete("pagePublicationExpiries", row._id)
-      ),
-    () =>
-      drain(
-        budget,
-        () =>
-          ctx.db
-            .query("pagePublicationCandidates")
-            .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-            .take(1),
-        async (candidate) => {
-          for (const table of [
-            "pageCandidateMediaReferences",
-            "pageCandidateDocumentReferences",
-            "pageCandidateBlockReferences",
-          ] as const) {
-            const rows = await ctx.db
-              .query(table)
-              .withIndex("by_candidateId", (q) =>
-                q.eq("candidateId", candidate._id)
-              )
-              .take(SCAN_LIMIT + 1)
-            if (rows.length > SCAN_LIMIT)
-              throw new ConvexError("PUBLICATION_REFERENCE_LIMIT")
-            for (const row of rows)
-              await occurrenceUsageWrites(ctx).delete(table, row._id)
-          }
-          await ctx.db.delete("pagePublicationCandidates", candidate._id)
-        }
       ),
   ]
   for (const step of simple) if (!(await step())) return false

@@ -26,7 +26,6 @@ const guarded = new Set([
     "publishLocale",
     "publishPreparedTargetLocale",
     "createTransitionTargetDraft",
-    "prepareSnapshotMigrationPage",
   ].map((name) => `${publication}:${name}`),
   "convex/cms/settings.ts:bootstrapInstallation",
 ])
@@ -36,7 +35,6 @@ const guards = new Set([
 ])
 const barriers = new Set([
   `${snapshots}:assertLegacyPublicationWriterBlocked`,
-  `${publication}:assertLegacySnapshotMigrationInstalled`,
 ])
 // These operations release claims or only move blocked legacy draft content.
 // Names are scoped: an identically named function elsewhere is not exempt.
@@ -46,7 +44,6 @@ const releaseOnly = new Set([
     "deleteTransitionTargetDraft",
     "deleteCancelledRetainedTargetDraft",
     "withdrawPreparedTargetLocale",
-    "abortSnapshotMigrationPage",
   ].map((name) => `${publication}:${name}`),
   "convex/migrations.ts:hoistDraftContentToStaging",
 ])

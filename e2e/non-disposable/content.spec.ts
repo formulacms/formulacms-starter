@@ -1,6 +1,7 @@
 import { expect, test } from "playwright/test"
 import { api } from "../../convex/_generated/api"
 import type { Id } from "../../convex/_generated/dataModel"
+import { STARTER_CONTENT_TYPES } from "../../convex/lib/contentTypes/starterSelection"
 import {
   adminLocale,
   adminMessages,
@@ -13,7 +14,11 @@ import {
   required,
 } from "../support"
 
-const curated = ["landing-page", "page", "post", "author"] as const
+// A generated starter may not ship Post and Author; cover only active types.
+const active = new Set<string>(STARTER_CONTENT_TYPES)
+const curated = (["landing-page", "page", "post", "author"] as const).filter(
+  (type) => active.has(type)
+)
 
 function pageIdFromEditor(editor: string): Id<"pages"> {
   const pathname = new URL(editor, "http://formulacms.invalid").pathname
@@ -37,8 +42,9 @@ async function publishThroughWarnings(
 }
 
 /**
- * V03. Preconditions: built English owner app with all four curated Content
- * Types active, an eligible member for Author, and a shipped block type named
+ * V03. Preconditions: built English owner app with its curated Content Types
+ * active (Post's step runs only when Post ships), an eligible member for
+ * Author, and a shipped block type named
  * FR6_E2E_BLOCK_LABEL. The scenario creates test-owned draft documents;
  * the operator owns their later removal.
  * Server: Playwright starts built Next by default and the caller owns Convex;
@@ -55,7 +61,10 @@ test("V03 creates curated content and enforces block and publication readiness",
         const locale = await adminLocale(owner)
         const t = adminTranslator(locale)
         // new-page-form.tsx lower-cases the content type's singular label.
-        const label = adminMessages(locale).sidebar.contentType[type].singular.toLowerCase()
+        // A starter prunes the labels of the types it does not ship.
+        const labels: Partial<Record<string, { singular: string }>> =
+          adminMessages(locale).sidebar.contentType
+        const label = labels[type]!.singular.toLowerCase()
         await expect(
           owner.getByRole("heading", { name: t("pages.newForm.heading", { type: label }), exact: true })
         ).toBeVisible()
@@ -87,7 +96,7 @@ test("V03 creates curated content and enforces block and publication readiness",
       await expect(owner.getByText((await pageTranslator(owner))("editor.pageSave.saved"), { exact: true })).toBeVisible()
     })
 
-    await test.step("an empty Post remains blocked until required body content is present", async () => {
+    if (active.has("post")) await test.step("an empty Post remains blocked until required body content is present", async () => {
       await owner.goto(created.post!)
       await expect(owner.getByRole("button", { name: (await pageTranslator(owner))("editor.page.publish"), exact: true })).toBeDisabled()
       const readiness = await (await clientFor(owner)).query(api.cms.pages.getPrePublishChecklist, { pageId: pageIdFromEditor(created.post!) })
@@ -112,6 +121,10 @@ test("V03 creates curated content and enforces block and publication readiness",
  * both and Playwright only verifies the origin (see `playwright.config.ts`).
  */
 test("V03 makes image-alt warnings explicit and blocks a draft Author byline", async ({ browser, request }) => {
+  test.skip(
+    !active.has("post") || !active.has("author"),
+    "This starter does not ship the Post and Author content types."
+  )
   const imageEditor = required("FR6_E2E_V03_IMAGE_EDITOR")
   const imageFile = required("FR6_E2E_V03_IMAGE_FILE")
   const imageFilename = required("FR6_E2E_V03_IMAGE_FILENAME")

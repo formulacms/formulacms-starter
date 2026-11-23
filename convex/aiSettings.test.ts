@@ -111,21 +111,6 @@ async function seed(
       configurationVersion: 1,
       enabledModules: [{ moduleId: "ai", configVersion: 1 }],
     })
-    await ctx.db.insert("roles", {
-      authId: "admin-1",
-      role: "admin",
-      assignedAt: Date.now(),
-    })
-    await ctx.db.insert("roles", {
-      authId: "editor-1",
-      role: "editor",
-      assignedAt: Date.now(),
-    })
-    await ctx.db.insert("roles", {
-      authId: "viewer-1",
-      role: "viewer",
-      assignedAt: Date.now(),
-    })
     await ctx.db.insert("cmsOwner", {
       key: "owner",
       authId: "admin-1",

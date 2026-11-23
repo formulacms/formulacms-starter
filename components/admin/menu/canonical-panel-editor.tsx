@@ -43,15 +43,6 @@ function newFeatured(): Extract<LocalePanelSection, { kind: "featured" }> {
   }
 }
 
-function newDynamicList(): Extract<LocalePanelSection, { kind: "dynamicList" }> {
-  return {
-    id: generateMenuId(),
-    kind: "dynamicList",
-    heading: "",
-    source: { pageType: "post", limit: 3 },
-  }
-}
-
 function SectionRegionEditor({
   title,
   sections,
@@ -160,23 +151,6 @@ function SectionRegionEditor({
           >
             <Plus className="size-4" />
             {t("addFeaturedSection")}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            aria-label={t("addInRegion", {
-              action: t("addDynamicList"),
-              region: title,
-            })}
-            title={t("addInRegion", {
-              action: t("addDynamicList"),
-              region: title,
-            })}
-            onClick={() => onChange([...sections, newDynamicList()])}
-          >
-            <Plus className="size-4" />
-            {t("addDynamicList")}
           </Button>
         </div>
       )}

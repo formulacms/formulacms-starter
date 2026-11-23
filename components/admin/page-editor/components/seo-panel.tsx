@@ -100,6 +100,7 @@ export function SeoPanel({
               translate={fieldTranslate}
               generate={fieldGenerate}
               onResult={onMetaTitleChange}
+              locale={currentLocale}
             />
           </div>
           <input
@@ -131,6 +132,7 @@ export function SeoPanel({
               translate={fieldTranslate}
               generate={fieldGenerate}
               onResult={onMetaDescriptionChange}
+              locale={currentLocale}
             />
           </div>
           <textarea

@@ -91,9 +91,9 @@ export function descriptorArchivableSharedKeys(pageType: string): string[] {
 
 /**
  * Extract the descriptor shared-field bag from a page row and serialize as
- * JSON. Every archivable key is written even when undefined so History's
- * `parseRevisionSharedFields` (`convex/cms/pageHistory.ts`) can distinguish
- * "cleared at this revision" from "descriptor field didn't exist yet". Empty
+ * JSON. Every archivable key is written even when undefined so a reader can
+ * distinguish "cleared at this revision" from "descriptor field didn't exist
+ * yet" (the History parser was removed with `convex/cms/pageHistory.ts`). Empty
  * bag → `null` so
  * downstream `sharedFieldsJson` can stay absent for zero-shared types.
  */

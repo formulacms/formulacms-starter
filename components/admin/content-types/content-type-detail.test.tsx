@@ -1,6 +1,7 @@
 import { screen } from "@testing-library/react"
 import { describe, expect, test, vi } from "vitest"
 import { adminContentTypeDetail } from "@/lib/admin/content-types"
+import { isActiveContentType } from "@/convex/lib/contentTypes"
 import { render } from "@/test-utils/admin-i18n"
 
 vi.mock("convex/react", () => ({ useQuery: () => [] }))
@@ -20,7 +21,7 @@ vi.mock("./content-type-languages-card", () => ({
 import { ContentTypeDetail } from "./content-type-detail"
 
 describe("ContentTypeDetail admin i18n", () => {
-  test("translates descriptor-driven labels without changing descriptor data", () => {
+  test.runIf(isActiveContentType("author"))("translates descriptor-driven labels without changing descriptor data", () => {
     const detail = adminContentTypeDetail("author")
     expect(detail).not.toBeNull()
 

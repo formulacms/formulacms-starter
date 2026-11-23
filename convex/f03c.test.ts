@@ -71,7 +71,7 @@ describe("F03c Community optional and agent boundaries", () => {
 
     for (const call of [
       () => asUnrelated.query(api.cms.menus.listSlugs, {}),
-      () => asUnrelated.query(api.cms.redirects.list, {}),
+      () => asUnrelated.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } }),
       () => asUnrelated.query(api.cms.tags.list, {}),
     ]) {
       await expect(call()).rejects.toThrow("CMS_OWNER_REQUIRED")
@@ -80,7 +80,7 @@ describe("F03c Community optional and agent boundaries", () => {
     await expect(asOwner.query(api.cms.menus.listSlugs, {})).resolves.toEqual(
       []
     )
-    await expect(asOwner.query(api.cms.redirects.list, {})).resolves.toEqual([])
+    expect((await asOwner.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } })).page).toEqual([])
     await expect(asOwner.query(api.cms.tags.list, {})).resolves.toEqual([])
   })
 
@@ -88,7 +88,7 @@ describe("F03c Community optional and agent boundaries", () => {
     const t = await makeOwnerTest()
     for (const call of [
       () => t.query(api.cms.menus.listSlugs, {}),
-      () => t.query(api.cms.redirects.list, {}),
+      () => t.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } }),
       () => t.query(api.cms.tags.list, {}),
       () => t.mutation(api.cms.menus.createCanonical, { slug: "anon" }),
     ]) {
@@ -152,6 +152,7 @@ describe("F03c Community optional and agent boundaries", () => {
       const now = Date.now()
       await ctx.db.insert("redirects", {
         fromPath: "/f03c-old",
+        locale: "en",
         toPath: "/f03c-new",
         statusCode: 302,
         createdAt: now,
@@ -163,10 +164,11 @@ describe("F03c Community optional and agent boundaries", () => {
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/f03c-old",
+        locale: "en",
       })
     ).resolves.toEqual({ destination: "/f03c-new", statusCode: 302 })
     await expect(
       t.query(api.cms.redirects.listActiveKeys, { languageVersion: 0 })
-    ).resolves.toEqual([{ fromPath: "/f03c-old" }])
+    ).resolves.toEqual([{ fromPath: "/f03c-old", locale: "en" }])
   })
 })

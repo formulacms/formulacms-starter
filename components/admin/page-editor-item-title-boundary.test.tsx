@@ -81,7 +81,6 @@ vi.mock("./contributions/ai-translation", () => ({
 }))
 vi.mock("./contributions/history", () => ({ ADMIN_HISTORY_BROWSER_BINDING: null }))
 vi.mock("./page-editor/components/snapshot-history-panel", () => ({ SnapshotHistoryPanelSlot: () => null }))
-vi.mock("./duplicate-page-dialog", () => ({ DuplicatePageDialog: () => null }))
 vi.mock("./content-type-fields-panel", () => ({ ContentTypeFieldsPanel: () => null }))
 vi.mock("./page-editor/components/seo-panel", () => ({ SeoPanel: () => null }))
 vi.mock("./page-editor/components/settings-panel", () => ({ SettingsPanel: () => null }))

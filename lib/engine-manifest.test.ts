@@ -71,13 +71,13 @@ describe("engine.manifest.json", () => {
     }
   })
 
-  test("schema version 6 supports fresh installs only", () => {
-    expect(manifest.compatibility.freshInstallBaseline).toBe(6)
+  test("schema version 7 supports fresh installs only", () => {
+    expect(manifest.compatibility.freshInstallBaseline).toBe(7)
     expect(manifest.compatibility.supportedUpgradeFromSchemaVersions).toEqual(
       []
     )
     expect(manifest.compatibility.note).toContain(
-      "Release 0.4.0 supports fresh installs only"
+      "Release 0.5.1 supports fresh installs only"
     )
     expect(manifest.compatibility.note).toContain(
       "Upgrades from schema version 3 or older are unsupported"

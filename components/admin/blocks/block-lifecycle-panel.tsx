@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useQuery } from "convex/react"
+import type { FunctionReturnType } from "convex/server"
 import { toast } from "sonner"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
 import {
@@ -41,28 +42,29 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
-export type BlockLifecycleSummary = {
-  archived: boolean
-  pageCount: number
-  deletedPageCount: number
-  usageCount: number
-  savedUsageCount: number
-  stagedUsageCount: number
-  publicationUsageCount?: number
-  pages: {
-    pageId: string
-    title: string
-    slug: string
-    locales: string[]
-    savedLocales: string[]
-    stagedLocales: string[]
-    count: number
-    savedCount: number
-    stagedCount: number
-    publicationCount?: number
-    publicationLocales?: string[]
-    deleted: boolean
-  }[]
+/** The live usage summary, exactly as the backend returns it. */
+export type BlockLifecycleSummary = FunctionReturnType<
+  typeof api.cms.blockLibrary.getBlockUsageSummary
+>
+type BlockUse = BlockLifecycleSummary["pages"][number]["uses"][number]
+type BlockUseStatus = BlockUse["status"]
+
+/** Pages in Trash or being erased carry the red badge. */
+const TRASH_STATUSES: ReadonlySet<BlockUseStatus> = new Set([
+  "in_trash",
+  "being_erased",
+])
+
+/** One badge per distinct status; a switched-off language names its locale. */
+function statusGroups(uses: BlockUse[]) {
+  const groups = new Map<string, { status: BlockUseStatus; locale: string }>()
+  for (const use of uses) {
+    const key =
+      use.status === "language_off" ? `${use.status}:${use.locale}` : use.status
+    if (!groups.has(key))
+      groups.set(key, { status: use.status, locale: use.locale })
+  }
+  return [...groups.values()]
 }
 
 export function BlockLifecyclePanel({
@@ -84,6 +86,7 @@ export function BlockLifecyclePanel({
   canShip: boolean
 }) {
   const t = useTranslations("blocks")
+  const tRow = useTranslations("pages.list.rowStatus")
   const caughtError = useCaughtError()
   const router = useRouter()
   const confirm = useConfirm()
@@ -96,8 +99,15 @@ export function BlockLifecyclePanel({
   const owner = useQuery(api.cms.owner.getOwnerSession)
   const canArchive = owner !== undefined && owner !== null
   const lifecycleReady = summary !== null
+  // System blocks are never deleted (ADR-0045 amendment, 2026-11-22).
+  const deletable = origin === "user"
   const deleteEligible =
-    canMutate && lifecycleReady && summary.archived && summary.usageCount === 0
+    deletable &&
+    canMutate &&
+    lifecycleReady &&
+    summary.archived &&
+    summary.complete &&
+    summary.usageCount === 0
   const isPending = pendingAction !== null
 
   async function toggleArchived() {
@@ -189,6 +199,23 @@ export function BlockLifecyclePanel({
   const shownLocales = summary
     ? [...new Set(summary.pages.flatMap((page) => page.locales))].sort()
     : []
+  // At zero uses after a finished check the usage part disappears (4b).
+  const showUsage =
+    summary !== null && (summary.usageCount > 0 || !summary.complete)
+
+  const statusLabel: Record<BlockUseStatus, (locale: string) => string> = {
+    draft: () => tRow("draft"),
+    published: () => tRow("published"),
+    published_version: () => t("lifecycle.useStatus.publishedVersion"),
+    withdrawn: () => t("lifecycle.useStatus.withdrawn"),
+    archived: () => tRow("archived"),
+    in_trash: () => t("lifecycle.useStatus.inTrash"),
+    being_erased: () => t("lifecycle.useStatus.beingErased"),
+    language_off: (locale) =>
+      t("lifecycle.useStatus.languageOff", { locale: locale.toUpperCase() }),
+    ai_job_running: () => t("lifecycle.useStatus.aiJobRunning"),
+    ai_suggestion: () => t("lifecycle.useStatus.aiSuggestion"),
+  }
 
   // Every action states what it does; a blocked action states why instead, so
   // the panel body never has to carry a to-do list.
@@ -209,11 +236,11 @@ export function BlockLifecyclePanel({
     ? t("lifecycle.unavailable")
     : !summary.archived
       ? t("lifecycle.archiveFirst")
-      : summary.usageCount > 0
-        ? (summary.publicationUsageCount ?? 0) > 0
-          ? t("lifecycleRetainedDeleteHint")
-          : t("lifecycle.inUse", { count: summary.pageCount })
-        : t("lifecycle.deleteHint")
+      : !summary.complete
+        ? t("lifecycle.usageCheckIncomplete")
+        : summary.usageCount > 0
+          ? t("lifecycle.inUse", { count: summary.pageCount })
+          : t("lifecycle.deleteHint")
 
   return (
     <Card>
@@ -252,102 +279,102 @@ export function BlockLifecyclePanel({
             </p>
           </div>
         ) : (
-          <>
-            <dl className="grid grid-cols-2 gap-2">
-              <SummaryStat
-                label={t("lifecycle.pages")}
-                value={summary.pageCount}
-              />
-              <SummaryStat
-                label={t("lifecycle.savedInstances")}
-                value={summary.savedUsageCount}
-              />
-              <SummaryStat
-                label={t("lifecycle.stagedInstances")}
-                value={summary.stagedUsageCount}
-              />
-              <SummaryStat
-                label={t("lifecyclePublicationInstances")}
-                value={summary.publicationUsageCount ?? 0}
-              />
-              <SummaryStat
-                label={t("lifecycle.trashPages")}
-                value={summary.deletedPageCount}
-              />
-            </dl>
-            <p className="text-xs text-muted-foreground">
-              {t("lifecycleVersionCounts")}
-            </p>
+          showUsage && (
+            <>
+              <dl className="grid grid-cols-2 gap-2">
+                <SummaryStat
+                  label={t("lifecycle.pages")}
+                  value={summary.pageCount}
+                />
+                <SummaryStat
+                  label={t("lifecycle.liveUses")}
+                  value={summary.usageCount}
+                />
+                <SummaryStat
+                  label={t("lifecycle.trashPages")}
+                  value={summary.deletedPageCount}
+                />
+              </dl>
+              {!summary.complete && (
+                <p className="text-xs text-muted-foreground">
+                  {t("lifecycle.usageCheckUnfinished")}
+                </p>
+              )}
 
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium">{t("lifecycle.usage")}</h3>
-              {summary.pages.length === 0 ? (
-                <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
-                  {t("lifecycleNoDependencies")}
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {summary.pages.map((page) => (
-                    <li key={page.pageId}>
-                      <Link
-                        href={`/admin/pages/${page.pageId}`}
-                        className="block rounded-lg border p-3 transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">
-                              {page.title}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {page.slug || t("lifecycle.noSlug")}
-                            </p>
+              {summary.pages.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium">
+                    {t("lifecycle.usage")}
+                  </h3>
+                  <ul className="space-y-2">
+                    {summary.pages.map((page) => (
+                      <li key={page.pageId}>
+                        <Link
+                          href={`/admin/pages/${page.pageId}`}
+                          className="block rounded-lg border p-3 transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">
+                                {page.title}
+                              </p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {page.slug || t("lifecycle.noSlug")}
+                              </p>
+                            </div>
+                            <ExternalLink className="size-3.5 shrink-0 text-muted-foreground" />
                           </div>
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            {page.deleted && (
-                              <Badge variant="destructive">
-                                {t("lifecycle.trash")}
-                              </Badge>
-                            )}
-                            <ExternalLink className="size-3.5 text-muted-foreground" />
-                          </div>
-                        </div>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          {t("lifecycle.usageRow", {
-                            saved: page.savedCount,
-                            staged: page.stagedCount,
-                          })}{" "}
-                          ·{" "}
-                          {t("lifecyclePublicationRow", {
-                            count: page.publicationCount ?? 0,
-                          })}{" "}
-                          ·{" "}
-                          {page.locales
-                            .map((locale) => locale.toUpperCase())
-                            .join(", ")}
-                        </p>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
+                          <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+                            {/* Status labels say how to clear a use; a system
+                                block is never deleted, so its rows carry none
+                                (picture 7). */}
+                            {deletable &&
+                              statusGroups(page.uses).map(
+                                ({ status, locale }) => (
+                                  <Badge
+                                    key={`${status}:${locale}`}
+                                    variant={
+                                      TRASH_STATUSES.has(status)
+                                        ? "destructive"
+                                        : "outline"
+                                    }
+                                    className="h-auto shrink whitespace-normal"
+                                  >
+                                    {statusLabel[status](locale)}
+                                  </Badge>
+                                )
+                              )}
+                            <span>
+                              {t("lifecycle.uses", { count: page.count })} ·{" "}
+                              {page.locales
+                                .map((locale) => locale.toUpperCase())
+                                .join(", ")}
+                            </span>
+                          </p>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                  {summary.pageCount > summary.pages.length && (
+                    <p className="text-xs text-muted-foreground">
+                      {t("lifecycle.morePages", {
+                        count: summary.pageCount - summary.pages.length,
+                      })}
+                    </p>
+                  )}
+                  {shownLocales.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {t("lifecycle.locales", {
+                        locales: shownLocales
+                          .map((locale) => locale.toUpperCase())
+                          .join(", "),
+                      })}
+                    </p>
+                  )}
+                </div>
               )}
-              {summary.pageCount > summary.pages.length && (
-                <p className="text-xs text-muted-foreground">
-                  {t("lifecycle.morePages", {
-                    count: summary.pageCount - summary.pages.length,
-                  })}
-                </p>
-              )}
-              {shownLocales.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {t("lifecycle.locales", {
-                    locales: shownLocales
-                      .map((locale) => locale.toUpperCase())
-                      .join(", "),
-                  })}
-                </p>
-              )}
-            </div>
-          </>
+            </>
+          )
         )}
 
         {starterState && (
@@ -437,20 +464,22 @@ export function BlockLifecyclePanel({
                   {t("lifecycle.rename")}
                 </Button>
               </ActionTooltip>
-              <ActionTooltip hint={deleteHint}>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void deleteBlock()}
-                  aria-disabled={!deleteEligible || undefined}
-                  disabled={isPending}
-                  className={`text-destructive hover:text-destructive ${BLOCKED_CLASS}`}
-                >
-                  <Trash2 className="size-4" />
-                  {t("lifecycle.delete")}{" "}
-                </Button>
-              </ActionTooltip>
+              {deletable && (
+                <ActionTooltip hint={deleteHint}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={deleteEligible ? "destructive" : "outline"}
+                    onClick={() => void deleteBlock()}
+                    aria-disabled={!deleteEligible || undefined}
+                    disabled={isPending}
+                    className={`text-destructive hover:text-destructive ${BLOCKED_CLASS}`}
+                  >
+                    <Trash2 className="size-4" />
+                    {t("lifecycle.delete")}{" "}
+                  </Button>
+                </ActionTooltip>
+              )}
             </>
           )}
         </div>

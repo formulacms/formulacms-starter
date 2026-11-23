@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { convexTest, seedCommunityOwner } from "../convexTestWithExplicitAdmin"
 import schema from "./schema"
+import { currentMonth } from "./cms/ai"
 import { api, internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
 import { executeGeneration } from "../lib/ai/execute-generation"
@@ -28,6 +29,7 @@ import workpoolTest from "@convex-dev/workpool/test"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 import type { WorkId } from "@convex-dev/workpool"
 import { installedBlockDefs, type Primitive } from "./lib/blocks"
+import { isActiveContentType } from "./lib/contentTypes"
 
 const fake = vi.hoisted(() => ({
   beforeAdmission: vi.fn(),
@@ -202,7 +204,17 @@ const units = (t: App, id: Id<"aiJobs">) =>
       .collect()
   )
 const status = (t: App) =>
-  t.query(internal.cms.ai.monthStatus, { now: Date.now() })
+  t.run(async (ctx) => {
+    const month = await currentMonth(ctx, Date.now())
+    const spentMicros = month.row?.spentMicros ?? 0
+    const reservedMicros = month.row?.reservedMicros ?? 0
+    const total = BigInt(spentMicros) + BigInt(reservedMicros)
+    const cap = BigInt(month.capMicros)
+    return {
+      monthKey: month.monthKey, spentMicros, reservedMicros, capMicros: month.capMicros,
+      status: total >= cap ? "reached" : total * 5n >= cap * 4n ? "warn80" : "below",
+    }
+  })
 const start = (owner: ReturnType<App["withIdentity"]>, count = 2) =>
   owner.mutation(api.cms.aiJobs.startPageJob, { input: writeInput(count) })
 async function callback(
@@ -380,11 +392,9 @@ afterEach(() => {
 describe("AI1 U1b registered job path and spending", () => {
   test("test catalog vi.mock reaches glob-loaded registered functions; write runs sequentially and leaves suggestions off the Page", async () => {
     const { t, owner } = await setup()
-    const estimate = await owner.query(api.cms.aiJobs.estimatePageJob, {
-      input: writeInput(),
-    })
     const id = await start(owner)
-    expect((await status(t)).reservedMicros).toBe(estimate.estimateMicros)
+    const estimate = (await job(t, id))!.estimateMicros
+    expect((await status(t)).reservedMicros).toBe(estimate)
     expect((await units(t, id)).filter((row) => row.workId)).toHaveLength(1)
     await finish(t, id)
     const j = (await job(t, id))!
@@ -430,11 +440,9 @@ describe("AI1 U1b registered job path and spending", () => {
   test("Start at exactly the cap admits; one micro over refuses atomically", async () => {
     fake.enforceCap = true
     const { t, owner } = await setup()
-    const estimate = (
-      await owner.query(api.cms.aiJobs.estimatePageJob, {
-        input: writeInput(1),
-      })
-    ).estimateMicros
+    const { t: probe, owner: probeOwner } = await setup()
+    const probeId = await start(probeOwner, 1)
+    const estimate = (await job(probe, probeId))!.estimateMicros
     await setCap(t, estimate - 1)
     await expect(start(owner, 1)).rejects.toThrow("cap")
     expect(await t.run((ctx) => ctx.db.query("pages").collect())).toEqual([])
@@ -1039,7 +1047,7 @@ describe("AI1 U1b recovery and counterexamples", () => {
   })
   // ADR-0037 amendment (2026-11-17): the social text, card excerpt and post
   // category are each language's own text, so translation covers them.
-  test("translation covers the social text, card excerpt and category, keeps noindex, and never translates structured data", async () => {
+  test.runIf(isActiveContentType("post"))("translation covers the social text, card excerpt and category, keeps noindex, and never translates structured data", async () => {
     fake.text = "Traduit"
     const { t, owner } = await setup({ multilingual: true })
     const pageId = await owner.mutation(api.cms.pages.create, {
@@ -1226,22 +1234,10 @@ describe("AI1 U1b boundaries and six-unit window", () => {
 })
 
 describe("whole-job reservation retention", () => {
-  test("pre-start estimate counts existing holds and the job itself has no 150-second deadline", async () => {
+  test("the job reservation has no 150-second deadline", async () => {
     fake.enforceCap = true
     const { t, owner } = await setup()
     const id = await start(owner, 1)
-    const held = (await status(t)).reservedMicros
-    const next = await owner.query(api.cms.aiJobs.estimatePageJob, {
-      input: writeInput(1),
-    })
-    await setCap(t, held + next.estimateMicros - 1)
-    expect(
-      (
-        await owner.query(api.cms.aiJobs.estimatePageJob, {
-          input: writeInput(1),
-        })
-      ).fits
-    ).toBe(false)
     const scheduled = await t.run((ctx) =>
       ctx.db.system.query("_scheduled_functions").collect()
     )
@@ -1966,6 +1962,30 @@ describe("Write page with AI: pageJobResult", () => {
 })
 
 describe("Write page with AI: acceptPageJob", () => {
+  test("ADR-0015 B3: Accept clears the job's copies after the save succeeds, and a refused Accept keeps them", async () => {
+    const { t, owner, id, j } = await doneWrite(2)
+    const rows = await pageRows(t, j.pageId)
+    // A refused Accept (the page has no draft row and no base) keeps the copies.
+    await owner.mutation(api.cms.publication.discardLocaleDraft, {
+      pageId: j.pageId,
+      locale: "en",
+      expectedDraftGeneration: rows.states[0]!.draftGeneration,
+      expectedLifecycleGeneration: rows.life.lifecycleGeneration,
+    })
+    await expect(
+      owner.mutation(api.cms.aiJobs.acceptPageJob, { jobId: id, chosen: [0] })
+    ).rejects.toThrow("AI_JOB_SOURCE_UNAVAILABLE")
+    expect((await units(t, id)).every((u) => u.output !== undefined)).toBe(true)
+    // An Accept that saves clears every unit copy.
+    const fresh = await doneWrite(2)
+    await fresh.owner.mutation(api.cms.aiJobs.acceptPageJob, {
+      jobId: fresh.id,
+      chosen: [0, 1],
+    })
+    const after = await units(fresh.t, fresh.id)
+    expect(after).toHaveLength(2)
+    expect(after.every((u) => u.output === undefined)).toBe(true)
+  })
   test("all chosen: the draft holds exactly those sections in outline order, title and meta unchanged, nothing published, job reviewed", async () => {
     const { t, owner, id, j } = await doneWrite(2)
     const before = (await pageRows(t, j.pageId)).draft!
@@ -2413,6 +2433,44 @@ describe("Write page with AI: the Dismiss preview equals what Dismiss does", () 
 })
 
 describe("Write page with AI: dismissPageJob", () => {
+  test("ADR-0015 B3: Dismiss clears a write job's unit copies (every job kind)", async () => {
+    const { t, owner, id } = await doneWrite(2)
+    expect((await units(t, id)).every((u) => u.output !== undefined)).toBe(true)
+    await owner.mutation(api.cms.aiJobs.dismissPageJob, { jobId: id })
+    const rows = await units(t, id)
+    expect(rows).toHaveLength(2)
+    expect(rows.every((u) => u.output === undefined && u.input === undefined)).toBe(
+      true
+    )
+    expect((await job(t, id))!.reviewedAt).toBeDefined()
+  })
+  test("ADR-0015 B3: Dismiss of a failed write job leaves no brief or prompt fields", async () => {
+    const { t, owner } = await setup()
+    const id = await start(owner, 2)
+    await failJob(t, id)
+    const before = (await job(t, id))!
+    expect(before.brief).toBeDefined()
+    expect(before.systemPrompt).toBeDefined()
+    expect((await units(t, id)).some((u) => u.purpose !== undefined)).toBe(true)
+    await owner.mutation(api.cms.aiJobs.dismissPageJob, { jobId: id })
+    const after = (await job(t, id))!
+    expect(after.state).toBe("failed")
+    for (const field of [
+      "brief",
+      "sourcePage",
+      "suggestion",
+      "systemPrompt",
+      "assistantInstructions",
+      "userPromptTemplate",
+      "brandVoice",
+    ] as const)
+      expect(after[field]).toBeUndefined()
+    for (const unit of await units(t, id)) {
+      expect(unit.input).toBeUndefined()
+      expect(unit.output).toBeUndefined()
+      expect(unit.purpose).toBeUndefined()
+    }
+  })
   test("an untouched page goes to Trash, the job is cleared", async () => {
     const { t, owner, id, j } = await doneWrite(1)
     await expect(
@@ -2769,7 +2827,7 @@ describe("Translate page with AI: Start", () => {
     ).rejects.toThrow("AI_JOB_INPUT_INVALID")
     expect(await jobCount(t)).toBe(1)
   })
-  test("a language where the content type is switched to one language is refused, by Start and by the estimate; no job", async () => {
+  test("a language where the content type is switched to one language is refused by Start; no job", async () => {
     const { t, owner } = await setup({ multilingual: true })
     const pageId = await source(t, owner)
     await t.run(async (ctx) => {
@@ -2781,24 +2839,16 @@ describe("Translate page with AI: Start", () => {
     await expect(startTranslation(owner, pageId)).rejects.toThrow(
       "CONTENT_TYPE_TRANSLATION_OFF"
     )
-    await expect(
-      owner.query(api.cms.aiJobs.estimatePageJob, {
-        input: translationInput(pageId),
-      })
-    ).rejects.toThrow("CONTENT_TYPE_TRANSLATION_OFF")
     expect(await jobCount(t)).toBe(0)
   })
-  test("a target language that already has content is refused, by Start and by the estimate; no job, no reservation", async () => {
+  test("a target language that already has content is refused by Start; no job, no reservation", async () => {
     const { t, owner } = await setup({ multilingual: true })
     const pageId = await source(t, owner, "Source", { withFrench: true })
+    await giveSource(t, pageId, 1)
+    await ownerSave(t, owner, pageId, { locale: "fr", blocks: await draftBlocks(t, pageId, "en") })
     await expect(startTranslation(owner, pageId)).rejects.toThrow(
       "AI_JOB_TARGET_HAS_CONTENT"
     )
-    await expect(
-      owner.query(api.cms.aiJobs.estimatePageJob, {
-        input: translationInput(pageId),
-      })
-    ).rejects.toThrow("AI_JOB_TARGET_HAS_CONTENT")
     expect(await jobCount(t)).toBe(0)
     expect((await status(t)).reservedMicros).toBe(0)
   })
@@ -2836,11 +2886,6 @@ describe("Translate page with AI: Start", () => {
     await expect(startTranslation(owner, big)).rejects.toThrow(
       "AI_JOB_SOURCE_TOO_LARGE"
     )
-    await expect(
-      owner.query(api.cms.aiJobs.estimatePageJob, {
-        input: translationInput(big),
-      })
-    ).rejects.toThrow("AI_JOB_SOURCE_TOO_LARGE")
     expect(await jobCount(t)).toBe(0)
     expect((await status(t)).reservedMicros).toBe(0)
   })
@@ -2905,6 +2950,30 @@ describe("Translate page with AI: pageJobResult", () => {
 })
 
 describe("Translate page with AI: acceptPageJob", () => {
+  test("a saved title-only target can start Translation and Accept keeps its title and address with the translated blocks", async () => {
+    fake.text = "Traduit"
+    const { t, owner } = await setup({ multilingual: true })
+    const pageId = await source(t, owner, "Source title")
+    await giveSource(t, pageId, 1)
+    await ownerSave(t, owner, pageId, { locale: "fr", title: "Mon titre" })
+    const before = await pageRows(t, pageId, "fr")
+    await owner.mutation(api.cms.publication.saveEditorDraft, {
+      pageId,
+      expectedLifecycleGeneration: before.life.lifecycleGeneration,
+      localized: {
+        locale: "fr", slug: "mon-adresse", addressIntent: "typed", expectedGeneration: 1,
+        draft: { pageType: "page", localized: { title: "Mon titre", metaTitle: "Mon titre de recherche" }, blocks: [], seo: { ogTitle: "Mon partage", noIndex: true }, cardExcerpt: "Mon résumé" },
+      },
+    })
+    const id = await startTranslation(owner, pageId)
+    await finish(t, id)
+    const result = await owner.mutation(api.cms.aiJobs.acceptPageJob, { jobId: id, chosen: [] })
+    expect(result).toMatchObject({ saved: 1, draftGeneration: 3 })
+    const fr = await pageRows(t, pageId, "fr")
+    expect(fr.draft!.content).toMatchObject({ title: "Mon titre", metaTitle: "Mon titre de recherche", seo: { ogTitle: "Mon partage", noIndex: true }, cardExcerpt: "Mon résumé" })
+    expect(fr.draft!.slug).toBe("mon-adresse")
+    expect(await draftBlocks(t, pageId, "fr")).toHaveLength(1)
+  })
   test("one Accept saves the whole page as the French draft: nothing published, source untouched, copies deleted", async () => {
     const { t, owner, pageId, id } = await doneTranslation(2)
     const before = await pageRows(t, pageId, "en")
@@ -3138,7 +3207,7 @@ describe("Translate page with AI: Accept builds only from the draft pinned at St
       })
     }
   }
-  test.each([
+  test.runIf(isActiveContentType("author")).each([
     { roleTitle: "absent" as const, publish: false },
     { roleTitle: "absent" as const, publish: true },
     { roleTitle: "empty" as const, publish: false },
@@ -3402,7 +3471,7 @@ describe("Translate page with AI: identifiers are not translated, claims stay ch
 // a saved assistant model gets (never a bare server error); no job starts.
 describe("Review 1b: removed inherited selection", () => {
   test.each(["task", "site", "agent"] as const)(
-    "a removed %s default: estimate and Start refuse it plainly; no job, no reservation",
+    "a removed %s default: Start refuses it plainly; no job, no reservation",
     async (source) => {
       const { t, owner } = await setup()
       const removed = {
@@ -3427,9 +3496,6 @@ describe("Review 1b: removed inherited selection", () => {
           selected: { lane: "runtime", provider: "openai", model: "gpt-removed-model" },
         },
       }
-      await expect(
-        owner.query(api.cms.aiJobs.estimatePageJob, { input: writeInput() })
-      ).rejects.toMatchObject(refusal)
       await expect(start(owner)).rejects.toMatchObject(refusal)
       expect(await jobCount(t)).toBe(0)
       expect((await status(t)).reservedMicros).toBe(0)
@@ -3521,7 +3587,7 @@ describe("Translate page with AI: Accept persists the per-language fields", () =
   // The AI-translated subset is a separate list from what a draft can carry:
   // social text, card excerpt and category are translated; the robots choices
   // are copied; structured data, keywords and focus keyword are neither.
-  test("the French draft holds the translated and the copied fields, nothing else of the seo block", async () => {
+  test.runIf(isActiveContentType("post"))("the French draft holds the translated and the copied fields, nothing else of the seo block", async () => {
     fake.text = "Traduit"
     const { t, owner } = await setup({ multilingual: true })
     const pageId = await owner.mutation(api.cms.pages.create, {

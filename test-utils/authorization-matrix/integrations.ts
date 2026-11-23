@@ -169,11 +169,6 @@ const noArgs: Args = () => ({})
 const array = { value: expect.any(Array) }
 const object = { value: expect.any(Object) }
 const nullable = { value: null }
-// A structurally valid, signed fixture from the repository entitlement contract.
-// The generated app's built-in trust registry is empty, so install must reach
-// the exact unknown-key outcome rather than fail envelope parsing first.
-const MATRIX_ENTITLEMENT_ENVELOPE = '{"format":"formulacms-entitlement","envelopeVersion":1,"keyId":"test-rfc8032","claims":{"schemaVersion":1,"licenseId":"11111111-1111-4111-8111-111111111111","licensee":"Example Test Licensee","projectId":"22222222-2222-4222-8222-222222222222","product":"team","memberCapacity":7,"issuedAt":"2026-08-14T12:00:00Z"},"signature":"Rsneaim7jv8QioidSziSHzNb4hLdxi5uj0tsMYWnpUVfhlOz-Zkm8kFGfhJ_vP05Fm78SgWsnDshzfWxaXZNBA"}'
-
 const MATRIX_RUNNER_SECRET = "A".repeat(43)
 const MATRIX_SECRET_HASH = "a".repeat(64)
 /**
@@ -283,7 +278,6 @@ function localJobRows(): AuthorizationRow[] {
 export const integrationsRows: AuthorizationRow[] = [
   ...(
     [
-      ["estimatePageJob", "query"],
       ["pageJobProgress", "query"],
       ["pageJobResult", "query"],
       ["startPageJob", "mutation"],
@@ -337,7 +331,7 @@ export const integrationsRows: AuthorizationRow[] = [
               ? {}
               : entry === "acceptPageJob"
                 ? { jobId, chosen: [0] }
-              : entry === "estimatePageJob" || entry === "startPageJob"
+              : entry === "startPageJob"
                 ? {
                     input: {
                       kind: "write",
@@ -429,7 +423,6 @@ export const integrationsRows: AuthorizationRow[] = [
   ownerOnly("cms/agents:listAgents", "query", noArgs, { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/agents:getContentPresets", "query", noArgs, { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/agents:updateAgent", "mutation", () => ({ agent: "content" }), { error: "CMS_MODULE_DISABLED" }),
-  ownerOnly("cms/agents:resetAgentPresets", "mutation", () => ({ agent: "content" }), { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/ai:getModelsSettings", "query", noArgs, { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/ai:admitLocalAttempt", "mutation", () => ({ request: {
     attemptKey: "matrix-local-attempt", provider: "openai",
@@ -447,9 +440,6 @@ export const integrationsRows: AuthorizationRow[] = [
   ownerOnly("cms/aiSettings:blockCreator", "query", noArgs, { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/aiSettings:setBlockCreator", "mutation", () => ({ instructions: "Matrix" }), { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/vendorModelCatalog:refreshModelCatalogs", "mutation", noArgs, { error: "CMS_MODULE_DISABLED" }),
-  ownerOnly("cms/aiSettings:setMonthlyAiCap", "mutation", () => ({
-    capMicros: 5_000_000,
-  }), { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/aiAuditLog:deleteAuditLogForUser", "mutation", () => ({ authId: "absent-user" }), { value: 0 }),
   ownerOnly("cms/aiConnections:validateProductionConnection", "action", () => ({ provider: "openai" }), { error: "CMS_MODULE_DISABLED" }),
   ownerOnly("cms/aiSettings:setProductionAiConfiguration", "mutation", () => ({
@@ -499,7 +489,6 @@ export const integrationsRows: AuthorizationRow[] = [
   aiOwnerOnly("agents/localizer:localizePage", () => ({
     title: "Hello", blocks: [], sourceLocale: "en", targetLocale: "fr",
   }), object),
-  ownerOnly("cms/entitlements:getAdminState", "query", noArgs, object),
   ownerOnly("cms/ai:isConfigured", "query", noArgs, { error: "CMS_MODULE_DISABLED" }),
   defineRow({
     name: "agents/blockAuthor:canAuthorBlocks",
@@ -516,46 +505,6 @@ export const integrationsRows: AuthorizationRow[] = [
       },
       readOnly: true,
     })),
-  }),
-  ...(["install", "remove"] as const).map((operation): AuthorizationRow => {
-    type EntitlementFixture = Fixture & { stateToken: string }
-    return defineRow<EntitlementFixture>({
-      name: `cms/entitlements:${operation}`,
-      kind: "mutation",
-      scenarios: MATRIX_STATES.map((state): Scenario<EntitlementFixture> => ({
-        label: stateLabel(state),
-        setup: async (t, actors) => {
-          const fixture = await seedState(t, state)
-          const current = await invoke(actors.owner, "query", "cms/entitlements:getAdminState", {})
-          if (!current || typeof current !== "object" || !("stateToken" in current) ||
-              typeof current.stateToken !== "string") {
-            throw new Error("Owner entitlement state token was not returned")
-          }
-          return { ...fixture, stateToken: current.stateToken }
-        },
-        call: (actor, fixture) => invoke(actor, "mutation", `cms/entitlements:${operation}`, {
-          operationId: operation === "install"
-            ? "11111111-1111-4111-8111-111111111111"
-            : "22222222-2222-4222-8222-222222222222",
-          expectedStateToken: fixture.stateToken,
-          ...(operation === "install" ? { rawEnvelope: MATRIX_ENTITLEMENT_ENVELOPE } : {}),
-        }),
-        outcomes: {
-          owner: { check: (value) => {
-            expect(value).toMatchObject({
-              outcome: operation === "install" ? "rejected" : "unchanged",
-              reason: operation === "install" ? "unknown_key" : "already_absent",
-              eventId: operation === "install"
-                ? "11111111-1111-4111-8111-111111111111"
-                : "22222222-2222-4222-8222-222222222222",
-            })
-          } },
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { error: "CMS_OWNER_REQUIRED" },
-          former: { error: "CMS_OWNER_REQUIRED" },
-        },
-      })),
-    })
   }),
   defineRow({
     name: "agents/localGeneration:recordAudit",

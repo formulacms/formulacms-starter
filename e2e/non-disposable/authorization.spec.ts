@@ -72,8 +72,8 @@ test("signed-out identities receive exact guard errors while owner controls work
     const state = await ownerClient.query(api.cms.language.getLanguageState, {})
     expect(state.kind).toBe("current")
     await expectConvexDenial(anonymous.query(api.cms.language.getLanguageState, {}), "UNAUTHENTICATED")
-    await expectConvexDenial(ownerClient.query(api.cms.redirects.list, {}), "CMS_MODULE_DISABLED")
-    await expectConvexDenial(anonymous.query(api.cms.redirects.list, {}), "UNAUTHENTICATED")
+    await expectConvexDenial(ownerClient.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } }), "CMS_MODULE_DISABLED")
+    await expectConvexDenial(anonymous.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } }), "UNAUTHENTICATED")
   } finally {
     await owner.context().close()
     await signedOutContext.close()

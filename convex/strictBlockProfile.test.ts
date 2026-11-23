@@ -26,8 +26,20 @@ const ownerIdentity = {
   tokenIdentifier: "strict-profile-owner",
 }
 
-function makeTest(publicationAuthority: "legacy" | "missing" = "legacy") {
+function makeTest(publicationAuthority?: "missing") {
   return convexTest({ schema, modules, ownerIdentity, publicationAuthority })
+}
+
+/** A fresh site through the real installation command. */
+async function bootstrapped() {
+  const t = makeTest()
+  const owner = t.withIdentity(ownerIdentity)
+  await owner.mutation(api.cms.settings.bootstrapInstallation, {
+    siteName: "Strict profile",
+    timezone: "UTC",
+    defaultLocale: "en",
+  })
+  return { t, owner }
 }
 
 function queryReturnSchema(query: unknown): string {
@@ -61,8 +73,7 @@ describe("actual emitted source block profile", () => {
   })
 
   test("actual normalized values preserve identity, presentations, root items and links through Page save/read", async () => {
-    const t = makeTest()
-    const owner = t.withIdentity(ownerIdentity)
+    const { owner } = await bootstrapped()
     const targetId = await owner.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
@@ -173,8 +184,7 @@ describe("actual emitted source block profile", () => {
   })
 
   test("creates a blank Page and refuses unavailable or invalid content without inserting another Page", async () => {
-    const t = makeTest()
-    const owner = t.withIdentity(ownerIdentity)
+    const { t, owner } = await bootstrapped()
     const args = {
       pageType: "landing-page" as const,
       status: "draft" as const,

@@ -13,16 +13,6 @@ async function seed(t: ReturnType<typeof convexTest>) {
       configurationVersion: 1,
       enabledModules: [{ moduleId: "ai", configVersion: 1 }],
     })
-    await ctx.db.insert("roles", {
-      authId: "admin-1",
-      role: "admin",
-      assignedAt: 1,
-    })
-    await ctx.db.insert("roles", {
-      authId: "editor-1",
-      role: "editor",
-      assignedAt: 1,
-    })
     await ctx.db.insert("cmsOwner", {
       key: "owner",
       authId: "admin-1",
@@ -185,29 +175,5 @@ describe("typed agent model overrides", () => {
     const row = await t.run((ctx) => ctx.db.query("agentConfigs").first())
     expect(row?.modelOverrides).toBeUndefined()
     expect(row?.userPromptTemplate).toBe("Keep me: {text}")
-  })
-
-  test("a stale stored systemPrompt is inert and never leaves the server", async () => {
-    const t = convexTest(schema, modules)
-    await seed(t)
-    // The column still exists (a Convex validator cannot drop a field that has
-    // rows), but nothing reads it: the runtime always uses the registry default,
-    // and listAgents no longer ships prompt text to the browser at all.
-    await t.run(async (ctx) => {
-      await ctx.db.insert("agentConfigs", {
-        agent: "translation",
-        systemPrompt: "an override that would silently corrupt translations",
-        updatedAt: 1,
-      })
-    })
-    const agents = await identity(t, "admin-1").query(
-      api.cms.agents.listAgents,
-      {}
-    )
-    const translation = agents.find((agent) => agent.id === "translation")!
-    expect(translation).not.toHaveProperty("systemPrompt")
-    expect(translation).not.toHaveProperty("defaultSystemPrompt")
-    // A value the runtime ignores must not make the agent look customized.
-    expect(translation.isCustomized).toBe(false)
   })
 })

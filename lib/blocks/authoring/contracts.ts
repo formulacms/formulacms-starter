@@ -286,7 +286,7 @@ Primitive spelling is exact:
 - Rich text config may include "placeholder" for readable snapshot copy.
 - Use "relation" for cards/lists of other content (articles, testimonials,
   team members, related pages). Relation config must be
-  { "pageTypes": ["landing-page" | "page" | "post"], "tag"?: "optional-tag" }.
+  { "pageTypes": ["landing-page" | "page"], "tag"?: "optional-tag" }.
 - Relation aiHint guidance must say content agents may search and link existing
   pages, never fabricate targets or copy referenced content inline.
 - Use "date" for calendar dates, "datetime" for event timestamps, "geopoint"
@@ -388,7 +388,7 @@ Primitive spelling is exact:
 - Rich text config may include "placeholder" for readable snapshot copy.
 - Use "relation" for cards/lists of other content (articles, testimonials,
   team members, related pages). Relation config must be
-  { "pageTypes": ["landing-page" | "page" | "post"], "tag"?: "optional-tag" }.
+  { "pageTypes": ["landing-page" | "page"], "tag"?: "optional-tag" }.
 - Relation aiHint guidance must say content agents may search and link existing
   pages, never fabricate targets or copy referenced content inline.
 - Use "date" for calendar dates, "datetime" for event timestamps, "geopoint"

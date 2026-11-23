@@ -38,7 +38,6 @@ import {
   type RetainedPageSaveBase,
   type RetainedSharedPageSaveDraft,
   type SaveSnapshotEditorDraft,
-  type UpdateDraft,
   type PublishPage,
   type DiscardDraft,
   type UpdatePage,
@@ -119,8 +118,9 @@ function renderSaveHook({
   initialLocale = "en" as Locale,
   hasStaging = false,
   stagingUpdatedAt = undefined as number | undefined,
-  updateDraft = vi.fn<UpdateDraft>(async () => ({ updatedAt: 101 })),
-  saveSnapshotDraft = undefined as SaveSnapshotEditorDraft | undefined,
+  saveSnapshotDraft = vi.fn<SaveSnapshotEditorDraft>(async () => ({
+    updatedAt: 101,
+  })),
   publishPage = vi.fn<PublishPage>(async () => ({ updatedAt: 500 })),
   discardDraft = vi.fn<DiscardDraft>(async () => null),
   updatePage = vi.fn<UpdatePage>(async () => ({ updatedAt: 102 })),
@@ -182,7 +182,6 @@ function renderSaveHook({
         presentationCatalogRevision: catalogRevision,
         hasStaging,
         stagingUpdatedAt,
-        updateDraft,
         saveSnapshotDraft,
         publishPage,
         discardDraft,
@@ -213,7 +212,6 @@ function renderSaveHook({
 
   return {
     ...hook,
-    updateDraft,
     saveSnapshotDraft,
     publishPage,
     discardDraft,
@@ -227,9 +225,9 @@ function renderSaveHook({
   }
 }
 
-it.each([false, true])(
-  "reports lock refusal before either writer (snapshot=%s)",
-  async (snapshot) => {
+it(
+  "reports lock refusal before either writer",
+  async () => {
     window.localStorage.clear()
     window.sessionStorage.clear()
     vi.clearAllMocks()
@@ -238,7 +236,7 @@ it.each([false, true])(
     }))
     const hook = renderSaveHook({
       refreshEditorLock: vi.fn(async () => false),
-      saveSnapshotDraft: snapshot ? saveSnapshotDraft : undefined,
+      saveSnapshotDraft,
     })
     hook.rerender({ draft: makeDraft({ title: "Unsaved text" }) })
     await act(async () => {
@@ -250,7 +248,7 @@ it.each([false, true])(
     expect(hook.refreshEditorLock).toHaveBeenCalledOnce()
     expect(hook.result.current.hasUnsaved).toBe(true)
     expect(hook.result.current.isSaving).toBe(false)
-    expect(hook.updateDraft).not.toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     expect(saveSnapshotDraft).not.toHaveBeenCalled()
     hook.unmount()
   }
@@ -263,9 +261,9 @@ describe("Save feedback lifetime", () => {
     vi.clearAllMocks()
   })
 
-  it.each([false, true])(
-    "drops lock-refusal feedback after unmount (snapshot=%s)",
-    async (snapshot) => {
+  it(
+    "drops lock-refusal feedback after unmount",
+    async () => {
       const lock = deferred<boolean>()
       const started = deferred<void>()
       const saveSnapshotDraft = vi.fn<SaveSnapshotEditorDraft>(async () => ({
@@ -276,7 +274,7 @@ describe("Save feedback lifetime", () => {
           started.resolve()
           return lock.promise
         }),
-        saveSnapshotDraft: snapshot ? saveSnapshotDraft : undefined,
+        saveSnapshotDraft,
       })
       hook.rerender({
         draft: makeDraft({ title: "Unsaved before navigation" }),
@@ -287,7 +285,7 @@ describe("Save feedback lifetime", () => {
         await started.promise
       })
       expect(hook.refreshEditorLock).toHaveBeenCalledOnce()
-      expect(hook.updateDraft).not.toHaveBeenCalled()
+      expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
       expect(saveSnapshotDraft).not.toHaveBeenCalled()
       hook.unmount()
       expect(readRecoveryDraft(pageId, "en")?.title).toBe(
@@ -299,31 +297,22 @@ describe("Save feedback lifetime", () => {
       })
       expect(toast.error).not.toHaveBeenCalled()
       expect(toast.success).not.toHaveBeenCalled()
-      expect(hook.updateDraft).not.toHaveBeenCalled()
+      expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
       expect(saveSnapshotDraft).not.toHaveBeenCalled()
     }
   )
 
-  it.each([
-    { snapshot: false, outcome: "success" },
-    { snapshot: false, outcome: "rejection" },
-    { snapshot: true, outcome: "success" },
-    { snapshot: true, outcome: "rejection" },
-  ] as const)(
-    "drops writer $outcome feedback after unmount (snapshot=$snapshot)",
-    async ({ snapshot, outcome }) => {
+  it.each([{ outcome: "success" }, { outcome: "rejection" }] as const)(
+    "drops writer $outcome feedback after unmount",
+    async ({ outcome }) => {
       const write = deferred<{ updatedAt: number }>()
       const started = deferred<void>()
       const writer = () => {
         started.resolve()
         return write.promise
       }
-      const updateDraft = vi.fn<UpdateDraft>(writer)
       const saveSnapshotDraft = vi.fn<SaveSnapshotEditorDraft>(writer)
-      const hook = renderSaveHook({
-        updateDraft,
-        saveSnapshotDraft: snapshot ? saveSnapshotDraft : undefined,
-      })
+      const hook = renderSaveHook({ saveSnapshotDraft })
       hook.rerender({
         draft: makeDraft({ title: "Submitted before navigation" }),
       })
@@ -332,8 +321,7 @@ describe("Save feedback lifetime", () => {
         saving = hook.result.current.save()
         await started.promise
       })
-      expect(snapshot ? saveSnapshotDraft : updateDraft).toHaveBeenCalledOnce()
-      expect(snapshot ? updateDraft : saveSnapshotDraft).not.toHaveBeenCalled()
+      expect(saveSnapshotDraft).toHaveBeenCalledOnce()
       hook.unmount()
       let saved!: boolean
       await act(async () => {
@@ -347,16 +335,16 @@ describe("Save feedback lifetime", () => {
     }
   )
 
-  it.each([false, true])(
-    "saves a dirty initial draft once after StrictMode replay (snapshot=%s)",
-    async (snapshot) => {
+  it(
+    "saves a dirty initial draft once after StrictMode replay",
+    async () => {
       const saveSnapshotDraft = vi.fn<SaveSnapshotEditorDraft>(async () => ({
         updatedAt: 101,
       }))
       const hook = renderSaveHook({
         initialDraft: makeDraft({ title: "Dirty initial draft" }),
         strictMode: true,
-        saveSnapshotDraft: snapshot ? saveSnapshotDraft : undefined,
+        saveSnapshotDraft,
       })
       // The cleanup really flushed; replay must not adopt its own recovery.
       expect(readRecoveryDraft(pageId, "en")?.title).toBe("Dirty initial draft")
@@ -366,7 +354,7 @@ describe("Save feedback lifetime", () => {
         expect(await hook.result.current.save()).toBe(true)
       })
       expect(
-        snapshot ? saveSnapshotDraft : hook.updateDraft
+        saveSnapshotDraft
       ).toHaveBeenCalledOnce()
       expect(toast.success).toHaveBeenCalledExactlyOnceWith("Saved")
       expect(toast.error).not.toHaveBeenCalled()
@@ -796,9 +784,7 @@ describe("Publish, discard and status feedback lifetime", () => {
     "capture",
     "lock",
     "lock refusal",
-    "updateDraft",
     "saveSnapshotDraft",
-    "updatePage",
   ] as const)(
     "expires Save paused at %s across EN-FR-EN without adopting its baseline",
     async (stage) => {
@@ -834,17 +820,10 @@ describe("Publish, discard and status feedback lifetime", () => {
           }
           return Promise.resolve(true)
         }),
-        updateDraft: vi.fn(
-          stage === "updateDraft"
+        saveSnapshotDraft: vi.fn(
+          stage === "saveSnapshotDraft"
             ? pendingWriter
             : async () => ({ updatedAt: 101 })
-        ),
-        saveSnapshotDraft:
-          stage === "saveSnapshotDraft" ? vi.fn(pendingWriter) : undefined,
-        updatePage: vi.fn(
-          stage === "updatePage"
-            ? pendingWriter
-            : async () => ({ updatedAt: 102 })
         ),
       })
       try {
@@ -879,14 +858,10 @@ describe("Publish, discard and status feedback lifetime", () => {
         })
         expect(hook.result.current.isSaving).toBe(false)
         expect(onPreparedDraft).toHaveBeenCalledTimes(preparedBeforeReturn)
-        expect(hook.updateDraft).toHaveBeenCalledTimes(
-          stage === "updateDraft" || stage === "updatePage" ? 1 : 0
+        expect(hook.saveSnapshotDraft).toHaveBeenCalledTimes(
+          stage === "saveSnapshotDraft" ? 1 : 0
         )
-        expect(hook.updatePage).toHaveBeenCalledTimes(
-          stage === "updatePage" ? 1 : 0
-        )
-        if (hook.saveSnapshotDraft)
-          expect(hook.saveSnapshotDraft).toHaveBeenCalledOnce()
+        expect(hook.updatePage).not.toHaveBeenCalled()
         expect(hook.confirmPrePublishReadiness).not.toHaveBeenCalled()
         expect(hook.publishPage).not.toHaveBeenCalled()
         expect(hook.onSaveConflict).not.toHaveBeenCalled()
@@ -935,7 +910,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       expect(readRecoveryDraft(pageId, "en")?.title).toBe(
         "last before navigation"
       )
-      expect(hook.updateDraft).not.toHaveBeenCalled()
+      expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
       expect(hook.updatePage).not.toHaveBeenCalled()
       expect(hook.publishPage).not.toHaveBeenCalled()
       hook.unmount()
@@ -966,9 +941,9 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     reopened.unmount()
   })
 
-  it.each([false, true])(
-    "captures the presentation revision with the draft before lock renewal (snapshot=%s)", blockProfile(["hero-with-image"]),
-    async (snapshotAuthority) => {
+  it(
+    "captures the presentation revision with the draft before lock renewal", blockProfile(["hero-with-image"]),
+    async () => {
       const lock = deferred<boolean>()
       const saveSnapshotDraft = vi.fn<SaveSnapshotEditorDraft>(async () => ({
         updatedAt: 101,
@@ -977,7 +952,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       const hook = renderSaveHook({
         refreshEditorLock: vi.fn(() => lock.promise),
         presentationCatalogRevision: firstRevision,
-        ...(snapshotAuthority ? { saveSnapshotDraft } : {}),
+        saveSnapshotDraft,
       })
       const block = {
         ...createInstalledDefaultBlock("hero-with-image"),
@@ -997,13 +972,9 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
         lock.resolve(true)
         expect(await saving).toBe(true)
       })
-      const args = snapshotAuthority
-        ? saveSnapshotDraft.mock.calls[0][0]
-        : hook.updateDraft.mock.calls[0][0]
+      const args = saveSnapshotDraft.mock.calls[0][0]
       expect(args.expectedPresentationCatalogRevision).toBe(firstRevision)
-      const persisted = snapshotAuthority
-        ? saveSnapshotDraft.mock.calls[0][0].localized?.draft
-        : hook.updateDraft.mock.calls[0][0].content?.en
+      const persisted = saveSnapshotDraft.mock.calls[0][0].localized?.draft
       expect(persisted).toMatchObject({
         localized: { title: "Home" },
         blocks: [block],
@@ -1025,7 +996,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       await hook.result.current.publish()
     })
     expect(hook.refreshEditorLock).not.toHaveBeenCalled()
-    expect(hook.updateDraft).not.toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     expect(hook.publishPage).not.toHaveBeenCalled()
     expect(readRecoveryDraft(pageId, "en")?.title).toBe("Recovered text")
     // The refusal is shown inside the recovery bar, not as a toast.
@@ -1036,21 +1007,25 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     hook.rerender({ draft: makeDraft({ title: "Current form" }) })
     await act(async () => expect(await hook.result.current.save()).toBe(true))
     expect(
-      hook.updateDraft.mock.calls[0]?.[0].content?.en?.localized.title
+      (
+        hook.saveSnapshotDraft.mock.calls[0]?.[0].localized?.draft as
+          | { localized: { title: string } }
+          | undefined
+      )?.localized.title
     ).toBe("Current form")
   })
 
   it("keeps a conflict arriving during Save and refuses subsequent Publish", async () => {
     const write = deferred<{ updatedAt: number }>()
     const hook = renderSaveHook({
-      updateDraft: vi.fn<UpdateDraft>(() => write.promise),
+      saveSnapshotDraft: vi.fn<SaveSnapshotEditorDraft>(() => write.promise),
     })
     hook.rerender({ draft: makeDraft({ title: "Submitted text" }) })
     let saving!: Promise<boolean>
     act(() => {
       saving = hook.result.current.save()
     })
-    await waitFor(() => expect(hook.updateDraft).toHaveBeenCalledOnce())
+    await waitFor(() => expect(hook.saveSnapshotDraft).toHaveBeenCalledOnce())
     const recovered = {
       ...makeDraft({ title: "Latest conflicted text" }),
       locale: "en" as const,
@@ -1087,13 +1062,14 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       await save
     })
     expect(order).toEqual(["capture", "lock"])
-    expect(hook.updateDraft).toHaveBeenCalledWith(
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: {
-          en: expect.objectContaining({
+        localized: expect.objectContaining({
+          locale: "en",
+          draft: expect.objectContaining({
             localized: expect.objectContaining({ title: captured.title }),
           }),
-        },
+        }),
       })
     )
     expect(hook.result.current.hasUnsaved).toBe(false)
@@ -1106,7 +1082,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       await hook.result.current.publish()
     })
     expect(hook.refreshEditorLock).not.toHaveBeenCalled()
-    expect(hook.updateDraft).not.toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     expect(hook.publishPage).not.toHaveBeenCalled()
   })
 
@@ -1128,7 +1104,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
         expect(await clean.result.current.ensureSaved()).toBe(true)
       })
       expect(refuseDraft).not.toHaveBeenCalled()
-      expect(clean.updateDraft).not.toHaveBeenCalled()
+      expect(clean.saveSnapshotDraft).not.toHaveBeenCalled()
     })
 
     it("is not asked for a shared-only edit, so the shared write is sent", async () => {
@@ -1382,42 +1358,6 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       expect(saveSnapshotDraft).toHaveBeenCalledTimes(1)
     })
 
-    it("reports the legacy path so a cleared non-default address still saves", async () => {
-      // The editor only refuses a blank address when snapshot is true.
-      const refuseDraft = vi.fn(
-        (
-          draft: PageSaveDraft,
-          ctx: { snapshot: boolean; addressCleared: boolean }
-        ) => ctx.snapshot && draft.slug.trim() === ""
-      )
-      const page = makePage({
-        localizedSlugs: { fr: "accueil" },
-        content: {
-          en: { title: "Home", blocks: [] },
-          fr: { title: "Accueil", blocks: [] },
-        },
-      })
-      const hook = renderSaveHook({
-        page,
-        initialLocale: "fr",
-        initialDraft: makeDraft({ title: "Accueil", slug: "accueil" }),
-        captureDraft: (draft) => draft,
-        refuseDraft,
-      })
-      hook.rerender({
-        draft: makeDraft({ title: "Accueil", slug: "" }),
-        locale: "fr",
-      })
-      await act(async () => {
-        expect(await hook.result.current.save()).toBe(true)
-      })
-      expect(refuseDraft).toHaveBeenCalledWith(
-        expect.objectContaining({ slug: "" }),
-        { snapshot: false, addressCleared: false }
-      )
-      expect(hook.updateDraft).toHaveBeenCalledTimes(1)
-    })
-
     it("does not report a clear when the saved address was already blank", async () => {
       const refuseDraft = vi.fn(() => false)
       const hook = renderSaveHook({
@@ -1432,9 +1372,9 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       })
       expect(refuseDraft).toHaveBeenCalledWith(
         expect.objectContaining({ slug: "" }),
-        { snapshot: false, addressCleared: false }
+        { snapshot: true, addressCleared: false }
       )
-      expect(hook.updateDraft).toHaveBeenCalledTimes(1)
+      expect(hook.saveSnapshotDraft).toHaveBeenCalledTimes(1)
     })
 
     it("asks about a default-locale address-only clear and writes nothing", async () => {
@@ -1449,15 +1389,15 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       })
       expect(refuseDraft).toHaveBeenCalledWith(
         expect.objectContaining({ slug: "" }),
-        { snapshot: false, addressCleared: true }
+        { snapshot: true, addressCleared: true }
       )
-      expect(hook.updateDraft).not.toHaveBeenCalled()
+      expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
       // Allowed through, the cleared address still writes nothing.
       refuseDraft.mockReturnValue(false)
       await act(async () => {
         await hook.result.current.save()
       })
-      expect(hook.updateDraft).not.toHaveBeenCalled()
+      expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     })
   })
 
@@ -1479,7 +1419,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       lock.resolve(true)
       await first
     })
-    expect(hook.updateDraft).toHaveBeenCalledTimes(1)
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledTimes(1)
   })
 
   it("preserves typing after capture when the older Save completes", async () => {
@@ -1498,13 +1438,14 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       lock.resolve(true)
       await save
     })
-    expect(hook.updateDraft).toHaveBeenCalledWith(
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: {
-          en: expect.objectContaining({
+        localized: expect.objectContaining({
+          locale: "en",
+          draft: expect.objectContaining({
             localized: expect.objectContaining({ title: "Captured A" }),
           }),
-        },
+        }),
       })
     )
     expect(hook.result.current.hasUnsaved).toBe(true)
@@ -1519,13 +1460,14 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       hook.rerender({ draft: captured })
       await publish
     })
-    expect(hook.updateDraft).toHaveBeenCalledWith(
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: {
-          en: expect.objectContaining({
+        localized: expect.objectContaining({
+          locale: "en",
+          draft: expect.objectContaining({
             localized: expect.objectContaining({ title: captured.title }),
           }),
-        },
+        }),
       })
     )
     expect(hook.publishPage).toHaveBeenCalledTimes(1)
@@ -1548,7 +1490,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       saved = await save
     })
     expect(saved).toBe(false)
-    expect(hook.updateDraft).not.toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     expect(hook.publishPage).not.toHaveBeenCalled()
     expect(readRecoveryDraft(pageId, "en")?.title).toBe("English pending")
   })
@@ -1652,15 +1594,16 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     await act(async () => {
       await hook.result.current.save()
     })
-    expect(hook.updateDraft).toHaveBeenCalledWith(
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: {
-          fr: expect.objectContaining({
+        localized: expect.objectContaining({
+          locale: "fr",
+          draft: expect.objectContaining({
             localized: expect.objectContaining({
               title: "Retained French work",
             }),
           }),
-        },
+        }),
       })
     )
   })
@@ -1713,29 +1656,6 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     expect(hook.result.current.hasUnsaved).toBe(false)
   })
 
-  it("retains the latest page-wide staging token across a locale switch", async () => {
-    const hook = renderSaveHook({
-      hasStaging: true,
-      stagingUpdatedAt: 200,
-      updateDraft: vi.fn(async () => ({ updatedAt: 250 })),
-    })
-    hook.rerender({ draft: makeDraft({ title: "English saved" }) })
-    await act(async () => {
-      await hook.result.current.save()
-    })
-    hook.rerender({
-      draft: makeDraft({ title: "French work", slug: "french-work" }),
-      locale: "fr",
-    })
-    expect(hook.result.current.hasStaging).toBe(true)
-    await act(async () => {
-      await hook.result.current.save()
-    })
-    expect(hook.updateDraft).toHaveBeenLastCalledWith(
-      expect.objectContaining({ expectedUpdatedAt: 250 })
-    )
-  })
-
   it("does not publish while newer typing remains unsaved", async () => {
     const lock = deferred<boolean>()
     const hook = renderSaveHook({
@@ -1751,7 +1671,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       lock.resolve(true)
       await publish
     })
-    expect(hook.updateDraft).toHaveBeenCalledTimes(1)
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledTimes(1)
     expect(hook.publishPage).not.toHaveBeenCalled()
     expect(hook.result.current.hasUnsaved).toBe(true)
   })
@@ -1770,7 +1690,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     })
 
     expect(hook.refreshEditorLock).toHaveBeenCalled()
-    expect(hook.updateDraft).toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).toHaveBeenCalled()
   })
 
   it("writes nothing when another editor holds the lock", async () => {
@@ -1787,7 +1707,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     // Bail BEFORE any write, so the user gets the take-over affordance rather
     // than a half-applied save or a raw lock error from the mutation.
     expect(saved).toBe(false)
-    expect(hook.updateDraft).not.toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     expect(hook.updatePage).not.toHaveBeenCalled()
     // The edit is still pending, not silently dropped.
     expect(hook.result.current.hasUnsaved).toBe(true)
@@ -1808,7 +1728,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
 
     expect(hook.result.current.isSaving).toBe(true)
     expect(hook.refreshEditorLock).toHaveBeenCalledOnce()
-    expect(hook.updateDraft).not.toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     expect(hook.updatePage).not.toHaveBeenCalled()
 
     let saved = true
@@ -1822,7 +1742,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     expect(hook.result.current.hasUnsaved).toBe(true)
     act(() => window.dispatchEvent(new Event("pagehide")))
     expect(readRecoveryDraft(pageId, "en")?.title).toBe("My unsaved edit")
-    expect(hook.updateDraft).not.toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     expect(hook.updatePage).not.toHaveBeenCalled()
     expect(hook.router.refresh).not.toHaveBeenCalled()
     expect(toast.success).not.toHaveBeenCalled()
@@ -1832,7 +1752,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     const write = deferred<{ updatedAt: number }>()
     const onSaveConflict = vi.fn(async () => undefined)
     const hook = renderSaveHook({
-      updateDraft: vi.fn<UpdateDraft>(() => write.promise),
+      saveSnapshotDraft: vi.fn<SaveSnapshotEditorDraft>(() => write.promise),
       onSaveConflict,
     })
     hook.rerender({ draft: makeDraft({ title: "Losing draft" }) })
@@ -1842,7 +1762,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     act(() => {
       saveResult = hook.result.current.save()
     })
-    await waitFor(() => expect(hook.updateDraft).toHaveBeenCalledOnce())
+    await waitFor(() => expect(hook.saveSnapshotDraft).toHaveBeenCalledOnce())
     expect(hook.result.current.isSaving).toBe(true)
     expect(hook.result.current.hasUnsaved).toBe(true)
     expect(hook.router.refresh).not.toHaveBeenCalled()
@@ -1866,7 +1786,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
   it("keeps edits made during an in-flight save unsaved after the older save wins", async () => {
     const write = deferred<{ updatedAt: number }>()
     const hook = renderSaveHook({
-      updateDraft: vi.fn<UpdateDraft>(() => write.promise),
+      saveSnapshotDraft: vi.fn<SaveSnapshotEditorDraft>(() => write.promise),
     })
     hook.rerender({ draft: makeDraft({ title: "Draft A" }) })
     await waitFor(() => expect(hook.result.current.hasUnsaved).toBe(true))
@@ -1875,11 +1795,12 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     act(() => {
       saveResult = hook.result.current.save()
     })
-    await waitFor(() => expect(hook.updateDraft).toHaveBeenCalledOnce())
-    expect(hook.updateDraft).toHaveBeenCalledWith(
+    await waitFor(() => expect(hook.saveSnapshotDraft).toHaveBeenCalledOnce())
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.objectContaining({
-          en: expect.objectContaining({
+        localized: expect.objectContaining({
+          locale: "en",
+          draft: expect.objectContaining({
             localized: expect.objectContaining({ title: "Draft A" }),
           }),
         }),
@@ -1901,10 +1822,10 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     expect(hook.result.current.hasUnsaved).toBe(true)
     act(() => window.dispatchEvent(new Event("pagehide")))
     expect(readRecoveryDraft(pageId, "en")?.title).toBe("Draft B")
-    expect(hook.updateDraft).toHaveBeenCalledOnce()
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledOnce()
   })
 
-  it("stages localized content edits through updateDraft, sets hasStaging=true, does not touch pages.update", async () => {
+  it("saves localized content edits as a language draft, sets hasStaging=true, does not change the status", async () => {
     const hook = renderSaveHook()
 
     expect(hook.result.current.hasUnsaved).toBe(false)
@@ -1922,26 +1843,22 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     })
 
     expect(saved).toBe(true)
-    // First save = lazy-create: no staging OCC token exists yet.
-    expect(hook.updateDraft).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pageId,
-        content: {
-          en: {
-            pageType: "page",
-            localized: {
-              title: "Updated home",
-              metaTitle: undefined,
-              metaDescription: undefined,
-            },
-            blocks: [],
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledWith({
+      localized: {
+        locale: "en",
+        slug: "home",
+        draft: {
+          pageType: "page",
+          localized: {
+            title: "Updated home",
+            metaTitle: undefined,
+            metaDescription: undefined,
           },
+          blocks: [],
         },
-        expectedUpdatedAt: undefined,
-      })
-    )
-    // No hierarchy / expiresAt / pageType / scheduledAt change → no
-    // pages.update call.
+      },
+    })
+    // A content edit never calls the status command.
     expect(hook.updatePage).not.toHaveBeenCalled()
     expect(hook.result.current.hasStaging).toBe(true)
     expect(hook.result.current.hasUnsaved).toBe(false)
@@ -1982,39 +1899,26 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
         parentId: "page_parent",
       },
     })
-    expect(hook.updateDraft).not.toHaveBeenCalled()
     expect(hook.updatePage).not.toHaveBeenCalled()
   })
 
-  it.each([false, true])(
-    "never sends tags when a non-post page is saved (snapshot=%s)",
-    async (snapshot) => {
-      const saveSnapshotDraft = vi.fn<SaveSnapshotEditorDraft>(async () => ({
-        updatedAt: 201,
-      }))
-      const hook = renderSaveHook({
-        saveSnapshotDraft: snapshot ? saveSnapshotDraft : undefined,
-      })
-      hook.rerender({
-        draft: makeDraft({ title: "Renamed home", tags: ["stale"] }),
-      })
-      await waitFor(() => expect(hook.result.current.hasUnsaved).toBe(true))
-      await act(async () => {
-        expect(await hook.result.current.save()).toBe(true)
-      })
-      if (snapshot) {
-        expect(saveSnapshotDraft).toHaveBeenCalledOnce()
-        const patch = saveSnapshotDraft.mock.calls[0]![0]
-        expect(patch.localized).toBeDefined()
-        expect(patch).not.toHaveProperty("shared")
-      } else {
-        expect(hook.updateDraft).toHaveBeenCalledOnce()
-        const args = hook.updateDraft.mock.calls[0]![0]
-        expect(args.content).toBeDefined()
-        expect(args).not.toHaveProperty("tags")
-      }
-    }
-  )
+  it("never sends tags when a non-post page is saved", async () => {
+    const saveSnapshotDraft = vi.fn<SaveSnapshotEditorDraft>(async () => ({
+      updatedAt: 201,
+    }))
+    const hook = renderSaveHook({ saveSnapshotDraft })
+    hook.rerender({
+      draft: makeDraft({ title: "Renamed home", tags: ["stale"] }),
+    })
+    await waitFor(() => expect(hook.result.current.hasUnsaved).toBe(true))
+    await act(async () => {
+      expect(await hook.result.current.save()).toBe(true)
+    })
+    expect(saveSnapshotDraft).toHaveBeenCalledOnce()
+    const patch = saveSnapshotDraft.mock.calls[0]![0]
+    expect(patch.localized).toBeDefined()
+    expect(patch).not.toHaveProperty("shared")
+  })
 
   it("sends changed tags when a blog post is saved", async () => {
     const hook = renderSaveHook({ page: makePage({ pageType: "post" }) })
@@ -2025,8 +1929,10 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     await act(async () => {
       expect(await hook.result.current.save()).toBe(true)
     })
-    expect(hook.updateDraft).toHaveBeenCalledWith(
-      expect.objectContaining({ tags: ["topic"] })
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shared: expect.objectContaining({ tags: ["topic"] }),
+      })
     )
   })
 
@@ -2040,9 +1946,13 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     await act(async () => {
       await hook.result.current.save()
     })
-    expect(hook.updateDraft).toHaveBeenCalledTimes(2)
-    expect(hook.updateDraft).toHaveBeenLastCalledWith(
-      expect.objectContaining({ seo: {} })
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledTimes(2)
+    expect(hook.saveSnapshotDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        localized: expect.objectContaining({
+          draft: expect.objectContaining({ seo: {} }),
+        }),
+      })
     )
     expect(hook.result.current.hasUnsaved).toBe(false)
   })
@@ -2057,48 +1967,22 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     await act(async () => {
       await hook.result.current.save()
     })
-    expect(hook.updateDraft).toHaveBeenCalledTimes(2)
-    expect(hook.updateDraft).toHaveBeenLastCalledWith(
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledTimes(2)
+    expect(hook.saveSnapshotDraft).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        content: {
-          en: expect.objectContaining({
+        localized: expect.objectContaining({
+          locale: "en",
+          draft: expect.objectContaining({
             localized: expect.objectContaining({ title: "Home" }),
           }),
-        },
+        }),
       })
     )
   })
 
-  it("threads the staging updatedAt as the OCC token on subsequent saves", async () => {
-    const hook = renderSaveHook({
-      hasStaging: true,
-      stagingUpdatedAt: 200,
-      updateDraft: vi.fn(async () => ({ updatedAt: 250 })),
-    })
-
-    hook.rerender({ draft: makeDraft({ title: "Round 1" }) })
-    await waitFor(() => expect(hook.result.current.hasUnsaved).toBe(true))
-    await act(async () => {
-      await hook.result.current.save()
-    })
-    expect(hook.updateDraft).toHaveBeenLastCalledWith(
-      expect.objectContaining({ expectedUpdatedAt: 200 })
-    )
-
-    // Second save should use the fresh token returned above.
-    hook.rerender({ draft: makeDraft({ title: "Round 2" }) })
-    await waitFor(() => expect(hook.result.current.hasUnsaved).toBe(true))
-    await act(async () => {
-      await hook.result.current.save()
-    })
-    expect(hook.updateDraft).toHaveBeenLastCalledWith(
-      expect.objectContaining({ expectedUpdatedAt: 250 })
-    )
-  })
-
   it.each([false, true])(
-    "refreshes the latest recovery buffer after a concurrent Save (snapshot=%s)",
-    async (snapshotAuthority) => {
+    "refreshes the latest recovery buffer after a concurrent Save (stale base=%s)",
+    async (staleBase) => {
       const clock = vi.spyOn(Date, "now").mockReturnValue(1000)
       try {
         const write = deferred<{ updatedAt: number }>()
@@ -2108,9 +1992,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
         })
         const hook = renderSaveHook({
           onSaveConflict,
-          ...(snapshotAuthority
-            ? { saveSnapshotDraft: vi.fn(() => write.promise) }
-            : { updateDraft: vi.fn(() => write.promise) }),
+          saveSnapshotDraft: vi.fn(() => write.promise),
         })
         hook.rerender({ draft: makeDraft({ title: "Submitted buffer" }) })
         let saving!: Promise<boolean>
@@ -2118,9 +2000,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
           saving = hook.result.current.save()
         })
         await waitFor(() =>
-          expect(
-            snapshotAuthority ? hook.saveSnapshotDraft : hook.updateDraft
-          ).toHaveBeenCalledOnce()
+          expect(hook.saveSnapshotDraft).toHaveBeenCalledOnce()
         )
         clock.mockReturnValue(1100)
         hook.rerender({
@@ -2132,7 +2012,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
         await act(async () => {
           write.reject(
             new Error(
-              snapshotAuthority ? "PAGE_LOCALE_DRAFT_STALE" : staleSaveMessage
+              staleBase ? staleSaveMessage : "PAGE_LOCALE_DRAFT_STALE"
             )
           )
           expect(await saving).toBe(false)
@@ -2154,7 +2034,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
   it("keeps dirty state and offers conflict recovery when a stale save is rejected", async () => {
     const onSaveConflict = vi.fn(async () => undefined)
     const hook = renderSaveHook({
-      updateDraft: vi.fn(async () => {
+      saveSnapshotDraft: vi.fn(async () => {
         throw new Error(staleSaveMessage)
       }),
       onSaveConflict,
@@ -2180,7 +2060,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       "[CONVEX M(cms/publication:saveEditorDraft)] Server Error\n" +
       "at handler (../../convex/cms/publication.ts:1:1)"
     const hook = renderSaveHook({
-      updateDraft: vi.fn(async () => {
+      saveSnapshotDraft: vi.fn(async () => {
         throw new Error(raw)
       }),
     })
@@ -2199,7 +2079,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
 
   it("explains a deleted image when saving fails", async () => {
     const hook = renderSaveHook({
-      updateDraft: vi.fn(async () => {
+      saveSnapshotDraft: vi.fn(async () => {
         throw new ConvexError("PUBLICATION_MEDIA_REFERENCE_MISSING")
       }),
     })
@@ -2251,7 +2131,8 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
 
   it("names the content type when its translation switch refuses Publish", async () => {
     const hook = renderSaveHook({
-      page: makePage({ pageType: "post" }),
+      page: makePage({ pageType: "page" }),
+      initialDraft: makeDraft({ pageType: "page" }),
       publishPage: vi.fn(async () => {
         throw new ConvexError("CONTENT_TYPE_TRANSLATION_OFF")
       }),
@@ -2262,7 +2143,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     })
 
     expect(toast.error).toHaveBeenCalledWith(
-      "Not shown on the site: translation is off for Posts."
+      "Not shown on the site: translation is off for Pages."
     )
   })
 
@@ -2314,7 +2195,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     )
   })
 
-  it("publish ensures the draft is saved (updateDraft) then calls publishPage with no OCC token", async () => {
+  it("publish ensures the draft is saved, then calls publishPage with no OCC token", async () => {
     const hook = renderSaveHook()
 
     hook.rerender({ draft: makeDraft({ title: "Ready to publish" }) })
@@ -2324,10 +2205,11 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       await hook.result.current.publish()
     })
 
-    expect(hook.updateDraft).toHaveBeenCalledWith(
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.objectContaining({
-          en: expect.objectContaining({
+        localized: expect.objectContaining({
+          locale: "en",
+          draft: expect.objectContaining({
             localized: expect.objectContaining({ title: "Ready to publish" }),
           }),
         }),
@@ -2344,11 +2226,9 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     expect(hook.router.refresh).toHaveBeenCalledTimes(2)
   })
 
-  it("descriptor shared-field changes flow through updateDraft (not pages.update)", async () => {
-    // ADR-0041 §1 stages descriptor sharedFields. Under Deploy 2 the
-    // author `name` + `socials` edits belong to `updateDraft`, not the
-    // legacy `pages.update` (that stays only for hierarchy / expiresAt /
-    // scheduledAt / pageType).
+  it("descriptor shared-field changes save with the shared draft", async () => {
+    // Descriptor sharedFields (author `name` + `socials`) save with the
+    // shared draft, never through the status command.
     const hook = renderSaveHook({
       page: makePage({ pageType: "author", name: "Original" }),
     })
@@ -2368,9 +2248,9 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
       saved = await hook.result.current.save()
     })
     expect(saved).toBe(true)
-    expect(hook.updateDraft).toHaveBeenCalledTimes(1)
-    const call = hook.updateDraft.mock.calls[0][0] as Record<string, unknown>
-    expect(JSON.parse(call.sharedFieldsJson as string)).toEqual({
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledTimes(1)
+    const call = hook.saveSnapshotDraft.mock.calls[0][0]
+    expect(JSON.parse(call.shared?.sharedFieldsJson as string)).toEqual({
       name: "Renamed via generic panel",
       socials: [
         {
@@ -2383,7 +2263,7 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     expect(hook.updatePage).not.toHaveBeenCalled()
   })
 
-  it("does not include unchanged shared-field values in the updateDraft call", async () => {
+  it("does not include unchanged shared-field values in the draft save", async () => {
     const hook = renderSaveHook({
       page: makePage({ pageType: "author", name: "Ada" }),
     })
@@ -2400,44 +2280,13 @@ describe("usePageSave (ADR-0041 Deploy 2 — staging seams)", () => {
     await act(async () => {
       await hook.result.current.save()
     })
-    // Localized title changed → updateDraft fires with content ...
-    const call = hook.updateDraft.mock.calls[0][0] as Record<string, unknown>
-    expect(call.content).toBeDefined()
-    // ... but unchanged descriptor fields must not create an envelope.
-    expect(call.sharedFieldsJson).toBeUndefined()
-    // No hierarchy / scheduledAt / expiresAt / pageType change → no
-    // pages.update call.
+    // Localized title changed → the language draft is saved ...
+    const call = hook.saveSnapshotDraft.mock.calls[0][0]
+    expect(call.localized).toBeDefined()
+    // ... but unchanged descriptor fields must not create a shared write.
+    expect(call.shared).toBeUndefined()
+    // A content edit never calls the status command.
     expect(hook.updatePage).not.toHaveBeenCalled()
-  })
-
-  it("hierarchy-only edit flows through pages.update WITHOUT firing updateDraft (advisor regression guard)", async () => {
-    // Regression fix from PR A advisor: previously the save path
-    // unconditionally sent `content` to `updateDraft`, so a save touching
-    // only a live-immediate field (ADR §1) still created a byte-identical
-    // staging row and lit "Unpublished changes." That nagged a publish of
-    // nothing. The staged-change gate below prevents that spurious write.
-    const hook = renderSaveHook()
-    hook.rerender({
-      draft: makeDraft({
-        title: "Home",
-        parentId: "page_parent" as Id<"pages">,
-      }),
-    })
-    await waitFor(() => expect(hook.result.current.hasUnsaved).toBe(true))
-    await act(async () => {
-      await hook.result.current.save()
-    })
-    expect(hook.updateDraft).not.toHaveBeenCalled()
-    expect(hook.updatePage).toHaveBeenCalledTimes(1)
-    const call = hook.updatePage.mock.calls[0][0] as {
-      parentId?: string
-      expiresAt?: number
-    }
-    expect(call.parentId).toBe("page_parent")
-    // FR2c row C — the editor never writes the expiry compatibility field.
-    expect(call).not.toHaveProperty("expiresAt")
-    // Badge must NOT light on a live-immediate-only edit.
-    expect(hook.result.current.hasStaging).toBe(false)
   })
 
   it("discard confirms + calls discardDraft, clears hasStaging + hasUnsaved", async () => {
@@ -2559,13 +2408,13 @@ describe("Save waits for compiled renderer qualification", () => {
       expect(hook.result.current.save()).toBe(saving)
     })
     expect(hook.refreshEditorLock).not.toHaveBeenCalled()
-    expect(hook.updateDraft).not.toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     await act(async () => {
       gate.resolve(true)
       expect(await saving).toBe(true)
     })
     expect(captureDraft).toHaveBeenCalledTimes(1)
-    expect(hook.updateDraft).toHaveBeenCalledTimes(1)
+    expect(hook.saveSnapshotDraft).toHaveBeenCalledTimes(1)
   })
   it.each(["manual", "locale", "refusal"])(
     "refuses stale qualification after %s without accepting a captured draft",
@@ -2590,7 +2439,7 @@ describe("Save waits for compiled renderer qualification", () => {
         expect(await saving).toBe(false)
       })
       expect(hook.refreshEditorLock).not.toHaveBeenCalled()
-      expect(hook.updateDraft).not.toHaveBeenCalled()
+      expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     }
   )
 })
@@ -2795,13 +2644,19 @@ describe("D2 actual-consumer adoption", () => {
         subject: "consumer-owner",
         tokenIdentifier: "https://convex.test|consumer-owner",
       }
+      // A fresh install in this language, through the real setup command.
       const t = convexTest({
         schema,
         modules: import.meta.glob("../../../../convex/**/*.ts"),
         ownerIdentity: identity,
-        publicationAuthority: "legacy",
+        publicationAuthority: "missing",
       })
       const owner = t.withIdentity(identity)
+      await owner.mutation(api.cms.settings.bootstrapInstallation, {
+        siteName: "Consumer site",
+        timezone: "UTC",
+        defaultLocale: locale,
+      })
       const id = await owner.mutation(api.cms.pages.create, {
         pageType: "landing-page",
         status: "draft",
@@ -2817,15 +2672,6 @@ describe("D2 actual-consumer adoption", () => {
           title: `<p><strong>Hello</strong><br><a href="/${blockId}">World</a></p>`,
         },
       }))
-      await t.run(async (ctx) => {
-        const staging = await ctx.db
-          .query("pageStaging")
-          .withIndex("by_pageId", (q) => q.eq("pageId", id))
-          .unique()
-        await ctx.db.patch(staging!._id, {
-          content: { [locale]: { title: "Home", blocks: source } },
-        })
-      })
       const adopted = adoptHeroTitles([source[0]], locale)
       const first = adopted.value[0]
       let flushed = ""
@@ -2859,9 +2705,39 @@ describe("D2 actual-consumer adoption", () => {
         onPreparedDraft: (value) => {
           preparedDraft = value
         },
-        updateDraft: vi.fn<UpdateDraft>((args) =>
-          owner.mutation(api.cms.pages.updateDraft, args)
-        ),
+        // The editor's own wrapper: generations come from the server view.
+        saveSnapshotDraft: vi.fn<SaveSnapshotEditorDraft>(async (patch) => {
+          const publication = (await owner.query(api.cms.pages.getForEdit, {
+            id,
+          }))!.publication!
+          const result = await owner.mutation(
+            api.cms.publication.saveEditorDraft,
+            {
+              pageId: id,
+              expectedLifecycleGeneration: publication.lifecycleGeneration,
+              ...(patch.shared
+                ? {
+                    shared: {
+                      ...patch.shared,
+                      expectedGeneration: publication.sharedDraftGeneration,
+                    },
+                  }
+                : {}),
+              ...(patch.localized
+                ? {
+                    localized: {
+                      ...patch.localized,
+                      expectedGeneration:
+                        publication.locales.find(
+                          (entry) => entry.locale === patch.localized!.locale
+                        )?.draftGeneration ?? 0,
+                    },
+                  }
+                : {}),
+            }
+          )
+          return { updatedAt: result.updatedAt }
+        }),
         captureDraft: (draft) => {
           flush!()
           return {
@@ -2895,13 +2771,11 @@ describe("D2 actual-consumer adoption", () => {
         saved = await hook.result.current.save()
       })
       expect(saved).toBe(true)
-      const stored = await t.run((ctx) =>
-        ctx.db
-          .query("pageStaging")
-          .withIndex("by_pageId", (q) => q.eq("pageId", id))
-          .unique()
-      )
-      const reopened = stored!.content![locale] as { blocks: typeof source }
+      const reopenedDraft = async () =>
+        (await owner.query(api.cms.pages.getForEdit, { id }))!.page.content![
+          locale
+        ] as { blocks: typeof source }
+      const reopened = await reopenedDraft()
       const expected = JSON.stringify({
         type: "doc",
         content: [
@@ -2955,15 +2829,7 @@ describe("D2 actual-consumer adoption", () => {
         saved = await hook.result.current.save()
       })
       expect(saved).toBe(true)
-      const secondStage = await t.run((ctx) =>
-        ctx.db
-          .query("pageStaging")
-          .withIndex("by_pageId", (q) => q.eq("pageId", id))
-          .unique()
-      )
-      const secondHero = (
-        secondStage!.content![locale] as { blocks: typeof source }
-      ).blocks[0]
+      const secondHero = (await reopenedDraft()).blocks[0]
       expect(secondHero.items.map((item) => item.itemId)).toEqual(firstIds)
 
       hook.unmount()
@@ -2986,7 +2852,7 @@ test("D2 failed HTML adoption refuses Save before any durable write", blockProfi
     })
   try {
     expect(() => hook.result.current.save()).toThrow("conversion failed")
-    expect(hook.updateDraft).not.toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     expect(hook.updatePage).not.toHaveBeenCalled()
     expect(JSON.stringify(source)).toBe(before)
   } finally {
@@ -3036,7 +2902,7 @@ test.each(["lifecycle flush", "pending scope"] as const)(
       expect(raw.blocks).toEqual(blocks)
       expect(raw.removedTitleLinks).toEqual(reports)
       expect(capture).toHaveBeenCalled()
-      expect(hook.updateDraft).not.toHaveBeenCalled()
+      expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     } finally {
       hook.unmount()
       vi.useRealTimers()
@@ -3075,13 +2941,9 @@ it.each([false, true])(
   }
 )
 
-it.each(
-  [false, true].flatMap((snapshot) =>
-    [undefined, 200].map((stagingUpdatedAt) => ({ snapshot, stagingUpdatedAt }))
-  )
-)(
-  "retained History base conflicts without advancing it (snapshot=$snapshot, staging=$stagingUpdatedAt)",
-  async ({ snapshot, stagingUpdatedAt }) => {
+it.each([undefined, 200].map((stagingUpdatedAt) => ({ stagingUpdatedAt })))(
+  "retained History base conflicts without advancing it (staging=$stagingUpdatedAt)",
+  async ({ stagingUpdatedAt }) => {
     window.localStorage.clear()
     window.sessionStorage.clear()
     vi.clearAllMocks()
@@ -3107,9 +2969,7 @@ it.each(
       initialDraft: makeDraft({ title: "Newer unsaved English" }),
       hasStaging: true,
       stagingUpdatedAt: 500,
-      saveSnapshotDraft: snapshot
-        ? vi.fn(async () => ({ updatedAt: 501 }))
-        : undefined,
+      saveSnapshotDraft: vi.fn(async () => ({ updatedAt: 501 })),
     })
     expect(hook.result.current.hasUnsaved).toBe(true)
     expect(hook.result.current.recoveryDraft).toBeNull()
@@ -3118,9 +2978,7 @@ it.each(
       expect(await hook.result.current.save()).toBe(false)
     })
     expect(hook.onSaveConflict).toHaveBeenCalledOnce()
-    expect(hook.updateDraft).not.toHaveBeenCalled()
-    if (hook.saveSnapshotDraft)
-      expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     expect(hook.result.current.captureSaveBase("en")).toEqual(base)
     expect(hook.result.current.hasUnsaved).toBe(true)
     expect(hook.result.current.recoveryDraft).toBeNull()
@@ -3134,10 +2992,6 @@ it.each(
       expect(await hook.result.current.save()).toBe(true)
     })
     expect(hook.onSaveConflict).toHaveBeenCalledOnce()
-    if (!snapshot)
-      expect(hook.updateDraft).toHaveBeenLastCalledWith(
-        expect.objectContaining({ expectedUpdatedAt: 500 })
-      )
     hook.rerender({
       draft: makeDraft({ title: "Newer unsaved English" }),
       locale: "en",
@@ -3148,13 +3002,9 @@ it.each(
   }
 )
 
-it.each(
-  [false, true].flatMap((snapshot) =>
-    [undefined, 200].map((stagingUpdatedAt) => ({ snapshot, stagingUpdatedAt }))
-  )
-)(
-  "round4 retained shared baseline keeps old tokens across locales (snapshot=$snapshot, staging=$stagingUpdatedAt)",
-  async ({ snapshot, stagingUpdatedAt }) => {
+it.each([undefined, 200].map((stagingUpdatedAt) => ({ stagingUpdatedAt })))(
+  "round4 retained shared baseline keeps old tokens across locales (staging=$stagingUpdatedAt)",
+  async ({ stagingUpdatedAt }) => {
     window.localStorage.clear()
     window.sessionStorage.clear()
     vi.clearAllMocks()
@@ -3178,9 +3028,7 @@ it.each(
       initialDraft: dirty,
       hasStaging: true,
       stagingUpdatedAt: 500,
-      saveSnapshotDraft: snapshot
-        ? vi.fn(async () => ({ updatedAt: 501 }))
-        : undefined,
+      saveSnapshotDraft: vi.fn(async () => ({ updatedAt: 501 })),
       strictMode: true,
     })
     for (const locale of ["en", "fr", "en"] as const) {
@@ -3206,7 +3054,7 @@ it.each(
       })
     }
     expect(hook.onSaveConflict).toHaveBeenCalledTimes(3)
-    expect(hook.updateDraft).not.toHaveBeenCalled()
+    expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     if (hook.saveSnapshotDraft)
       expect(hook.saveSnapshotDraft).not.toHaveBeenCalled()
     hook.unmount()

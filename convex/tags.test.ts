@@ -136,6 +136,50 @@ describe("rename", () => {
     expect(after[0].label).toBe("Front Page")
   })
 
+  test("a label-only rename keeps the description", async () => {
+    const t = await ownerTest()
+    const as = t.withIdentity(TEST_USER)
+    await as.mutation(internal.cms.tags.ensureMany, { labels: ["Featured"] })
+    const [row] = await as.query(api.cms.tags.list, {})
+    await as.mutation(api.cms.tags.rename, {
+      id: row._id,
+      label: "Featured",
+      description: "Top stories",
+    })
+
+    await as.mutation(api.cms.tags.rename, {
+      id: row._id,
+      label: "Front Page",
+    })
+
+    const after = await as.query(api.cms.tags.list, {})
+    expect(after[0].label).toBe("Front Page")
+    expect(after[0].description).toBe("Top stories")
+  })
+
+  test("a blank description clears it and a given one is stored trimmed", async () => {
+    const t = await ownerTest()
+    const as = t.withIdentity(TEST_USER)
+    await as.mutation(internal.cms.tags.ensureMany, { labels: ["Featured"] })
+    const [row] = await as.query(api.cms.tags.list, {})
+
+    await as.mutation(api.cms.tags.rename, {
+      id: row._id,
+      label: "Featured",
+      description: "  Top stories ",
+    })
+    expect((await as.query(api.cms.tags.list, {}))[0].description).toBe(
+      "Top stories"
+    )
+
+    await as.mutation(api.cms.tags.rename, {
+      id: row._id,
+      label: "Featured",
+      description: "  ",
+    })
+    expect((await as.query(api.cms.tags.list, {}))[0].description).toBeNull()
+  })
+
   test("rejects empty labels", async () => {
     const t = await ownerTest()
     const as = t.withIdentity(TEST_USER)

@@ -1,3 +1,4 @@
+import { isActiveContentType } from "../convex/lib/contentTypes"
 import { describe, expect, test } from "vitest"
 import {
   formatR1LiteralInventory,
@@ -5,6 +6,17 @@ import {
   scanR1LiteralInventory,
   scanR1Source,
 } from "./admin-literal-ratchet"
+
+// The generator intentionally prunes only these optional renderer paths.
+// Keep the core count and every core path independent of scanner output.
+const OPTIONAL_RENDERER_PATHS = [
+  ["author", "components/content-types/author.tsx"],
+  ["post", "components/content-types/post.tsx"],
+] as const
+const selectedOptionalRendererPaths = OPTIONAL_RENDERER_PATHS.filter(([type]) =>
+  isActiveContentType(type)
+).map(([, path]) => path)
+const REQUIRED_UI_FILE_COUNT = 249
 
 const SETUP_SURFACE_PATHS = new Set([
   "app/(core)/setup/layout.tsx",
@@ -117,6 +129,7 @@ const MENUS_PATHS = new Set([
 ])
 
 const OTHER_INVENTORY_ROUTES_PATHS = new Set([
+  ...selectedOptionalRendererPaths,
   "components/admin/admin-module-state-provider.tsx",
   "components/admin/help-availability.ts",
   "components/admin/module-gate.ts",
@@ -220,19 +233,16 @@ const OTHER_INVENTORY_ROUTES_PATHS = new Set([
   "components/admin/visual-editing-types.ts",
   "components/auth/password-field.tsx",
   "components/edition/page-workflow.tsx",
-  "components/edition/roles-manager.tsx",
   "components/edition/workflow-principal.tsx",
   "app/(public)/[locale]/[[...path]]/page.tsx",
   "app/(public)/[locale]/error.tsx",
   "app/(public)/[locale]/layout.tsx",
   "app/(public)/[locale]/loading.tsx",
   "app/(public)/[locale]/not-found.tsx",
-  "components/content-types/author.tsx",
   "components/content-types/byline.ts",
   "components/content-types/index.ts",
   "components/content-types/landing-page.tsx",
   "components/content-types/page.tsx",
-  "components/content-types/post.tsx",
   "components/content-types/types.ts",
   "components/development-instance-badge.tsx",
   "components/public/footer.tsx",
@@ -319,7 +329,9 @@ describe("admin literal ratchet", () => {
   test("R1 shipped UI has no unallowlisted literals", () => {
     const inventory = scanR1LiteralInventory(process.cwd())
     expect(inventory.files.length).toBeGreaterThan(0)
-    expect(inventory.files).toHaveLength(252)
+    expect(inventory.files).toHaveLength(
+      REQUIRED_UI_FILE_COUNT + selectedOptionalRendererPaths.length
+    )
     if (inventory.findings.length > 0) {
       throw new Error(formatR1LiteralInventory(inventory))
     }
@@ -513,7 +525,9 @@ describe("admin literal ratchet", () => {
         OTHER_INVENTORY_ROUTES_PATHS.has(finding.path)
       ),
     }
-    expect(otherInventoryRoutes.files).toHaveLength(166)
+    expect(otherInventoryRoutes.files).toHaveLength(
+      163 + selectedOptionalRendererPaths.length
+    )
     if (otherInventoryRoutes.findings.length > 0) {
       throw new Error(formatR1LiteralInventory(otherInventoryRoutes))
     }

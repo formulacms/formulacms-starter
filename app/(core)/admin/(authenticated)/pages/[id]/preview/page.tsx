@@ -8,6 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel"
 import type { Block } from "@/convex/lib/blocks"
 import { getContentTypeRenderer } from "@/components/content-types"
 import { buildBlockRenderContext } from "@/lib/blocks/render-context"
+import { readInIdGroups } from "@/lib/cms/batched-read"
 import { hasBlockBody } from "@/convex/lib/pages/blockBodyContent"
 import { isRoutableContentType } from "@/convex/lib/contentTypes/routing"
 import type { ContentType } from "@/convex/lib/contentTypes"
@@ -146,9 +147,9 @@ export default async function AdminPreviewPage({
   collectImageStorageIds(rawBlocks, storageIds)
   const freshUrls =
     storageIds.size > 0
-      ? await fetchQuery(api.cms.media.getStorageUrls, {
-          storageIds: [...storageIds],
-        })
+      ? await readInIdGroups([...storageIds], (group) =>
+          fetchQuery(api.cms.media.getStorageUrls, { storageIds: group })
+        )
       : ({} as Record<string, string>)
   const blocks = (
     Object.keys(freshUrls).length > 0

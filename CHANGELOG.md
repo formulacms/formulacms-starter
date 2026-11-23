@@ -7,6 +7,60 @@ Fixed. The format follows Keep a Changelog 1.1.0.
 The known limits of each release are on its release page:
 https://github.com/formulacms/formulacms-starter/releases
 
+## 0.5.1
+
+0.5.1 supports fresh installs only; there is no upgrade path from 0.4.0.
+Start a new site and a new Convex deployment from v0.5.1. Do not merge or
+pull this release into an older site or reuse its Convex deployment.
+`scripts/check-release-transition.ts` refuses the 0.4.0 to 0.5.1 hop as
+unsupported. There is no 0.5.0 release.
+
+### Changed
+
+- New sites use Published Snapshots throughout. Retired page-wide publication,
+  migration, membership, entitlement and role tables were removed; the schema
+  version is now 7. <!-- #203 #204 -->
+- Fresh starters include Page and Landing page. Post and Author remain in the
+  source repository, and are not installed in a starter. <!-- #205 -->
+- Public reads accept at most 50 ids per call; the public pages split larger
+  reads into groups of 50. <!-- #202 -->
+- Block Delete checks live drafts, the current public version, retained draft
+  bases, pages in Trash and temporary AI copies. Old publish history does not
+  block Delete; a breaking block Update still checks it. Incomplete usage
+  checks refuse deletion. <!-- #203 -->
+
+### Removed
+
+- Retired publication paths and unused code. <!-- #203 #204 -->
+
+### Fixed
+
+- Opening an untranslated language no longer asks for a checklist before that
+  language has saved content. Saved and published language versions still use
+  their own checklist.
+- Signing out from an open page editor quietly acknowledges presence and lock
+  cleanup after the session ends. Signed-in cleanup keeps its owner checks.
+- Editing a media item without changing its folder preserves the folder;
+  clearing the folder still removes it. Partial tag renames preserve an
+  omitted description. <!-- #201 -->
+- AI field answers preserve sibling edits and are discarded if their target
+  field or language changed while the answer was running. The page-editor
+  write-back walk remains deferred until that path is available. <!-- #201 -->
+- Settings > AI again shows the setup steps and provider configuration.
+  <!-- #207 -->
+- Translate + Accept and copy can create a new language version. Translate
+  remains available for a title-only version. The selected editor language
+  uses the admin accent colour. <!-- #208 -->
+
+### Known limits
+
+- Snapshot site search and draft relation cards remain deferred.
+- The dashboard media count is capped at 100. There is no admin control for
+  changing a single-language site's public language.
+- Stored dynamic menu lists remain for a later release; their removal is not
+  part of this release.
+- AI page-editor write-back verification belongs to AI-WRITE-LOCALES (0.6.0).
+
 ## 0.4.0
 
 0.4.0 supports fresh installs only; there is no upgrade path from 0.3.1.

@@ -41,3 +41,22 @@ export function applyFreshImageUrls(
   }
   return next
 }
+
+/**
+ * Replace each image's stored `url` with a fresh one from its `storageId`.
+ * `loadUrls` reads the URLs for every distinct id on the page (the caller
+ * splits them into groups the batch read accepts). Blocks come back unchanged
+ * when there are no images or no URL could be read.
+ */
+export async function refreshBlockImageUrls<T>(
+  blocks: T,
+  loadUrls: (storageIds: Id<"_storage">[]) => Promise<Record<string, string>>
+): Promise<T> {
+  const ids = new Set<Id<"_storage">>()
+  collectImageStorageIds(blocks, ids)
+  if (ids.size === 0) return blocks
+
+  const urls = await loadUrls([...ids])
+  if (Object.keys(urls).length === 0) return blocks
+  return applyFreshImageUrls(blocks, urls) as T
+}

@@ -280,7 +280,8 @@ function MediaDetailDialog({
     try {
       await update({
         id: media._id,
-        folder: currentDraft.folder.trim() || undefined,
+        // `null` clears the folder; the server keeps it when `folder` is omitted.
+        folder: currentDraft.folder.trim() || null,
         tags: currentDraft.tags,
         focal: currentDraft.focal ?? null,
         crop: currentDraft.crop ?? null,

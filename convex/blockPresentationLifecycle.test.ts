@@ -262,15 +262,6 @@ describe("owner presentation lifecycle", () => {
     "%s cannot read or mutate the catalog and leaves all state unchanged", blockProfile([]),
     async (actorKind) => {
       const { t } = await fixture()
-      if (actorKind === "legacy-admin") {
-        await t.run((ctx) =>
-          ctx.db.insert("roles", {
-            authId: STRANGER.subject,
-            role: "admin",
-            assignedAt: 1,
-          })
-        )
-      }
       const actor =
         actorKind === "unauthenticated" ? t : t.withIdentity(STRANGER)
       await refusesWithoutWrites(t, () =>
@@ -286,15 +277,8 @@ describe("owner presentation lifecycle", () => {
     }
   )
 
-  test("a legacy admin without any owner binding cannot bootstrap authority", blockProfile([]), async () => {
+  test("an authenticated caller without any owner binding cannot bootstrap authority", blockProfile([]), async () => {
     const t = convexTest({ schema, modules, publicationAuthority: "missing" })
-    await t.run((ctx) =>
-      ctx.db.insert("roles", {
-        authId: STRANGER.subject,
-        role: "admin",
-        assignedAt: 1,
-      })
-    )
     await refusesWithoutWrites(t, () =>
       t
         .withIdentity(STRANGER)

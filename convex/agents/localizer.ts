@@ -243,9 +243,7 @@ export async function readTranslationConfig(
     catalog,
     // The system prompt is the output contract, not an operator knob: only
     // the registry default runs, built in code by
-    // `buildTranslationSystemPrompt`. A stored `systemPrompt` on an old row
-    // is dead data (see cms/agents:clearStoredSystemPrompts) and is
-    // deliberately NOT read here. Translation had no output parser at all,
+    // `buildTranslationSystemPrompt`. Translation had no output parser at all,
     // so a bad override corrupted translations silently — that is the hole
     // this closes.
     userPromptTemplate:

@@ -1,5 +1,5 @@
-import { expect, test, type Frame, type Page } from "playwright/test"
-import { localPath, ownerPage } from "../support"
+import { expect, test, type Browser, type BrowserContext, type Frame, type Page } from "playwright/test"
+import { localOrigin, localPath, ownerPage } from "../support"
 
 /**
  * Page editor live preview: opening the Hero Agency title in place. Editing
@@ -529,6 +529,34 @@ test.describe("page preview: opening the Hero title in place", () => {
   )
   test.setTimeout(420_000)
 
+  // Authenticate through the real UI once per worker, before opening an editor.
+  // Pass the latest cookies along one serial chain: the app rotates them.
+  // Origin storage, cache, DOM and editor selection stay fresh for every case.
+  let ownerCookies: Awaited<ReturnType<BrowserContext["cookies"]>>
+  test.beforeAll(async ({ browser }) => {
+    const page = await ownerPage(browser)
+    try {
+      await handoffCookies(page)
+    } finally {
+      await page.context().close()
+    }
+  })
+
+  async function previewPage(browser: Browser): Promise<Page> {
+    const context = await browser.newContext({
+      baseURL: localOrigin(),
+      storageState: { cookies: ownerCookies, origins: [] },
+    })
+    return context.newPage()
+  }
+
+  async function handoffCookies(page: Page) {
+    // Stop the outgoing document before taking its current, opaque cookie jar.
+    // The context stays open for capture and closes before the next case starts.
+    await page.close()
+    ownerCookies = await page.context().cookies(localOrigin())
+  }
+
   const combinations: [Code, Context, string][] = [
     ["cold", "fresh", "code cold, no block selected, page at the top"],
     ["cold", "settled", "code cold, the Hero selected, page scrolled"],
@@ -537,7 +565,7 @@ test.describe("page preview: opening the Hero title in place", () => {
   ]
   for (const [code, context, title] of combinations)
     test(title, async ({ browser }) => {
-      const page = await ownerPage(browser)
+      const page = await previewPage(browser)
       try {
         for (const interaction of INTERACTIONS)
           await test.step(interaction.name, async () => {
@@ -545,9 +573,10 @@ test.describe("page preview: opening the Hero title in place", () => {
             try {
               await interact(page, frame, interaction, title)
             } finally {
-              if (code === "cold") await page.unroute(HOLD_BACK)
+              if (code === "cold") await page.unrouteAll({ behavior: "wait" })
             }
           })
+        await handoffCookies(page)
       } finally {
         await page.context().close()
       }
@@ -559,7 +588,7 @@ test.describe("page preview: opening the Hero title in place", () => {
   ]
   for (const [context, title] of starts)
     test(title, async ({ browser }) => {
-      const page = await ownerPage(browser)
+      const page = await previewPage(browser)
       try {
         for (const interaction of INTERACTIONS.slice(1))
           await test.step(interaction.name, async () => {
@@ -568,6 +597,7 @@ test.describe("page preview: opening the Hero title in place", () => {
             // usual settle time after the last click.
             await interact(page, frame, interaction, title)
           })
+        await handoffCookies(page)
       } finally {
         await page.context().close()
       }
@@ -576,7 +606,7 @@ test.describe("page preview: opening the Hero title in place", () => {
   test("the eyebrow, a plain text field, opens in place like the title", async ({
     browser,
   }) => {
-    const page = await ownerPage(browser)
+    const page = await previewPage(browser)
     try {
       for (const interaction of INTERACTIONS)
         await test.step(interaction.name, async () => {
@@ -591,6 +621,7 @@ test.describe("page preview: opening the Hero title in place", () => {
             EYEBROW_FIELD
           )
         })
+      await handoffCookies(page)
     } finally {
       await page.context().close()
     }
@@ -599,7 +630,7 @@ test.describe("page preview: opening the Hero title in place", () => {
   test("a form-only rich-text paragraph: double and triple click", async ({
     browser,
   }) => {
-    const page = await ownerPage(browser)
+    const page = await previewPage(browser)
     try {
       for (const interaction of INTERACTIONS.slice(2, 3).concat(
         INTERACTIONS.slice(4)
@@ -613,6 +644,7 @@ test.describe("page preview: opening the Hero title in place", () => {
             "form-only paragraph"
           )
         })
+      await handoffCookies(page)
     } finally {
       await page.context().close()
     }

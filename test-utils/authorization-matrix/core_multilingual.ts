@@ -2,7 +2,7 @@ import { expect } from "vitest"
 import { api, internal } from "../../convex/_generated/api"
 import type { Id } from "../../convex/_generated/dataModel"
 import {
-  defineRow, MATRIX_STATES, OWNER, setupModuleLanguageState,
+  defineRow, F09_STATES, OWNER, setupModuleLanguageState,
   setupSnapshotActiveS4, stateLabel,
   type AuthorizationRow, type CallTarget, type FunctionKind, type MatrixState,
   type Outcome, type Site,
@@ -24,8 +24,8 @@ const denials = {
   former: { error: "CMS_OWNER_REQUIRED" },
 } as const
 
-/** Well-formed absent IDs permit a legacy authority check without fake open journeys. */
-async function setupLegacy(t: Site, state: MatrixState): Promise<Fixture> {
+/** Well-formed absent IDs permit the module gate check without fake open journeys. */
+async function setupAbsentIds(t: Site, state: MatrixState): Promise<Fixture> {
   await setupModuleLanguageState(t, state)
   return t.run(async (ctx) => {
     const owner = await ctx.db.query("cmsOwner").unique()
@@ -209,15 +209,15 @@ async function setupReviewedMigration(t: Site, redirects: "off" | "on") {
 const row = (
   name: string, kind: FunctionKind,
   call: (actor: CallTarget, fixture: Fixture) => Promise<unknown>,
-  legacyOwner: Outcome, snapshotOwner: Outcome,
+  snapshotOwner: Outcome,
   snapshotSetup: (t: Site, redirects: "off" | "on") => Promise<Fixture> = setupS4,
 ): AuthorizationRow => defineRow({
   name, kind,
   requiredScenarioLabels: ["snapshot-S4/redirects-off", "snapshot-S4/redirects-on"],
   scenarios: [
-    ...MATRIX_STATES.map((state) => ({
-      label: stateLabel(state), setup: (t: Site) => setupLegacy(t, state), call,
-      outcomes: { ...denials, owner: state.language === "F09" ? { error: "CMS_MODULE_DISABLED" } : legacyOwner }, readOnly: kind === "query",
+    ...F09_STATES.map((state) => ({
+      label: stateLabel(state), setup: (t: Site) => setupAbsentIds(t, state), call,
+      outcomes: { ...denials, owner: { error: "CMS_MODULE_DISABLED" } }, readOnly: kind === "query",
     })),
     ...(["off", "on"] as const).map((redirects) => ({
       label: `snapshot-S4/redirects-${redirects}`,
@@ -233,7 +233,6 @@ export const coreMultilingualRows: AuthorizationRow[] = [
       toLocale: "fr", expectedAuthorityVersion: 1,
       expectedModuleConfigurationVersion: 1,
     }),
-    { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" },
     { check: (value) => expect(value).toMatchObject({ migrationId: expect.any(String) }) }),
   // Routing U2: owner-only silent default change; the S4 fixture publishes the
   // home in English and French, so the owner's change succeeds.
@@ -242,13 +241,11 @@ export const coreMultilingualRows: AuthorizationRow[] = [
       toLocale: "fr", expectedAuthorityVersion: 1,
       expectedModuleConfigurationVersion: 1,
     }),
-    { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" },
     { check: (value) => expect(value).toEqual({ ok: true, authorityVersion: 2 }) }),
   row("cms/multilingual:continueDefaultLanguageMigration", "mutation",
     (actor, fixture) => actor.mutation(api.cms.multilingual.continueDefaultLanguageMigration, {
       migrationId: fixture.migrationId, expectedGeneration: 1,
     }),
-    { value: { kind: "noop" } },
     { value: { kind: "continue", generation: 1 } },
     setupMigration),
   row("cms/multilingual:listDefaultLanguageRoutes", "query",
@@ -256,14 +253,12 @@ export const coreMultilingualRows: AuthorizationRow[] = [
       migrationId: fixture.migrationId, generation: 1,
       paginationOpts: { numItems: 10, cursor: null }, filter: "all",
     }),
-    { error: "LANGUAGE_PREVIEW_MISMATCH" },
     { check: (value) => expect(value).toMatchObject({ page: expect.arrayContaining([expect.objectContaining({ fromPath: "/" })]) }) },
     setupReadyMigration),
   row("cms/multilingual:listDefaultMigrationDisclosure", "query",
     (actor, fixture) => actor.query(api.cms.multilingual.listDefaultMigrationDisclosure, {
       migrationId: fixture.migrationId, generation: fixture.generation ?? 1, ordinal: 0,
     }),
-    { error: "LANGUAGE_PREVIEW_MISMATCH" },
     { check: (value) => expect(value).toMatchObject({ stale: false, ordinal: 0, digest: expect.any(String) }) },
     setupReviewableMigration),
   row("cms/multilingual:recordDefaultMigrationReview", "mutation",
@@ -271,7 +266,6 @@ export const coreMultilingualRows: AuthorizationRow[] = [
       migrationId: fixture.migrationId, expectedGeneration: fixture.generation ?? 1,
       ordinal: 0, pageDigest: fixture.reviewDigest ?? "absent",
     }),
-    { error: "LANGUAGE_PREVIEW_MISMATCH" },
     { check: (value) => expect(value).toMatchObject({ stale: false, reviewedThroughOrdinal: 0 }) },
     setupReviewableMigration),
   row("cms/multilingual:activateDefaultLanguageMigration", "mutation",
@@ -280,20 +274,17 @@ export const coreMultilingualRows: AuthorizationRow[] = [
       expectedReadinessVersion: fixture.readinessVersion ?? 0,
       expectedAuthorityVersion: 1,
     }),
-    { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" },
     { value: { version: 2, locale: "fr" } },
     setupReviewedMigration),
   row("cms/multilingual:cancelDefaultLanguageMigration", "mutation",
     (actor, fixture) => actor.mutation(api.cms.multilingual.cancelDefaultLanguageMigration, {
       migrationId: fixture.migrationId, expectedGeneration: 1,
     }),
-    { error: "LANGUAGE_PREVIEW_MISMATCH" },
     { value: null }, setupMigration),
   row("cms/multilingual:listLanguageImpact", "query",
     (actor, fixture) => actor.query(api.cms.multilingual.listLanguageImpact, {
       previewId: fixture.previewId, ordinal: 0,
     }),
-    { error: "LANGUAGE_PREVIEW_MISMATCH" },
     { check: (value) => expect(value).toMatchObject({ stale: false, ordinal: 0, digest: expect.any(String) }) },
     setupReviewablePreview),
   row("cms/multilingual:recordLanguageImpactReview", "mutation",
@@ -301,7 +292,6 @@ export const coreMultilingualRows: AuthorizationRow[] = [
       previewId: fixture.previewId, ordinal: 0,
       pageDigest: fixture.reviewDigest ?? "absent",
     }),
-    { error: "LANGUAGE_PREVIEW_MISMATCH" },
     { check: (value) => expect(value).toMatchObject({ stale: false, reviewedThroughOrdinal: 0 }) },
     setupReviewablePreview),
   row("cms/multilingual:removeLanguage", "mutation",
@@ -310,20 +300,17 @@ export const coreMultilingualRows: AuthorizationRow[] = [
       expectedDigest: fixture.previewDigest ?? "absent",
       expectedCount: fixture.previewCount ?? { publicPages: 0, routes: 0, manualRules: 0, menus: 0 },
     }),
-    { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" },
     { value: { version: 2, enabledLocales: ["en"], locale: "fr" } },
     setupReviewedPreview),
   // A4 combined language commands: the same owner-only identity cases.
   row("cms/multilingual:needsReviewToAddLanguage", "query",
     (actor) => actor.query(api.cms.multilingual.needsReviewToAddLanguage, { locale: "nl" }),
-    { value: { needsReview: false, reasons: [], conflicts: [], moreConflicts: false } },
     { value: { needsReview: false, reasons: [], conflicts: [], moreConflicts: false } }),
   row("cms/multilingual:addSiteLanguage", "mutation",
     (actor) => actor.mutation(api.cms.multilingual.addSiteLanguage, {
       locale: "nl", expectedSettingsUpdatedAt: 1,
       expectedModuleConfigurationVersion: 1, expectedAuthorityVersion: 1,
     }),
-    { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" },
     { check: (value) => expect(value).toMatchObject({
       authorityVersion: 2, moduleConfigurationVersion: 1, defaultLocale: "en",
       enabledLocales: ["en", "fr", "nl"], operationKind: "add",
@@ -333,7 +320,6 @@ export const coreMultilingualRows: AuthorizationRow[] = [
       locale: "nl", expectedSettingsUpdatedAt: 1,
       expectedModuleConfigurationVersion: 1, expectedAuthorityVersion: 1,
     }),
-    { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" },
     { check: (value) => expect(value).toMatchObject({
       authorityVersion: 1, moduleConfigurationVersion: 1,
       enabledLocales: ["en", "fr"], cancelReturnsToOneLanguage: false,
@@ -343,7 +329,6 @@ export const coreMultilingualRows: AuthorizationRow[] = [
       expectedSettingsUpdatedAt: 1,
       expectedModuleConfigurationVersion: 1, expectedAuthorityVersion: 1,
     }),
-    { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" },
     { check: (value) => expect(value).toMatchObject({
       authorityVersion: 1, moduleConfigurationVersion: 1,
       enabledLocales: ["en", "fr"],
@@ -354,7 +339,6 @@ export const coreMultilingualRows: AuthorizationRow[] = [
       expectedDigest: fixture.previewDigest ?? "absent",
       expectedCount: fixture.previewCount ?? { publicPages: 0, routes: 0, manualRules: 0, menus: 0 },
     }),
-    { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" },
     { value: { authorityVersion: 3, moduleConfigurationVersion: 1, locale: "en", removedLocale: "fr" } },
     setupReviewedPreview),
 ]

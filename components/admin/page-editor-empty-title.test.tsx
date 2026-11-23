@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, waitFor } from "@testing-library/react"
 import { render } from "@/test-utils/admin-i18n"
 import { getFunctionName } from "convex/server"
 import { toast } from "sonner"
@@ -119,19 +119,6 @@ vi.mock("./contributions/history", () => ({
   ADMIN_HISTORY_BROWSER_BINDING: { PanelSlot: () => null },
 }))
 
-vi.mock("./duplicate-page-dialog", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./duplicate-page-dialog")>()
-  return {
-    DuplicatePageDialog: (
-      props: Parameters<typeof actual.DuplicatePageDialog>[0]
-    ) => (
-      <actual.DuplicatePageDialog
-        {...props}
-        onCloseAutoFocus={recordCloseAutoFocus(props.onCloseAutoFocus)}
-      />
-    ),
-  }
-})
 vi.mock("./page-editor/components/transfer-popover-content", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -172,7 +159,6 @@ function liveAddress(view: ReturnType<typeof render>): string {
 
 function mount(
   locale: "en" | "fr" = "en",
-  snapshot = false,
   savedSlug = "about-us",
   twoLocales = false,
   savedTitle = "About us"
@@ -199,23 +185,17 @@ function mount(
       page={page}
       hasStaging={false}
       stagingUpdatedAt={undefined}
-      publication={
-        snapshot
-          ? {
-              authority: "snapshot_active",
-              lifecycleGeneration: 3,
-              sharedDraftGeneration: 4,
-              locales: [
-                {
-                  locale: "en",
-                  draftGeneration: 2,
-                  publicGeneration: 1,
-                  releaseGeneration: 1,
-                },
-              ],
-            }
-          : undefined
-      }
+      publication={{
+        authority: "snapshot_active",
+        lifecycleGeneration: 3,
+        sharedDraftGeneration: 4,
+        locales: (twoLocales ? ["en", "fr"] : ["en"]).map((entry) => ({
+          locale: entry,
+          draftGeneration: 2,
+          publicGeneration: 1,
+          releaseGeneration: 1,
+        })),
+      }}
     />,
     { locale }
   )
@@ -233,13 +213,13 @@ function mount(
 
 const saveCalls = () =>
   mocks.mutationNames.filter(
-    (n) => n.endsWith(":updateDraft") || n.endsWith(":saveEditorDraft")
+    (n) => n.endsWith(":saveEditorDraft")
   )
 
 test.each(["en", "fr"] as const)(
   "a blank title refuses Save, marks the title, and recovers on typing: %s",
   async (locale) => {
-    const { view, input, save, saveCopy } = mount(locale)
+    const { view, input, save, saveCopy, copy } = mount(locale)
     fireEvent.change(input, { target: { value: "   " } })
     await act(async () => {
       fireEvent.click(save)
@@ -261,7 +241,11 @@ test.each(["en", "fr"] as const)(
     expect(input).not.toHaveAttribute("aria-invalid")
     expect(input).not.toHaveAttribute("aria-describedby")
     expect(view.queryByText(saveCopy.titleRequired)).toBeNull()
-    expect(view.getByText("/fresh-title")).toBeInTheDocument()
+    // The address being typed follows the new title.
+    fireEvent.click(view.getByTitle(copy.tabs.settings))
+    expect((view.getByTestId("address") as HTMLInputElement).value).toBe(
+      "fresh-title"
+    )
 
     await act(async () => {
       fireEvent.click(save)
@@ -270,8 +254,8 @@ test.each(["en", "fr"] as const)(
   }
 )
 
-test("clearing the address refuses with a toast and no title marking (snapshot)", async () => {
-  const { view, input, save, saveCopy, copy } = mount("en", true)
+test("clearing the address refuses with a toast and no title marking", async () => {
+  const { view, input, save, saveCopy, copy } = mount("en")
   fireEvent.click(view.getByTitle(copy.tabs.settings))
   fireEvent.change(view.getByTestId("address"), { target: { value: "" } })
   await act(async () => {
@@ -284,8 +268,8 @@ test("clearing the address refuses with a toast and no title marking (snapshot)"
   expect(input).not.toHaveAttribute("aria-invalid")
 })
 
-test("a title with no Latin letters gets a page-<hash> address, so Save is not refused (snapshot)", async () => {
-  const { input, save, saveCopy, view } = mount("en", true)
+test("a title with no Latin letters gets a page-<hash> address, so Save is not refused", async () => {
+  const { input, save, saveCopy, view } = mount("en")
   fireEvent.change(input, { target: { value: "Иван" } })
   expect(liveAddress(view)).toBe("page-114d4170")
   await act(async () => {
@@ -296,13 +280,12 @@ test("a title with no Latin letters gets a page-<hash> address, so Save is not r
   await waitFor(() => expect(saveCalls().length).toBeGreaterThan(0))
 })
 
-test.each([true, false])(
-  "a page stored with an empty address and a non-Latin title adopts page-<hash> on its first Save (snapshot: %s)",
-  async (snapshot) => {
-    const { view, save, saveCopy, input } = mount("en", snapshot, "", false, "Иван")
+test(
+  "a page stored with an empty address and a non-Latin title adopts page-<hash> on its first Save",
+  async () => {
+    const { view, save, saveCopy, input } = mount("en", "", false, "Иван")
     expect(input.value).toBe("Иван")
-    if (snapshot) expect(liveAddress(view)).toBe("page-114d4170")
-    else expect(view.getByText("/page-114d4170")).toBeInTheDocument()
+    expect(liveAddress(view)).toBe("page-114d4170")
     // A page that opens with a pending address is not a clean page: Save is on.
     await act(async () => {
       fireEvent.click(save)
@@ -311,93 +294,12 @@ test.each([true, false])(
     expect(toast.error).not.toHaveBeenCalledWith(saveCopy.slugRequired)
     await waitFor(() => expect(saveCalls().length).toBeGreaterThan(0))
     const written = mocks.mutationCalls
-      .filter((c) => c.name.endsWith(":updateDraft") || c.name.endsWith(":saveEditorDraft"))
+      .filter((c) => c.name.endsWith(":saveEditorDraft"))
       .map((c) => JSON.stringify(c.args))
       .join(" ")
     expect(written).toContain("page-114d4170")
   }
 )
-
-test("clearing only the default-locale address refuses before any write (legacy)", async () => {
-  const { view, input, save, saveCopy, copy } = mount()
-  fireEvent.click(view.getByTitle(copy.tabs.settings))
-  fireEvent.change(view.getByTestId("address"), { target: { value: "" } })
-  await act(async () => {
-    fireEvent.click(save)
-  })
-
-  expect(toast.error).toHaveBeenCalledWith(saveCopy.slugRequired)
-  expect(toast.error).not.toHaveBeenCalledWith(saveCopy.titleRequired)
-  expect(saveCalls()).toEqual([])
-  expect(input).not.toHaveAttribute("aria-invalid")
-})
-
-test("a punctuation-only title on a page stored without an address adopts a page-<hash> address and saves on the legacy path", async () => {
-  // The page never had an address, so nothing was cleared: it adopts the
-  // address its title generates and saves as before.
-  const { input, save, saveCopy } = mount("en", false, "")
-  fireEvent.change(input, { target: { value: "!!! ???" } })
-  await act(async () => {
-    fireEvent.click(save)
-  })
-
-  expect(toast.error).not.toHaveBeenCalledWith(saveCopy.slugRequired)
-  await waitFor(() => expect(saveCalls().length).toBeGreaterThan(0))
-  const slugs = mocks.mutationCalls
-    .filter((c) => c.name.endsWith(":updateDraft"))
-    .map((c) => (c.args[0] as { slug?: string }).slug)
-  expect(slugs).toHaveLength(1)
-  expect(slugs[0]).toMatch(/^page-[0-9a-f]{8}$/)
-})
-
-// A blank desired address with no clear is only reachable with a non-blank
-// title when the user empties the field of a page stored without an address:
-// slugify(title) is never blank (use-page-save.ts, `defaultAddressCleared`
-// needs a non-empty stored address). It saves and writes no address.
-test("emptying the address of a page stored without one saves without writing an address (legacy)", async () => {
-  const { view, save, saveCopy, copy, input } = mount("en", false, "")
-  fireEvent.change(input, { target: { value: "Fresh title" } })
-  fireEvent.click(view.getByTitle(copy.tabs.settings))
-  fireEvent.change(view.getByTestId("address"), { target: { value: "" } })
-  await act(async () => {
-    fireEvent.click(save)
-  })
-
-  expect(toast.error).not.toHaveBeenCalledWith(saveCopy.slugRequired)
-  await waitFor(() => expect(saveCalls().length).toBeGreaterThan(0))
-  const calls = mocks.mutationCalls.filter((c) => c.name.endsWith(":updateDraft"))
-  expect(calls).toHaveLength(1)
-  expect(calls[0]!.args[0]).not.toHaveProperty("slug")
-})
-
-test("a blank-title refusal from Duplicate closes the dialog and puts the cursor in the title", async () => {
-  const { view, input, copy, saveCopy } = mount()
-  fireEvent.change(input, { target: { value: "" } })
-  const more = view.getByRole("button", { name: copy.moreActions })
-  fireEvent.keyDown(more, { key: "Enter" })
-  fireEvent.click(await view.findByRole("menuitem", { name: copy.duplicate }))
-  const dialog = await view.findByRole("dialog")
-  const submit = within(dialog).getByRole("button", {
-    name: en.editor.duplicateDialog.action,
-  })
-  await act(async () => {
-    fireEvent.click(submit)
-  })
-
-  expect(toast.error).toHaveBeenCalledWith(saveCopy.titleRequired)
-  expect(mocks.mutationNames.filter((n) => n.endsWith(":duplicate"))).toEqual([])
-  await waitFor(() => expect(view.queryByRole("dialog")).toBeNull())
-  // Radix runs its focus-return on the next timer tick; the title keeps focus.
-  // jsdom has no live opener here, so the recorded close call below is what
-  // proves the editor took over the focus return (duplicate-page-dialog.test
-  // proves Radix honours that).
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20))
-  })
-  expect(input).toHaveFocus()
-  // The editor took over the dialog's focus return.
-  expect(mocks.closeCalls).toEqual([true])
-})
 
 async function openCopyFrom(view: ReturnType<typeof mount>["view"], copy: typeof en.editor.page) {
   fireEvent.click(view.getByTitle(copy.copyBetweenLocales))
@@ -405,7 +307,7 @@ async function openCopyFrom(view: ReturnType<typeof mount>["view"], copy: typeof
 }
 
 test("Copy from: a blank-title refusal closes the popover and puts the cursor in the title", async () => {
-  const { view, input, copy, saveCopy } = mount("en", false, "about-us", true)
+  const { view, input, copy, saveCopy } = mount("en", "about-us", true)
   fireEvent.change(input, { target: { value: "" } })
   fireEvent.click(await openCopyFrom(view, copy))
   await act(async () => {})
@@ -422,7 +324,7 @@ test("Copy from: a blank-title refusal closes the popover and puts the cursor in
 })
 
 test("Copy from: a refusal that is not about the title reopens a popover that closed", async () => {
-  const { view, copy, saveCopy } = mount("en", true, "about-us", true)
+  const { view, copy, saveCopy } = mount("en", "about-us", true)
   fireEvent.click(view.getByTitle(copy.tabs.settings))
   fireEvent.change(view.getByTestId("address"), { target: { value: "" } })
   let answer!: (ok: boolean) => void
@@ -441,7 +343,7 @@ test("Copy from: a refusal that is not about the title reopens a popover that cl
 })
 
 test("Copy from: a title refusal after the popover already closed leaves no stale focus request", async () => {
-  const { view, input, copy } = mount("en", false, "about-us", true)
+  const { view, input, copy } = mount("en", "about-us", true)
   fireEvent.change(input, { target: { value: "" } })
   // The replace confirm is still pending; focus moving into it dismisses the
   // popover, whose close handler runs before the refusal.

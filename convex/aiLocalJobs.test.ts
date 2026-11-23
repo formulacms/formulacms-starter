@@ -281,7 +281,7 @@ describe("the local tool marker", () => {
     ).rejects.toThrow()
   })
 
-  test("with the marker on, API estimate, start and instant actions refuse; off, they work", async () => {
+  test("with the marker on, API start and instant actions refuse; off, instant actions work", async () => {
     vi.stubEnv("OPENAI_API_KEY", "fake-openai")
     const { t, owner } = await setup({ api: true, multilingual: true })
     const set = (assistant: "writing" | "translation", on: boolean) =>
@@ -302,9 +302,6 @@ describe("the local tool marker", () => {
     await set("writing", true)
     await set("translation", true)
     await expect(
-      owner.query(api.cms.aiJobs.estimatePageJob, { input: writeInput() })
-    ).rejects.toThrow(refusal)
-    await expect(
       owner.mutation(api.cms.aiJobs.startPageJob, { input: writeInput() })
     ).rejects.toThrow(refusal)
     await expect(
@@ -321,7 +318,6 @@ describe("the local tool marker", () => {
     // Off: both assistants take API runs again.
     await set("writing", false)
     await set("translation", false)
-    await owner.query(api.cms.aiJobs.estimatePageJob, { input: writeInput() })
     await owner.action(api.agents.contentWriter.generateField, field)
     await owner.action(api.agents.localizer.translateField, translateField)
     expect(fake.generate).toHaveBeenCalledTimes(2)
@@ -334,9 +330,9 @@ describe("the local tool marker", () => {
       assistant: "writing",
       on: true,
     })
-    // Translation is not marked: its API estimate is not refused for the marker.
+    // Translation is not marked: its API Start is not refused for the marker.
     const pageId = await source(owner)
-    await owner.query(api.cms.aiJobs.estimatePageJob, {
+    await owner.mutation(api.cms.aiJobs.startPageJob, {
       input: { kind: "translation", pageId, sourceLocale: "en", targetLocale: "fr" },
     })
     // Saving Instructions for Writing keeps the marker.

@@ -26,10 +26,9 @@ export function equalOwnerClaimHashes(left: string, right: string): boolean {
 }
 
 /**
- * The only fresh-installation eligibility decision. Compatibility tables are
- * deny-only evidence: no row is inspected for an account, role, capacity, or
- * policy value. Keep each read bounded so a damaged legacy installation fails
- * closed without making owner establishment depend on a scan. An installation
+ * The only fresh-installation eligibility decision. An existing owner or a
+ * consumed-claim ledger row makes the installation unavailable. Keep each read
+ * bounded so duplicate markers fail closed without a scan. An installation
  * that already has an owner is never fresh: owner recovery is the one-time
  * link of ADR-0056 rule 4, not a rotated code.
  */
@@ -42,15 +41,9 @@ export async function resolveOwnerClaimTransition(
     .take(2)
   if (owners.length !== 0) return { kind: "unavailable" }
 
-  const [ledger, roles, memberships] = await Promise.all([
-    ctx.db
-      .query("ownerClaimLedger")
-      .withIndex("by_key", (q) => q.eq("key", "owner"))
-      .take(2),
-    ctx.db.query("roles").take(1),
-    ctx.db.query("cmsMemberships").take(1),
-  ])
-  return ledger.length === 0 && roles.length === 0 && memberships.length === 0
-    ? { kind: "fresh" }
-    : { kind: "unavailable" }
+  const ledger = await ctx.db
+    .query("ownerClaimLedger")
+    .withIndex("by_key", (q) => q.eq("key", "owner"))
+    .take(2)
+  return ledger.length === 0 ? { kind: "fresh" } : { kind: "unavailable" }
 }

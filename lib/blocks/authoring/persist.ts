@@ -979,6 +979,9 @@ function registeredBlockTypes(source: string): Set<string> {
   )
 }
 
+/** `usageCount` is the live uses plus 1 when retained publish history holds
+ * the type (decision U, ADR-0045 amendment 2026-11-22): a breaking change needs
+ * no live use AND no history. Delete reads only the live uses. */
 function assertSafeBlockUpdate(
   prev: BlockSpec,
   next: BlockSpec,

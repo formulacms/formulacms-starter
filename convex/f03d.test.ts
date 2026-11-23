@@ -100,8 +100,9 @@ describe("F03d fixture and generated-reference reconciliation", () => {
         t.withIdentity(owner).query(api.cms.owner.getOwnerSession, {})
       ).rejects.toThrow("CMS_OWNER_UNAVAILABLE")
       await expect(
-        t.withIdentity(owner).query(api.cms.pages.listPaginated, {
+        t.withIdentity(owner).query(api.cms.publication.listAdminPages, {
           paginationOpts: { numItems: 1, cursor: null },
+          scope: "content",
         })
       ).rejects.toThrow("CMS_OWNER_BINDING_INVALID")
       await t.run((ctx) =>
@@ -121,8 +122,9 @@ describe("F03d fixture and generated-reference reconciliation", () => {
       asEditor.query(api.cms.owner.getOwnerSession, {})
     ).resolves.toBeNull()
     await expect(
-      asEditor.query(api.cms.pages.listPaginated, {
+      asEditor.query(api.cms.publication.listAdminPages, {
         paginationOpts: { numItems: 1, cursor: null },
+        scope: "content",
       })
     ).rejects.toThrow("CMS_OWNER_NOT_ESTABLISHED")
 

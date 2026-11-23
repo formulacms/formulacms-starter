@@ -2,6 +2,7 @@
 
 import { createContext, use, useEffect, useState } from "react"
 import Link from "next/link"
+import { useTranslations } from "next-intl"
 import { Check, CircleAlert, Loader2 } from "lucide-react"
 import {
   deleteBlockAction,
@@ -203,13 +204,25 @@ function BlockedContent({
   blocker: DeleteBlocker
   onClose: () => void
 }) {
+  const t = useTranslations("blocks.lifecycle")
+  // An unfinished usage check is never shown as a list of uses to remove.
+  const incomplete =
+    blocker.reason === "incomplete" ||
+    (blocker.reason === "in_use" && !blocker.complete)
+  const description = incomplete
+    ? t("deleteBlocked.incomplete")
+    : blocker.reason === "system"
+      ? t("deleteBlocked.system")
+      : blocker.reason === "referenced"
+        ? t("deleteBlocked.referenced")
+        : blocker.message
   return (
     <>
       <DialogHeader>
         <DialogTitle>Can&apos;t delete {label}</DialogTitle>
-        <DialogDescription>{blocker.message}</DialogDescription>
+        <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
-      {blocker.reason === "in_use" && (
+      {blocker.reason === "in_use" && !incomplete && (
         <div className="space-y-3 text-sm">
           <ul className="space-y-2">
             {blocker.pages.slice(0, 5).map((page) => (
@@ -223,7 +236,7 @@ function BlockedContent({
                     {page.deleted ? " · Trash" : ""}
                   </div>
                   <div className="text-muted-foreground">
-                    {page.savedCount} saved · {page.stagedCount} staged ·{" "}
+                    {t("uses", { count: page.count })} ·{" "}
                     {page.locales
                       .map((locale) => locale.toUpperCase())
                       .join(", ")}
@@ -237,10 +250,6 @@ function BlockedContent({
               + {blocker.pageCount - blocker.pages.slice(0, 5).length} more
             </p>
           )}
-          <p>
-            Remove these Block instances from each Page&apos;s Working Draft,
-            including Pages in Trash, then try again.
-          </p>
         </div>
       )}
       {blocker.reason === "active" && (

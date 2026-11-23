@@ -4,6 +4,7 @@ import { expect, vi } from "vitest"
 import actionRetrierTest from "@convex-dev/action-retrier/test"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 import migrationsTest from "@convex-dev/migrations/test"
+import { initializeEmptySnapshotAuthorityForOwner } from "../../convex/cms/publication"
 import schema from "../../convex/schema"
 import { enableAuthSessions, prepareAuthSessions } from "../convexAuthFixtures"
 
@@ -43,12 +44,18 @@ export type MatrixState = {
   redirects: "off" | "on"
   language: "F09" | "M05"
 }
+/** Every shared state is a fresh install: snapshot publication is active. */
 export const MATRIX_STATES: readonly MatrixState[] = [
   { redirects: "off", language: "F09" },
   { redirects: "on", language: "F09" },
   { redirects: "off", language: "M05" },
   { redirects: "on", language: "M05" },
 ]
+/** The module-off states: Multilingual rows prove its gate here, and the
+ * owner-activated states run as snapshot-S4 scenarios. */
+export const F09_STATES: readonly MatrixState[] = MATRIX_STATES.filter(
+  (state) => state.language === "F09"
+)
 export function stateLabel(state: MatrixState): string {
   return `redirects-${state.redirects}/${state.language}`
 }
@@ -76,12 +83,7 @@ export async function setupModuleLanguageState(
         : {}),
       updatedAt: 1,
     })
-    await ctx.db.insert("pagePublicationCutover", {
-      key: "published-snapshot-v1",
-      phase: "legacy",
-      revision: 1,
-      updatedAt: 1,
-    })
+    await initializeEmptySnapshotAuthorityForOwner(ctx)
     const enabledModules = [
       ...(state.redirects === "on" ? [{ moduleId: "redirects", configVersion: 1 }] : []),
       ...(state.language === "M05" ? [{ moduleId: "multilingual", configVersion: 1 }] : []),
@@ -238,15 +240,19 @@ export function defineRow<Fixture>(config: {
   if (new Set(labels).size !== labels.length) {
     throw new Error(`Authorization row repeats a scenario: ${config.name}`)
   }
-  for (const state of MATRIX_STATES) {
+  const m05Lifecycle =
+    config.name.startsWith("cms/language:") ||
+    config.name.startsWith("cms/languageLifecycle:") ||
+    config.name.startsWith("cms/multilingual:")
+  // A language lifecycle row proves its owner path in the snapshot-S4 states
+  // checked below. Every other row runs in all four shared states.
+  for (const state of m05Lifecycle ? [] : MATRIX_STATES) {
     if (!labels.includes(stateLabel(state))) {
       throw new Error(`Authorization row lacks ${stateLabel(state)}: ${config.name}`)
     }
   }
   if (
-    (config.name.startsWith("cms/language:") ||
-      config.name.startsWith("cms/languageLifecycle:") ||
-      config.name.startsWith("cms/multilingual:")) &&
+    m05Lifecycle &&
     (!config.requiredScenarioLabels ||
       !["snapshot-S4/redirects-off", "snapshot-S4/redirects-on"]
         .every((label) => config.requiredScenarioLabels!.includes(label)))

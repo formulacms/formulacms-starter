@@ -51,7 +51,6 @@ test("real catalog: every public U1b ingress fails closed, including Start CMS_M
     rows: [{ blockType: "hero-with-image", purpose: "Intro" }],
   }
   const calls = [
-    () => owner.query(api.cms.aiJobs.estimatePageJob, { input }),
     () => owner.mutation(api.cms.aiJobs.startPageJob, { input }),
     () => owner.mutation(api.cms.aiJobs.cancelPageJob, { jobId: id }),
     () => owner.mutation(api.cms.aiJobs.resumePageJob, { jobId: id }),

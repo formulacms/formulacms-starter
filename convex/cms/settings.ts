@@ -16,7 +16,6 @@ import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { Doc, Id } from "../_generated/dataModel"
 import { internal } from "../_generated/api"
 import { requireOperationAccess } from "../lib/access/policy"
-import type { OwnerPrincipal } from "../lib/access/owner"
 import { assertBoundedPilotCanCreate } from "../lib/pilotEnvelope"
 import { resolveEffectiveHomePageId } from "../lib/pages/home"
 import {
@@ -40,15 +39,6 @@ import {
 import { insertInitialSiteLanguageAuthority } from "./language"
 
 const FALLBACK_LOCALE = "en"
-
-/** F03a adapter for existing settings call sites; no role data is resolved. */
-export async function requirePermission(
-  ctx: QueryCtx | MutationCtx,
-  _operation: string,
-  _scope?: { ownerId?: string | null; prospectiveOwner?: boolean }
-): Promise<OwnerPrincipal> {
-  return requireOperationAccess(ctx)
-}
 
 type SiteSettingsWithBrandingMedia = Doc<"siteSettings"> & {
   logoMediaId?: Id<"media">
@@ -131,21 +121,10 @@ export const getSettings = query({
     // on the client; the Next.js route is already guarded by AuthGuard).
     const actor = await getActor(ctx)
     if (!actor) return null
-    await requirePermission(ctx, "settings:view")
+    await requireOperationAccess(ctx)
     return getSingleSettings(ctx)
   },
 })
-
-// ─── Phase 11 — onboarding step bookmarks ────────────────────────────────────
-
-type OnboardingStep = "account" | "identity" | "locales" | "ai"
-
-const STEP_FIELD: Record<OnboardingStep, keyof Doc<"siteSettings">> = {
-  account: "onboardingAccountAt",
-  identity: "onboardingIdentityAt",
-  locales: "onboardingLocalesAt",
-  ai: "onboardingAiAt",
-}
 
 /** Wizard reads this on mount to land on the first incomplete step. Public
  *  query — anonymous callers get all-false (pre-account). No role gate: the
@@ -171,60 +150,6 @@ export const getOnboardingProgress = query({
   },
 })
 
-/** Stamp a completion bookmark for one wizard step.
- *  The owner claim has already persisted admin before this is called, so the
- *  normal settings permission remains the authority boundary. Idempotent:
- *  re-marking the same step is a no-op success. */
-export const markOnboardingStep = mutation({
-  args: {
-    step: v.union(
-      v.literal("account"),
-      v.literal("identity"),
-      v.literal("locales"),
-      v.literal("ai")
-    ),
-  },
-  returns: v.null(),
-  handler: async (ctx, { step }) => {
-    await requirePermission(ctx, "settings:update")
-    const publicationAuthority = await readPublicationAuthority(ctx)
-    if (publicationAuthority === "invalid") {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
-    }
-    if (publicationAuthority === "snapshot_active") {
-      throw new ConvexError("SNAPSHOT_ONBOARDING_WIZARD_DEFERRED")
-    }
-    await assertLegacyPublicationWriterBlocked(
-      ctx,
-      "settings.markOnboardingStep"
-    )
-    const now = Date.now()
-    const field = STEP_FIELD[step]
-    const existing = await getSingleSettings(ctx)
-    if (existing) {
-      // Idempotent — keep the original timestamp if already set.
-      if (existing[field] != null) return null
-      await ctx.db.patch("siteSettings", existing._id, {
-        [field]: now,
-        updatedAt: nextUpdatedAt(existing.updatedAt, now),
-      })
-      return null
-    }
-    // No settings row exists yet (first wizard step before identity persisted
-    // it). Insert a minimal placeholder row so the bookmark can land. The
-    // identity/locales steps will fill the real fields via updateSettings.
-    await ctx.db.insert("siteSettings", {
-      siteName: "",
-      siteUrl: "",
-      defaultLocale: FALLBACK_LOCALE,
-      enabledLocales: [FALLBACK_LOCALE],
-      [field]: now,
-      updatedAt: now,
-    })
-    return null
-  },
-})
-
 /**
  * Minimal clean-install contract used while the full onboarding wizard is
  * deferred. One owner transaction establishes snapshot authority, commits the
@@ -246,7 +171,7 @@ export const bootstrapInstallation = mutation({
     onboardingCompletedAt: v.number(),
   }),
   handler: async (ctx, args) => {
-    const auth = await requirePermission(ctx, "settings:update")
+    const auth = await requireOperationAccess(ctx)
     const siteName = args.siteName.trim()
     const siteUrl = (args.siteUrl ?? "").replace(/\/$/, "")
     const defaultLocale = args.defaultLocale.trim()
@@ -404,113 +329,6 @@ export const bootstrapInstallation = mutation({
   },
 })
 
-export const completeOnboarding = mutation({
-  args: {
-    siteName: v.string(),
-    siteUrl: v.optional(v.string()),
-    siteDescription: v.optional(v.string()),
-    timezone: v.string(),
-    dateFormat: v.optional(v.string()),
-    defaultLocale: v.string(),
-    enabledLocales: v.array(v.string()),
-  },
-  returns: v.object({ onboardingCompletedAt: v.number() }),
-  handler: async (ctx, args) => {
-    const auth = await requirePermission(ctx, "settings:update")
-    const publicationAuthority = await readPublicationAuthority(ctx)
-    if (publicationAuthority === "invalid") {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
-    }
-    if (publicationAuthority === "snapshot_active") {
-      throw new ConvexError("SNAPSHOT_ONBOARDING_WIZARD_DEFERRED")
-    }
-    await assertLegacyPublicationWriterBlocked(
-      ctx,
-      "settings.completeOnboarding"
-    )
-
-    const existing = await getSingleSettings(ctx)
-    if (existing?.onboardingCompletedAt) {
-      throw new ConvexError("Onboarding has already been completed.")
-    }
-
-    // Phase 11 — when the new step-driven wizard has stamped any bookmark, all
-    // required steps (account, identity, locales and AI — AI counts as done on
-    // skip) must be stamped before Finish. Email is configured after setup.
-    // When no bookmark exists
-    // (pure legacy single-call path used by older tests), skip this gate so
-    // those callers still pass.
-    if (existing) {
-      const stamps: Array<[OnboardingStep, number | undefined]> = [
-        ["account", existing.onboardingAccountAt],
-        ["identity", existing.onboardingIdentityAt],
-        ["locales", existing.onboardingLocalesAt],
-        ["ai", existing.onboardingAiAt],
-      ]
-      const anyStamped = stamps.some(([, at]) => at != null)
-      if (anyStamped) {
-        const missing = stamps.filter(([, at]) => at == null).map(([s]) => s)
-        if (missing.length > 0) {
-          throw new ConvexError(
-            `ONBOARDING_INCOMPLETE: missing steps ${missing.join(", ")}`
-          )
-        }
-      }
-    }
-
-    validateLocales(args.defaultLocale, args.enabledLocales)
-
-    const now = Date.now()
-
-    const settingsFields = {
-      siteName: args.siteName,
-      siteUrl: (args.siteUrl ?? "").replace(/\/$/, ""),
-      // M05 A5: stored per language under the chosen default language.
-      ...mergeSiteDescriptions(
-        existing,
-        existing?.defaultLocale ?? args.defaultLocale,
-        { [args.defaultLocale]: args.siteDescription }
-      ),
-      defaultLocale: args.defaultLocale,
-      enabledLocales: args.enabledLocales,
-      timezone: args.timezone,
-      dateFormat: args.dateFormat ?? "PP",
-      onboardingCompletedAt: now,
-      updatedAt: nextUpdatedAt(existing?.updatedAt, now),
-    }
-
-    const settingsId = existing
-      ? (await ctx.db.patch("siteSettings", existing._id, settingsFields), existing._id)
-      : await ctx.db.insert("siteSettings", settingsFields)
-
-    // Designate an existing configured home when present. Otherwise create a
-    // blank fallback so "/" resolves.
-    let homePageId = await resolveEffectiveHomePageId(ctx, existing?.homePageId)
-    if (!homePageId) {
-      await assertBoundedPilotCanCreate(ctx, true)
-      homePageId = await occurrenceUsageWrites(ctx).insert("pages", {
-        slug: "home",
-        pageType: "landing-page",
-        status: "published",
-        createdAt: now,
-        updatedAt: now,
-        publishedAt: now,
-        createdBy: auth.tokenIdentifier,
-        content: {
-          [args.defaultLocale]: {
-            title: args.siteName,
-            blocks: [],
-          },
-        },
-      })
-    }
-
-    await ctx.db.patch("siteSettings", settingsId, { homePageId })
-
-    return { onboardingCompletedAt: now }
-  },
-})
-
 export const updateSettings = mutation({
   args: {
     siteName: v.optional(v.string()),
@@ -536,7 +354,7 @@ export const updateSettings = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requirePermission(ctx, "settings:update")
+    await requireOperationAccess(ctx)
 
     const publicationAuthority = await readPublicationAuthority(ctx)
     if (publicationAuthority === "invalid") {
@@ -656,7 +474,7 @@ export const setBrandingImage = mutation({
   },
   returns: v.null(),
   handler: async (ctx, { slot, mediaId }) => {
-    await requirePermission(ctx, "settings:update")
+    await requireOperationAccess(ctx)
     const existing = await getSingleSettings(ctx)
     if (!existing) {
       throw new ConvexError("Site settings not initialized yet.")

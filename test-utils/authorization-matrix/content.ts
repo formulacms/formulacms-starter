@@ -1,3 +1,4 @@
+import { isActiveContentType } from "../../convex/lib/contentTypes"
 import { expect, vi } from "vitest"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 import { makeFunctionReference } from "convex/server"
@@ -5,7 +6,6 @@ import { api } from "../../convex/_generated/api"
 import { finishMediaUsageBackfill } from "../media-usage-backfill"
 import type { Id } from "../../convex/_generated/dataModel"
 import { readBlockPresentationCatalog } from "../../convex/lib/blocks/presentations"
-import { LEGACY_SNAPSHOT_MIGRATION_INSTALLED } from "../../convex/lib/publishing/legacyMigration"
 import {
   defineRow,
   MATRIX_STATES,
@@ -50,14 +50,6 @@ const optional = {
     ),
     searchMedia: makeFunctionReference<"query">("cms/search:searchMedia"),
   },
-  pageHistory: {
-    listRevisions: makeFunctionReference<"query">(
-      "cms/pageHistory:listRevisions"
-    ),
-    restoreRevisionAsDraft: makeFunctionReference<"mutation">(
-      "cms/pageHistory:restoreRevisionAsDraft"
-    ),
-  },
   blockLibrary: {
     setBlockArchived: makeFunctionReference<"mutation">(
       "cms/blockLibrary:setBlockArchived"
@@ -79,13 +71,12 @@ const optional = {
 
 type ContentFixture = {
   pageId: Id<"pages">
-  authorId: Id<"pages">
+  authorId: Id<"pages"> | null
   mediaId: Id<"media">
   storageId: Id<"_storage">
   menuId: Id<"menus">
   tagId: Id<"tags">
   submissionId: Id<"formSubmissions">
-  revisionId?: Id<"pageRevisions">
   languageVersion: number
 }
 
@@ -94,56 +85,101 @@ async function setupContent(
   state: MatrixState
 ): Promise<ContentFixture> {
   const { languageVersion } = await setupModuleLanguageState(t, state)
-  return seedContentDocuments(t, languageVersion)
+  return seedContentDocuments(
+    t,
+    languageVersion,
+    state.language === "M05" ? ["en", "fr"] : ["en"]
+  )
 }
 
-async function setupSnapshotS4Content(
+/** One published Page and, when active, one published Author, created and published by the
+ * owner commands, so every reader sees the rows a real site holds. */
+async function seedPublishedContentPages(
   t: Site,
-  redirects: "off" | "on"
-): Promise<ContentFixture> {
-  const { languageVersion } = await setupSnapshotActiveS4(t, redirects)
-  return seedRevision(t, await seedContentDocuments(t, languageVersion))
+  locales: readonly ("en" | "fr")[]
+): Promise<{ pageId: Id<"pages">; authorId: Id<"pages"> | null }> {
+  const owner = t.withIdentity(OWNER)
+  // Publishing needs the site's Home page. It stays a draft here.
+  const homePageId = await owner.mutation(api.cms.pages.create, {
+    pageType: "landing-page",
+    status: "draft",
+    slug: "home",
+    title: "Home",
+    content: { en: { title: "Home", blocks: [] } },
+  })
+  await t.run(async (ctx) => {
+    const settings = await ctx.db.query("siteSettings").unique()
+    await ctx.db.patch(settings!._id, { homePageId })
+  })
+  const pageId = await owner.mutation(api.cms.pages.create, {
+    pageType: "page",
+    status: "draft",
+    slug: "matrix-page",
+    title: "Matrix Page",
+    content: {
+      en: { title: "Matrix Page", blocks: [] },
+      ...(locales.includes("fr")
+        ? { fr: { title: "Page matrice", blocks: [] } }
+        : {}),
+    },
+  })
+  let authorId: Id<"pages"> | null = null
+  if (isActiveContentType("author")) {
+    authorId = await owner.mutation(api.cms.pages.create, {
+      pageType: "author",
+      status: "draft",
+      slug: "matrix-author",
+      title: "Matrix Author",
+      name: "Matrix Author",
+      content: {
+        en: { title: "Matrix Author", blocks: [] },
+        ...(locales.includes("fr")
+          ? { fr: { title: "Auteur matrice", blocks: [] } }
+          : {}),
+      },
+    })
+    // The Author's role title is a language field the create command does not take.
+    for (const locale of locales) {
+      await owner.mutation(api.cms.publication.saveLocaleDraft, {
+        pageId: authorId,
+        locale,
+        slug: "matrix-author",
+        draft: {
+          pageType: "author",
+          localized: {
+            title: locale === "fr" ? "Auteur matrice" : "Matrix Author",
+            roleTitle: locale === "fr" ? "Rédacteur" : "Editor",
+          },
+          blocks: [],
+        },
+        expectedDraftGeneration: 1,
+        expectedLifecycleGeneration: 1,
+      })
+    }
+  }
+  for (const id of authorId ? [pageId, authorId] : [pageId]) {
+    for (const locale of locales) {
+      await owner.mutation(api.cms.publication.publishLocale, {
+        pageId: id,
+        locale,
+        expectedDraftGeneration: id === authorId ? 2 : 1,
+        expectedSharedDraftGeneration: 1,
+        expectedPublicGeneration: 0,
+        expectedLifecycleGeneration: 1,
+        expectedReleaseGeneration: 0,
+      })
+    }
+  }
+  return { pageId, authorId }
 }
 
 async function seedContentDocuments(
   t: Site,
-  languageVersion: number
+  languageVersion: number,
+  locales: readonly ("en" | "fr")[]
 ): Promise<ContentFixture> {
+  const { pageId, authorId } = await seedPublishedContentPages(t, locales)
   const seeded = await t.run(async (ctx) => {
-    const pageId = await ctx.db.insert("pages", {
-      pageType: "page",
-      slug: "matrix-page",
-      status: "published",
-      content: {
-        en: { title: "Matrix Page", blocks: [] },
-        fr: { title: "Page matrice", blocks: [] },
-      },
-      createdAt: 1,
-      updatedAt: 1,
-      publishedAt: 1,
-    })
-    const authorId = await ctx.db.insert("pages", {
-      pageType: "author",
-      slug: "matrix-author",
-      status: "published",
-      name: "Matrix Author",
-      content: {
-        en: { title: "Matrix Author", roleTitle: "Editor", blocks: [] },
-        fr: { title: "Auteur matrice", roleTitle: "Rédacteur", blocks: [] },
-      },
-      createdAt: 1,
-      updatedAt: 1,
-      publishedAt: 1,
-    })
-    await ctx.db.insert("pageSearch", {
-      pageId,
-      locale: "en",
-      status: "published",
-      title: "Matrix Page",
-      slug: "matrix-page",
-      text: "Matrix Page searchable content",
-      updatedAt: 1,
-    })
     const storageId = await ctx.storage.store(
       new Blob(["matrix image"], { type: "image/png" })
     )
@@ -177,27 +213,9 @@ async function seedContentDocuments(
       schemaVersion: 1,
       createdAt: 1,
     })
-    return { pageId, authorId, mediaId, storageId, menuId, tagId, submissionId }
+    return { mediaId, storageId, menuId, tagId, submissionId }
   })
-  return { ...seeded, languageVersion }
-}
-
-async function setupArchivedPage(
-  t: Site,
-  state: MatrixState
-): Promise<ContentFixture> {
-  const fixture = await setupContent(t, state)
-  await t.run((ctx) => ctx.db.patch(fixture.pageId, { status: "archived" }))
-  return fixture
-}
-
-async function setupDeletedPage(
-  t: Site,
-  state: MatrixState
-): Promise<ContentFixture> {
-  const fixture = await setupArchivedPage(t, state)
-  await t.run((ctx) => ctx.db.patch(fixture.pageId, { deletedAt: 2 }))
-  return fixture
+  return { pageId, authorId, ...seeded, languageVersion }
 }
 
 async function setupDeletedMenu(
@@ -239,42 +257,6 @@ async function setupFolder(
   return fixture
 }
 
-async function setupLockedPage(
-  t: Site,
-  state: MatrixState
-): Promise<ContentFixture> {
-  const fixture = await setupContent(t, state)
-  await t.run((ctx) =>
-    ctx.db.insert("pageEditorLocks", {
-      pageId: fixture.pageId,
-      userId: OWNER.tokenIdentifier,
-      acquiredAt: Date.now(),
-      lastActiveAt: Date.now(),
-      updatedAt: Date.now(),
-    })
-  )
-  return fixture
-}
-
-async function setupStagedPage(
-  t: Site,
-  state: MatrixState
-): Promise<ContentFixture> {
-  const fixture = await setupLockedPage(t, state)
-  await t.withIdentity(OWNER).mutation(api.cms.pages.updateDraft, {
-    pageId: fixture.pageId,
-    slug: "matrix-staged",
-  })
-  return fixture
-}
-
-async function setupRevision(
-  t: Site,
-  state: MatrixState
-): Promise<ContentFixture> {
-  return seedRevision(t, await setupContent(t, state))
-}
-
 async function setupMeasuredMedia(
   t: Site,
   state: MatrixState
@@ -282,28 +264,6 @@ async function setupMeasuredMedia(
   const fixture = await setupContent(t, state)
   await t.run((ctx) => ctx.db.patch(fixture.mediaId, { width: 1, height: 1 }))
   return fixture
-}
-
-async function seedRevision(
-  t: Site,
-  fixture: ContentFixture
-): Promise<ContentFixture> {
-  const revisionId = await t.run((ctx) =>
-    ctx.db.insert("pageRevisions", {
-      pageId: fixture.pageId,
-      revisionNumber: 1,
-      createdAt: 1,
-      reason: "publish",
-      status: "published",
-      slug: "matrix-page",
-      pageType: "page",
-      contentJson: JSON.stringify({
-        en: { title: "Archived Matrix", blocks: [] },
-      }),
-      metadata: { title: "Archived Matrix", locales: ["en"], summary: [] },
-    })
-  )
-  return { ...fixture, revisionId }
 }
 
 type SuccessorFixture = {
@@ -417,68 +377,6 @@ async function setupSuccessorTrashedDrained(
   return fixture
 }
 
-async function setupLegacySnapshotReference(
-  t: Site,
-  state: MatrixState
-): Promise<SuccessorFixture> {
-  const fixture = await setupContent(t, state)
-  const snapshotId = await t.run(async (ctx) => {
-    const attribution = {
-      kind: "migration" as const,
-      migrationRunId: "matrix-history",
-    }
-    const candidateId = await ctx.db.insert("pageLocalePublicationCandidates", {
-      pageId: fixture.pageId,
-      locale: "en",
-      pageType: "page",
-      sourceDraftGeneration: 1,
-      sourceSharedDraftGeneration: 1,
-      sourcePublicGeneration: 0,
-      sourceLifecycleGeneration: 1,
-      attribution,
-      formatVersion: 1,
-      payloadJson: "{}",
-      payloadBytes: 2,
-      digest: "matrix-history",
-      createdAt: 1,
-    })
-    const releaseId = await ctx.db.insert("pageLocalePublicationReleases", {
-      pageId: fixture.pageId,
-      locale: "en",
-      candidateId,
-      generation: 1,
-      expectedPublicGeneration: 0,
-      expectedLifecycleGeneration: 1,
-      executeAt: 1,
-      status: "published",
-      attribution,
-      createdAt: 1,
-      updatedAt: 1,
-    })
-    const snapshotId = await ctx.db.insert("pagePublishedSnapshots", {
-      pageId: fixture.pageId,
-      locale: "en",
-      generation: 1,
-      candidateId,
-      candidateDigest: "matrix-history",
-      sourceDraftGeneration: 1,
-      sourceSharedDraftGeneration: 1,
-      sourcePublicGeneration: 0,
-      sourceLifecycleGeneration: 1,
-      releaseId,
-      publishedAt: 1,
-      attribution,
-    })
-    // The legacy epoch has no selected snapshot. Keep a valid, absent ID for
-    // the handler's authority-first argument path without retaining artifacts.
-    await ctx.db.delete(snapshotId)
-    await ctx.db.delete(releaseId)
-    await ctx.db.delete(candidateId)
-    return snapshotId
-  })
-  return { pageId: fixture.pageId, snapshotId }
-}
-
 const successorOnly = (
   name: string,
   kind: FunctionKind,
@@ -487,54 +385,23 @@ const successorOnly = (
   setup: (
     t: Site,
     redirects: "off" | "on"
-  ) => Promise<SuccessorFixture> = setupSuccessorPage,
-  legacyAuthFirst = false,
-  legacySetup: (
-    t: Site,
-    state: MatrixState
-  ) => Promise<SuccessorFixture> = setupContent
+  ) => Promise<SuccessorFixture> = setupSuccessorPage
 ): AuthorizationRow =>
   defineRow({
     name,
     kind,
-    scenarios: [
-      ...MATRIX_STATES.map((state) => ({
-        label: stateLabel(state),
-        setup: (t: Site) => legacySetup(t, state),
-        call,
-        outcomes: {
-          owner: { error: "PUBLISHED_SNAPSHOT_AUTHORITY_REQUIRED" },
-          signedOut: {
-            error: legacyAuthFirst
-              ? "UNAUTHENTICATED"
-              : "PUBLISHED_SNAPSHOT_AUTHORITY_REQUIRED",
-          },
-          unrelated: {
-            error: legacyAuthFirst
-              ? "CMS_OWNER_REQUIRED"
-              : "PUBLISHED_SNAPSHOT_AUTHORITY_REQUIRED",
-          },
-          former: {
-            error: legacyAuthFirst
-              ? "CMS_OWNER_REQUIRED"
-              : "PUBLISHED_SNAPSHOT_AUTHORITY_REQUIRED",
-          },
-        },
-        readOnly: kind === "query",
-      })),
-      ...(["off", "on"] as const).map((redirects) => ({
-        label: `snapshot-S4/redirects-${redirects}`,
-        setup: (t: Site) => setup(t, redirects),
-        call,
-        outcomes: {
-          owner,
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { error: "CMS_OWNER_REQUIRED" },
-          former: { error: "CMS_OWNER_REQUIRED" },
-        },
-        readOnly: kind === "query",
-      })),
-    ],
+    scenarios: MATRIX_STATES.map((state) => ({
+      label: stateLabel(state),
+      setup: (t: Site) => setup(t, state.redirects),
+      call,
+      outcomes: {
+        owner,
+        signedOut: { error: "UNAUTHENTICATED" },
+        unrelated: { error: "CMS_OWNER_REQUIRED" },
+        former: { error: "CMS_OWNER_REQUIRED" },
+      },
+      readOnly: kind === "query",
+    })),
   })
 
 const ownerOnly = (
@@ -564,63 +431,8 @@ const ownerOnly = (
         },
         after,
       })),
-      ...(["off", "on"] as const).flatMap((redirects) => {
-        const error = snapshotOwnerRefusals[name]
-        if (!error) return []
-        return [
-          {
-            label: `snapshot-S4/redirects-${redirects}`,
-            setup: (t: Site) => setupSnapshotS4Content(t, redirects),
-            call,
-            outcomes: {
-              owner: { error },
-              signedOut: {
-                error:
-                  name === "cms/pages:updateDraft" ? error : "UNAUTHENTICATED",
-              },
-              unrelated: {
-                error:
-                  name === "cms/pages:updateDraft"
-                    ? error
-                    : "CMS_OWNER_REQUIRED",
-              },
-              former: {
-                error:
-                  name === "cms/pages:updateDraft"
-                    ? error
-                    : "CMS_OWNER_REQUIRED",
-              },
-            },
-          },
-        ]
-      }),
     ],
   })
-
-const snapshotOwnerRefusals: Record<string, string> = {
-  "cms/pages:isSlugAvailable": "PUBLISHED_SNAPSHOT_USE_PUBLISH_LOCALE",
-  "cms/pages:list": "SNAPSHOT_ADMIN_PROJECTION_REQUIRED",
-  "cms/pages:listPaginated": "SNAPSHOT_ADMIN_PROJECTION_REQUIRED",
-  "cms/pages:duplicate":
-    "LEGACY_PUBLICATION_WRITER_DISABLED:pages.duplicate:use successor publication commands",
-  "cms/pages:update":
-    "LEGACY_PUBLICATION_WRITER_DISABLED:pages.update:use successor publication commands",
-  "cms/pages:softDelete":
-    "LEGACY_PUBLICATION_WRITER_DISABLED:pages.softDelete:use successor publication commands",
-  "cms/pages:restore":
-    "LEGACY_PUBLICATION_WRITER_DISABLED:pages.restore:use successor publication commands",
-  "cms/pages:remove": "PERMANENT_PAGE_PURGE_NOT_IMPLEMENTED",
-  "cms/pages:backfillMediaReferences":
-    "LEGACY_PUBLICATION_WRITER_DISABLED:pages.backfillMediaReferences:use successor publication commands",
-  "cms/pages:updateDraft":
-    "LEGACY_PUBLICATION_WRITER_DISABLED:pages.updateDraft:use successor publication commands",
-  "cms/pages:publish":
-    "LEGACY_PUBLICATION_WRITER_DISABLED:pages.publish:use successor publication commands",
-  "cms/pages:discardDraft":
-    "LEGACY_PUBLICATION_WRITER_DISABLED:pages.discardDraft:use successor publication commands",
-  "cms/pageHistory:restoreRevisionAsDraft":
-    "LEGACY_PUBLICATION_WRITER_DISABLED:pages.restoreRevisionAsDraft:use successor publication commands",
-}
 
 const allActors = (
   name: string,
@@ -690,264 +502,6 @@ const maskedRead = (
     })),
   })
 
-type MigrationStage =
-  "legacy" | "home" | "normalized" | "begun" | "scanned" | "prepared" | "ready"
-type MigrationFixture = { pageId: Id<"pages">; closureDigest?: string }
-const MIGRATION_RUN = "matrix-migration"
-
-async function setupLegacyMigration(
-  t: Site,
-  state: MatrixState,
-  stage: MigrationStage
-): Promise<MigrationFixture> {
-  await setupModuleLanguageState(t, state)
-  const owner = t.withIdentity(OWNER)
-  const pageId = LEGACY_SNAPSHOT_MIGRATION_INSTALLED
-    ? await owner.mutation(api.cms.pages.create, {
-        pageType: "landing-page",
-        status: "published",
-        slug: "home",
-        title: "Migration home",
-        content: { en: { title: "Migration home", blocks: [] } },
-      })
-    : await t.run((ctx) =>
-        ctx.db.insert("pages", {
-          pageType: "landing-page",
-          status: "published",
-          slug: "home",
-          content: { en: { title: "Migration home", blocks: [] } },
-          createdAt: 1,
-          updatedAt: 1,
-          publishedAt: 1,
-        })
-      )
-  if (!LEGACY_SNAPSHOT_MIGRATION_INSTALLED || stage === "legacy")
-    return { pageId }
-  await t.run(async (ctx) => {
-    const settings = await ctx.db.query("siteSettings").unique()
-    await ctx.db.patch(settings!._id, { homePageId: pageId })
-  })
-  if (stage === "home") return { pageId }
-  await owner.mutation(api.cms.publication.normalizeLegacyHomeIdentity, {
-    expectedSettingsUpdatedAt: 1,
-  })
-  if (stage === "normalized") return { pageId }
-  await owner.mutation(api.cms.publication.beginSnapshotMigration, {
-    migrationRunId: MIGRATION_RUN,
-    expectedRevision: 1,
-  })
-  if (stage === "begun") return { pageId }
-  const scanned = await owner.mutation(
-    api.cms.publication.scanSnapshotMigrationSources,
-    {
-      migrationRunId: MIGRATION_RUN,
-      expectedRevision: 2,
-    }
-  )
-  if (!scanned.isDone) throw new Error("one-page migration scan did not finish")
-  if (stage === "scanned") return { pageId }
-  await owner.mutation(api.cms.publication.prepareSnapshotMigrationPage, {
-    migrationRunId: MIGRATION_RUN,
-    pageId,
-  })
-  if (stage === "prepared") return { pageId }
-  const ready = await owner.mutation(
-    api.cms.publication.finalizeSnapshotMigration,
-    {
-      migrationRunId: MIGRATION_RUN,
-      expectedRevision: 2,
-    }
-  )
-  if (!ready.isDone || !ready.closureDigest)
-    throw new Error("migration closure did not finish")
-  return { pageId, closureDigest: ready.closureDigest }
-}
-
-async function setupSnapshotMigrationGuard(
-  t: Site,
-  redirects: "off" | "on"
-): Promise<MigrationFixture> {
-  await setupSnapshotActiveS4(t, redirects)
-  const pageId = await t.withIdentity(OWNER).mutation(api.cms.pages.create, {
-    pageType: "landing-page",
-    status: "draft",
-    slug: "snapshot-home",
-    title: "Snapshot home",
-    content: { en: { title: "Snapshot home", blocks: [] } },
-  })
-  return { pageId }
-}
-
-const migrationRow = (
-  name: string,
-  stage: MigrationStage,
-  call: (actor: CallTarget, fixture: MigrationFixture) => Promise<unknown>,
-  sourceSuccess: (fixture: MigrationFixture) => Outcome,
-  sourceS4Error: string
-): AuthorizationRow =>
-  defineRow({
-    name,
-    kind: "mutation",
-    scenarios: [
-      ...MATRIX_STATES.map((state) => ({
-        label: stateLabel(state),
-        setup: (t: Site) => setupLegacyMigration(t, state, stage),
-        call,
-        outcomes: (fixture: MigrationFixture) =>
-          LEGACY_SNAPSHOT_MIGRATION_INSTALLED
-            ? {
-                owner: sourceSuccess(fixture),
-                signedOut: { error: "UNAUTHENTICATED" },
-                unrelated: { error: "CMS_OWNER_REQUIRED" },
-                former: { error: "CMS_OWNER_REQUIRED" },
-              }
-            : {
-                owner: { error: "LEGACY_SNAPSHOT_MIGRATION_NOT_INSTALLED" },
-                signedOut: { error: "LEGACY_SNAPSHOT_MIGRATION_NOT_INSTALLED" },
-                unrelated: { error: "LEGACY_SNAPSHOT_MIGRATION_NOT_INSTALLED" },
-                former: { error: "LEGACY_SNAPSHOT_MIGRATION_NOT_INSTALLED" },
-              },
-      })),
-      ...(["off", "on"] as const).map((redirects) => ({
-        label: `snapshot-S4/redirects-${redirects}`,
-        setup: (t: Site) => setupSnapshotMigrationGuard(t, redirects),
-        call,
-        outcomes: LEGACY_SNAPSHOT_MIGRATION_INSTALLED
-          ? {
-              owner: { error: sourceS4Error },
-              signedOut: { error: "UNAUTHENTICATED" },
-              unrelated: { error: "CMS_OWNER_REQUIRED" },
-              former: { error: "CMS_OWNER_REQUIRED" },
-            }
-          : {
-              owner: { error: "LEGACY_SNAPSHOT_MIGRATION_NOT_INSTALLED" },
-              signedOut: { error: "LEGACY_SNAPSHOT_MIGRATION_NOT_INSTALLED" },
-              unrelated: { error: "LEGACY_SNAPSHOT_MIGRATION_NOT_INSTALLED" },
-              former: { error: "LEGACY_SNAPSHOT_MIGRATION_NOT_INSTALLED" },
-            },
-      })),
-    ],
-  })
-
-const migrationRows: AuthorizationRow[] = [
-  migrationRow(
-    "cms/publication:initializeLegacySnapshotAuthority",
-    "legacy",
-    (actor) =>
-      actor.mutation(api.cms.publication.initializeLegacySnapshotAuthority, {}),
-    () => ({ value: { phase: "legacy", revision: 1 } }),
-    "PUBLISHED_SNAPSHOT_CUTOVER_ALREADY_INITIALIZED"
-  ),
-  migrationRow(
-    "cms/publication:normalizeLegacyHomeIdentity",
-    "home",
-    (actor) =>
-      actor.mutation(api.cms.publication.normalizeLegacyHomeIdentity, {
-        expectedSettingsUpdatedAt: 1,
-      }),
-    (fixture) => ({
-      check: (value) =>
-        expect(value).toMatchObject({
-          homePageId: fixture.pageId,
-          settingsUpdatedAt: expect.any(Number),
-        }),
-    }),
-    "LEGACY_PUBLICATION_WRITER_DISABLED:publication.normalizeLegacyHomeIdentity:use successor publication commands"
-  ),
-  migrationRow(
-    "cms/publication:beginSnapshotMigration",
-    "normalized",
-    (actor) =>
-      actor.mutation(api.cms.publication.beginSnapshotMigration, {
-        migrationRunId: MIGRATION_RUN,
-        expectedRevision: 1,
-      }),
-    () => ({
-      value: {
-        migrationRunId: MIGRATION_RUN,
-        expectedPageCount: 0,
-        revision: 2,
-      },
-    }),
-    "PUBLISHED_SNAPSHOT_CUTOVER_STALE"
-  ),
-  migrationRow(
-    "cms/publication:scanSnapshotMigrationSources",
-    "begun",
-    (actor) =>
-      actor.mutation(api.cms.publication.scanSnapshotMigrationSources, {
-        migrationRunId: MIGRATION_RUN,
-        expectedRevision: 2,
-      }),
-    () => ({ value: { scanned: 1, expectedPageCount: 1, isDone: true } }),
-    "PUBLISHED_SNAPSHOT_CUTOVER_STALE"
-  ),
-  migrationRow(
-    "cms/publication:prepareSnapshotMigrationPage",
-    "scanned",
-    (actor, fixture) =>
-      actor.mutation(api.cms.publication.prepareSnapshotMigrationPage, {
-        migrationRunId: MIGRATION_RUN,
-        pageId: fixture.pageId,
-      }),
-    (fixture) => ({ value: { pageId: fixture.pageId, prepared: true } }),
-    "PUBLISHED_SNAPSHOT_MIGRATION_NOT_PREPARING"
-  ),
-  migrationRow(
-    "cms/publication:finalizeSnapshotMigration",
-    "prepared",
-    (actor) =>
-      actor.mutation(api.cms.publication.finalizeSnapshotMigration, {
-        migrationRunId: MIGRATION_RUN,
-        expectedRevision: 2,
-      }),
-    () => ({
-      check: (value) =>
-        expect(value).toMatchObject({
-          phase: "ready",
-          isDone: true,
-          revision: 2,
-          closureDigest: expect.any(String),
-        }),
-    }),
-    "PUBLISHED_SNAPSHOT_CUTOVER_STALE"
-  ),
-  migrationRow(
-    "cms/publication:activateSnapshotAuthority",
-    "ready",
-    (actor, fixture) =>
-      actor.mutation(api.cms.publication.activateSnapshotAuthority, {
-        migrationRunId: MIGRATION_RUN,
-        expectedRevision: 2,
-        expectedClosureDigest: fixture.closureDigest ?? "absent",
-      }),
-    () => ({ value: { phase: "snapshot_active", revision: 3 } }),
-    "PUBLISHED_SNAPSHOT_CUTOVER_STALE"
-  ),
-  migrationRow(
-    "cms/publication:abortSnapshotMigrationPage",
-    "prepared",
-    (actor, fixture) =>
-      actor.mutation(api.cms.publication.abortSnapshotMigrationPage, {
-        migrationRunId: MIGRATION_RUN,
-        pageId: fixture.pageId,
-      }),
-    (fixture) => ({ value: { pageId: fixture.pageId, removed: true } }),
-    "PUBLICATION_MIGRATION_ABORT_FORBIDDEN"
-  ),
-  migrationRow(
-    "cms/publication:finishSnapshotMigrationAbort",
-    "begun",
-    (actor) =>
-      actor.mutation(api.cms.publication.finishSnapshotMigrationAbort, {
-        migrationRunId: MIGRATION_RUN,
-        expectedRevision: 2,
-      }),
-    () => ({ value: { phase: "legacy", revision: 3 } }),
-    "PUBLICATION_MIGRATION_ABORT_FORBIDDEN"
-  ),
-]
-
 export const contentRows: AuthorizationRow[] = [
   ownerOnly(
     "cms/blockLibrary:getBlockPresentationUsageSummary",
@@ -959,7 +513,6 @@ export const contentRows: AuthorizationRow[] = [
       }),
     { value: { status: "unavailable" } }
   ),
-  ...migrationRows,
   successorOnly(
     "cms/publication:listSnapshotHistory",
     "query",
@@ -1002,9 +555,7 @@ export const contentRows: AuthorizationRow[] = [
           sharedDraftGeneration: 2,
         }),
     },
-    setupSuccessorPublished,
-    false,
-    setupLegacySnapshotReference
+    setupSuccessorPublished
   ),
   successorOnly(
     "cms/preview:createPreviewSession",
@@ -1025,90 +576,56 @@ export const contentRows: AuthorizationRow[] = [
   defineRow({
     name: "cms/preview:getPreviewPage",
     kind: "mutation",
-    scenarios: [
-      ...MATRIX_STATES.map((state) => ({
-        label: stateLabel(state),
-        setup: (t: Site) => setupContent(t, state),
-        call: (actor: CallTarget, fixture: SuccessorFixture) =>
-          actor.mutation(api.cms.preview.getPreviewPage, {
-            pageId: fixture.pageId,
-            locale: "en",
-          }),
-        outcomes: {
-          owner: { value: null },
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { error: "CMS_OWNER_REQUIRED" },
-          former: { error: "CMS_OWNER_REQUIRED" },
+    scenarios: MATRIX_STATES.map((state) => ({
+      label: stateLabel(state),
+      setup: (t: Site) => setupSuccessorSession(t, state.redirects),
+      call: (actor: CallTarget, fixture: SuccessorFixture) =>
+        actor.mutation(api.cms.preview.getPreviewPage, {
+          pageId: fixture.pageId,
+          locale: "en",
+          sessionToken: fixture.sessionToken,
+        }),
+      outcomes: {
+        owner: {
+          check: (value: unknown) =>
+            expect(value).toMatchObject({
+              page: { slug: "snapshot-matrix" },
+              requestedLocale: "en",
+              renderLocale: "en",
+              isFallback: false,
+            }),
         },
-      })),
-      ...(["off", "on"] as const).map((redirects) => ({
-        label: `snapshot-S4/redirects-${redirects}`,
-        setup: (t: Site) => setupSuccessorSession(t, redirects),
-        call: (actor: CallTarget, fixture: SuccessorFixture) =>
-          actor.mutation(api.cms.preview.getPreviewPage, {
-            pageId: fixture.pageId,
-            locale: "en",
-            sessionToken: fixture.sessionToken,
-          }),
-        outcomes: {
-          owner: {
-            check: (value: unknown) =>
-              expect(value).toMatchObject({
-                page: { slug: "snapshot-matrix" },
-                requestedLocale: "en",
-                renderLocale: "en",
-                isFallback: false,
-              }),
-          },
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { error: "CMS_OWNER_REQUIRED" },
-          former: { error: "CMS_OWNER_REQUIRED" },
-        },
-      })),
-    ],
+        signedOut: { error: "UNAUTHENTICATED" },
+        unrelated: { error: "CMS_OWNER_REQUIRED" },
+        former: { error: "CMS_OWNER_REQUIRED" },
+      },
+    })),
   }),
   defineRow({
     name: "cms/preview:resolvePreviewPath",
     kind: "mutation",
-    scenarios: [
-      ...MATRIX_STATES.map((state) => ({
-        label: stateLabel(state),
-        setup: (t: Site) => setupContent(t, state),
-        call: (actor: CallTarget) =>
-          actor.mutation(api.cms.preview.resolvePreviewPath, {
-            path: "/snapshot-matrix",
-            locale: "en",
-          }),
-        outcomes: {
-          owner: { value: null },
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { error: "CMS_OWNER_REQUIRED" },
-          former: { error: "CMS_OWNER_REQUIRED" },
-        },
-      })),
-      ...(["off", "on"] as const).map((redirects) => ({
-        label: `snapshot-S4/redirects-${redirects}`,
-        setup: (t: Site) => setupSuccessorSession(t, redirects),
-        call: (actor: CallTarget, fixture: SuccessorFixture) =>
-          actor.mutation(api.cms.preview.resolvePreviewPath, {
-            path: "/snapshot-matrix",
-            locale: "en",
-            sessionToken: fixture.sessionToken,
-          }),
-        outcomes: (fixture: SuccessorFixture) => ({
-          owner: {
-            value: {
-              pageId: fixture.pageId,
-              renderLocale: "en",
-              isFallback: false,
-            },
-          },
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { error: "CMS_OWNER_REQUIRED" },
-          former: { error: "CMS_OWNER_REQUIRED" },
+    scenarios: MATRIX_STATES.map((state) => ({
+      label: stateLabel(state),
+      setup: (t: Site) => setupSuccessorSession(t, state.redirects),
+      call: (actor: CallTarget, fixture: SuccessorFixture) =>
+        actor.mutation(api.cms.preview.resolvePreviewPath, {
+          path: "/snapshot-matrix",
+          locale: "en",
+          sessionToken: fixture.sessionToken,
         }),
-      })),
-    ],
+      outcomes: (fixture: SuccessorFixture) => ({
+        owner: {
+          value: {
+            pageId: fixture.pageId,
+            renderLocale: "en",
+            isFallback: false,
+          },
+        },
+        signedOut: { error: "UNAUTHENTICATED" },
+        unrelated: { error: "CMS_OWNER_REQUIRED" },
+        former: { error: "CMS_OWNER_REQUIRED" },
+      }),
+    })),
   }),
   successorOnly(
     "cms/publication:listAdminPages",
@@ -1127,8 +644,7 @@ export const contentRows: AuthorizationRow[] = [
           isDone: true,
         }),
     },
-    setupSuccessorPage,
-    true
+    setupSuccessorPage
   ),
   defineRow({
     name: "cms/publication:initializeEmptySnapshotAuthority",
@@ -1196,8 +712,7 @@ export const contentRows: AuthorizationRow[] = [
           ],
         }),
     },
-    setupSuccessorPage,
-    true
+    setupSuccessorPage
   ),
   successorOnly(
     "cms/publication:saveSharedDraft",
@@ -1323,9 +838,7 @@ export const contentRows: AuthorizationRow[] = [
       check: (value) =>
         expect(value).toMatchObject({ locale: "en", publicGeneration: 2 }),
     },
-    setupSuccessorPublished,
-    false,
-    setupLegacySnapshotReference
+    setupSuccessorPublished
   ),
   successorOnly(
     "cms/publication:archivePage",
@@ -1363,8 +876,7 @@ export const contentRows: AuthorizationRow[] = [
     {
       check: (value) => expect(value).toMatchObject({ lifecycleGeneration: 2 }),
     },
-    setupSuccessorPage,
-    true
+    setupSuccessorPage
   ),
   successorOnly(
     "cms/publication:restoreSoftDeletedPage",
@@ -1392,8 +904,7 @@ export const contentRows: AuthorizationRow[] = [
           { pageId: expect.any(String), canPurge: true, redirects: 0 },
         ]),
     },
-    setupSuccessorTrashedDrained,
-    true
+    setupSuccessorTrashedDrained
   ),
   successorOnly(
     "cms/publication:purgeTrashedPages",
@@ -1493,87 +1004,6 @@ export const contentRows: AuthorizationRow[] = [
     }
   ),
   ownerOnly(
-    "cms/pages:updateDraft",
-    "mutation",
-    (actor, fixture) =>
-      actor.mutation(api.cms.pages.updateDraft, {
-        pageId: fixture.pageId,
-        slug: "matrix-new-draft",
-      }),
-    {
-      check: (value) =>
-        expect(value).toMatchObject({ updatedAt: expect.any(Number) }),
-    },
-    setupLockedPage,
-    async (t, fixture) => {
-      expect(
-        await t.run((ctx) =>
-          ctx.db
-            .query("pageStaging")
-            .withIndex("by_pageId", (q) => q.eq("pageId", fixture.pageId))
-            .first()
-        )
-      ).toMatchObject({ slug: "matrix-new-draft" })
-    }
-  ),
-  ownerOnly(
-    "cms/pages:publish",
-    "mutation",
-    (actor, fixture) =>
-      actor.mutation(api.cms.pages.publish, { pageId: fixture.pageId }),
-    {
-      check: (value) =>
-        expect(value).toMatchObject({ updatedAt: expect.any(Number) }),
-    },
-    setupStagedPage,
-    async (t, fixture) => {
-      expect(await t.run((ctx) => ctx.db.get(fixture.pageId))).toMatchObject({
-        slug: "matrix-staged",
-      })
-    }
-  ),
-  ownerOnly(
-    "cms/pages:discardDraft",
-    "mutation",
-    (actor, fixture) =>
-      actor.mutation(api.cms.pages.discardDraft, { pageId: fixture.pageId }),
-    { value: null },
-    setupStagedPage,
-    async (t, fixture) => {
-      expect(
-        await t.run((ctx) =>
-          ctx.db
-            .query("pageStaging")
-            .withIndex("by_pageId", (q) => q.eq("pageId", fixture.pageId))
-            .first()
-        )
-      ).toBeNull()
-    }
-  ),
-  ownerOnly(
-    "cms/pageHistory:restoreRevisionAsDraft",
-    "mutation",
-    (actor, fixture) =>
-      actor.mutation(optional.pageHistory.restoreRevisionAsDraft, {
-        revisionId: fixture.revisionId!,
-      }),
-    {
-      check: (value) =>
-        expect(value).toMatchObject({ updatedAt: expect.any(Number) }),
-    },
-    setupRevision,
-    async (t, fixture) => {
-      expect(
-        await t.run((ctx) =>
-          ctx.db
-            .query("pageStaging")
-            .withIndex("by_pageId", (q) => q.eq("pageId", fixture.pageId))
-            .first()
-        )
-      ).toMatchObject({ content: { en: { title: "Archived Matrix" } } })
-    }
-  ),
-  ownerOnly(
     "cms/pages:create",
     "mutation",
     (actor) =>
@@ -1594,93 +1024,6 @@ export const contentRows: AuthorizationRow[] = [
     }
   ),
   ownerOnly(
-    "cms/pages:duplicate",
-    "mutation",
-    (actor, fixture) =>
-      actor.mutation(api.cms.pages.duplicate, {
-        id: fixture.pageId,
-        title: "Matrix Copy",
-      }),
-    { check: (value) => expect(value).toEqual(expect.any(String)) },
-    setupContent,
-    async (t) => {
-      expect(await t.run((ctx) => ctx.db.query("pages").collect())).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ slug: "matrix-page-copy" }),
-        ])
-      )
-    }
-  ),
-  ownerOnly(
-    "cms/pages:update",
-    "mutation",
-    (actor, fixture) =>
-      actor.mutation(api.cms.pages.update, {
-        id: fixture.pageId,
-        slug: "matrix-updated",
-      }),
-    {
-      check: (value) =>
-        expect(value).toMatchObject({ updatedAt: expect.any(Number) }),
-    },
-    setupContent,
-    async (t, fixture) => {
-      expect(await t.run((ctx) => ctx.db.get(fixture.pageId))).toMatchObject({
-        slug: "matrix-updated",
-      })
-    }
-  ),
-  ownerOnly(
-    "cms/pages:softDelete",
-    "mutation",
-    (actor, fixture) =>
-      actor.mutation(api.cms.pages.softDelete, { id: fixture.pageId }),
-    { value: null },
-    setupArchivedPage,
-    async (t, fixture) => {
-      expect(await t.run((ctx) => ctx.db.get(fixture.pageId))).toMatchObject({
-        deletedAt: expect.any(Number),
-      })
-    }
-  ),
-  ownerOnly(
-    "cms/pages:restore",
-    "mutation",
-    (actor, fixture) =>
-      actor.mutation(api.cms.pages.restore, { id: fixture.pageId }),
-    { value: null },
-    setupDeletedPage,
-    async (t, fixture) => {
-      expect(
-        await t.run((ctx) => ctx.db.get(fixture.pageId))
-      ).not.toHaveProperty("deletedAt")
-    }
-  ),
-  ownerOnly(
-    "cms/pages:remove",
-    "mutation",
-    (actor, fixture) =>
-      actor.mutation(api.cms.pages.remove, { id: fixture.pageId }),
-    { value: null },
-    setupDeletedPage,
-    async (t, fixture) => {
-      expect(await t.run((ctx) => ctx.db.get(fixture.pageId))).toBeNull()
-    }
-  ),
-  ownerOnly(
-    "cms/pages:backfillMediaReferences",
-    "mutation",
-    (actor) => actor.mutation(api.cms.pages.backfillMediaReferences, {}),
-    {
-      check: (value) =>
-        expect(value).toMatchObject({
-          pagesScanned: 2,
-          pagesRefreshed: 2,
-          isDone: true,
-        }),
-    }
-  ),
-  ownerOnly(
     "cms/pages:touchPagePresence",
     "mutation",
     (actor, fixture) =>
@@ -1695,16 +1038,26 @@ export const contentRows: AuthorizationRow[] = [
       ).toHaveLength(1)
     }
   ),
-  ownerOnly(
-    "cms/pages:leavePagePresence",
-    "mutation",
-    (actor, fixture) =>
-      actor.mutation(api.cms.pages.leavePagePresence, {
-        pageId: fixture.pageId,
-      }),
-    { value: null },
-    setupContent
-  ),
+  defineRow({
+    name: "cms/pages:leavePagePresence",
+    kind: "mutation",
+    scenarios: MATRIX_STATES.map((state) => ({
+      label: stateLabel(state),
+      setup: (t: Site) => setupContent(t, state),
+      call: (actor: CallTarget, fixture: ContentFixture) =>
+        actor.mutation(api.cms.pages.leavePagePresence, { pageId: fixture.pageId }),
+      outcomes: {
+        owner: { value: null },
+        // Late editor teardown acknowledges an ended session without writes.
+        signedOut: { value: null },
+        unrelated: { error: "CMS_OWNER_REQUIRED" },
+        former: { error: "CMS_OWNER_REQUIRED" },
+      },
+      // This fixture has no leases. Even successful no-ops must preserve all
+      // writable tables; the pages seam tests separately prove own-row removal.
+      readOnly: true,
+    })),
+  }),
   ownerOnly(
     "cms/pages:acquirePageEditorLock",
     "mutation",
@@ -1714,15 +1067,26 @@ export const contentRows: AuthorizationRow[] = [
       }),
     { check: (value) => expect(value).toMatchObject({ status: "acquired" }) }
   ),
-  ownerOnly(
-    "cms/pages:releasePageEditorLock",
-    "mutation",
-    (actor, fixture) =>
-      actor.mutation(api.cms.pages.releasePageEditorLock, {
-        pageId: fixture.pageId,
-      }),
-    { value: null }
-  ),
+  defineRow({
+    name: "cms/pages:releasePageEditorLock",
+    kind: "mutation",
+    scenarios: MATRIX_STATES.map((state) => ({
+      label: stateLabel(state),
+      setup: (t: Site) => setupContent(t, state),
+      call: (actor: CallTarget, fixture: ContentFixture) =>
+        actor.mutation(api.cms.pages.releasePageEditorLock, { pageId: fixture.pageId }),
+      outcomes: {
+        owner: { value: null },
+        // Late editor teardown acknowledges an ended session without writes.
+        signedOut: { value: null },
+        unrelated: { error: "CMS_OWNER_REQUIRED" },
+        former: { error: "CMS_OWNER_REQUIRED" },
+      },
+      // This fixture has no leases. Even successful no-ops must preserve all
+      // writable tables; the pages seam tests separately prove own-row removal.
+      readOnly: true,
+    })),
+  }),
   ownerOnly(
     "cms/pages:heartbeatPageEditor",
     "mutation",
@@ -1799,12 +1163,10 @@ export const contentRows: AuthorizationRow[] = [
     "mutation",
     (actor, fixture) =>
       actor.mutation(api.cms.media.remove, { id: fixture.mediaId }),
-    // The matrix runs on legacy-authority states: permanent delete is
-    // snapshot-only (mediaPurge.test.ts covers the snapshot path).
-    { error: "MEDIA_PURGE_NOT_AVAILABLE" },
+    { value: null },
     setupPurgeableMedia,
     async (t, fixture) => {
-      expect(await t.run((ctx) => ctx.db.get(fixture.mediaId))).not.toBeNull()
+      expect(await t.run((ctx) => ctx.db.get(fixture.mediaId))).toBeNull()
     }
   ),
   ownerOnly(
@@ -1814,10 +1176,15 @@ export const contentRows: AuthorizationRow[] = [
       actor.mutation(api.cms.media.purgeTrashedMedia, {
         ids: [fixture.mediaId],
       }),
-    { error: "MEDIA_PURGE_NOT_AVAILABLE" },
+    {
+      check: (value) =>
+        expect(value).toEqual([
+          expect.objectContaining({ status: "purged" }),
+        ]),
+    },
     setupPurgeableMedia,
     async (t, fixture) => {
-      expect(await t.run((ctx) => ctx.db.get(fixture.mediaId))).not.toBeNull()
+      expect(await t.run((ctx) => ctx.db.get(fixture.mediaId))).toBeNull()
     }
   ),
   ownerOnly(
@@ -1915,12 +1282,14 @@ export const contentRows: AuthorizationRow[] = [
   allActors(
     "cms/pages:getPublicByline",
     "query",
-    (actor, fixture) =>
-      actor.query(api.cms.pages.getPublicByline, {
+    (actor, fixture) => {
+      if (!fixture.authorId) throw new Error("Author fixture requires an active Author type")
+      return actor.query(api.cms.pages.getPublicByline, {
         authorPageId: fixture.authorId,
         locale: "en",
         languageVersion: fixture.languageVersion,
-      }),
+      })
+    },
     { value: { name: "Matrix Author", roleTitle: "Editor", avatarUrl: null } }
   ),
   publicByState(
@@ -2073,7 +1442,9 @@ export const contentRows: AuthorizationRow[] = [
             expect.objectContaining({ locale: "en", url: "/matrix-page" }),
           ])
         )
-        expect(value).toHaveLength(state.language === "M05" ? 4 : 2)
+        expect(value).toHaveLength(
+          (isActiveContentType("author") ? 2 : 1) * (state.language === "M05" ? 2 : 1)
+        )
       },
     })
   ),
@@ -2086,7 +1457,14 @@ export const contentRows: AuthorizationRow[] = [
         path: "/matrix-page",
         languageVersion: fixture.languageVersion,
       }),
-    { value: { authority: "legacy" } }
+    {
+      check: (value) =>
+        expect(value).toMatchObject({
+          authority: "snapshot_active",
+          disposition: "current",
+          locale: "en",
+        }),
+    }
   ),
   allActors(
     "cms/pages:resolveLocalizedPathQuery",
@@ -2119,26 +1497,8 @@ export const contentRows: AuthorizationRow[] = [
         locale: "en",
         languageVersion: fixture.languageVersion,
       }),
-    {
-      check: (value) =>
-        expect(value).toEqual([
-          expect.objectContaining({ title: "Matrix Page" }),
-        ]),
-    }
-  ),
-  maskedRead(
-    "cms/pages:getById",
-    (actor, fixture) =>
-      actor.query(api.cms.pages.getById, { id: fixture.pageId }),
-    { check: (value) => expect(value).toMatchObject({ slug: "matrix-page" }) },
-    null
-  ),
-  maskedRead(
-    "cms/pages:getPublishedById",
-    (actor, fixture) =>
-      actor.query(api.cms.pages.getPublishedById, { id: fixture.pageId }),
-    { check: (value) => expect(value).toMatchObject({ slug: "matrix-page" }) },
-    null
+    // The published search reads rows only on the old publication path.
+    { value: [] }
   ),
   maskedRead(
     "cms/pages:getForEdit",
@@ -2148,45 +1508,6 @@ export const contentRows: AuthorizationRow[] = [
       check: (value) =>
         expect(value).toMatchObject({ page: { slug: "matrix-page" } }),
     },
-    null
-  ),
-  maskedRead(
-    "cms/pages:getBySlug",
-    (actor) => actor.query(api.cms.pages.getBySlug, { slug: "matrix-page" }),
-    { check: (value) => expect(value).toMatchObject({ slug: "matrix-page" }) },
-    null
-  ),
-  maskedRead(
-    "cms/pages:getByIds",
-    (actor, fixture) =>
-      actor.query(api.cms.pages.getByIds, { ids: [fixture.pageId] }),
-    {
-      check: (value) =>
-        expect(value).toEqual([
-          expect.objectContaining({ slug: "matrix-page" }),
-        ]),
-    },
-    []
-  ),
-  maskedRead(
-    "cms/pages:getBreadcrumb",
-    (actor, fixture) =>
-      actor.query(api.cms.pages.getBreadcrumb, { pageId: fixture.pageId }),
-    {
-      check: (value) =>
-        expect(value).toEqual([
-          expect.objectContaining({ title: "Matrix Page" }),
-        ]),
-    },
-    []
-  ),
-  maskedRead(
-    "cms/pages:getLocalizedPageUrls",
-    (actor, fixture) =>
-      actor.query(api.cms.pages.getLocalizedPageUrls, {
-        pageId: fixture.pageId,
-      }),
-    { check: (value) => expect(value).toMatchObject({ en: "/matrix-page" }) },
     null
   ),
   ownerOnly(
@@ -2234,26 +1555,6 @@ export const contentRows: AuthorizationRow[] = [
     { value: { status: "available", lock: null, isMine: false } }
   ),
   ownerOnly(
-    "cms/pages:isSlugAvailable",
-    "query",
-    (actor) =>
-      actor.query(api.cms.pages.isSlugAvailable, { slug: "matrix-new" }),
-    { value: { available: true, slug: "matrix-new" } }
-  ),
-  ownerOnly(
-    "cms/pages:list",
-    "query",
-    (actor) => actor.query(api.cms.pages.list, {}),
-    {
-      check: (value) =>
-        expect(value).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({ slug: "matrix-page" }),
-          ])
-        ),
-    }
-  ),
-  ownerOnly(
     "cms/pages:listSummaries",
     "query",
     (actor) => actor.query(api.cms.pages.listSummaries, {}),
@@ -2264,22 +1565,6 @@ export const contentRows: AuthorizationRow[] = [
             expect.objectContaining({ slug: "matrix-page" }),
           ])
         ),
-    }
-  ),
-  ownerOnly(
-    "cms/pages:listPaginated",
-    "query",
-    (actor) =>
-      actor.query(api.cms.pages.listPaginated, {
-        paginationOpts: { numItems: 10, cursor: null },
-      }),
-    {
-      check: (value) =>
-        expect(value).toMatchObject({
-          page: expect.arrayContaining([
-            expect.objectContaining({ slug: "matrix-page" }),
-          ]),
-        }),
     }
   ),
   ownerOnly(
@@ -2311,24 +1596,6 @@ export const contentRows: AuthorizationRow[] = [
     }
   ),
   ownerOnly(
-    "cms/pages:deleteImpact",
-    "query",
-    (actor, fixture) =>
-      actor.query(api.cms.pages.deleteImpact, { id: fixture.pageId }),
-    { value: { children: [], redirects: 0, menus: [] } }
-  ),
-  ownerOnly(
-    "cms/pages:listByPageType",
-    "query",
-    (actor) => actor.query(api.cms.pages.listByPageType, { pageType: "page" }),
-    {
-      check: (value) =>
-        expect(value).toEqual([
-          expect.objectContaining({ slug: "matrix-page" }),
-        ]),
-    }
-  ),
-  ownerOnly(
     "cms/pages:listRelationCandidates",
     "query",
     (actor) =>
@@ -2350,27 +1617,18 @@ export const contentRows: AuthorizationRow[] = [
         ids: [fixture.pageId],
         locale: "en",
       }),
+    // This reader resolves cards from the retained Pages rows, which hold no
+    // published content on the snapshot path, so the owner's card is null.
     {
       check: (value) =>
-        expect(Object.values(value as Record<string, unknown>)).toEqual([
-          expect.objectContaining({ title: "Matrix Page" }),
-        ]),
+        expect(Object.values(value as Record<string, unknown>)).toEqual([null]),
     }
   ),
   ownerOnly(
     "cms/publication:getAdminAuthority",
     "query",
     (actor) => actor.query(api.cms.publication.getAdminAuthority, {}),
-    { value: "legacy" }
-  ),
-  ownerOnly(
-    "cms/pageHistory:listRevisions",
-    "query",
-    (actor, fixture) =>
-      actor.query(optional.pageHistory.listRevisions, {
-        pageId: fixture.pageId,
-      }),
-    { value: [] }
+    { value: "snapshot_active" }
   ),
   ownerOnly(
     "cms/media:getById",
@@ -2674,12 +1932,8 @@ export const contentRows: AuthorizationRow[] = [
     "cms/search:searchPages",
     "query",
     (actor) => actor.query(optional.search.searchPages, { query: "Matrix" }),
-    {
-      check: (value) =>
-        expect(value).toEqual([
-          expect.objectContaining({ slug: "matrix-page" }),
-        ]),
-    }
+    // The admin search reads rows only on the old publication path.
+    { value: [] }
   ),
   ownerOnly(
     "cms/search:searchMedia",

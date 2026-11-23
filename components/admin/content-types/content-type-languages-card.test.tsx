@@ -56,30 +56,30 @@ beforeEach(() => {
 describe("ContentTypeLanguagesCard", () => {
   test("is shown only while the Multilingual module is on", () => {
     mocks.gate = "off"
-    const { container } = render(<ContentTypeLanguagesCard type="post" />)
+    const { container } = render(<ContentTypeLanguagesCard type="page" />)
     expect(container).toBeEmptyDOMElement()
   })
 
   test("turning off asks first, leaves out a zero line and shows N+", async () => {
-    render(<ContentTypeLanguagesCard type="post" />)
+    render(<ContentTypeLanguagesCard type="page" />)
     expect(
-      screen.getByText("Posts can have a version in each language.")
+      screen.getByText("Pages can have a version in each language.")
     ).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Translate Posts" }))
+    fireEvent.click(screen.getByRole("checkbox", { name: "Translate Pages" }))
 
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalled())
     expect(mocks.confirm.mock.calls[0]![0]).toEqual({
-      title: "Write Posts in English only?",
+      title: "Write Pages in English only?",
       description: [
         "12 versions in other languages will be hidden from the site. They are kept, and come back when you turn translation on.",
-        "25+ pages under these Posts will be hidden in other languages.",
+        "25+ pages under these Pages will be hidden in other languages.",
       ].join("\n"),
       confirmText: "Turn off",
     })
     await waitFor(() =>
       expect(mocks.setTranslation).toHaveBeenCalledWith({
-        pageType: "post",
+        pageType: "page",
         translated: false,
       })
     )
@@ -87,26 +87,26 @@ describe("ContentTypeLanguagesCard", () => {
 
   test("a cancelled confirm changes nothing", async () => {
     mocks.confirm.mockResolvedValue(false)
-    render(<ContentTypeLanguagesCard type="post" />)
+    render(<ContentTypeLanguagesCard type="page" />)
     fireEvent.click(screen.getByRole("checkbox"))
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalled())
     expect(mocks.setTranslation).not.toHaveBeenCalled()
   })
 
   test("turning on needs no dialog", async () => {
-    mocks.entries = [{ pageType: "post", locale: "en" }]
-    render(<ContentTypeLanguagesCard type="post" />, { locale: "fr" })
+    mocks.entries = [{ pageType: "page", locale: "en" }]
+    render(<ContentTypeLanguagesCard type="page" />, { locale: "fr" })
     expect(
-      screen.getByText("Les articles sont en anglais seulement.")
+      screen.getByText("Les pages sont en anglais seulement.")
     ).toBeInTheDocument()
 
     fireEvent.click(
-      screen.getByRole("checkbox", { name: "Traduire les articles" })
+      screen.getByRole("checkbox", { name: "Traduire les pages" })
     )
 
     await waitFor(() =>
       expect(mocks.setTranslation).toHaveBeenCalledWith({
-        pageType: "post",
+        pageType: "page",
         translated: true,
       })
     )
@@ -114,8 +114,8 @@ describe("ContentTypeLanguagesCard", () => {
   })
 
   test("an entry whose language is no longer enabled reads as translated", () => {
-    mocks.entries = [{ pageType: "post", locale: "de" }]
-    render(<ContentTypeLanguagesCard type="post" />)
+    mocks.entries = [{ pageType: "page", locale: "de" }]
+    render(<ContentTypeLanguagesCard type="page" />)
     expect(screen.getByRole("checkbox")).toBeChecked()
   })
 
@@ -144,7 +144,7 @@ describe("ContentTypeLanguagesCard", () => {
     "refusal %s reads in plain words (%s)",
     async (code, locale, message) => {
       mocks.setTranslation.mockRejectedValue(new ConvexError(code))
-      render(<ContentTypeLanguagesCard type="post" />, { locale })
+      render(<ContentTypeLanguagesCard type="page" />, { locale })
       fireEvent.click(screen.getByRole("checkbox"))
       await waitFor(() => expect(mocks.error).toHaveBeenCalledWith(message))
     }

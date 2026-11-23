@@ -87,7 +87,6 @@
       "confirmTitleMany": "Delete {count} pages permanently?",
       "deleteDescriptionMany": "{names} will be deleted permanently, in every language. This cannot be undone.",
       "confirmMany": "Delete {count} pages",
-      "deletedMany": "{count, plural, one {# page deleted permanently.} other {# pages deleted permanently.}}",
       "notDeleted": "“{title}” was not deleted: {reason}",
       "linkBlocker": "{others, plural, =0 {“{first}” links} one {“{first}” and # other page link} other {“{first}” and # other pages link}} to this page. Remove those links first.",
       "childReason": "it has {count, plural, one {# child page} other {# child pages}}. Move or delete {count, plural, one {it} other {them}} first.",
@@ -108,7 +107,7 @@
       "imageDeletePending": "Image delete is getting ready. Try again in a few minutes.",
       "changedRefusal": "“{title}” changed since this list loaded. Refresh the page and try again.",
       "languageRefusal": "A language change is running. Try again when it is finished.",
-      "pagesQueued": "{count, plural, one {“{title}” will be deleted permanently.} other {# pages will be deleted permanently.}}",
+      "pagesQueued": "{count, plural, one {“{title}” was removed from Trash. It will be erased permanently within a day.} other {# pages were removed from Trash. They will be erased permanently within a day.}}",
       "deleteStopped": "Deletion of “{title}” stopped.",
       "retryDelete": "Retry deletion"
     },
@@ -471,14 +470,6 @@
       "landing-page": {
         "singular": "Landing page",
         "plural": "Landing pages"
-      },
-      "post": {
-        "singular": "Post",
-        "plural": "Posts"
-      },
-      "author": {
-        "singular": "Author",
-        "plural": "Authors"
       }
     },
     "role": {
@@ -1636,6 +1627,15 @@
         "tools": {
           "claude": "Claude Code",
           "codex": "Codex"
+        },
+        "setupLink": "How to set it up",
+        "setupLinkName": "{provider}, opens in a new tab",
+        "note": "Uses the installed tool's current sign-in. Plan limits or API charges may apply. Tool usage is outside formulacms spending totals and caps.",
+        "state": {
+          "api-key": "Ready · uses an API key, so charges apply",
+          "unknown": "Ready · sign-in method not verified",
+          "signed-out": "Signed out",
+          "not-installed": "Not installed"
         }
       },
       "rail": {
@@ -1656,7 +1656,114 @@
         "ready": "Ready",
         "signedOut": "Signed out",
         "notSetUp": "Not set up",
-        "invalidKey": "Invalid key"
+        "invalidKey": "Key refused",
+        "notInstalled": "Not installed"
+      },
+      "names": {
+        "claude-code": "Claude Code",
+        "codex": "Codex",
+        "anthropic-api": "Anthropic API",
+        "openai-api": "OpenAI API",
+        "openrouter-api": "OpenRouter API"
+      },
+      "active": "Active",
+      "refusedCard": "Not configured: {provider} refused the key",
+      "missingCard": "Not configured: API key is missing",
+      "description": "Connect an AI service, then set up your assistants. To turn AI off, go to Modules.",
+      "assistantsLocal": "Choose what each assistant runs with and how it behaves. These choices are saved for local development; your live site keeps its own.",
+      "assistantsLive": "Choose what each assistant runs with and how it behaves on your live site.",
+      "instructionsNote": "Sent to the model before every request from this assistant.",
+      "presetsNote": "Brief seeds and quick refine presets stay as they are today.",
+      "connection": {
+        "refused": "Key refused: {provider} rejected {envVar} on your last AI action ({at})",
+        "unreachable": "Couldn't reach {provider} on your last AI action ({at})"
+      },
+      "tab": {
+        "signedIn": "Signed in · {plan, select, pro {Claude Pro} max {Claude Max} ultra {Claude Ultra} team {Claude Team} enterprise {Claude Enterprise} chatgpt {ChatGPT} other {}} plan",
+        "signedInNoPlan": "Signed in · plan not detected"
+      },
+      "redesign": {
+        "rail": {
+          "label": "AI sections",
+          "assistants": "Assistants",
+          "subscriptions": "Subscriptions · this computer",
+          "apiKeys": "API keys",
+          "state": {
+            "ready": "Ready",
+            "missing": "Not set up",
+            "refused": "Key refused",
+            "signedOut": "Signed out",
+            "notInstalled": "Not installed"
+          }
+        },
+        "provider": "Provider",
+        "uses": "Uses <b>{provider}</b> ({billing}) · {model}",
+        "billing": {
+          "local": "current tool sign-in",
+          "api": "billed per use"
+        },
+        "models": "Models",
+        "modelCheck": {
+          "check": "Check for new models",
+          "checking": "Checking…",
+          "checked": "Checked {when}",
+          "justNow": "just now",
+          "new": "New",
+          "never": "Not checked yet"
+        },
+        "usedBy": "Used by",
+        "changeInAssistants": "Change in Assistants",
+        "none": "None",
+        "signedIn": "Signed in · {plan} plan",
+        "sentence": {
+          "local": "Runs on this computer during local development; your live site uses an API key.",
+          "api": "Bills you for each use."
+        },
+        "connected": "Connected · key in your deployment settings",
+        "notSetUp": "Not set up",
+        "keys": {
+          "title": "Where your key is",
+          "deployment": "Your deployment settings",
+          "deploymentNote": "Used by the Writing, Translation and Help assistants.",
+          "local": "This computer (.env.local)",
+          "localNote": "Used by the Block creator during local development.",
+          "connected": "Connected",
+          "found": "Found",
+          "refused": "Key refused",
+          "missing": "Not set up"
+        },
+        "sub": {
+          "status": {
+            "signedOut": "Signed out",
+            "notInstalled": "Not installed"
+          },
+          "option": {
+            "signedOut": " · signed out",
+            "notInstalled": " · not installed"
+          },
+          "reason": "{provider}: {state}"
+        },
+        "steps": {
+          "runIn": "In Terminal, in {siteFolder}, run:",
+          "run": "In Terminal, run:",
+          "afterSignIn": "Sign in in the browser window that opens, then click Check again. The status shows Signed in.",
+          "afterInstall": "Open a new Terminal in {siteFolder}, run <c>{command}</c> and sign in. Then click Check again.",
+          "check": "Check again",
+          "checked": "Checked just now",
+          "deploymentMissing": "In Terminal, in {siteFolder}, run this. Replace the example with your key from Get a key:",
+          "deploymentRefused": "Replace the key: in Terminal, in {siteFolder}, run:",
+          "deploymentAfter": "The status turns Connected by itself.",
+          "localMissing": "Open {siteFolder}/.env.local, add this line at the end, save, then reload this page:",
+          "getKey": "Get a key",
+          "newTab": "(opens in a new tab)",
+          "copy": "Copy",
+          "copied": "Copied",
+          "copyFailed": "Could not copy. Select the text and copy it.",
+          "command": "the command",
+          "line": "the line"
+        },
+        "disabledReason": "{provider}: {state}. Set it up to choose a model and effort.",
+        "effortLocked": "Translation uses its preset effort."
       }
     }
   },
@@ -1904,7 +2011,6 @@
       "description": "Manage your site content",
       "newContent": "New content",
       "untitled": "Untitled",
-      "missingLocaleTitle": "Missing {locale} title",
       "revalidation": {
         "setupHeading": "Public-site updates need setup.",
         "setupDescription": "Changes may not appear on your public site until this is set up.",
@@ -1937,22 +2043,14 @@
       "noMatches": "No pages match your filters.",
       "empty": "No pages yet.",
       "missingLocaleContent": "no {locale} content",
-      "languages": "Languages",
-      "languagesDetails": "Languages: {translated} of {total} translated. Show details",
       "languagesComplete": "All languages translated",
       "languagesMissing": "Missing translations",
       "translated": "Translated",
       "missingTranslation": "Missing translation",
-      "editLanguage": "Edit {locale}",
-      "edit": "Edit",
-      "defaultSlug": "default URL name",
       "hasLocaleContent": "Has {locale} content",
       "noLocaleContent": "No {locale} content",
-      "publishes": "Publishes {date}",
-      "expires": "Expires {date}",
       "actionsFor": "Actions for {title}",
       "actions": {
-        "duplicate": "Duplicate",
         "archive": "Archive",
         "unarchive": "Unarchive",
         "moveToTrash": "Move to trash",
@@ -1974,7 +2072,6 @@
         "archived": "Page archived",
         "archiveFailed": "Archive failed",
         "restored": "Page restored",
-        "restoredToDraft": "Page restored to draft",
         "unarchiveFailed": "Unarchive failed",
         "movedToTrash": "Moved to trash",
         "deleteFailed": "Delete failed",
@@ -2198,8 +2295,7 @@
       "newTitle": "New title",
       "cancel": "Cancel",
       "duplicating": "Duplicating…",
-      "action": "Duplicate page",
-      "unavailable": "Duplicating pages isn’t available yet."
+      "action": "Duplicate page"
     },
     "markdownImport": {
       "invalidFile": "Please select a Markdown file (.md or .markdown).",
@@ -2653,6 +2749,7 @@
       "translationFailed": "Translation failed",
       "generationFailed": "Generation failed",
       "refinementFailed": "Refinement failed",
+      "changedDuringAi": "This field changed, so the AI answer was not applied.",
       "translateTitle": "AI-translate this field from {locale}",
       "nothingToTranslate": "Nothing to translate — no {locale} content for this field",
       "translate": "Translate",
@@ -2996,11 +3093,6 @@
       "saveShortcut": "(press {shortcut} to save)",
       "backToLanguageChange": "Back to the language change",
       "backToPages": "Back to pages",
-      "status": {
-        "draft": "Draft",
-        "published": "Published",
-        "archived": "Archived"
-      },
       "unpublishedHint": "You have unpublished changes on this page. Click Publish to make them live.",
       "unpublishedChanges": "Unpublished changes",
       "savedAt": "Saved {time}",
@@ -3008,7 +3100,6 @@
       "copyBetweenLocales": "Copy content between locales",
       "copy": "Copy",
       "moreActions": "More page actions",
-      "duplicate": "Duplicate this page",
       "unpublish": "Unpublish",
       "archive": "Archive",
       "saving": "Saving…",
@@ -3157,12 +3248,7 @@
       "delete": "Delete block",
       "duplicate": "Duplicate"
     },
-    "lifecycleRetainedDeleteHint": "Retained drafts or publication history still use this Type. Those references prevent deletion.",
-    "lifecyclePublicationInstances": "Uses in published versions",
-    "lifecycleVersionCounts": "Saved counts show uses in saved Page content. Pending counts show uses in changes not yet applied to the Page. A Page can appear in both counts. Published versions are counted separately, including publication history.",
-    "lifecycleNoDependencies": "No saved Page content, pending changes or publication history uses this Block Type.",
-    "lifecyclePublicationRow": "{count} in published versions",
-    "usageUnavailable": "Page usage is unavailable. Apply will recheck saved, staged and retained publication content before writing.",
+    "usageUnavailable": "Page usage is unavailable. Apply will recheck drafts and publication history before writing.",
     "usageUnused": "This Block Type has no retained content dependencies, so structural updates keep their current flexibility.",
     "usageCounts": "{count, plural, one {# retained content dependency} other {# retained content dependencies}} across {pages, plural, one {# Page} other {# Pages}}.",
     "usageBlockers": "{count, plural, one {# compatibility blocker must be resolved.} other {# compatibility blockers must be resolved.}}",
@@ -3230,8 +3316,13 @@
       "renamed": "Renamed to {label}",
       "renameFailed": "Rename failed",
       "deleteTitle": "Delete {label} ({type})?",
-      "deleteDescription": "This permanently removes the Block Type. No saved Page content, pending changes or publication history uses it. This cannot be undone.",
+      "deleteDescription": "This permanently removes the Block Type. No draft, published version, page in Trash or AI suggestion uses it. This cannot be undone.",
       "deleteConfirm": "Delete Block Type",
+      "deleteBlocked": {
+        "system": "Built-in blocks can never be deleted. You can archive this one instead.",
+        "referenced": "It is still used in a draft, a published version, a page in Trash or an AI suggestion. Remove each use shown on the block page, then try again.",
+        "incomplete": "The check of where this Block Type is used could not finish. Nothing was deleted."
+      },
       "unavailable": "Unavailable right now — this Block Type's details could not be loaded.",
       "renameHint": "Changes the name editors see. Pages and their content stay exactly as they are.",
       "archiveFirst": "Archive this Block Type first — only archived ones can be deleted.",
@@ -3245,18 +3336,27 @@
       "unavailableTitle": "Block Type status could not be loaded",
       "unavailableDescription": "Archive and usage details could not be loaded. Changes to this Block Type are unavailable until the connection recovers.",
       "pages": "Pages",
-      "savedInstances": "Uses in saved Pages",
-      "stagedInstances": "Uses in pending Page changes",
+      "liveUses": "Uses in drafts and published versions",
       "trashPages": "Pages in Trash",
       "usage": "Usage",
+      "uses": "{count, plural, one {# use} other {# uses}}",
+      "useStatus": {
+        "publishedVersion": "Published version · publish to remove it",
+        "withdrawn": "Withdrawn version · publish to remove it",
+        "inTrash": "In Trash",
+        "beingErased": "Being erased",
+        "languageOff": "Language switched off ({locale}): switch it on to edit",
+        "aiJobRunning": "AI job running",
+        "aiSuggestion": "AI suggestion waiting for review"
+      },
+      "usageCheckIncomplete": "The check of where this Block Type is used could not finish, so it can't be deleted right now.",
+      "usageCheckUnfinished": "The check of where this Block Type is used could not finish.",
       "noSlug": "No page address",
-      "trash": "Trash",
       "starter": "Included in the starting files for new sites",
       "included": "Included",
       "notIncluded": "Not included",
       "delete": "Delete",
       "inUse": "In use on {count, plural, one {# Page} other {# Pages}}. Remove it from those Pages first.",
-      "usageRow": "{saved} in saved content · {staged} in pending Page changes",
       "morePages": "+ {count, plural, one {# more Page not shown} other {# more Pages not shown}}",
       "locales": "Languages used by the Pages shown: {locales}"
     },

@@ -3,6 +3,7 @@ import { api } from "../../convex/_generated/api"
 import type { Id } from "../../convex/_generated/dataModel"
 import {
   defineRow,
+  F09_STATES,
   MATRIX_STATES,
   OWNER,
   setupModuleLanguageState,
@@ -21,6 +22,7 @@ async function setup(t: Site, state: MatrixState): Promise<Fixture> {
   const { languageVersion } = await setupModuleLanguageState(t, state)
   const redirectId = await t.run((ctx) => ctx.db.insert("redirects", {
     fromPath: "/retired",
+    locale: "en",
     toPath: "/current",
     statusCode: 301,
     createdAt: 1,
@@ -255,33 +257,6 @@ async function setupRealTransition(t: Site, owner: CallTarget, redirects: "off" 
     expectedSettingsUpdatedAt: 1, expectedAuthorityVersion: 1,
   })
   return { transitionId }
-}
-
-async function seedOwnerAdminMembership(t: Site) {
-  await t.run(async (ctx) => {
-    await ctx.db.insert("cmsMemberships", {
-      authId: OWNER.subject,
-      tokenIdentifier: OWNER.tokenIdentifier,
-      role: "admin",
-      status: "active",
-      createdAt: 1,
-      activatedAt: 1,
-      updatedAt: 1,
-      transitionId: "matrix-bootstrap-owner",
-    })
-    await ctx.db.insert("cmsCapacity", {
-      key: "cms",
-      activeCount: 1,
-      reservedCount: 0,
-      allowance: 3,
-      overCap: false,
-      migrationState: "ready",
-      migrationVersion: 1,
-      migrationIssueCount: 0,
-      lastTransitionId: "matrix-bootstrap-ready",
-      updatedAt: 1,
-    })
-  })
 }
 
 const protectedReadDenials = {
@@ -524,13 +499,13 @@ export const coreRows: AuthorizationRow[] = [
     kind: "mutation",
     requiredScenarioLabels: ["snapshot-S4/redirects-off", "snapshot-S4/redirects-on"],
     scenarios: [
-      ...MATRIX_STATES.map((state) => ({
+      ...F09_STATES.map((state) => ({
         label: stateLabel(state),
         setup: (t: Site) => setupModuleLanguageState(t, state),
         call: (actor: CallTarget) => actor.mutation(api.cms.multilingual.addLanguage, {
           locale: "nl", expectedAuthorityVersion: 1, expectedModuleConfigurationVersion: 1,
         }),
-        outcomes: { ...protectedReadDenials, owner: state.language === "F09" ? { error: "CMS_MODULE_DISABLED" } : { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" } },
+        outcomes: { ...protectedReadDenials, owner: { error: "CMS_MODULE_DISABLED" } },
       })),
       ...(["off", "on"] as const).map((redirects) => ({
         label: `snapshot-S4/redirects-${redirects}`,
@@ -553,11 +528,11 @@ export const coreRows: AuthorizationRow[] = [
     kind: "mutation",
     requiredScenarioLabels: ["snapshot-S4/redirects-off", "snapshot-S4/redirects-on"],
     scenarios: [
-      ...MATRIX_STATES.map((state) => ({
+      ...F09_STATES.map((state) => ({
         label: stateLabel(state),
         setup: (t: Site) => setupModuleLanguageState(t, state),
         call: (actor: CallTarget) => actor.mutation(api.cms.multilingual.startLanguageImpactPreview, { kind: "remove", locale: "fr" }),
-        outcomes: { ...protectedReadDenials, owner: state.language === "F09" ? { error: "CMS_MODULE_DISABLED" } : { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" } },
+        outcomes: { ...protectedReadDenials, owner: { error: "CMS_MODULE_DISABLED" } },
       })),
       ...(["off", "on"] as const).map((redirects) => ({
         label: `snapshot-S4/redirects-${redirects}`,
@@ -576,7 +551,7 @@ export const coreRows: AuthorizationRow[] = [
     kind: "mutation",
     requiredScenarioLabels: ["snapshot-S3/redirects-off", "snapshot-S3/redirects-on", "snapshot-S4/redirects-off", "snapshot-S4/redirects-on"],
     scenarios: [
-      ...MATRIX_STATES.map((state) => ({
+      ...F09_STATES.map((state) => ({
         label: stateLabel(state),
         setup: async (t: Site) => {
           await setupModuleLanguageState(t, state)
@@ -586,7 +561,7 @@ export const coreRows: AuthorizationRow[] = [
           api.cms.multilingual.adoptMultilingualAuthority,
           { expectedSettingsUpdatedAt: 1, expectedModuleConfigurationVersion: fixture.configurationVersion, expectedAuthorityVersion: 1 },
         ),
-        outcomes: { ...protectedReadDenials, owner: state.language === "F09" ? { error: "CMS_MODULE_DISABLED" } : { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" } },
+        outcomes: { ...protectedReadDenials, owner: { error: "CMS_MODULE_DISABLED" } },
       })),
       ...(["off", "on"] as const).map((redirects) => ({
         label: `snapshot-S3/redirects-${redirects}`,
@@ -620,11 +595,11 @@ export const coreRows: AuthorizationRow[] = [
     kind: "mutation",
     requiredScenarioLabels: ["snapshot-S4/redirects-off", "snapshot-S4/redirects-on", "snapshot-S4-one-locale/redirects-off", "snapshot-S4-one-locale/redirects-on"],
     scenarios: [
-      ...MATRIX_STATES.map((state) => ({
+      ...F09_STATES.map((state) => ({
         label: stateLabel(state),
         setup: (t: Site) => setupModuleLanguageState(t, state),
         call: (actor: CallTarget) => actor.mutation(api.cms.multilingual.returnToSingleLanguage, { expectedAuthorityVersion: 1 }),
-        outcomes: { ...protectedReadDenials, owner: state.language === "F09" ? { error: "CMS_MODULE_DISABLED" } : { error: "LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY" } },
+        outcomes: { ...protectedReadDenials, owner: { error: "CMS_MODULE_DISABLED" } },
       })),
       ...(["off", "on"] as const).map((redirects) => ({
         label: `snapshot-S4/redirects-${redirects}`,
@@ -654,7 +629,6 @@ export const coreRows: AuthorizationRow[] = [
         label: stateLabel(state),
         setup: async (t: Site) => {
           await setupModuleLanguageState(t, state)
-          await seedOwnerAdminMembership(t)
           return null
         },
         call: (actor: CallTarget) => actor.mutation(api.cms.settings.bootstrapInstallation, {
@@ -664,15 +638,12 @@ export const coreRows: AuthorizationRow[] = [
           signedOut: { error: "UNAUTHENTICATED" },
           unrelated: { error: "CMS_OWNER_REQUIRED" },
           former: { error: "CMS_OWNER_REQUIRED" },
-          owner: { error: "PUBLISHED_SNAPSHOT_CUTOVER_NOT_EMPTY_INSTALL" },
+          owner: { error: "SITE_LANGUAGE_AUTHORITY_INVALID" },
         },
       })),
       {
         label: "fresh-install-owner",
-        setup: async (t: Site) => {
-          await seedOwnerAdminMembership(t)
-          return null
-        },
+        setup: async () => null,
         call: (actor: CallTarget) => actor.mutation(api.cms.settings.bootstrapInstallation, {
           siteName: "Fresh matrix site", timezone: "UTC", defaultLocale: "en",
         }),
@@ -704,20 +675,6 @@ export const coreRows: AuthorizationRow[] = [
       "snapshot-S4/redirects-off", "snapshot-S4/redirects-on",
     ],
     scenarios: [
-      ...MATRIX_STATES.map((state) => ({
-        label: stateLabel(state),
-        setup: (t: Site) => seedOpenTransition(t, state),
-        call: (actor: CallTarget, fixture: { transitionId: Id<"siteLanguageTransitions"> }) =>
-          operation === "continueLanguageTransition"
-            ? actor.mutation(api.cms.language.continueLanguageTransition, {
-              transitionId: fixture.transitionId, expectedGeneration: 1,
-            })
-            : actor.mutation(api.cms.language.cancelLanguageTransition, {
-              transitionId: fixture.transitionId, expectedGeneration: 1,
-              discardTargetDrafts: false,
-            }),
-        outcomes: { ...protectedReadDenials, owner: { error: "LANGUAGE_TRANSITION_REQUIRES_SNAPSHOT_AUTHORITY" } },
-      })),
       ...(["off", "on"] as const).map((redirects) => ({
         label: `snapshot-F09/redirects-${redirects}`,
         setup: (t: Site, actors: { owner: CallTarget }) => setupRealTransition(t, actors.owner, redirects),
@@ -810,15 +767,6 @@ export const coreRows: AuthorizationRow[] = [
       "snapshot-S4/redirects-off", "snapshot-S4/redirects-on",
     ],
     scenarios: [
-      ...MATRIX_STATES.map((state) => ({
-        label: stateLabel(state),
-        setup: (t: Site) => setupModuleLanguageState(t, state),
-        call: (actor: CallTarget) => actor.mutation(api.cms.language.startLanguageTransition, {
-          mode: "correct_label", sourceLocale: "en", targetLocale: "fr",
-          expectedSettingsUpdatedAt: 1, expectedAuthorityVersion: 1,
-        }),
-        outcomes: { ...protectedReadDenials, owner: { error: "LANGUAGE_TRANSITION_REQUIRES_SNAPSHOT_AUTHORITY" } },
-      })),
       ...(["off", "on"] as const).map((redirects) => ({
         label: `snapshot-F09/redirects-${redirects}`,
         setup: (t: Site) => setupSnapshotF09(t, redirects),
@@ -851,12 +799,6 @@ export const coreRows: AuthorizationRow[] = [
     kind: "mutation",
     requiredScenarioLabels: ["m05-S0", "m05-S2", "snapshot-S4/redirects-off", "snapshot-S4/redirects-on"],
     scenarios: [
-      ...MATRIX_STATES.map((state) => ({
-        label: stateLabel(state),
-        setup: (t: Site) => setupModuleLanguageState(t, state),
-        call: (actor: CallTarget) => actor.mutation(api.cms.language.initializeSiteLanguageAuthority, {}),
-        outcomes: { ...protectedReadDenials, owner: { error: "LANGUAGE_TRANSITION_REQUIRES_SNAPSHOT_AUTHORITY" } },
-      })),
       {
         label: "m05-S0",
         setup: async (t: Site) => {
@@ -1120,88 +1062,6 @@ export const coreRows: AuthorizationRow[] = [
     })),
   }),
   defineRow({
-    name: "cms/settings:markOnboardingStep",
-    kind: "mutation",
-    scenarios: [
-      ...MATRIX_STATES.map((state) => ({
-        label: stateLabel(state),
-        setup: (t: Site) => setupModuleLanguageState(t, state),
-        call: (actor: CallTarget) => actor.mutation(api.cms.settings.markOnboardingStep, {
-          step: "ai",
-        }),
-        outcomes: {
-          owner: { value: null },
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { error: "CMS_OWNER_REQUIRED" },
-          former: { error: "CMS_OWNER_REQUIRED" },
-        },
-        after: async (t: Site) => {
-          const settings = await t.run((ctx) => ctx.db.query("siteSettings").unique())
-          expect(settings?.onboardingAiAt).toEqual(expect.any(Number))
-        },
-      })),
-      ...(["off", "on"] as const).map((redirects) => ({
-        label: `snapshot-S4/redirects-${redirects}`,
-        setup: (t: Site) => setupSnapshotActiveS4(t, redirects),
-        call: (actor: CallTarget) => actor.mutation(api.cms.settings.markOnboardingStep, {
-          step: "ai",
-        }),
-        outcomes: {
-          owner: { error: "SNAPSHOT_ONBOARDING_WIZARD_DEFERRED" },
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { error: "CMS_OWNER_REQUIRED" },
-          former: { error: "CMS_OWNER_REQUIRED" },
-        },
-      })),
-    ],
-  }),
-  defineRow({
-    name: "cms/settings:completeOnboarding",
-    kind: "mutation",
-    scenarios: [
-      ...MATRIX_STATES.map((state) => ({
-        label: stateLabel(state),
-        setup: (t: Site) => setupModuleLanguageState(t, state),
-        call: (actor: CallTarget) => actor.mutation(api.cms.settings.completeOnboarding, {
-          siteName: "Completed by current owner",
-          timezone: "UTC",
-          defaultLocale: "en",
-          enabledLocales: state.language === "M05" ? ["en", "fr"] : ["en"],
-        }),
-        outcomes: {
-          owner: { value: { onboardingCompletedAt: expect.any(Number) } },
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { error: "CMS_OWNER_REQUIRED" },
-          former: { error: "CMS_OWNER_REQUIRED" },
-        },
-        after: async (t: Site) => {
-          const settings = await t.run((ctx) => ctx.db.query("siteSettings").unique())
-          expect(settings).toMatchObject({
-            siteName: "Completed by current owner",
-            homePageId: expect.any(String),
-            onboardingCompletedAt: expect.any(Number),
-          })
-        },
-      })),
-      ...(["off", "on"] as const).map((redirects) => ({
-        label: `snapshot-S4/redirects-${redirects}`,
-        setup: (t: Site) => setupSnapshotActiveS4(t, redirects),
-        call: (actor: CallTarget) => actor.mutation(api.cms.settings.completeOnboarding, {
-          siteName: "Rejected after snapshot cutover",
-          timezone: "UTC",
-          defaultLocale: "en",
-          enabledLocales: ["en", "fr"],
-        }),
-        outcomes: {
-          owner: { error: "SNAPSHOT_ONBOARDING_WIZARD_DEFERRED" },
-          signedOut: { error: "UNAUTHENTICATED" },
-          unrelated: { error: "CMS_OWNER_REQUIRED" },
-          former: { error: "CMS_OWNER_REQUIRED" },
-        },
-      })),
-    ],
-  }),
-  defineRow({
     name: "cms/settings:updateSettings",
     kind: "mutation",
     scenarios: MATRIX_STATES.map((state) => ({
@@ -1313,9 +1173,6 @@ export const coreRows: AuthorizationRow[] = [
       },
     })),
   }),
-  protectedRow("cms/redirects:list", "query",
-    (actor) => actor.query(api.cms.redirects.list, {}),
-    () => expect.arrayContaining([expect.objectContaining({ fromPath: "/retired" })])),
   protectedRow("cms/redirects:listPaginated", "query",
     (actor) => actor.query(api.cms.redirects.listPaginated, {
       paginationOpts: { numItems: 10, cursor: null },
@@ -1335,7 +1192,7 @@ export const coreRows: AuthorizationRow[] = [
     (actor, fixture, stale) => actor.query(api.cms.redirects.listActiveKeys, {
       languageVersion: fixture.languageVersion + Number(stale),
     }),
-    (state) => state.redirects === "on" ? [{ fromPath: "/retired", locale: undefined }] : []),
+    (state) => state.redirects === "on" ? [{ fromPath: "/retired", locale: "en" }] : []),
   publicRow("cms/redirects:resolve",
     (actor, fixture, stale) => actor.query(api.cms.redirects.resolve, {
       path: "/retired", locale: "en",

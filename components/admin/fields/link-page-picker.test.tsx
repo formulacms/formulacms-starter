@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react"
+import { fireEvent, screen, within } from "@testing-library/react"
 import { render } from "@/test-utils/admin-i18n"
 import { getFunctionName } from "convex/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -9,9 +9,10 @@ type PageRow = {
   _id: Id<"pages">
   slug: string
   localizedSlugs?: Record<string, string>
+  path?: string
   localizedTitles: Record<string, string>
   status: "draft" | "published" | "archived"
-  pageType: "page"
+  pageType: "page" | "landing-page"
 }
 
 type Selection =
@@ -59,6 +60,16 @@ beforeEach(() => {
 })
 
 describe("LinkPagePicker", () => {
+  it("renders and searches the server public path instead of the leaf slug", () => {
+    mocks.pages![0].path = "/equipe/services-fr"
+    render(<LinkPagePicker value={undefined} onChange={() => {}} locale="fr" />)
+    fireEvent.click(screen.getByRole("button"))
+    expect(screen.getByText("/equipe/services-fr")).toBeVisible()
+    expect(screen.queryByText("/services-fr")).toBeNull()
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/equipe/" } })
+    expect(screen.getByText("/equipe/services-fr")).toBeVisible()
+  })
+
   it("searches localized titles and slugs, then emits the selected page id", () => {
     const onChange = vi.fn()
     render(<LinkPagePicker value={undefined} onChange={onChange} locale="fr" />)
@@ -77,6 +88,36 @@ describe("LinkPagePicker", () => {
 
     expect(onChange).toHaveBeenCalledWith(liveId)
   })
+
+  it.each([
+    { adminLocale: "en", page: "Page", landingPage: "Landing page" },
+    { adminLocale: "fr", page: "Page", landingPage: "Page d'atterrissage" },
+  ] as const)(
+    "labels each row with its content type ($adminLocale admin)",
+    ({ adminLocale, page, landingPage }) => {
+      mocks.pages = [
+        mocks.pages![0],
+        {
+          _id: "page_landing" as Id<"pages">,
+          slug: "offer",
+          localizedTitles: { en: "Offer" },
+          status: "published",
+          pageType: "landing-page",
+        },
+      ]
+      render(
+        <LinkPagePicker value={undefined} onChange={() => {}} locale="en" />,
+        { locale: adminLocale }
+      )
+      fireEvent.click(screen.getByRole("button", { expanded: false }))
+
+      const servicesRow = screen.getByRole("button", { name: /^services/i })
+      expect(within(servicesRow).getByText(page)).toBeInTheDocument()
+      expect(within(servicesRow).getByText("/services")).toBeInTheDocument()
+      const offerRow = screen.getByRole("button", { name: /^offer/i })
+      expect(within(offerRow).getByText(landingPage)).toBeInTheDocument()
+    }
+  )
 
   it("requests only pages published in the locale when publishedOnly is set", () => {
     render(

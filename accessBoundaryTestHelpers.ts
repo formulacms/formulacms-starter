@@ -3,7 +3,7 @@ import { expect } from "vitest"
 
 /** F03.verify: the retired role/permission access vocabulary. */
 export const RETIRED_ACCESS =
-  /requirePermission|requireExactAdmin|resolveRoleAndPermissions|assertPagePermission|myPermissions/g
+  /requirePermission|requireAnyPageTypePermission|requirePagePermission|canReadPrivate|permittedPageTypes|requireExactAdmin|resolveRoleAndPermissions|assertPagePermission|myPermissions/g
 
 /** F03c: retired authorization tokens no boundary file may contain. */
 export const RETIRED_AUTHORIZATION_TOKENS = [
@@ -11,6 +11,8 @@ export const RETIRED_AUTHORIZATION_TOKENS = [
   "hasPermission",
   "permittedPageTypes",
   "requireAnyPageTypePermission",
+  "requirePagePermission",
+  "canReadPrivate",
   "requireUser",
   "resolveRoleAndPermissions",
   'role === "admin"',

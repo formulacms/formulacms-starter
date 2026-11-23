@@ -1,6 +1,5 @@
 import { createSampleBlock } from "@/convex/lib/blocks/sample"
 import { blockProfile } from "@/test-utils/block-profile"
-import { makeFunctionReference } from "convex/server"
 /// <reference types="vite/client" />
 import { afterEach, describe, expect, test, vi } from "vitest"
 import migrationsTest from "@convex-dev/migrations/test"
@@ -11,12 +10,6 @@ import { convexTest } from "../convexTestWithExplicitAdmin"
 import { readBlockPresentationCatalog } from "./lib/blocks/presentations"
 
 const modules = import.meta.glob("./**/*.ts")
-// History is source-only in the Community projection. Keep the real legacy
-// tracer in source without leaving a typed API edge to an omitted capability.
-const legacyHistoryInstalled = Object.hasOwn(modules, "./cms/pageHistory.ts")
-const restoreLegacyRevision = makeFunctionReference<"mutation", {
-  revisionId: import("./_generated/dataModel").Id<"pageRevisions">
-}>("cms/pageHistory:restoreRevisionAsDraft")
 const OWNER = {
   subject: "occurrence-owner",
   tokenIdentifier: "occurrence-owner",
@@ -399,54 +392,6 @@ describe("real retained occurrence totals", () => {
     expect(await count(f)).toEqual({ status: "ready", counts: { centered: 1 } })
   })
 
-  test.skipIf(!legacyHistoryInstalled)("legacy saved and staged sources count; archival revisions enter only on Restore", async () => {
-    vi.useFakeTimers()
-    const t = convexTest({ schema, modules, ownerIdentity: OWNER })
-    migrationsTest.register(t)
-    const owner = t.withIdentity(OWNER)
-    const pageId = await owner.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      slug: "legacy-occurrence",
-      status: "published",
-      title: "Legacy",
-      expectedPresentationCatalogRevision: (
-        await readBlockPresentationCatalog()
-      ).revision,
-      content: { en: { title: "Legacy", blocks: [hero("saved")] } },
-    })
-    const revisionId = await t.run((ctx) =>
-      ctx.db.insert("pageRevisions", {
-        pageId,
-        revisionNumber: 99,
-        createdAt: Date.now(),
-        reason: "publish",
-        status: "published",
-        slug: "legacy-occurrence",
-        pageType: "landing-page",
-        contentJson: JSON.stringify({
-          en: { title: "Revision", blocks: [hero("revision-only")] },
-        }),
-        metadata: { title: "Revision", locales: ["en"], summary: [] },
-      })
-    )
-    const f = { t, owner }
-    await maintain(f)
-    expect(await count(f)).toEqual({ status: "ready", counts: { centered: 1 } })
-    await owner.mutation(restoreLegacyRevision, {
-      revisionId,
-    })
-    expect(await count(f)).toEqual({ status: "ready", counts: { centered: 2 } })
-    const staged = await t.run((ctx) =>
-      ctx.db
-        .query("pageStaging")
-        .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-        .unique()
-    )
-    expect(staged!.content?.en).toEqual({
-      title: "Revision",
-      blocks: [hero("revision-only")],
-    })
-  })
   test("valid retained candidate survives orphaned live Page sources", blockProfile(["hero-with-image","rich-text-body"]), async () => {
     vi.useFakeTimers()
     const f = await fixture()

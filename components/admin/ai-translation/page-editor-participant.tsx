@@ -53,7 +53,13 @@ type Refusal =
 
 type Shared = Pick<
   AdminAiTranslationHostInput,
-  "page" | "currentLocale" | "fieldSource" | "getLocaleSummary" | "ensureSaved"
+  | "page"
+  | "currentLocale"
+  | "fieldSource"
+  | "canTranslateCurrentLocale"
+  | "hasUnsavedTranslationTarget"
+  | "ensureSaved"
+  | "getActiveLocale"
 > & { fieldSource: Locale }
 
 /** This page's unreviewed translation jobs, and the one running now. */
@@ -63,16 +69,13 @@ function usePageTranslation(pageId: string) {
   return { ...state, pageJobs: jobs, running: jobs.find(isActive) }
 }
 
-/** The active tab is a language other than the source with nothing in it. */
+/** The active tab is another language whose body can still be translated. */
 const notTranslated = ({
-  page,
   currentLocale,
   fieldSource,
-  getLocaleSummary,
+  canTranslateCurrentLocale,
 }: Shared) =>
-  currentLocale !== fieldSource &&
-  !getLocaleSummary(currentLocale).hasAny &&
-  page.content?.[currentLocale] === undefined
+  currentLocale !== fieldSource && canTranslateCurrentLocale
 
 /**
  * Translation's page-editor participant. The host reads only the AI and
@@ -85,7 +88,9 @@ export function PageEditorTranslationSlot({
   page,
   currentLocale,
   fieldSource,
-  getLocaleSummary,
+  canTranslateCurrentLocale,
+  hasUnsavedTranslationTarget,
+  getActiveLocale,
   ensureSaved,
   beginSavedLanguage,
 }: AdminAiTranslationHostProps) {
@@ -107,7 +112,10 @@ export function PageEditorTranslationSlot({
   }
   const shared: Shared | undefined =
     on && fieldSource !== undefined
-      ? { page, currentLocale, fieldSource, getLocaleSummary, ensureSaved }
+      ? {
+          page, currentLocale, fieldSource, canTranslateCurrentLocale,
+          hasUnsavedTranslationTarget, getActiveLocale, ensureSaved,
+        }
       : undefined
   return (
     <LocalRouteProvider assistant="translation" routeData={routeData.brandTranslation}>
@@ -270,6 +278,13 @@ function TranslatePanel({
       sourceLocale: shared.fieldSource,
       targetLocale: shared.currentLocale,
     }
+    // Pin a title typed before Start in the target generation. Accept can
+    // then preserve it without a pre-accept write invalidating the job.
+    const saved = await shared.ensureSaved().catch(() => false)
+    if (!saved || shared.getActiveLocale() !== input.targetLocale) {
+      setStarting(false)
+      return
+    }
     // The route decision: Translation's local tool on this computer, else its
     // API service (which Convex refuses while it runs with a local tool).
     const run = localTool
@@ -376,7 +391,7 @@ function TranslatePanel({
                     key={reviewed.jobId}
                     job={reviewed}
                     dismiss={dismiss}
-                    getLocaleSummary={shared.getLocaleSummary}
+                    hasUnsavedTarget={shared.hasUnsavedTranslationTarget}
                     ensureSaved={shared.ensureSaved}
                     beginSavedLanguage={beginSavedLanguage}
                   />

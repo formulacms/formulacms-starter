@@ -15,6 +15,7 @@ import {
   serializeLocalePublicationCandidate,
   digestLocalePublicationCandidate,
 } from "./lib/publishing/localeCandidate"
+import { isActiveContentType } from "./lib/contentTypes"
 
 const canonicalBody = (text: string) =>
   JSON.stringify({
@@ -28,6 +29,13 @@ const canonicalBody = (text: string) =>
   })
 
 const modules = import.meta.glob("./**/*.ts")
+const postAndAuthorActive =
+  isActiveContentType("post") && isActiveContentType("author")
+// `test.runIf` would lose to the block profile's own `skip: false` option.
+const withPostAndAuthor = (profile: ReturnType<typeof blockProfile>) => ({
+  ...profile,
+  skip: profile.skip || !postAndAuthorActive,
+})
 const OWNER = {
   subject: "f08a-owner",
   tokenIdentifier: "f08a-owner",
@@ -1531,7 +1539,7 @@ describe("historical Published Snapshot restoration", () => {
     ).rejects.toThrow(/MEDIA_REFERENCE_MISSING/)
     expect(await persisted(t)).toEqual(before)
   })
-  test("restores complete shared descriptor references and refuses missing targets transactionally", blockProfile(["hero-agency"]), async () => {
+  test("restores complete shared descriptor references and refuses missing targets transactionally", withPostAndAuthor(blockProfile(["hero-agency"])), async () => {
     const { t, owner } = await fixture()
     const authorId = await owner.mutation(api.cms.pages.create, {
       pageType: "author",

@@ -336,8 +336,9 @@ describe("presentation locale render context", () => {
         expect(result.locale).toBe("en")
         expect(result.defaultLocale).toBe("en")
         expect(result.languageVersion).toBe(7)
-        expect(result.pagePaths).toBe(paths)
-        expect(result.relationCards).toBe(cards)
+        // Merged from the read groups (VISITOR-LIMITS): equal, not the same object.
+        expect(result.pagePaths).toEqual(paths)
+        expect(result.relationCards).toEqual(cards)
         expect(
           linkToHref(
             { type: "internal", pageId: "target" as Id<"pages"> },

@@ -7,6 +7,7 @@ import type { Block } from "@/convex/lib/blocks"
 import { fetchAuthQuery } from "@/lib/auth/server"
 import { buildBlockRenderContext } from "@/lib/blocks/render-context"
 import { collectImageStorageIds } from "@/lib/blocks/media-urls"
+import { readInIdGroups } from "@/lib/cms/batched-read"
 import { supportsLivePreviewFrame } from "@/components/admin/live-preview-page-type"
 import {
   validLiveFrameInput,
@@ -32,8 +33,6 @@ export async function resolveLiveFrameContext(input: LiveFrameInput) {
     return null
   const storageIds = new Set<Id<"_storage">>()
   collectImageStorageIds(input.blocks, storageIds)
-  // The existing resolver caps a batch at 100; refuse a partial media context.
-  if (storageIds.size > 100) return null
   const [ctx, mediaUrls, publicPaths] = await Promise.all([
     buildBlockRenderContext({
       blocks: input.blocks as Block[],
@@ -43,11 +42,10 @@ export async function resolveLiveFrameContext(input: LiveFrameInput) {
       isPreview: true,
       languageVersion: config.languageVersion,
     }),
-    storageIds.size
-      ? fetchAuthQuery(api.cms.media.getStorageUrls, {
-          storageIds: [...storageIds],
-        })
-      : Promise.resolve({} as Record<string, string>),
+    // Every image resolves: the reads go in groups the batch read accepts.
+    readInIdGroups([...storageIds], (group) =>
+      fetchAuthQuery(api.cms.media.getStorageUrls, { storageIds: group })
+    ),
     fetchQuery(api.cms.pages.getLocalizedPathsByIds, {
       ids: [input.pageId as Id<"pages">],
       locale: input.locale,

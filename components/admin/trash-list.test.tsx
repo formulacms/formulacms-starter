@@ -9,19 +9,15 @@ const mocks = vi.hoisted(() => ({
   confirm: vi.fn(),
   error: vi.fn(),
   dismiss: vi.fn(),
-  deleteImpact: vi.fn(),
   purgeImpact: vi.fn(),
   refresh: vi.fn(),
-  remove: vi.fn(),
   purge: vi.fn(),
-  restoreLegacy: vi.fn(),
   restoreSnapshot: vi.fn(),
   restoreMedia: vi.fn(),
   purgeMedia: vi.fn(),
   success: vi.fn(),
-  authority: "legacy" as "legacy" | "snapshot_active" | "invalid",
+  authority: "snapshot_active" as "snapshot_active" | "invalid",
   defaultLocale: "en" as string | undefined,
-  pages: [] as unknown[],
   snapshotPages: [] as unknown[],
   pagesStatus: "Exhausted" as string,
   loadMorePages: vi.fn(),
@@ -82,7 +78,6 @@ vi.mock("convex/react", () => ({
   useConvex: () => ({
     query: (reference: unknown, args: unknown) => {
       const name = getFunctionName(reference as never)
-      if (name === "cms/pages:deleteImpact") return mocks.deleteImpact(args)
       if (name === "cms/publication:pagePurgeImpact")
         return mocks.purgeImpact(args)
       throw new Error(`unexpected query ${name}`)
@@ -93,7 +88,6 @@ vi.mock("convex/react", () => ({
     if (name === "cms/settings:getSiteConfig")
       return { defaultLocale: mocks.defaultLocale }
     if (name === "cms/publication:getAdminAuthority") return mocks.authority
-    if (name === "cms/pages:list") return mocks.pages
     throw new Error(`unexpected query ${name}`)
   }),
   usePaginatedQuery: (reference: unknown) => {
@@ -111,9 +105,7 @@ vi.mock("convex/react", () => ({
   useMutation: vi.fn((reference) => {
     const name = getFunctionName(reference)
     const byName: Record<string, unknown> = {
-      "cms/pages:restore": mocks.restoreLegacy,
       "cms/publication:restoreSoftDeletedPage": mocks.restoreSnapshot,
-      "cms/pages:remove": mocks.remove,
       "cms/publication:purgeTrashedPages": mocks.purge,
       "cms/media:restore": mocks.restoreMedia,
       "cms/media:purgeTrashedMedia": mocks.purgeMedia,
@@ -150,6 +142,8 @@ const page = {
   deletedAt: 2,
 } as Doc<"pages">
 
+const AUTHORITY_INCOMPLETE = "Publication authority is incomplete. Run the supported bootstrap or cutover command before managing trash."
+
 function snapshotPage(id: string, title: string, extra: object = {}) {
   return {
     ...page,
@@ -185,15 +179,8 @@ function openImagesTab() {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.confirm.mockResolvedValue(true)
-  mocks.remove.mockResolvedValue(null)
-  mocks.restoreLegacy.mockResolvedValue(null)
   mocks.restoreSnapshot.mockResolvedValue({ addressNotices: [] })
   mocks.restoreMedia.mockResolvedValue(null)
-  mocks.deleteImpact.mockResolvedValue({
-    children: [],
-    redirects: 0,
-    menus: [],
-  })
   mocks.purgeImpact.mockImplementation(({ pageIds }: { pageIds: string[] }) =>
     Promise.resolve(
       pageIds.map((pageId) => ({ pageId, canPurge: true, redirects: 0 }))
@@ -209,76 +196,26 @@ beforeEach(() => {
     Promise.resolve(ids.map((id) => ({ id, status: "purged" })))
   )
   mocks.defaultLocale = "en"
-  mocks.authority = "legacy"
-  mocks.pages = [page]
+  mocks.authority = "snapshot_active"
   mocks.snapshotPages = []
   mocks.pagesStatus = "Exhausted"
   mocks.contentPages = []
   mocks.images = []
 })
 
-describe("TrashList legacy pages", () => {
-  test("refuses with menu slugs before opening the confirm", async () => {
-    mocks.deleteImpact.mockResolvedValue({
-      children: [],
-      redirects: 0,
-      menus: ["footer", "primary"],
-    })
-
-    render(<TrashList />)
-    expect(
-      screen.queryByText(/deleted for good|Delete forever/)
-    ).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }))
-
-    await waitFor(() => {
-      expect(mocks.error).toHaveBeenCalledWith(
-        "Menus footer, primary link to this page. Remove those links or delete the menus first."
-      )
-    })
-    expect(mocks.confirm).not.toHaveBeenCalled()
-    expect(mocks.remove).not.toHaveBeenCalled()
+describe("TrashList snapshot pages", () => {
+  beforeEach(() => {
+    mocks.authority = "snapshot_active"
   })
 
-  test("deletes after the confirm and names the redirects", async () => {
-    mocks.deleteImpact.mockResolvedValue({
-      children: [],
-      redirects: 2,
-      menus: [],
-    })
-
+  test("keeps the notice for an unfinished publishing setup", () => {
+    mocks.authority = "invalid"
     render(<TrashList />)
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }))
-
-    await waitFor(() => {
-      expect(mocks.confirm).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: "Delete permanently?",
-          description:
-            "“Old page” will be deleted permanently, in every language. This cannot be undone. Also deletes 2 redirects.",
-          confirmText: "Delete",
-          destructive: true,
-          filled: true,
-        })
-      )
-    })
-    await waitFor(() =>
-      expect(mocks.success).toHaveBeenCalledWith("1 page deleted permanently.")
-    )
-    expect(mocks.remove).toHaveBeenCalledWith({ id: page._id })
-    expect(mocks.purge).not.toHaveBeenCalled()
-  })
-
-  test("a failed pages.remove still says Delete failed", async () => {
-    mocks.remove.mockRejectedValue(new Error("server"))
-    render(<TrashList />)
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }))
-    await waitFor(() =>
-      expect(mocks.error).toHaveBeenCalledWith("Delete failed")
-    )
+    expect(screen.getByRole("alert")).toHaveTextContent(AUTHORITY_INCOMPLETE)
   })
 
   test("renders trash actions in French", () => {
+    mocks.snapshotPages = [snapshotPage("p1", "Old page")]
     render(<TrashList />, { locale: "fr" })
 
     expect(
@@ -291,13 +228,7 @@ describe("TrashList legacy pages", () => {
       screen.getByRole("button", { name: "Supprimer la sélection" })
     ).toBeDisabled()
   })
-})
 
-describe("TrashList snapshot pages", () => {
-  beforeEach(() => {
-    mocks.authority = "snapshot_active"
-    mocks.pages = []
-  })
 
   test.each(["en", "fr"] as const)(
     "two restored languages stack default-first in %s admin",
@@ -360,7 +291,6 @@ describe("TrashList snapshot pages", () => {
     await waitFor(() =>
       expect(mocks.success).toHaveBeenCalledWith("“Snapshot page” restored")
     )
-    expect(mocks.restoreLegacy).not.toHaveBeenCalled()
   })
 
   test("one-row Delete shows the refusal before any confirm", async () => {
@@ -399,7 +329,7 @@ describe("TrashList snapshot pages", () => {
 
     await waitFor(() =>
       expect(mocks.success).toHaveBeenCalledWith(
-        "“Summer sale” will be deleted permanently."
+        "“Summer sale” was removed from Trash. It will be erased permanently within a day."
       )
     )
     expect(mocks.confirm).toHaveBeenCalledWith(
@@ -414,7 +344,6 @@ describe("TrashList snapshot pages", () => {
     expect(mocks.purge).toHaveBeenCalledWith({
       items: [{ pageId: "p1", expectedLifecycleGeneration: 5 }],
     })
-    expect(mocks.remove).not.toHaveBeenCalled()
   })
 
   test("select all, the live count and the bar buttons", () => {
@@ -517,7 +446,7 @@ describe("TrashList snapshot pages", () => {
       })),
     })
     expect(mocks.error).toHaveBeenCalledWith(
-      "“Old team news” will be deleted permanently. “About us” was not deleted: it has 2 child pages. Move or delete them first. “Contact” was not deleted: menu main links to it. Remove those links or delete the menu first."
+      "“Old team news” was removed from Trash. It will be erased permanently within a day. “About us” was not deleted: it has 2 child pages. Move or delete them first. “Contact” was not deleted: menu main links to it. Remove those links or delete the menu first."
     )
     expect(mocks.success).not.toHaveBeenCalled()
   })
@@ -566,7 +495,7 @@ describe("TrashList snapshot pages", () => {
       })),
     })
     expect(mocks.error).toHaveBeenCalledWith(
-      "“Summer sale” will be deleted permanently. “Winter campaign” was not deleted: menu main links to it. Remove those links or delete the menu first."
+      "“Summer sale” was removed from Trash. It will be erased permanently within a day. “Winter campaign” was not deleted: menu main links to it. Remove those links or delete the menu first."
     )
   })
 
@@ -593,7 +522,7 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete 30" }))
     await waitFor(() =>
       expect(mocks.success).toHaveBeenCalledWith(
-        "30 pages will be deleted permanently."
+        "30 pages were removed from Trash. They will be erased permanently within a day."
       )
     )
     expect(mocks.purge).toHaveBeenCalledTimes(2)
@@ -657,7 +586,7 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete 4" }))
     await waitFor(() =>
       expect(mocks.error).toHaveBeenCalledWith(
-        "“Home” will be deleted permanently. “About us” changed since this list loaded. Refresh the page and try again. A language change is running. Try again when it is finished."
+        "“Home” was removed from Trash. It will be erased permanently within a day. “About us” changed since this list loaded. Refresh the page and try again. A language change is running. Try again when it is finished."
       )
     )
   })
@@ -694,7 +623,7 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry deletion" }))
     await waitFor(() =>
       expect(mocks.success).toHaveBeenCalledWith(
-        "“Old team news” will be deleted permanently."
+        "“Old team news” was removed from Trash. It will be erased permanently within a day."
       )
     )
     expect(mocks.purge).toHaveBeenCalledWith({
@@ -761,7 +690,7 @@ describe("TrashList snapshot pages", () => {
     ])
     await waitFor(() =>
       expect(mocks.error).toHaveBeenCalledWith(
-        "“Contact” will be deleted permanently. “About us” was not deleted: menu main links to it. Remove those links or delete the menu first."
+        "“Contact” was removed from Trash. It will be erased permanently within a day. “About us” was not deleted: menu main links to it. Remove those links or delete the menu first."
       )
     )
     view.rerender(<TrashList />)
@@ -829,7 +758,7 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete 26" }))
     await waitFor(() =>
       expect(mocks.success).toHaveBeenCalledWith(
-        "26 pages will be deleted permanently."
+        "26 pages were removed from Trash. They will be erased permanently within a day."
       )
     )
     expect(mocks.error).not.toHaveBeenCalled()
@@ -872,7 +801,7 @@ describe("TrashList snapshot pages", () => {
     await waitFor(() => expect(mocks.error).toHaveBeenCalledTimes(1))
     expect(mocks.purge).toHaveBeenCalledTimes(2)
     expect(mocks.error).toHaveBeenCalledWith(
-      "“Contact” will be deleted permanently. “About us” was not deleted: it has 1 child page. Move or delete it first."
+      "“Contact” was removed from Trash. It will be erased permanently within a day. “About us” was not deleted: it has 1 child page. Move or delete it first."
     )
   })
 
@@ -886,7 +815,7 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Supprimer 2" }))
     await waitFor(() =>
       expect(mocks.success).toHaveBeenCalledWith(
-        "2 pages seront supprimées définitivement."
+        "2 pages ont été retirées de la corbeille. Elles seront effacées définitivement d’ici un jour."
       )
     )
   })
@@ -905,7 +834,7 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete 12" }))
     await waitFor(() =>
       expect(mocks.success).toHaveBeenCalledWith(
-        "12 pages will be deleted permanently."
+        "12 pages were removed from Trash. They will be erased permanently within a day."
       )
     )
     expect(
@@ -941,7 +870,7 @@ describe("TrashList snapshot pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete 7" }))
     await waitFor(() =>
       expect(mocks.success).toHaveBeenCalledWith(
-        "7 pages will be deleted permanently."
+        "7 pages were removed from Trash. They will be erased permanently within a day."
       )
     )
     // Only the group that answered adds its redirects (2 pages × 3).
@@ -1002,7 +931,6 @@ describe("TrashList snapshot pages", () => {
 describe("TrashList images", () => {
   beforeEach(() => {
     mocks.authority = "snapshot_active"
-    mocks.pages = []
     mocks.images = [
       image("i1", "team-photo-2024.jpg"),
       image("i2", "old-logo.png"),
@@ -1186,12 +1114,11 @@ const trashScenarios = (["en", "fr"] as const).flatMap((locale) =>
 test.each(trashScenarios)(
   "Trash $locale M05=$multilingual title=$titleKind URL=$slug",
   ({ locale, multilingual, title, titleKind, slug }) => {
-    mocks.authority = "legacy"
     const contentLocale = titleKind === 2 ? "zh" : locale
     mocks.defaultLocale = contentLocale
     const content = { [contentLocale]: { title, blocks: [] } }
-    // Trash needs no module-state subscription; exercise legacy and localized-title payloads.
-    mocks.pages = [
+    // Trash needs no module-state subscription; exercise stored and localized-title payloads.
+    mocks.snapshotPages = [
       {
         ...page,
         slug,
@@ -1295,9 +1222,10 @@ test.each([
     defaultLocale: "en",
   },
 ])("Trash provenance: $name", (scenario) => {
-  mocks.authority = "legacy"
   mocks.defaultLocale = scenario.defaultLocale
-  mocks.pages = [{ ...page, ...scenario, slug: scenario.slug ?? page.slug }]
+  mocks.snapshotPages = [
+    { ...page, ...scenario, slug: scenario.slug ?? page.slug },
+  ]
   render(<TrashList />, { locale: "fr" })
   const title = screen.getByText(scenario.title ?? "Sans titre", {
     selector: "p",

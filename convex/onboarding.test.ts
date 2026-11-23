@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest"
 import { api, internal } from "./_generated/api"
 import schema from "./schema"
-import { convexTest, seedCommunityOwner } from "../convexTestWithExplicitAdmin"
+import { convexTest } from "../convexTestWithExplicitAdmin"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -14,16 +14,11 @@ const ownerIdentity = {
   email: "owner@example.com",
 }
 
-const ONBOARDING_STEPS = ["account", "identity", "locales", "ai"] as const
-
 function makeTest() {
-  return convexTest(schema, modules)
-}
-
-async function makeOwnerTest() {
-  const t = makeTest()
-  await seedCommunityOwner(t, ownerIdentity)
-  return t
+  return convexTest({
+    schema,
+    modules,
+  })
 }
 
 function makeBootstrapTest() {
@@ -50,92 +45,6 @@ describe("onboarding progress bookmarks", () => {
     })
   })
 
-  test("marks steps idempotently and exposes resumable progress", async () => {
-    const t = await makeOwnerTest()
-    const asOwner = t.withIdentity(ownerIdentity)
-
-    await asOwner.mutation(api.cms.settings.markOnboardingStep, {
-      step: "account",
-    })
-    const first = await t.run((ctx) => ctx.db.query("siteSettings").first())
-    expect(first?.onboardingAccountAt).toEqual(expect.any(Number))
-
-    await asOwner.mutation(api.cms.settings.markOnboardingStep, {
-      step: "account",
-    })
-    const second = await t.run((ctx) => ctx.db.query("siteSettings").first())
-    expect(second?._id).toBe(first?._id)
-    expect(second?.onboardingAccountAt).toBe(first?.onboardingAccountAt)
-
-    await expect(
-      t.query(api.cms.settings.getOnboardingProgress, {})
-    ).resolves.toMatchObject({
-      account: true,
-      identity: false,
-      locales: false,
-      ai: false,
-      finished: false,
-    })
-  })
-
-  test("rejects finish when any started bookmark is missing", async () => {
-    const t = await makeOwnerTest()
-    const asOwner = t.withIdentity(ownerIdentity)
-
-    await asOwner.mutation(api.cms.settings.markOnboardingStep, {
-      step: "account",
-    })
-
-    await expect(
-      asOwner.mutation(api.cms.settings.completeOnboarding, {
-        siteName: "Studio",
-        timezone: "UTC",
-        defaultLocale: "en",
-        enabledLocales: ["en"],
-      })
-    ).rejects.toThrow("ONBOARDING_INCOMPLETE")
-  })
-
-  test("rejects the retired email bookmark", async () => {
-    const t = await makeOwnerTest()
-    const asOwner = t.withIdentity(ownerIdentity)
-
-    await expect(
-      asOwner.mutation(api.cms.settings.markOnboardingStep, {
-        step: "email",
-      } as never)
-    ).rejects.toThrow()
-  })
-
-  test("completes without an email bookmark and remembers skipped AI", async () => {
-    const t = await makeOwnerTest()
-    const asOwner = t.withIdentity(ownerIdentity)
-
-    for (const step of ONBOARDING_STEPS) {
-      await asOwner.mutation(api.cms.settings.markOnboardingStep, { step })
-    }
-
-    await expect(
-      t.query(api.cms.settings.getOnboardingProgress, {})
-    ).resolves.toMatchObject({
-      ai: true,
-      finished: false,
-    })
-
-    await asOwner.mutation(api.cms.settings.completeOnboarding, {
-      siteName: "Studio",
-      timezone: "UTC",
-      defaultLocale: "en",
-      enabledLocales: ["en"],
-    })
-
-    const settings = await t.run((ctx) => ctx.db.query("siteSettings").first())
-    expect(settings?.onboardingEmailAt).toBeUndefined()
-    expect(settings?.onboardingAiAt).toEqual(expect.any(Number))
-    expect(settings?.onboardingCompletedAt).toEqual(expect.any(Number))
-    expect(settings?.aiProvider).toBeUndefined()
-    expect(settings?.aiDefaultModel).toBeUndefined()
-  })
 })
 
 describe("Console-only setup", () => {

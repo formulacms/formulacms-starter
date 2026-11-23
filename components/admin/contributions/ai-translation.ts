@@ -25,6 +25,10 @@ export type AdminAiTranslationHostInput = Readonly<{
   otherLocales: readonly Locale[]
   fieldSource: Locale | undefined
   getLocaleSummary: (locale: Locale) => LocaleContentSummary
+  /** Block-body versions stay eligible until they have a body. */
+  canTranslateCurrentLocale: boolean
+  /** Pending edits in the target must not be overwritten by a reviewed job. */
+  hasUnsavedTranslationTarget: (locale: Locale) => boolean
   getActiveLocale: () => Locale
   ensureSaved: () => Promise<boolean>
   prepareTransfer: (source: Locale, target: Locale) => Promise<boolean>

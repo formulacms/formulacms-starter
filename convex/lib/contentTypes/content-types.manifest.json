@@ -67,7 +67,7 @@
         "plural": "Articles"
       }
     },
-    "selected": true,
+    "selected": false,
     "blockBody": true,
     "pathPrefix": "",
     "renderer": "custom-block-body",
@@ -101,7 +101,7 @@
         "plural": "Auteurs"
       }
     },
-    "selected": true,
+    "selected": false,
     "blockBody": true,
     "pathPrefix": "authors",
     "renderer": "custom-block-body",

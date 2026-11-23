@@ -16,18 +16,6 @@ crons.cron(
   {}
 )
 
-// ADR-0041 §9 path 4 — daily sweep of abandoned staging rows (>60 days
-// idle by `updatedAt`). Two exemptions live inside the mutation:
-// scheduled-for-a-future-time and never-published pages. The mutation
-// paginates and self-reschedules so a burst of qualifying rows never
-// pins one tick.
-crons.cron(
-  "page-staging abandoned sweep",
-  "0 4 * * *",
-  internal.cms.pages.sweepAbandonedStaging,
-  {}
-)
-
 // F08c: the required post-commit revalidation worker. Publication transitions
 // only insert a durable intent; each tick claims a bounded batch, purges the
 // Page+locale path and its same-locale current referrers and descendants in

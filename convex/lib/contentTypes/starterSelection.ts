@@ -3,7 +3,5 @@
 export const STARTER_CONTENT_TYPES = [
   "landing-page",
   "page",
-  "post",
-  "author",
 ] as const
 // @content-type-codegen:content-type-selection:end

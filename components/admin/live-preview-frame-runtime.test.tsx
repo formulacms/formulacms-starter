@@ -23,7 +23,10 @@ import {
 } from "./live-preview-frame"
 import { LivePreviewFrameRuntime } from "./live-preview-frame-runtime"
 import { supportsLivePreviewFrame } from "./live-preview-page-type"
-import { REGISTERED_CONTENT_TYPES } from "@/convex/lib/contentTypes"
+import {
+  REGISTERED_CONTENT_TYPES,
+  isActiveContentType,
+} from "@/convex/lib/contentTypes"
 import type {
   LiveFrameCallbacks,
   LiveFrameInput,
@@ -180,6 +183,15 @@ const activeQueryArgs = () =>
   controls.query.mock.calls
     .filter(([, args]) => args !== "skip")
     .map(([ref, args]) => [getFunctionName(ref), args])
+const distinctActiveQueryArgs = () => {
+  const seen = new Set<string>()
+  return activeQueryArgs().filter((read) => {
+    const key = JSON.stringify(read)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
 function setup(
   config = { defaultLocale: "en", enabledLocales: ["en"], languageVersion: 2 },
   runtimeInput: LiveFrameInput = input,
@@ -542,7 +554,11 @@ describe("child frame context and generation", () => {
     )
     expect(view.callbacks.context).toHaveBeenLastCalledWith(true)
   })
-  it.each(["landing-page", "page", "post", "author"] as const)(
+  it.each(
+    (["landing-page", "page", "post", "author"] as const).filter(
+      isActiveContentType
+    )
+  )(
     "NEW renders a %s row through the block-body renderer registered for its own type",
     blockProfile([]),
     async (pageType) => {
@@ -879,16 +895,22 @@ describe("NEW B2 query safety", () => {
     controls.relations = []
     controls.query.mockClear()
     act(() => view.bridge.replaceInput(input))
-    expect(activeQueryArgs()).toEqual([
+    // A changed id set stores its new request during render, so the frame
+    // renders twice here; compare the distinct reads.
+    expect(distinctActiveQueryArgs()).toEqual([
       ["cms/pages:getForEdit", { id: "page" }],
       ["cms/settings:getSiteConfig", {}],
     ])
     expect(title).toHaveAttribute("data-paths", "{}")
     expect(title).toHaveAttribute("data-relations", "{}")
   })
-  it.each([100, 101])(
-    "NEW B2 handles %s distinct storage IDs without silently truncating context", blockProfile([]),
-    (count) => {
+  it.each([
+    [50, 1],
+    [100, 2],
+    [101, 3],
+  ])(
+    "NEW VISITOR-LIMITS reads %s distinct storage IDs in %s groups of at most 50 and resolves them all", blockProfile([]),
+    (count, groupCount) => {
       const view = setup()
       controls.query.mockClear()
       act(() =>
@@ -899,25 +921,63 @@ describe("NEW B2 query safety", () => {
           ),
         })
       )
+      const sorted = Array.from(
+        { length: count },
+        (_, i) => `asset_${i}`
+      ).toSorted()
       const reads = activeQueryArgs().filter(
         ([name]) => name === "cms/media:getStorageUrls"
       )
-      if (count === 100) {
-        expect(reads).toHaveLength(1)
-        expect(reads[0][1]).toEqual({
-          storageIds: Array.from(
-            { length: count },
-            (_, i) => `asset_${i}`
-          ).toSorted(),
-        })
-        expect(view.callbacks.context).toHaveBeenLastCalledWith(true)
-      } else {
-        expect(reads).toHaveLength(0)
-        expect(view.callbacks.context).toHaveBeenLastCalledWith(false)
-        expect(view.callbacks.unavailable).toHaveBeenCalled()
-      }
+      expect(reads).toEqual(
+        Array.from({ length: groupCount }, (_, index) => [
+          "cms/media:getStorageUrls",
+          { storageIds: sorted.slice(index * 50, index * 50 + 50) },
+        ])
+      )
+      expect(view.callbacks.context).toHaveBeenLastCalledWith(true)
+      expect(view.callbacks.unavailable).not.toHaveBeenCalled()
     }
   )
+  it("NEW VISITOR-LIMITS keeps a 120-image frame waiting until all three image groups answer", blockProfile([]), () => {
+    const view = setup()
+    const ids = Array.from(
+      { length: 120 },
+      (_, i) => `asset_${String(i).padStart(3, "0")}`
+    )
+    const groups = [ids.slice(0, 50), ids.slice(50, 100), ids.slice(100)]
+    for (const group of groups)
+      setQuery("cms/media:getStorageUrls", { storageIds: group }, undefined)
+    controls.query.mockClear()
+    act(() =>
+      view.bridge.replaceInput({
+        ...input,
+        blocks: ids.map((id) => imageBlock(id)),
+      })
+    )
+    expect(
+      activeQueryArgs().filter(([name]) => name === "cms/media:getStorageUrls")
+    ).toEqual(
+      groups.map((group) => [
+        "cms/media:getStorageUrls",
+        { storageIds: group },
+      ])
+    )
+    expect(view.callbacks.context).toHaveBeenLastCalledWith(false)
+    groups.forEach((group, index) => {
+      setQuery(
+        "cms/media:getStorageUrls",
+        { storageIds: group },
+        Object.fromEntries(group.map((id) => [id, `/fresh/${id}`]))
+      )
+      view.rerender(<LivePreviewFrameRuntime {...view.props} />)
+      expect(view.callbacks.context).toHaveBeenLastCalledWith(index === 2)
+    })
+    const media = view.getByText("Title").getAttribute("data-media")
+    expect(media).toContain('"url":"/fresh/asset_000"')
+    expect(media).toContain('"url":"/fresh/asset_119"')
+    expect(media).not.toContain('"url":"/old"')
+    expect(view.callbacks.unavailable).not.toHaveBeenCalled()
+  })
   it.each([
     "cms/pages:getForEdit",
     "cms/settings:getSiteConfig",
@@ -1007,7 +1067,7 @@ it.each(REGISTERED_CONTENT_TYPES.filter(supportsLivePreviewFrame))(
 )
 
 describe("unsaved content-type fields in the live frame", () => {
-  it("shows an author's unsaved name, socials and role title, dropping invalid values", blockProfile([]), async () => {
+  it("shows an author's unsaved name, socials and role title, dropping invalid values", { ...blockProfile([]), skip: !isActiveContentType("author") }, async () => {
     setQuery("cms/pages:getForEdit", { id: "page" }, { page: { pageType: "author" } })
     const socials = [{ platform: "GitHub", url: "https://github.com/ada" }]
     const view = setup(
@@ -1046,7 +1106,7 @@ describe("unsaved content-type fields in the live frame", () => {
     expect(next.props.content.roleTitle).toBe("Lead")
   })
 
-  it("resolves a Post's unsaved authors in order with the public byline rules", blockProfile([]), async () => {
+  it("resolves a Post's unsaved authors in order with the public byline rules", { ...blockProfile([]), skip: !isActiveContentType("post") }, async () => {
     setQuery("cms/pages:getForEdit", { id: "page" }, { page: { pageType: "post" } })
     const args = (authorPageId: string) => ({
       authorPageId,

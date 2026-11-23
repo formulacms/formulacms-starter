@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest"
 import en from "../../messages/admin/en.json"
 import fr from "../../messages/admin/fr.json"
 import type { MarkdownImportData } from "./import-markdown-dialog"
+import { isActiveContentType } from "@/convex/lib/contentTypes"
 
 const mocks = vi.hoisted(() => ({
   createPage: vi.fn(),
@@ -303,7 +304,7 @@ describe("NewPageForm", () => {
 
   test(
     "lets the owner create an Author without a member account",
-    blockProfile([]),
+    { ...blockProfile([]), skip: !isActiveContentType("author") },
     async () => {
       mocks.requestedType = "author"
       mocks.useQuery.mockImplementation((reference) => {
@@ -344,7 +345,7 @@ describe("NewPageForm", () => {
 
   test(
     "keeps Author creation independent of Team permissions",
-    blockProfile([]),
+    { ...blockProfile([]), skip: !isActiveContentType("author") },
     () => {
       mocks.requestedType = "author"
       mocks.useQuery.mockImplementation((reference) => {
@@ -373,7 +374,7 @@ describe("NewPageForm", () => {
 
   test(
     "prospective create-own keeps the Post creation path visible",
-    blockProfile([]),
+    { ...blockProfile([]), skip: !isActiveContentType("post") },
     () => {
       mocks.requestedType = "post"
       mocks.useQuery.mockImplementation((reference) => {
@@ -480,21 +481,21 @@ describe("NewPageForm", () => {
       ).toBeInTheDocument()
 
       fireEvent.change(screen.getByLabelText("Content type"), {
-        target: { value: "post" },
+        target: { value: "landing-page" },
       })
 
       expect(
-        screen.getByRole("heading", { name: "New post" })
+        screen.getByRole("heading", { name: "New landing page" })
       ).toBeInTheDocument()
       expect(
-        screen.getByRole("button", { name: "Create post" })
+        screen.getByRole("button", { name: "Create landing page" })
       ).toBeInTheDocument()
     }
   )
 
   test(
     "keeps the requested Author type available to the owner",
-    blockProfile([]),
+    { ...blockProfile([]), skip: !isActiveContentType("author") },
     async () => {
       mocks.requestedType = "author"
       mocks.useQuery.mockImplementation((reference) => {

@@ -929,25 +929,18 @@ function authoritativeUsage(
   if (!value || typeof value !== "object" || Array.isArray(value))
     refuse("backend")
   const usage = value as Record<string, unknown>
-  for (const key of [
-    "usageCount",
-    "savedUsageCount",
-    "stagedUsageCount",
-    "publicationUsageCount",
-    "pageCount",
-    "deletedPageCount",
-  ]) {
+  for (const key of ["usageCount", "pageCount", "deletedPageCount"]) {
     if (!Number.isSafeInteger(usage[key]) || (usage[key] as number) < 0)
       refuse("backend")
   }
   if (
     typeof usage.archived !== "boolean" ||
+    typeof usage.complete !== "boolean" ||
+    typeof usage.hasHistory !== "boolean" ||
     !Array.isArray(usage.pages) ||
     usage.pages.length > 100 ||
-    usage.usageCount !==
-      (usage.savedUsageCount as number) +
-        (usage.stagedUsageCount as number) +
-        (usage.publicationUsageCount as number) ||
+    // An unfinished scan is never a zero count.
+    (!usage.complete && usage.usageCount === 0) ||
     (usage.deletedPageCount as number) > (usage.pageCount as number)
   )
     refuse("backend")
@@ -1063,15 +1056,15 @@ async function modelCommand(
             root
           )
     const outcome =
-      "status" in result && result.status === "blocked"
+      "status" in result &&
+      result.status === "blocked" &&
+      result.reason !== "system"
         ? {
             status: result.status,
             reason: result.reason,
             archived: result.archived,
             usageCount: result.usageCount,
-            savedUsageCount: result.savedUsageCount,
-            stagedUsageCount: result.stagedUsageCount,
-            publicationUsageCount: result.publicationUsageCount ?? 0,
+            complete: result.complete,
             pageCount: result.pageCount,
             deletedPageCount: result.deletedPageCount,
           }
@@ -1099,6 +1092,33 @@ async function modelCommand(
         result: {
           status: "blocked" as const,
           reason: "publication_references" as const,
+        },
+      }
+    if (
+      options.command === "delete" &&
+      error instanceof ConvexError &&
+      error.data === "BLOCK_USAGE_CHECK_INCOMPLETE"
+    )
+      return {
+        command: options.command,
+        expectedType: type,
+        result: {
+          status: "blocked" as const,
+          reason: "usage_check_incomplete" as const,
+        },
+      }
+    // System blocks are never deleted (ADR-0045 amendment, 2026-11-22).
+    if (
+      options.command === "delete" &&
+      error instanceof service.SystemBlockDeletionError
+    )
+      return {
+        command: options.command,
+        expectedType: type,
+        result: {
+          status: "blocked" as const,
+          reason: "system_block" as const,
+          code: error.code,
         },
       }
     if (error instanceof service.BlockSourceConflictError)

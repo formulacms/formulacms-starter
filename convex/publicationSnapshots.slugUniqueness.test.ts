@@ -98,16 +98,6 @@ describe("snapshot-active slug uniqueness", () => {
     )
   })
 
-  test("legacy slug availability fails closed after authentication", async () => {
-    const { t, owner } = await activeApp()
-    await createCafe(owner)
-    await expect(
-      t.query(api.cms.pages.isSlugAvailable, { slug: "cafe" })
-    ).rejects.toThrow("UNAUTHENTICATED")
-    await expect(
-      owner.query(api.cms.pages.isSlugAvailable, { slug: "cafe" })
-    ).rejects.toThrow("PUBLISHED_SNAPSHOT_USE_PUBLISH_LOCALE")
-  })
 })
 
 describe("CVX-REPRO-1 historical reservation", () => {

@@ -87,7 +87,6 @@
       "confirmTitleMany": "Supprimer définitivement {count} pages ?",
       "deleteDescriptionMany": "{names} seront supprimées définitivement, dans toutes les langues. Cette action est irréversible.",
       "confirmMany": "Supprimer {count} pages",
-      "deletedMany": "{count, plural, one {# page supprimée définitivement.} other {# pages supprimées définitivement.}}",
       "notDeleted": "« {title} » n’a pas été supprimée : {reason}",
       "linkBlocker": "{others, plural, =0 {« {first} » contient un lien} one {« {first} » et # autre page contiennent un lien} other {« {first} » et # autres pages contiennent un lien}} vers cette page. Retirez ces liens d’abord.",
       "childReason": "elle contient {count, plural, one {# page enfant} other {# pages enfants}}. Déplacez-{count, plural, one {la} other {les}} ou supprimez-{count, plural, one {la} other {les}} d’abord.",
@@ -108,7 +107,7 @@
       "imageDeletePending": "La suppression des images se prépare. Réessayez dans quelques minutes.",
       "changedRefusal": "« {title} » a changé depuis l’affichage de la liste. Rechargez la page et réessayez.",
       "languageRefusal": "Un changement de langue est en cours. Réessayez quand il sera terminé.",
-      "pagesQueued": "{count, plural, one {« {title} » sera supprimée définitivement.} other {# pages seront supprimées définitivement.}}",
+      "pagesQueued": "{count, plural, one {« {title} » a été retirée de la corbeille. Elle sera effacée définitivement d’ici un jour.} other {# pages ont été retirées de la corbeille. Elles seront effacées définitivement d’ici un jour.}}",
       "deleteStopped": "La suppression de « {title} » s’est arrêtée.",
       "retryDelete": "Relancer la suppression"
     },
@@ -471,14 +470,6 @@
       "landing-page": {
         "singular": "Page d'atterrissage",
         "plural": "Pages d'atterrissage"
-      },
-      "post": {
-        "singular": "Article",
-        "plural": "Articles"
-      },
-      "author": {
-        "singular": "Auteur",
-        "plural": "Auteurs"
       }
     },
     "role": {
@@ -1636,6 +1627,15 @@
         "tools": {
           "claude": "Claude Code",
           "codex": "Codex"
+        },
+        "setupLink": "Comment le configurer",
+        "setupLinkName": "{provider}, s'ouvre dans un nouvel onglet",
+        "note": "Utilise la connexion actuelle de l'outil installé. Les limites de votre forfait ou des frais d'API peuvent s'appliquer. L'utilisation des outils n'entre pas dans les totaux et plafonds de dépenses de formulacms.",
+        "state": {
+          "api-key": "Prêt · utilise une clé API, donc des frais s'appliquent",
+          "unknown": "Prêt · méthode de connexion non vérifiée",
+          "signed-out": "Déconnecté",
+          "not-installed": "Non installé"
         }
       },
       "rail": {
@@ -1656,7 +1656,114 @@
         "ready": "Prêt",
         "signedOut": "Déconnecté",
         "notSetUp": "Non configuré",
-        "invalidKey": "Clé non valide"
+        "invalidKey": "Clé refusée",
+        "notInstalled": "Non installé"
+      },
+      "names": {
+        "claude-code": "Claude Code",
+        "codex": "Codex",
+        "anthropic-api": "Anthropic API",
+        "openai-api": "OpenAI API",
+        "openrouter-api": "OpenRouter API"
+      },
+      "active": "Actif",
+      "refusedCard": "Non configuré : {provider} a refusé la clé",
+      "missingCard": "Non configuré : la clé API est absente",
+      "description": "Connectez un service d'IA, puis configurez vos assistants. Pour désactiver l'IA, allez dans Modules.",
+      "assistantsLocal": "Choisissez avec quoi chaque assistant fonctionne et comment il se comporte. Ces choix sont enregistrés pour le développement local ; votre site en ligne garde les siens.",
+      "assistantsLive": "Choisissez avec quoi chaque assistant fonctionne et comment il se comporte sur votre site en ligne.",
+      "instructionsNote": "Envoyées au modèle avant chaque demande de cet assistant.",
+      "presetsNote": "Les briefs d'exemple et les reformulations rapides restent comme aujourd'hui.",
+      "connection": {
+        "refused": "Clé refusée : {provider} a rejeté {envVar} lors de votre dernière action d'IA ({at})",
+        "unreachable": "Impossible de joindre {provider} lors de votre dernière action d'IA ({at})"
+      },
+      "tab": {
+        "signedIn": "Connecté · forfait {plan, select, pro {Claude Pro} max {Claude Max} ultra {Claude Ultra} team {Claude Team} enterprise {Claude Enterprise} chatgpt {ChatGPT} other {}}",
+        "signedInNoPlan": "Connecté · forfait non détecté"
+      },
+      "redesign": {
+        "rail": {
+          "label": "Sections IA",
+          "assistants": "Assistants",
+          "subscriptions": "Abonnements · cet ordinateur",
+          "apiKeys": "Clés API",
+          "state": {
+            "ready": "Prêt",
+            "missing": "Non configuré",
+            "refused": "Clé refusée",
+            "signedOut": "Déconnecté",
+            "notInstalled": "Non installé"
+          }
+        },
+        "provider": "Fournisseur",
+        "uses": "Utilise <b>{provider}</b> ({billing}) · {model}",
+        "billing": {
+          "local": "connexion actuelle de l’outil",
+          "api": "facturé à l'usage"
+        },
+        "models": "Modèles",
+        "modelCheck": {
+          "check": "Rechercher de nouveaux modèles",
+          "checking": "Recherche…",
+          "checked": "Vérifié {when}",
+          "justNow": "à l'instant",
+          "new": "Nouveau",
+          "never": "Pas encore vérifié"
+        },
+        "usedBy": "Utilisé par",
+        "changeInAssistants": "Modifier dans Assistants",
+        "none": "Aucun",
+        "signedIn": "Connecté · forfait {plan}",
+        "sentence": {
+          "local": "Fonctionne sur cet ordinateur pendant le développement local ; votre site en ligne utilise une clé API.",
+          "api": "Vous facture chaque utilisation."
+        },
+        "connected": "Connecté · clé dans les paramètres de votre déploiement",
+        "notSetUp": "Non configuré",
+        "keys": {
+          "title": "Où se trouve votre clé",
+          "deployment": "Paramètres de votre déploiement",
+          "deploymentNote": "Utilisée par les assistants de rédaction, de traduction et d'aide.",
+          "local": "Cet ordinateur (.env.local)",
+          "localNote": "Utilisée par le Créateur de blocs pendant le développement local.",
+          "connected": "Connectée",
+          "found": "Trouvée",
+          "refused": "Clé refusée",
+          "missing": "Non configurée"
+        },
+        "sub": {
+          "status": {
+            "signedOut": "Déconnecté",
+            "notInstalled": "Non installé"
+          },
+          "option": {
+            "signedOut": " · déconnecté",
+            "notInstalled": " · non installé"
+          },
+          "reason": "{provider} : {state}"
+        },
+        "steps": {
+          "runIn": "Dans le Terminal, dans {siteFolder}, exécutez :",
+          "run": "Dans le Terminal, exécutez :",
+          "afterSignIn": "Connectez-vous dans la fenêtre du navigateur qui s'ouvre, puis cliquez sur Vérifier à nouveau. L'état affiche Connecté.",
+          "afterInstall": "Ouvrez un nouveau Terminal dans {siteFolder}, exécutez <c>{command}</c> et connectez-vous. Puis cliquez sur Vérifier à nouveau.",
+          "check": "Vérifier à nouveau",
+          "checked": "Vérifié à l'instant",
+          "deploymentMissing": "Dans le Terminal, dans {siteFolder}, exécutez ceci. Remplacez l'exemple par votre clé, obtenue avec Obtenir une clé :",
+          "deploymentRefused": "Remplacez la clé : dans le Terminal, dans {siteFolder}, exécutez :",
+          "deploymentAfter": "L'état passe à Connecté tout seul.",
+          "localMissing": "Ouvrez {siteFolder}/.env.local, ajoutez cette ligne à la fin, enregistrez, puis rechargez cette page :",
+          "getKey": "Obtenir une clé",
+          "newTab": "(s'ouvre dans un nouvel onglet)",
+          "copy": "Copier",
+          "copied": "Copié",
+          "copyFailed": "Copie impossible. Sélectionnez le texte et copiez-le.",
+          "command": "la commande",
+          "line": "la ligne"
+        },
+        "disabledReason": "{provider} : {state}. Configurez-le pour choisir un modèle et un effort.",
+        "effortLocked": "La traduction utilise son effort prédéfini."
       }
     }
   },
@@ -1904,7 +2011,6 @@
       "description": "Gérez le contenu de votre site",
       "newContent": "Nouveau contenu",
       "untitled": "Sans titre",
-      "missingLocaleTitle": "Titre {locale} manquant",
       "revalidation": {
         "setupHeading": "Les mises à jour du site public doivent être configurées.",
         "setupDescription": "Les modifications peuvent ne pas apparaître sur votre site public tant que cette configuration n’est pas terminée.",
@@ -1937,22 +2043,14 @@
       "noMatches": "Aucune page ne correspond à vos filtres.",
       "empty": "Aucune page pour l’instant.",
       "missingLocaleContent": "aucun contenu {locale}",
-      "languages": "Langues",
-      "languagesDetails": "Langues : {translated} sur {total} traduites. Afficher le détail",
       "languagesComplete": "Toutes les langues sont traduites",
       "languagesMissing": "Traductions manquantes",
       "translated": "Traduite",
       "missingTranslation": "Traduction manquante",
-      "editLanguage": "Modifier {locale}",
-      "edit": "Modifier",
-      "defaultSlug": "identifiant d’URL par défaut",
       "hasLocaleContent": "Contenu {locale} présent",
       "noLocaleContent": "Aucun contenu {locale}",
-      "publishes": "Publication : {date}",
-      "expires": "Expiration : {date}",
       "actionsFor": "Actions pour {title}",
       "actions": {
-        "duplicate": "Dupliquer",
         "archive": "Archiver",
         "unarchive": "Désarchiver",
         "moveToTrash": "Déplacer vers la corbeille",
@@ -1974,7 +2072,6 @@
         "archived": "Page archivée",
         "archiveFailed": "Échec de l’archivage",
         "restored": "Page restaurée",
-        "restoredToDraft": "Page restaurée comme brouillon",
         "unarchiveFailed": "Échec de la restauration",
         "movedToTrash": "Page déplacée vers la corbeille",
         "deleteFailed": "Échec de la suppression",
@@ -2198,8 +2295,7 @@
       "newTitle": "Nouveau titre",
       "cancel": "Annuler",
       "duplicating": "Duplication…",
-      "action": "Dupliquer la page",
-      "unavailable": "La duplication des pages n’est pas encore disponible."
+      "action": "Dupliquer la page"
     },
     "markdownImport": {
       "invalidFile": "Sélectionnez un fichier Markdown (.md ou .markdown).",
@@ -2653,6 +2749,7 @@
       "translationFailed": "Échec de la traduction",
       "generationFailed": "Échec de la génération",
       "refinementFailed": "Échec de la reformulation",
+      "changedDuringAi": "Ce champ a changé, la réponse de l'IA n'a donc pas été appliquée.",
       "translateTitle": "Traduire ce champ depuis {locale} avec l’IA",
       "nothingToTranslate": "Rien à traduire — ce champ n’a aucun contenu en {locale}",
       "translate": "Traduire",
@@ -2996,11 +3093,6 @@
       "saveShortcut": "(appuyez sur {shortcut} pour enregistrer)",
       "backToLanguageChange": "Retour au changement de langue",
       "backToPages": "Retour aux pages",
-      "status": {
-        "draft": "Brouillon",
-        "published": "Publié",
-        "archived": "Archivé"
-      },
       "unpublishedHint": "Cette page contient des modifications non publiées. Cliquez sur Publier pour les rendre publiques.",
       "unpublishedChanges": "Modifications non publiées",
       "savedAt": "Enregistré à {time}",
@@ -3008,7 +3100,6 @@
       "copyBetweenLocales": "Copier le contenu entre les langues",
       "copy": "Copier",
       "moreActions": "Autres actions de la page",
-      "duplicate": "Dupliquer cette page",
       "unpublish": "Dépublier",
       "archive": "Archiver",
       "saving": "Enregistrement…",
@@ -3157,12 +3248,7 @@
       "delete": "Supprimer le bloc",
       "duplicate": "Dupliquer"
     },
-    "lifecycleRetainedDeleteHint": "Des brouillons conservés ou l’historique de publication utilisent encore ce type de bloc. Ces références empêchent sa suppression.",
-    "lifecyclePublicationInstances": "Utilisations dans les versions publiées",
-    "lifecycleVersionCounts": "Les nombres enregistrés indiquent les utilisations dans le contenu de Page enregistré. Les nombres en attente indiquent les utilisations dans les modifications non encore appliquées à la Page. Une Page peut figurer dans les deux nombres. Les versions publiées sont comptées séparément, y compris dans l’historique de publication.",
-    "lifecycleNoDependencies": "Aucun contenu de Page enregistré, aucune modification en attente et aucun historique de publication n’utilise ce type de bloc.",
-    "lifecyclePublicationRow": "{count} dans les versions publiées",
-    "usageUnavailable": "L’utilisation dans les pages est indisponible. Appliquer revérifiera le contenu enregistré, en attente et de publication conservé avant toute écriture.",
+    "usageUnavailable": "L’utilisation dans les pages est indisponible. Appliquer revérifiera les brouillons et l’historique de publication avant toute écriture.",
     "usageUnused": "Ce type de bloc n’a aucune dépendance de contenu conservé. Les modifications structurelles gardent donc leur souplesse actuelle.",
     "usageCounts": "{count, plural, one {# dépendance de contenu conservé} other {# dépendances de contenu conservé}} dans {pages, plural, one {# page} other {# pages}}.",
     "usageBlockers": "{count, plural, one {# incompatibilité doit être résolue.} other {# incompatibilités doivent être résolues.}}",
@@ -3230,8 +3316,13 @@
       "renamed": "Renommé en {label}",
       "renameFailed": "Le nom n’a pas pu être modifié",
       "deleteTitle": "Supprimer {label} ({type}) ?",
-      "deleteDescription": "Supprime définitivement le type de bloc. Aucun contenu de Page enregistré, aucune modification en attente et aucun historique de publication ne l’utilise. Cette action est irréversible.",
+      "deleteDescription": "Supprime définitivement le type de bloc. Aucun brouillon, aucune version publiée, aucune page de la corbeille et aucune suggestion IA ne l’utilise. Cette action est irréversible.",
       "deleteConfirm": "Supprimer le type de bloc",
+      "deleteBlocked": {
+        "system": "Les blocs intégrés ne peuvent jamais être supprimés. Vous pouvez archiver celui-ci à la place.",
+        "referenced": "Il est encore utilisé dans un brouillon, une version publiée, une page de la corbeille ou une suggestion IA. Retirez chaque utilisation indiquée sur la page du bloc, puis réessayez.",
+        "incomplete": "La vérification des utilisations de ce type de bloc n’a pas pu se terminer. Rien n’a été supprimé."
+      },
       "unavailable": "Indisponible : les détails de ce type de bloc n’ont pas pu être chargés.",
       "renameHint": "Change le nom affiché aux éditeurs. Les Pages et leur contenu restent inchangés.",
       "archiveFirst": "Archivez d’abord ce type de bloc. Seuls les Types archivés peuvent être supprimés.",
@@ -3245,18 +3336,27 @@
       "unavailableTitle": "L’état du type de bloc n’a pas pu être chargé",
       "unavailableDescription": "Les détails d’archivage et d’utilisation n’ont pas pu être chargés. Les modifications de ce type de bloc restent indisponibles jusqu’au rétablissement de la connexion.",
       "pages": "Pages",
-      "savedInstances": "Utilisations dans les Pages enregistrées",
-      "stagedInstances": "Utilisations dans les modifications de Page en attente",
+      "liveUses": "Utilisations dans les brouillons et les versions publiées",
       "trashPages": "Pages dans la corbeille",
       "usage": "Utilisation",
+      "uses": "{count, plural, one {# utilisation} other {# utilisations}}",
+      "useStatus": {
+        "publishedVersion": "Version publiée · publiez pour la retirer",
+        "withdrawn": "Version retirée · publiez pour la retirer",
+        "inTrash": "Dans la corbeille",
+        "beingErased": "Suppression en cours",
+        "languageOff": "Langue désactivée ({locale}) : activez-la pour modifier",
+        "aiJobRunning": "Tâche IA en cours",
+        "aiSuggestion": "Suggestion IA à valider"
+      },
+      "usageCheckIncomplete": "La vérification des utilisations de ce type de bloc n’a pas pu se terminer : il ne peut pas être supprimé pour le moment.",
+      "usageCheckUnfinished": "La vérification des utilisations de ce type de bloc n’a pas pu se terminer.",
       "noSlug": "Aucune adresse de Page",
-      "trash": "Corbeille",
       "starter": "Inclusion dans les fichiers de départ des nouveaux sites",
       "included": "Inclus",
       "notIncluded": "Non inclus",
       "delete": "Supprimer",
       "inUse": "Utilisé sur {count, plural, one {# Page} other {# Pages}}. Retirez-le d’abord de ces Pages.",
-      "usageRow": "{saved} dans le contenu enregistré · {staged} dans les modifications de Page en attente",
       "morePages": "+ {count, plural, one {# autre Page non affichée} other {# autres Pages non affichées}}",
       "locales": "Langues utilisées par les Pages affichées : {locales}"
     },

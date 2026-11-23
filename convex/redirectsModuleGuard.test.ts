@@ -39,7 +39,6 @@ type Caller = ReturnType<App["withIdentity"]>
 
 function privateCalls(caller: Caller, ruleId: Id<"redirects">) {
   return {
-    list: () => caller.query(api.cms.redirects.list, {}),
     listPaginated: () =>
       caller.query(api.cms.redirects.listPaginated, {
         paginationOpts: { numItems: 10, cursor: null },
@@ -47,6 +46,7 @@ function privateCalls(caller: Caller, ruleId: Id<"redirects">) {
     create: () =>
       caller.mutation(api.cms.redirects.create, {
         fromPath: "/guarded-create",
+        locale: "en",
         toPath: "/guarded-target",
         statusCode: 301,
       }),
@@ -133,11 +133,12 @@ describe("M01b Redirects private entries", () => {
     await enableRedirectsForTest(owner)
     const id = await owner.mutation(api.cms.redirects.create, {
       fromPath: "/p2-old",
+      locale: "en",
       toPath: "/p2-new",
       statusCode: 301,
     })
     expect(
-      (await owner.query(api.cms.redirects.list, {})).map((row) => row._id)
+      ((await owner.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } })).page).map((row) => row._id)
     ).toEqual([id])
     const paginated = await owner.query(api.cms.redirects.listPaginated, {
       paginationOpts: { numItems: 10, cursor: null },
@@ -146,7 +147,7 @@ describe("M01b Redirects private entries", () => {
     await expect(
       owner.mutation(api.cms.redirects.remove, { id })
     ).resolves.toBeNull()
-    await expect(owner.query(api.cms.redirects.list, {})).resolves.toEqual([])
+    expect((await owner.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } })).page).toEqual([])
 
     await expect(
       owner.mutation(api.cms.modules.commit, {
@@ -175,12 +176,14 @@ describe("M01b Redirects public entries", () => {
     // must not depend on provenance or path shape.
     await seedRule(t, {
       fromPath: "/p3-manual",
+      locale: "en",
       toPath: "/p3-target",
       statusCode: 301,
       origin: "manual",
     })
     await seedRule(t, {
       fromPath: "/p3-unresolved",
+      locale: "en",
       toPath: "https://example.com/p3",
       statusCode: 302,
     })
@@ -214,12 +217,14 @@ describe("M01b Redirects public entries", () => {
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/p3-manual",
+        locale: "en",
       })
     ).resolves.toEqual({ destination: "/p3-target", statusCode: 301 })
     await expect(
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/p3-unresolved",
+        locale: "en",
       })
     ).resolves.toEqual({
       destination: "https://example.com/p3",
@@ -284,6 +289,7 @@ describe("M01b Redirects public entries", () => {
       await enableRedirectsForTest(owner)
       const ruleId = await owner.mutation(api.cms.redirects.create, {
         fromPath: "/p4-old",
+        locale: "en",
         toPath: "/p4-new",
         statusCode: 301,
       })
@@ -291,6 +297,7 @@ describe("M01b Redirects public entries", () => {
         t.query(api.cms.redirects.resolve, {
           languageVersion: 0,
           path: "/p4-old",
+          locale: "en",
         })
       ).resolves.toEqual({ destination: "/p4-new", statusCode: 301 })
 
@@ -301,12 +308,14 @@ describe("M01b Redirects public entries", () => {
         t.query(api.cms.redirects.resolve, {
           languageVersion: 0,
           path: "/p4-old",
+          locale: "en",
         })
       ).rejects.toThrow("CMS_MODULE_STATE_INVALID")
       await expect(
         t.query(api.cms.redirects.resolve, {
           languageVersion: 0,
           path: "/p4-missing",
+          locale: "en",
         })
       ).rejects.toThrow("CMS_MODULE_STATE_INVALID")
       await expect(
@@ -335,6 +344,7 @@ describe("M01b Redirects public entries", () => {
     await enableRedirectsForTest(owner)
     const id = await owner.mutation(api.cms.redirects.create, {
       fromPath: "/p5-old",
+      locale: "en",
       toPath: "/p5-new",
       statusCode: 302,
     })
@@ -360,6 +370,7 @@ describe("M01b Redirects public entries", () => {
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/p5-old",
+        locale: "en",
       })
     ).resolves.toEqual({ destination: "/p5-new", statusCode: 302 })
     const listed = await owner.query(api.cms.redirects.listPaginated, {
@@ -499,7 +510,7 @@ describe("M01b required Publication isolation", () => {
     await expect(
       t.query(api.cms.redirects.listActiveKeys, { languageVersion: 0 })
     ).resolves.toEqual([])
-    await expect(owner.query(api.cms.redirects.list, {})).rejects.toThrow(
+    await expect(owner.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } })).rejects.toThrow(
       "CMS_MODULE_DISABLED"
     )
   })

@@ -123,6 +123,7 @@ describe("M01d Redirects disable blocker", () => {
 
     const ruleId = await owner.mutation(api.cms.redirects.create, {
       fromPath: "/p1-new",
+      locale: "en",
       toPath: "/p1-target",
       statusCode: 301,
     })
@@ -269,6 +270,7 @@ describe("M01d Redirects disable blocker", () => {
     await enableRedirectsForTest(owner)
     const ruleId = await owner.mutation(api.cms.redirects.create, {
       fromPath: "/p3-old",
+      locale: "en",
       toPath: "/p3-new",
       statusCode: 301,
     })
@@ -288,6 +290,7 @@ describe("M01d Redirects disable blocker", () => {
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/p3-old",
+        locale: "en",
       })
     ).resolves.toEqual({ destination: "/p3-new", statusCode: 301 })
 
@@ -308,11 +311,13 @@ describe("M01d Redirects disable blocker", () => {
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/p3-old",
+        locale: "en",
       })
     ).resolves.toBeNull()
 
     await owner.mutation(api.cms.redirects.create, {
       fromPath: "/p3-after",
+      locale: "en",
       toPath: "/p3-after-target",
       statusCode: 302,
     })
@@ -320,6 +325,7 @@ describe("M01d Redirects disable blocker", () => {
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/p3-after",
+        locale: "en",
       })
     ).resolves.toEqual({ destination: "/p3-after-target", statusCode: 302 })
   })
@@ -330,6 +336,7 @@ describe("M01d Redirects disable blocker", () => {
     await enableRedirectsForTest(owner)
     const ruleId = await owner.mutation(api.cms.redirects.create, {
       fromPath: "/p6-old",
+      locale: "en",
       toPath: "/p6-new",
       statusCode: 301,
     })
@@ -337,6 +344,7 @@ describe("M01d Redirects disable blocker", () => {
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/p6-old",
+        locale: "en",
       })
     ).resolves.toEqual({ destination: "/p6-new", statusCode: 301 })
     await owner.mutation(api.cms.redirects.remove, { id: ruleId })
@@ -356,6 +364,7 @@ describe("M01d Redirects disable blocker", () => {
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/p6-old",
+        locale: "en",
       })
     ).resolves.toBeNull()
     await expect(

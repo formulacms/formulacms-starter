@@ -158,10 +158,6 @@ vi.mock("@/components/ui/popover", () => ({
   PopoverTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({
-  DuplicatePageDialog: () => null,
-}))
-
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: () => null,
 }))
@@ -218,12 +214,28 @@ function localizedPage(): Page {
   } as Page
 }
 
+function publication() {
+  return {
+    authority: "snapshot_active" as const,
+    lifecycleGeneration: 1,
+    sharedDraftGeneration: 2,
+    locales: ["en", "fr"].map((locale) => ({
+      locale,
+      state: "draft" as const,
+      draftGeneration: 1,
+      publicGeneration: 0,
+      releaseGeneration: 0,
+    })),
+  }
+}
+
 function renderEditor() {
   return render(
     <PageEditor
       page={localizedPage()}
       hasStaging={false}
       stagingUpdatedAt={undefined}
+      publication={publication()}
     />
   )
 }
@@ -251,20 +263,23 @@ describe("PageEditor all-off admin profile", () => {
     window.sessionStorage.clear()
   })
 
-  test("opens no AI work, offers Review SEO, and omits uninstalled History", () => {
+  test("opens no AI work, offers Review SEO, and keeps the core History", () => {
     renderEditor()
 
     expect(screen.getByRole("button", { name: "Review SEO" })).toBeEnabled()
     expect(
       screen.queryByRole("button", { name: "Generate SEO suggestion" })
     ).not.toBeInTheDocument()
-    expect(screen.queryByTitle("History")).not.toBeInTheDocument()
-    expect(screen.queryByText("Revision history")).not.toBeInTheDocument()
+    // History belongs to core Publication, so the all-off profile keeps it.
+    expect(screen.getByTitle("History")).toBeInTheDocument()
 
     expect(mocks.commandIds).toEqual(
-      expect.arrayContaining(["page-editor:save", "page-editor:insert-block"])
+      expect.arrayContaining([
+        "page-editor:save",
+        "page-editor:insert-block",
+        "page-editor:history",
+      ])
     )
-    expect(mocks.commandIds).not.toContain("page-editor:history")
     expect(mocks.queryNames).not.toContain("cms/ai:isConfigured")
     expect(mocks.queryNames).not.toContain("cms/agents:getContentPresets")
     expect(mocks.actionNames).not.toContain(
@@ -375,7 +390,12 @@ describe("PageEditor all-off admin profile", () => {
       warnings: [],
     }
     render(
-      <PageEditor page={localizedPage()} hasStaging stagingUpdatedAt={100} />
+      <PageEditor
+        page={localizedPage()}
+        hasStaging
+        stagingUpdatedAt={100}
+        publication={publication()}
+      />
     )
 
     fireEvent.click(screen.getByRole("button", { name: "Publish" }))

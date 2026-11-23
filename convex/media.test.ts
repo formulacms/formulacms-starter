@@ -1,17 +1,14 @@
 /// <reference types="vite/client" />
-import { blockProfile } from "@/test-utils/block-profile"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import { describe, expect, test, vi } from "vitest"
 import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
-import type { Block } from "./lib/blocks"
 import { IMAGE_DIMENSION_FIXTURES } from "./lib/media/imageDimensions.testFixtures"
 import schema from "./schema"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
 import migrationsTest from "@convex-dev/migrations/test"
 import {
   finishMediaUsageBackfill,
-  trashMediaDirectly,
 } from "@/test-utils/media-usage-backfill"
 
 const modules = import.meta.glob("./**/*.ts")
@@ -23,8 +20,9 @@ const TEST_USER = {
   email: "test@example.com",
 }
 
-function mediaTest() {
+function mediaTest(publicationAuthority?: "missing") {
   const t = convexTest({
+    publicationAuthority,
     schema,
     modules,
     ownerIdentity: TEST_USER,
@@ -58,9 +56,6 @@ async function createStoredMedia(
     return { mediaId, storageId, url: `https://example.com/${filename}` }
   })
 }
-
-type HeroAgencyBlock = Extract<Block, { type: "hero-agency" }>
-type HeroWithImageBlock = Extract<Block, { type: "hero-with-image" }>
 
 describe("media URL import", () => {
   test.each(IMAGE_DIMENSION_FIXTURES)(
@@ -351,8 +346,8 @@ describe("public media storage URL resolution", () => {
     ).resolves.toEqual({})
   })
 
-  test("keeps trashed media resolvable through restore and revokes it on permanent deletion", async () => {
-    const t = mediaTest()
+  test("hides trashed media from public URLs, restores them, and keeps permanent deletion refused outside snapshot authority", async () => {
+    const t = mediaTest("missing")
     const asUser = t.withIdentity(TEST_USER)
     const media = await createStoredMedia(t)
     const resolve = () =>
@@ -365,9 +360,7 @@ describe("public media storage URL resolution", () => {
     })
 
     await asUser.mutation(api.cms.media.softDelete, { id: media.mediaId })
-    await expect(resolve()).resolves.toEqual({
-      [media.storageId]: expect.any(String),
-    })
+    await expect(resolve()).resolves.toEqual({})
 
     await asUser.mutation(api.cms.media.restore, { id: media.mediaId })
     await expect(resolve()).resolves.toEqual({
@@ -381,257 +374,67 @@ describe("public media storage URL resolution", () => {
     await expect(
       asUser.mutation(api.cms.media.remove, { id: media.mediaId })
     ).rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
-    await expect(resolve()).resolves.toEqual({
-      [media.storageId]: expect.any(String),
+    await expect(resolve()).resolves.toEqual({})
+  })
+
+  async function storeMany(t: ReturnType<typeof mediaTest>, count: number) {
+    return t.run(async (ctx) => {
+      const storageIds: Id<"_storage">[] = []
+      for (let index = 0; index < count; index += 1) {
+        const storageId = await ctx.storage.store(
+          new Blob([`image ${index}`], { type: "image/png" })
+        )
+        await ctx.db.insert("media", {
+          filename: `m${index}.png`,
+          storageId,
+          url: `https://example.com/m${index}.png`,
+          size: 10,
+          mimeType: "image/png",
+          uploadedAt: Date.now(),
+        })
+        storageIds.push(storageId)
+      }
+      return storageIds
     })
+  }
+
+  test("resolves 50 storage ids in one call", async () => {
+    const t = mediaTest()
+    const storageIds = await storeMany(t, 50)
+    const result = await t.query(api.cms.media.getStorageUrls, { storageIds })
+    expect(Object.keys(result)).toHaveLength(50)
+    expect(result[storageIds[49]!]).toEqual(expect.any(String))
+  })
+
+  test("rejects 51 storage ids with TOO_MANY_IDS", async () => {
+    const t = mediaTest()
+    const storageIds = await storeMany(t, 51)
+    await expect(
+      t.query(api.cms.media.getStorageUrls, { storageIds })
+    ).rejects.toThrow(/TOO_MANY_IDS/)
+  })
+
+  test("rejects 51 copies of one storage id with TOO_MANY_IDS", async () => {
+    const t = mediaTest()
+    const [storageId] = await storeMany(t, 1)
+    await expect(
+      t.query(api.cms.media.getStorageUrls, {
+        storageIds: Array.from({ length: 51 }, () => storageId!),
+      })
+    ).rejects.toThrow(/TOO_MANY_IDS/)
   })
 })
 
-function heroAgencyWithRichTextStorageReference(
-  storageId: string
-): HeroAgencyBlock {
-  return {
-    id: "hero-1",
-    type: "hero-agency",
-    enabled: true,
-    primary: {
-      eyebrow: "Media",
-      title: "Image Page",
-      description: JSON.stringify({
-        type: "doc",
-        content: [
-          {
-            type: "paragraph",
-            content: [{ type: "text", text: `Storage reference ${storageId}` }],
-          },
-        ],
-      }),
-    },
-    items: [],
-  }
-}
-
-function heroWithImageStorageReference(
-  storageId: Id<"_storage">,
-  url: string
-): HeroWithImageBlock {
-  return {
-    id: "hero-with-image-1",
-    type: "hero-with-image",
-    enabled: true,
-    primary: {
-      eyebrow: "Media",
-      eyebrowLink: { type: "none" },
-      title: "Image Page",
-      description: JSON.stringify({
-        type: "doc",
-        content: [{ type: "paragraph" }],
-      }),
-      image: {
-        storageId,
-        url,
-        width: 1200,
-        height: 800,
-        alt: "Example image",
-      },
-    },
-    items: [],
-  }
-}
-
 describe("media usage", () => {
-  test("removing one of two primary-link pages retains the other page's asset", blockProfile(["hero-with-image"]), async () => {
-    const t = mediaTest()
-    const owner = t.withIdentity(TEST_USER)
-    const media = await createStoredMedia(t)
-    const block = heroWithImageStorageReference(media.storageId, media.url)
-    block.primary.image = { url: "/placeholder.png", width: 1, height: 1, alt: "" }
-    block.primary.eyebrowLink = { type: "media", storageId: media.storageId }
-    const pageIds: Id<"pages">[] = []
-    for (const slug of ["first-download", "second-download"]) {
-      pageIds.push(await owner.mutation(api.cms.pages.create, {
-        slug, pageType: "landing-page", status: "draft",
-        content: { en: { title: slug, blocks: [block] } },
-      }))
-    }
-    await owner.mutation(api.cms.pages.remove, { id: pageIds[0]! })
-    expect((await owner.query(api.cms.media.usage, { id: media.mediaId })).pages)
-      .toEqual([{ _id: pageIds[1], title: "second-download", slug: "second-download" }])
-    await expect(owner.mutation(api.cms.media.softDelete, { id: media.mediaId }))
-      .rejects.toThrow("MEDIA_SOFT_DELETE_REFERENCED")
-    await expect(owner.mutation(api.cms.media.remove, { id: media.mediaId }))
-      .rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
-    await trashMediaDirectly(t, media.mediaId)
-    await finishMediaUsageBackfill(t)
-    await expect(owner.mutation(api.cms.media.remove, { id: media.mediaId }))
-      .rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
-    expect(await t.run(async (ctx) => (await ctx.storage.get(media.storageId))?.text()))
-      .toBe("test image")
-    await owner.mutation(api.cms.pages.remove, { id: pageIds[1]! })
-    await expect(owner.mutation(api.cms.media.remove, { id: media.mediaId }))
-      .rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
-    expect(
-      await t.run(async (ctx) => (await ctx.storage.get(media.storageId)) !== null)
-    ).toBe(true)
-  })
-
-  test.each(["items link", "primary image", "external link"] as const)(
-    "%s keeps its existing media usage behavior", blockProfile(["hero-with-image"]), async (field) => {
-      const t = mediaTest()
-      const owner = t.withIdentity(TEST_USER)
-      const media = await createStoredMedia(t)
-      const block = heroWithImageStorageReference(media.storageId, media.url)
-      if (field !== "primary image") {
-        block.primary.image = { url: "/placeholder.png", width: 1, height: 1, alt: "" }
-      }
-      if (field === "items link") {
-        block.items = [{
-          id: "download", label: "Download", variant: "primary", withIcon: false, enabled: true,
-          link: { type: "media", mediaId: media.mediaId },
-        }]
-      }
-      if (field === "external link") {
-        block.primary.eyebrowLink = { type: "external", url: media.url }
-      }
-      const pageId = await owner.mutation(api.cms.pages.create, {
-        slug: "usage-regression", pageType: "landing-page", status: "draft",
-        content: { en: { title: "Usage", blocks: [block] } },
-      })
-      const usage = await owner.query(api.cms.media.usage, { id: media.mediaId })
-      expect(usage.pages).toEqual(field === "external link" ? [] : [
-        { _id: pageId, title: "Usage", slug: "usage-regression" },
-      ])
-    }
-  )
-
-  test("primary media link alone blocks both deletion mutations and retains storage", blockProfile(["hero-with-image"]), async () => {
-    const t = mediaTest()
-    const owner = t.withIdentity(TEST_USER)
-    const media = await createStoredMedia(t)
-    const block = heroWithImageStorageReference(media.storageId, media.url)
-    block.primary.image = { url: "/placeholder.png", width: 1, height: 1, alt: "" }
-    block.primary.eyebrowLink = { type: "media", mediaId: media.mediaId }
-    const pageId = await owner.mutation(api.cms.pages.create, {
-      slug: "primary-link",
-      pageType: "landing-page",
-      status: "draft",
-      content: { en: { title: "Primary link", blocks: [block] } },
-    })
-
-    await expect(owner.query(api.cms.media.usage, { id: media.mediaId }))
-      .resolves.toMatchObject({ pages: [{ _id: pageId }] })
-    const refs = await t.run((ctx) => ctx.db.query("mediaReferences")
-      .withIndex("by_pageId", (q) => q.eq("pageId", pageId)).take(10))
-    expect(refs).toEqual([expect.objectContaining({
-      mediaId: media.mediaId,
-      storageId: media.storageId,
-      source: "block-media-link",
-      path: "content.en.blocks[0].primary.eyebrowLink",
-    })])
-    await expect(owner.mutation(api.cms.media.softDelete, { id: media.mediaId }))
-      .rejects.toThrow("MEDIA_SOFT_DELETE_REFERENCED")
-    await expect(owner.mutation(api.cms.media.remove, { id: media.mediaId }))
-      .rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
-    expect((await t.run((ctx) => ctx.db.get("media", media.mediaId)))?.deletedAt).toBeUndefined()
-    await trashMediaDirectly(t, media.mediaId)
-    await finishMediaUsageBackfill(t)
-    await expect(owner.mutation(api.cms.media.remove, { id: media.mediaId }))
-      .rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
-    expect(await t.run((ctx) => ctx.db.get("media", media.mediaId))).toMatchObject({ storageId: media.storageId })
-    expect(await t.run(async (ctx) => (await ctx.storage.get(media.storageId))?.text()))
-      .toBe("test image")
-  })
-
-  test("usage reports a page whose block image references the media", blockProfile(["hero-with-image"]), async () => {
-    const t = mediaTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const media = await createStoredMedia(t)
-
-    const pageId = await asUser.mutation(api.cms.pages.create, {
-      slug: "image-page",
-      pageType: "landing-page",
-      status: "draft",
-      content: {
-        en: {
-          title: "Image Page",
-          blocks: [heroWithImageStorageReference(media.storageId, media.url)],
-        },
-      },
-    })
-
-    const usage = await asUser.query(api.cms.media.usage, { id: media.mediaId })
-    expect(usage.pages).toEqual([
-      { _id: pageId, title: "Image Page", slug: "image-page" },
-    ])
-    expect(usage.settings).toEqual([])
-  })
-
-  test("usage ignores storage-id text that is not a media field", blockProfile(["hero-agency"]), async () => {
-    const t = mediaTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const media = await createStoredMedia(t)
-
-    await asUser.mutation(api.cms.pages.create, {
-      slug: "text-page",
-      pageType: "landing-page",
-      status: "draft",
-      content: {
-        en: {
-          title: "Text Page",
-          blocks: [heroAgencyWithRichTextStorageReference(media.storageId)],
-        },
-      },
-    })
-
-    const usage = await asUser.query(api.cms.media.usage, { id: media.mediaId })
-    expect(usage.pages).toEqual([])
-  })
-
-  test("backfill populates references for existing pages", blockProfile([]), async () => {
-    const t = mediaTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const media = await createStoredMedia(t)
-    const pageId = await t.run((ctx) =>
-      ctx.db.insert("pages", {
-        slug: "legacy-image-page",
-        pageType: "landing-page",
-        status: "draft",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        content: {
-          en: {
-            title: "Legacy Image Page",
-            blocks: [heroWithImageStorageReference(media.storageId, media.url)],
-          },
-        },
-      })
-    )
-
-    expect(
-      await asUser.query(api.cms.media.usage, { id: media.mediaId })
-    ).toEqual({
-      settings: [],
-      pages: [],
-    })
-
-    await asUser.mutation(api.cms.pages.backfillMediaReferences, {})
-
-    const usage = await asUser.query(api.cms.media.usage, { id: media.mediaId })
-    expect(usage.pages).toEqual([
-      { _id: pageId, title: "Legacy Image Page", slug: "legacy-image-page" },
-    ])
-  })
-
   test("usage reports branding settings slots", async () => {
     const t = mediaTest()
     const asUser = t.withIdentity(TEST_USER)
 
-    await asUser.mutation(api.cms.settings.completeOnboarding, {
+    await asUser.mutation(api.cms.settings.bootstrapInstallation, {
       siteName: "Site",
       siteUrl: "https://example.com",
       timezone: "UTC",
       defaultLocale: "en",
-      enabledLocales: ["en"],
     })
     const media = await createStoredMedia(t, "logo.png")
     await asUser.mutation(api.cms.settings.setBrandingImage, {
@@ -644,34 +447,8 @@ describe("media usage", () => {
     expect(usage.pages).toEqual([])
   })
 
-  test("remove throws for in-use media and keeps the document", blockProfile(["hero-with-image"]), async () => {
-    const t = mediaTest()
-    const asUser = t.withIdentity(TEST_USER)
-    const media = await createStoredMedia(t)
-
-    await asUser.mutation(api.cms.pages.create, {
-      slug: "referencing-page",
-      pageType: "landing-page",
-      status: "draft",
-      content: {
-        en: {
-          title: "Referencing Page",
-          blocks: [heroWithImageStorageReference(media.storageId, media.url)],
-        },
-      },
-    })
-
-    await trashMediaDirectly(t, media.mediaId)
-    await finishMediaUsageBackfill(t)
-    await expect(
-      asUser.mutation(api.cms.media.remove, { id: media.mediaId })
-    ).rejects.toThrow(/MEDIA_PURGE_NOT_AVAILABLE/)
-    const stillThere = await t.run((ctx) => ctx.db.get("media", media.mediaId))
-    expect(stillThere).toBeDefined()
-  })
-
   test("remove refuses outside snapshot authority and deletes nothing", async () => {
-    const t = mediaTest()
+    const t = mediaTest("missing")
     const asUser = t.withIdentity(TEST_USER)
     const media = await createStoredMedia(t)
 
@@ -691,5 +468,58 @@ describe("media usage", () => {
     )
     expect(stillThere).not.toBeNull()
     expect(blobStored).toBe(true)
+  })
+})
+
+describe("media update keeps what the call does not name", () => {
+  async function createFolderedMedia(t: ReturnType<typeof mediaTest>) {
+    const media = await createStoredMedia(t)
+    await t.run((ctx) =>
+      ctx.db.patch("media", media.mediaId, { folder: "Photos" })
+    )
+    return media
+  }
+
+  test("a tags-only update keeps the folder", async () => {
+    const t = mediaTest()
+    const asUser = t.withIdentity(TEST_USER)
+    const media = await createFolderedMedia(t)
+
+    await asUser.mutation(api.cms.media.update, {
+      id: media.mediaId,
+      tags: ["Summer"],
+    })
+
+    const after = await t.run((ctx) => ctx.db.get("media", media.mediaId))
+    expect(after?.folder).toBe("Photos")
+    expect(after?.tags).toEqual(["summer"])
+  })
+
+  test.each([
+    ["null", null],
+    ["a blank string", "  "],
+  ])("folder: %s clears the folder", async (_name, folder) => {
+    const t = mediaTest()
+    const asUser = t.withIdentity(TEST_USER)
+    const media = await createFolderedMedia(t)
+
+    await asUser.mutation(api.cms.media.update, { id: media.mediaId, folder })
+
+    const after = await t.run((ctx) => ctx.db.get("media", media.mediaId))
+    expect(after?.folder).toBeUndefined()
+  })
+
+  test("a named folder is stored trimmed", async () => {
+    const t = mediaTest()
+    const asUser = t.withIdentity(TEST_USER)
+    const media = await createFolderedMedia(t)
+
+    await asUser.mutation(api.cms.media.update, {
+      id: media.mediaId,
+      folder: "  Events ",
+    })
+
+    const after = await t.run((ctx) => ctx.db.get("media", media.mediaId))
+    expect(after?.folder).toBe("Events")
   })
 })

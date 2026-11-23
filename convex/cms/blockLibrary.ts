@@ -1,28 +1,14 @@
 import { ConvexError, v } from "convex/values"
 import { nextUpdatedAt } from "../lib/versions"
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-  type PaginationResult,
-} from "convex/server"
-import { paginator } from "convex-helpers/server/pagination"
 import { customCtx, customQuery } from "convex-helpers/server/customFunctions"
-import schema from "../schema"
-import {
-  internalQuery,
-  mutation,
-  query,
-  type QueryCtx,
-} from "../_generated/server"
-import { internal } from "../_generated/api"
+import { mutation, query, type QueryCtx } from "../_generated/server"
 import type { Doc, Id } from "../_generated/dataModel"
 import { requireOperationAccess } from "../lib/access/policy"
-import { hasBlockBody } from "../lib/domains/contentEditing"
 import { recordPublicChange } from "../lib/language/freshness"
 import { REGISTERED_BLOCK_TYPES } from "../lib/blocks"
 import { blockAuthoringContractState } from "../lib/blocks/authoringState"
 import { requireBlockTypeRetirementPermission } from "../lib/blocks/permissions"
-import { requireAnyPageTypePermission } from "./pages"
+import { readPagePurgeMarker } from "../lib/publishing/pagePurge"
 import {
   readBlockOccurrenceCounter,
   readBlockOccurrenceState,
@@ -172,20 +158,253 @@ export const cleanupDeletedBlockTypeArchive = mutation({
   },
 })
 
-function pageTitle(page: Doc<"pages">): string {
-  const first = Object.values(page.content ?? {})[0]
-  return first?.title || "Untitled"
+// ─── Live block usage (LEGACY-REMOVE L5) ────────────────────────────────────
+//
+// One function decides what holds a Block Type "now". The count, the usage rows,
+// the Delete check and the Update check all read it. "Now" means a row that
+// Convex validates against the installed blocks, or that the public site or an
+// editor can still bring back:
+//   - language drafts (`locale_draft` rows);
+//   - the current published version (`current_public` rows);
+//   - the draft base of a language with no current version (a withdrawn
+//     language: its base is the working copy);
+//   - unexpired AI job copies (typed `aiJobs` / `aiJobUnits` fields).
+// Superseded publishes are stored as JSON text and never block a schema push, so
+// they do not count for Delete (ADR-0045 amendment, 2026-11-22). Pages in Trash
+// and pages queued for permanent delete still count until the purge removes them.
+//
+// Supported input (ADR-0045 amendment): 300 pages, 2 languages, a few AI jobs a
+// week. Every read below is capped. A read that would pass its cap marks the
+// scan incomplete; the Delete check then refuses instead of reporting 0.
+
+/** Cap for each reference or language-state read: 300 pages x 2 languages = 600. */
+export const BLOCK_USAGE_SCAN_CAP = 1000
+const AI_JOB_SCAN_CAP = 200
+const AI_UNIT_SCAN_CAP = 200
+const CANDIDATE_REFERENCE_CAP = 256
+// Cap on how many page rows we return for display; the totals below always
+// reflect the FULL scan, so the gate never undercounts.
+const BLOCK_USAGE_DETAIL_LIMIT = 100
+const AI_COPY_STATES = [
+  "running",
+  "canceling",
+  "done",
+  "failed",
+  "canceled",
+  "capped",
+] as const
+
+export const blockUseStatusValidator = v.union(
+  v.literal("draft"),
+  v.literal("published"),
+  v.literal("published_version"),
+  v.literal("withdrawn"),
+  v.literal("archived"),
+  v.literal("in_trash"),
+  v.literal("being_erased"),
+  v.literal("language_off"),
+  v.literal("ai_job_running"),
+  v.literal("ai_suggestion")
+)
+type BlockUseStatus = typeof blockUseStatusValidator.type
+
+type LiveUseKind =
+  "draft" | "published" | "withdrawn" | "ai_running" | "ai_copy"
+type LiveUse = {
+  pageId: Id<"pages">
+  locale: string
+  kind: LiveUseKind
+  count: number
+}
+type LiveScan = { uses: LiveUse[]; complete: boolean }
+
+function safeCount(count: number): number {
+  if (!Number.isSafeInteger(count) || count <= 0)
+    throw new ConvexError("INVALID_BLOCK_PUBLICATION_USAGE")
+  return count
+}
+
+function blocksOfType(value: unknown, type: string): number {
+  const blocks = (value as { blocks?: unknown } | undefined)?.blocks
+  if (!Array.isArray(blocks)) return 0
+  return blocks.filter(
+    (block) => (block as { type?: unknown } | null)?.type === type
+  ).length
+}
+
+async function scanAiCopies(
+  ctx: QueryCtx,
+  type: string,
+  push: (use: LiveUse) => boolean
+): Promise<boolean> {
+  let complete = true
+  for (const state of AI_COPY_STATES) {
+    const jobs = await ctx.db
+      .query("aiJobs")
+      .withIndex("by_state", (q) => q.eq("state", state))
+      .take(AI_JOB_SCAN_CAP + 1)
+    if (jobs.length > AI_JOB_SCAN_CAP) complete = false
+    for (const job of jobs.slice(0, AI_JOB_SCAN_CAP)) {
+      let count =
+        blocksOfType(job.sourcePage, type) +
+        blocksOfType(job.suggestion, type) +
+        blocksOfType(job.sourcePage?.draft, type) +
+        blocksOfType(job.suggestion?.draft, type)
+      if (count === 0) {
+        const units = await ctx.db
+          .query("aiJobUnits")
+          .withIndex("by_jobId_and_index", (q) => q.eq("jobId", job._id))
+          .take(AI_UNIT_SCAN_CAP + 1)
+        if (units.length > AI_UNIT_SCAN_CAP) complete = false
+        count = units
+          .slice(0, AI_UNIT_SCAN_CAP)
+          .filter(
+            (unit) =>
+              typeof unit.output === "object" && unit.output.type === type
+          ).length
+      }
+      if (count === 0) continue
+      const stop = push({
+        pageId: job.pageId,
+        locale: job.locale,
+        kind:
+          state === "running" || state === "canceling"
+            ? "ai_running"
+            : "ai_copy",
+        count,
+      })
+      if (stop) return complete
+    }
+  }
+  return complete
+}
+
+/**
+ * The one scan. With `stopAtFirst` it returns as soon as one live use is found
+ * (the Delete check); otherwise it returns every use (the summary). Counting
+ * never depends on a status lookup: a row whose page or language cannot be
+ * read still counts. It does not filter on enabled languages, so a hidden
+ * language's version stays counted.
+ */
+async function scanLiveBlockUsage(
+  ctx: QueryCtx,
+  type: string,
+  { stopAtFirst }: { stopAtFirst: boolean }
+): Promise<LiveScan> {
+  const uses = new Map<string, LiveUse>()
+  let complete = true
+  const add = (key: string, use: LiveUse): boolean => {
+    if (!uses.has(key)) uses.set(key, use)
+    return stopAtFirst
+  }
+  const take = (n: number) => (stopAtFirst ? 1 : n + 1)
+
+  // 1. Language drafts.
+  const drafts = await ctx.db
+    .query("pagePublicationBlockReferences")
+    .withIndex("by_blockType_and_sourceKind", (q) =>
+      q.eq("blockType", type).eq("sourceKind", "locale_draft")
+    )
+    .take(take(BLOCK_USAGE_SCAN_CAP))
+  if (!stopAtFirst && drafts.length > BLOCK_USAGE_SCAN_CAP) complete = false
+  for (const row of drafts.slice(0, BLOCK_USAGE_SCAN_CAP)) {
+    if (
+      row.sourceKind === "locale_draft" &&
+      add(`${row.pageId}|${row.locale}`, {
+        pageId: row.pageId,
+        locale: row.locale,
+        kind: "draft",
+        count: safeCount(row.count),
+      })
+    )
+      return { uses: [...uses.values()], complete }
+  }
+
+  // 2. The current published version.
+  const published = await ctx.db
+    .query("pagePublicationBlockReferences")
+    .withIndex("by_blockType_and_sourceKind", (q) =>
+      q.eq("blockType", type).eq("sourceKind", "current_public")
+    )
+    .take(take(BLOCK_USAGE_SCAN_CAP))
+  if (!stopAtFirst && published.length > BLOCK_USAGE_SCAN_CAP) complete = false
+  for (const row of published.slice(0, BLOCK_USAGE_SCAN_CAP)) {
+    if (row.sourceKind !== "current_public") continue
+    const key = `${row.pageId}|${row.locale}`
+    if (uses.has(key)) {
+      safeCount(row.count)
+      continue
+    }
+    if (
+      add(key, {
+        pageId: row.pageId,
+        locale: row.locale,
+        kind: "published",
+        count: safeCount(row.count),
+      })
+    )
+      return { uses: [...uses.values()], complete }
+  }
+
+  // 3. The draft base of each language that has no current version.
+  const states = await ctx.db
+    .query("pageLocalePublicationStates")
+    .withIndex("by_hasCurrentSnapshot_and_locale", (q) =>
+      q.eq("hasCurrentSnapshot", false)
+    )
+    .take(BLOCK_USAGE_SCAN_CAP + 1)
+  if (states.length > BLOCK_USAGE_SCAN_CAP) complete = false
+  for (const state of states.slice(0, BLOCK_USAGE_SCAN_CAP)) {
+    if (!state.draftBaseSnapshotId) continue
+    const key = `${state.pageId}|${state.locale}`
+    if (uses.has(key)) continue
+    const snapshot = await ctx.db.get(
+      "pagePublishedSnapshots",
+      state.draftBaseSnapshotId
+    )
+    if (!snapshot) {
+      // A draft base that points at a missing snapshot cannot be read, so it
+      // could hide a use: fail closed.
+      complete = false
+      continue
+    }
+    const references = await ctx.db
+      .query("pagePublicationBlockReferences")
+      .withIndex("by_sourceKind_and_sourceId", (q) =>
+        q.eq("sourceKind", "candidate").eq("sourceId", snapshot.candidateId)
+      )
+      .take(CANDIDATE_REFERENCE_CAP + 1)
+    if (references.length > CANDIDATE_REFERENCE_CAP) complete = false
+    let count = 0
+    for (const reference of references.slice(0, CANDIDATE_REFERENCE_CAP))
+      if (reference.blockType === type) count += safeCount(reference.count)
+    if (
+      count > 0 &&
+      add(key, {
+        pageId: state.pageId,
+        locale: state.locale,
+        kind: "withdrawn",
+        count,
+      })
+    )
+      return { uses: [...uses.values()], complete }
+  }
+
+  // 4. Unexpired AI job copies.
+  const aiComplete = await scanAiCopies(ctx, type, (use) =>
+    add(`ai|${uses.size}|${use.pageId}`, use)
+  )
+  if (!aiComplete) complete = false
+  return { uses: [...uses.values()], complete }
 }
 
 async function assertRetirementAllowed(ctx: QueryCtx, type: string) {
   await requireBlockTypeRetirementPermission(ctx, type)
-  const successorReference = await ctx.db
-    .query("pagePublicationBlockReferences")
-    .withIndex("by_blockType", (q) => q.eq("blockType", type))
-    .first()
-  if (successorReference) {
+  const scan = await scanLiveBlockUsage(ctx, type, { stopAtFirst: true })
+  if (scan.uses.length > 0) {
     throw new ConvexError("BLOCK_TYPE_REFERENCED_BY_PUBLICATION")
   }
+  if (!scan.complete) throw new ConvexError("BLOCK_USAGE_CHECK_INCOMPLETE")
 }
 
 export const assertBlockTypeRetirementAllowed = query({
@@ -197,594 +416,260 @@ export const assertBlockTypeRetirementAllowed = query({
   },
 })
 
-// Cap on how many usage rows we return for display; counts below reflect the
-// FULL table scan regardless, so the gate never undercounts (F4).
-const BLOCK_USAGE_DETAIL_LIMIT = 100
-
-type BlockContentUsage = {
-  count: number
-  locales: string[]
-}
-
-type BlockContentLocationSummary = {
-  pageId: Id<"pages">
-  locale: string
-  index: number
-  path: string
-}
-
-function countBlockContentUsage(
-  content:
-    | Record<
-        string,
-        { readonly blocks?: readonly { readonly type: string }[] } | undefined
-      >
-    | undefined,
-  type: string
-): BlockContentUsage {
-  let count = 0
-  const locales: string[] = []
-  for (const [locale, localeContent] of Object.entries(content ?? {})) {
-    const localeCount = (localeContent?.blocks ?? []).filter(
-      (block) => block.type === type
-    ).length
-    if (localeCount === 0) continue
-    locales.push(locale)
-    count += localeCount
-  }
-  return { count, locales }
-}
-
-function blockContentLocations(
-  content:
-    | Record<
-        string,
-        { readonly blocks?: readonly { readonly type: string }[] } | undefined
-      >
-    | undefined,
-  type: string,
-  pageId: Id<"pages">
-): BlockContentLocationSummary[] {
-  const locations: BlockContentLocationSummary[] = []
-  for (const [locale, localeContent] of Object.entries(content ?? {})) {
-    for (const [index, block] of (localeContent?.blocks ?? []).entries()) {
-      if (block.type !== type) continue
-      locations.push({
-        pageId,
-        locale,
-        index,
-        path: `content.${locale}.blocks[${index}]`,
-      })
-    }
-  }
-  return locations
-}
-
-type BlockUsageBatch =
-  | { domain: "saved"; result: PaginationResult<Doc<"pages">> }
-  | { domain: "staged"; result: PaginationResult<Doc<"pageStaging">> }
-  | {
-      domain: "publication"
-      result: PaginationResult<Doc<"pagePublicationBlockReferences">>
-    }
-
-/** Native pagination's one-call limit is shared across nested queries. The
- * helper supports multiple finite scans in the parent's read snapshot, with
- * cursors consumed only by the internal scan loops below. */
-export const scanBlockUsageBatch = internalQuery({
-  args: {
-    domain: v.union(
-      v.literal("saved"),
-      v.literal("staged"),
-      v.literal("publication")
-    ),
-    type: v.string(),
-    paginationOpts: paginationOptsValidator,
-  },
-  returns: v.union(
-    v.object({
-      domain: v.literal("saved"),
-      result: paginationResultValidator(schema.doc("pages")),
-    }),
-    v.object({
-      domain: v.literal("staged"),
-      result: paginationResultValidator(schema.doc("pageStaging")),
-    }),
-    v.object({
-      domain: v.literal("publication"),
-      result: paginationResultValidator(
-        schema.doc("pagePublicationBlockReferences")
-      ),
-    })
-  ),
-  handler: async (
-    ctx,
-    { domain, type, paginationOpts }
-  ): Promise<BlockUsageBatch> => {
-    const db = paginator(ctx.db, schema)
-    if (domain === "saved")
-      return {
-        domain,
-        result: await db.query("pages").paginate(paginationOpts),
-      }
-    if (domain === "staged")
-      return {
-        domain,
-        result: await db.query("pageStaging").paginate(paginationOpts),
-      }
-    return {
-      domain,
-      result: await db
-        .query("pagePublicationBlockReferences")
-        .withIndex("by_blockType", (q) => q.eq("blockType", type))
-        .paginate(paginationOpts),
-    }
-  },
-})
-
-async function pageIsDeleted(
-  ctx: QueryCtx,
-  pageId: Id<"pages">,
-  page: Doc<"pages"> | null
-): Promise<boolean> {
-  if (!page || page.deletedAt !== undefined) return true
-  const state = await ctx.db
-    .query("pagePublicationPageStates")
-    .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-    .unique()
-  return state?.lifecycleState === "trashed"
-}
-
-const savedBlockUsageScanValidator = v.object({
-  usageCount: v.number(),
-  pageCount: v.number(),
-  deletedPageCount: v.number(),
-  detailPageIds: v.array(v.id("pages")),
-})
-
-type SavedBlockUsageScan = {
-  usageCount: number
-  pageCount: number
-  deletedPageCount: number
-  detailPageIds: Id<"pages">[]
-}
-
-export const scanSavedBlockUsage = internalQuery({
-  args: { type: v.string() },
-  returns: savedBlockUsageScanValidator,
-  handler: async (ctx, { type }): Promise<SavedBlockUsageScan> => {
-    let usageCount = 0
-    let pageCount = 0
-    let deletedPageCount = 0
-    const detailPageIds: Id<"pages">[] = []
-    let cursor: string | null = null
-
-    for (;;) {
-      const response: BlockUsageBatch = await ctx.runQuery(
-        internal.cms.blockLibrary.scanBlockUsageBatch,
-        { domain: "saved", type, paginationOpts: { numItems: 200, cursor } }
-      )
-      if (response.domain !== "saved")
-        throw new ConvexError("BLOCK_USAGE_BATCH_INVALID")
-      const batch: PaginationResult<Doc<"pages">> = response.result
-      for (const page of batch.page) {
-        if (!page.content || !hasBlockBody(page)) continue
-        const usage = countBlockContentUsage(page.content, type)
-        if (usage.count === 0) continue
-        usageCount += usage.count
-        pageCount++
-        if (await pageIsDeleted(ctx, page._id, page)) deletedPageCount++
-        if (detailPageIds.length < BLOCK_USAGE_DETAIL_LIMIT) {
-          detailPageIds.push(page._id)
-        }
-      }
-      if (batch.isDone) break
-      cursor = batch.continueCursor
-    }
-
-    return { usageCount, pageCount, deletedPageCount, detailPageIds }
-  },
-})
-
-const stagedBlockUsageScanValidator = v.object({
-  usageCount: v.number(),
-  pageCount: v.number(),
-  stagingOnlyPageCount: v.number(),
-  stagingOnlyDeletedPageCount: v.number(),
-  detailPageIds: v.array(v.id("pages")),
-})
-
-type StagedBlockUsageScan = {
-  usageCount: number
-  pageCount: number
-  stagingOnlyPageCount: number
-  stagingOnlyDeletedPageCount: number
-  detailPageIds: Id<"pages">[]
-}
-
 type BlockUsageSummary = {
   archived: boolean
+  complete: boolean
+  hasHistory: boolean
   pageCount: number
   deletedPageCount: number
   usageCount: number
-  savedUsageCount: number
-  stagedUsageCount: number
-  publicationUsageCount: number
   pages: Array<{
     pageId: Id<"pages">
     title: string
     slug: string
     locales: string[]
-    savedLocales: string[]
-    stagedLocales: string[]
-    publicationLocales: string[]
     count: number
-    savedCount: number
-    stagedCount: number
-    publicationCount: number
     deleted: boolean
+    uses: Array<{ locale: string; status: BlockUseStatus; count: number }>
   }>
-  contentLocations?: BlockContentLocationSummary[]
 }
 
-export const scanStagedBlockUsage = internalQuery({
-  args: { type: v.string() },
-  returns: stagedBlockUsageScanValidator,
-  handler: async (ctx, { type }): Promise<StagedBlockUsageScan> => {
-    let usageCount = 0
-    let pageCount = 0
-    let stagingOnlyPageCount = 0
-    let stagingOnlyDeletedPageCount = 0
-    const detailPageIds: Id<"pages">[] = []
-    let cursor: string | null = null
-
-    for (;;) {
-      const response: BlockUsageBatch = await ctx.runQuery(
-        internal.cms.blockLibrary.scanBlockUsageBatch,
-        { domain: "staged", type, paginationOpts: { numItems: 200, cursor } }
-      )
-      if (response.domain !== "staged")
-        throw new ConvexError("BLOCK_USAGE_BATCH_INVALID")
-      const batch: PaginationResult<Doc<"pageStaging">> = response.result
-      const batchUsage = await Promise.all(
-        batch.page.map(async (staging) => {
-          const stagedUsage = countBlockContentUsage(
-            staging.content as
-              | Record<
-                  string,
-                  {
-                    readonly blocks?: readonly { readonly type: string }[]
-                  }
-                >
-              | undefined,
-            type
-          )
-          if (stagedUsage.count === 0) return null
-
-          const page = await ctx.db.get("pages", staging.pageId)
-          const savedUsage =
-            page?.content && hasBlockBody(page)
-              ? countBlockContentUsage(page.content, type).count
-              : 0
-          return {
-            pageId: staging.pageId,
-            usageCount: stagedUsage.count,
-            stagingOnly: savedUsage === 0,
-            stagingOnlyDeleted:
-              savedUsage === 0 &&
-              (await pageIsDeleted(ctx, staging.pageId, page)),
-          }
-        })
-      )
-      for (const usage of batchUsage) {
-        if (!usage) continue
-        usageCount += usage.usageCount
-        pageCount++
-        if (detailPageIds.length < BLOCK_USAGE_DETAIL_LIMIT) {
-          detailPageIds.push(usage.pageId)
-        }
-        if (usage.stagingOnly) stagingOnlyPageCount++
-        if (usage.stagingOnlyDeleted) stagingOnlyDeletedPageCount++
-      }
-      if (batch.isDone) break
-      cursor = batch.continueCursor
-    }
-
-    return {
-      usageCount,
-      pageCount,
-      stagingOnlyPageCount,
-      stagingOnlyDeletedPageCount,
-      detailPageIds,
-    }
-  },
-})
-
-type PublicationBlockUsageScan = {
-  usageCount: number
-  publicationOnlyPageCount: number
-  publicationOnlyDeletedPageCount: number
-  details: Array<{ pageId: Id<"pages">; count: number; locales: string[] }>
+type PageContext = {
+  page: Doc<"pages"> | null
+  lifecycle: "active" | "archived" | "trashed" | null
+  marker: Doc<"pagePurges"> | null
 }
 
-/** Every retained source copy can constrain a model update, including historical
- * candidates/snapshots and orphan references. Display bounds never truncate
- * these authority totals. The platform's transaction limits fail the query
- * rather than returning a partial count. */
-async function scanPublicationBlockUsage(
+async function readPageContext(
   ctx: QueryCtx,
-  type: string,
-  detailPageIds: Id<"pages">[]
-): Promise<PublicationBlockUsageScan> {
-  if (detailPageIds.length > BLOCK_USAGE_DETAIL_LIMIT)
-    throw new ConvexError("BLOCK_USAGE_DETAIL_LIMIT")
-  // Reserve legacy-selected rows before scanning: a displayed legacy Page
-  // must receive all its publication counts even when its references occur
-  // after the first 100 publication Pages.
-  const details = new Map<Id<"pages">, { count: number; locales: Set<string> }>(
-    detailPageIds.map((pageId) => [
-      pageId,
-      { count: 0, locales: new Set<string>() },
-    ])
-  )
-  const seenPages = new Set<Id<"pages">>()
-  let usageCount = 0
-  let publicationOnlyPageCount = 0
-  let publicationOnlyDeletedPageCount = 0
-  let cursor: string | null = null
-  for (;;) {
-    const response: BlockUsageBatch = await ctx.runQuery(
-      internal.cms.blockLibrary.scanBlockUsageBatch,
-      { domain: "publication", type, paginationOpts: { numItems: 200, cursor } }
-    )
-    if (response.domain !== "publication")
-      throw new ConvexError("BLOCK_USAGE_BATCH_INVALID")
-    const batch: PaginationResult<Doc<"pagePublicationBlockReferences">> =
-      response.result
-    for (const reference of batch.page) {
-      if (
-        !Number.isSafeInteger(reference.count) ||
-        reference.count <= 0 ||
-        !Number.isSafeInteger(usageCount + reference.count)
+  pageId: Id<"pages">
+): Promise<PageContext> {
+  const [page, state, marker] = await Promise.all([
+    ctx.db.get("pages", pageId),
+    ctx.db
+      .query("pagePublicationPageStates")
+      .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+      .first(),
+    readPagePurgeMarker(ctx, pageId),
+  ])
+  return { page, lifecycle: state?.lifecycleState ?? null, marker }
+}
+
+async function hasDraftRow(
+  ctx: QueryCtx,
+  pageId: Id<"pages">,
+  locale: string
+): Promise<boolean> {
+  return (
+    (await ctx.db
+      .query("pageLocaleDrafts")
+      .withIndex("by_pageId_and_locale", (q) =>
+        q.eq("pageId", pageId).eq("locale", locale)
       )
-        throw new ConvexError("INVALID_BLOCK_PUBLICATION_USAGE")
-      usageCount += reference.count
-      if (!seenPages.has(reference.pageId)) {
-        seenPages.add(reference.pageId)
-        const [page, staging] = await Promise.all([
-          ctx.db.get("pages", reference.pageId),
-          ctx.db
-            .query("pageStaging")
-            .withIndex("by_pageId", (q) => q.eq("pageId", reference.pageId))
-            .unique(),
-        ])
-        const savedCount =
-          page?.content && hasBlockBody(page)
-            ? countBlockContentUsage(page.content, type).count
-            : 0
-        const stagedCount = countBlockContentUsage(
-          staging?.content as
-            | Record<
-                string,
-                { readonly blocks?: readonly { readonly type: string }[] }
-              >
-            | undefined,
-          type
-        ).count
-        if (savedCount === 0 && stagedCount === 0) {
-          publicationOnlyPageCount++
-          if (await pageIsDeleted(ctx, reference.pageId, page))
-            publicationOnlyDeletedPageCount++
-        }
-        if (
-          !details.has(reference.pageId) &&
-          details.size < BLOCK_USAGE_DETAIL_LIMIT
-        )
-          details.set(reference.pageId, {
-            count: 0,
-            locales: new Set<string>(),
-          })
-      }
-      const detail = details.get(reference.pageId)
-      if (detail) {
-        detail.count += reference.count
-        if ("locale" in reference) detail.locales.add(reference.locale)
-      }
+      .first()) !== null
+  )
+}
+
+async function statusOf(
+  ctx: QueryCtx,
+  use: LiveUse,
+  context: PageContext,
+  enabledLocales: ReadonlySet<string>
+): Promise<BlockUseStatus> {
+  if (use.kind === "ai_running") return "ai_job_running"
+  if (use.kind === "ai_copy") return "ai_suggestion"
+  if (context.marker) return "being_erased"
+  if (!context.page || context.lifecycle === "trashed") return "in_trash"
+  if (context.lifecycle === "archived") return "archived"
+  if (!enabledLocales.has(use.locale)) return "language_off"
+  if (use.kind === "withdrawn") return "withdrawn"
+  if (use.kind === "draft") return "draft"
+  // The current published version holds the block. With no language draft row
+  // the working copy is that version, so the page shows as "Published"; with a
+  // draft row that no longer holds the block, only a publish removes it.
+  return (await hasDraftRow(ctx, use.pageId, use.locale))
+    ? "published_version"
+    : "published"
+}
+
+function titleFromContent(content: unknown): string {
+  const title = (content as { title?: unknown } | null)?.title
+  return typeof title === "string" ? title.trim() : ""
+}
+
+/** Real page title and address, read for one language at a time and only for the
+ * displayed pages: the language draft, else the draft base or current version. */
+async function pageTitleAndSlug(
+  ctx: QueryCtx,
+  pageId: Id<"pages">,
+  context: PageContext,
+  locales: string[]
+): Promise<{ title: string; slug: string }> {
+  if (!context.page && !context.marker)
+    return { title: "Unavailable Page", slug: "" }
+  if (context.marker) {
+    const titles = context.marker.localizedTitles
+    const title =
+      locales.map((locale) => titles[locale]).find(Boolean) ??
+      Object.values(titles).find(Boolean) ??
+      context.marker.slug
+    return { title: title || "Untitled", slug: context.marker.slug }
+  }
+  const fallbackSlug = context.page?.slug ?? ""
+  for (const locale of locales) {
+    const draft = await ctx.db
+      .query("pageLocaleDrafts")
+      .withIndex("by_pageId_and_locale", (q) =>
+        q.eq("pageId", pageId).eq("locale", locale)
+      )
+      .first()
+    if (draft) {
+      const title = titleFromContent(draft.content)
+      if (title) return { title, slug: draft.slug }
+      continue
     }
-    if (batch.isDone) break
-    cursor = batch.continueCursor
+    const state = await ctx.db
+      .query("pageLocalePublicationStates")
+      .withIndex("by_pageId_and_locale", (q) =>
+        q.eq("pageId", pageId).eq("locale", locale)
+      )
+      .first()
+    const snapshotId = state?.currentSnapshotId ?? state?.draftBaseSnapshotId
+    const snapshot = snapshotId
+      ? await ctx.db.get("pagePublishedSnapshots", snapshotId)
+      : null
+    const candidate = snapshot
+      ? await ctx.db.get(
+          "pageLocalePublicationCandidates",
+          snapshot.candidateId
+        )
+      : null
+    if (!candidate) continue
+    try {
+      const localized = (
+        JSON.parse(candidate.payloadJson) as {
+          localized?: { slug?: unknown; content?: unknown }
+        }
+      ).localized
+      const title = titleFromContent(localized?.content)
+      if (title)
+        return {
+          title,
+          slug:
+            typeof localized?.slug === "string" ? localized.slug : fallbackSlug,
+        }
+    } catch {
+      // An unreadable payload only loses the title; the use still counts.
+    }
   }
-  return {
-    usageCount,
-    publicationOnlyPageCount,
-    publicationOnlyDeletedPageCount,
-    details: [...details].map(([pageId, detail]) => ({
-      pageId,
-      count: detail.count,
-      locales: [...detail.locales].sort(),
-    })),
-  }
+  return { title: fallbackSlug || "Untitled", slug: fallbackSlug }
 }
 
 export const getBlockUsageSummary = query({
   args: {
     type: v.string(),
-    // The delete consumer binds this final read to current retirement authority
-    // and publication references as well as the archive/combined-usage state.
+    // The delete consumer binds this final read to the current retirement
+    // authority: the guard runs first and refuses on any live use.
     forRetirement: v.optional(v.literal(true)),
-    // Deprecated/ignored: usage is now counted across the whole `pages` table
-    // (see below). Kept optional so existing callers compile.
+    // Deprecated/ignored: the scan always covers every live use.
+    // Kept optional so existing callers compile.
     limit: v.optional(v.number()),
   },
   returns: v.object({
     archived: v.boolean(),
+    // False when a read passed its cap: the counts below are then a lower
+    // bound and `usageCount` is never 0.
+    complete: v.boolean(),
+    // Retained publish history still holds this type. It does not block
+    // Delete; a breaking Update still reads it (decision U).
+    hasHistory: v.boolean(),
     pageCount: v.number(),
-    // Trashed (soft-deleted) pages that still hold the type — reported
-    // separately so the gate can warn instead of silently reading 0 (F2). They
-    // are still included in pageCount/usageCount because they still block a
-    // union shrink until stripped.
+    // Pages in Trash, including pages queued for permanent delete.
     deletedPageCount: v.number(),
     usageCount: v.number(),
-    savedUsageCount: v.number(),
-    stagedUsageCount: v.number(),
-    publicationUsageCount: v.number(),
     pages: v.array(
       v.object({
         pageId: v.id("pages"),
         title: v.string(),
         slug: v.string(),
         locales: v.array(v.string()),
-        savedLocales: v.array(v.string()),
-        stagedLocales: v.array(v.string()),
-        publicationLocales: v.array(v.string()),
         count: v.number(),
-        savedCount: v.number(),
-        stagedCount: v.number(),
-        publicationCount: v.number(),
         deleted: v.boolean(),
+        uses: v.array(
+          v.object({
+            locale: v.string(),
+            status: blockUseStatusValidator,
+            count: v.number(),
+          })
+        ),
       })
-    ),
-    contentLocations: v.optional(
-      v.array(
-        v.object({
-          pageId: v.id("pages"),
-          locale: v.string(),
-          index: v.number(),
-          path: v.string(),
-        })
-      )
     ),
   }),
   handler: async (ctx, { type, forRetirement }): Promise<BlockUsageSummary> => {
-    // Block-usage report is a settings surface — any per-type list grant unlocks
-    // it (rows aren't filtered by type; the report needs the full count to gate
-    // the block retirement).
-    await requireAnyPageTypePermission(ctx, "list")
+    // Block-usage report is an owner-only settings surface.
+    await requireOperationAccess(ctx)
     if (forRetirement) await assertRetirementAllowed(ctx, type)
-    const [saved, staged, settings]: [
-      SavedBlockUsageScan,
-      StagedBlockUsageScan,
-      Doc<"siteSettings"> | null,
-    ] = await Promise.all([
-      ctx.runQuery(internal.cms.blockLibrary.scanSavedBlockUsage, { type }),
-      ctx.runQuery(internal.cms.blockLibrary.scanStagedBlockUsage, { type }),
+    const [scan, settings, history] = await Promise.all([
+      scanLiveBlockUsage(ctx, type, { stopAtFirst: false }),
       ctx.db.query("siteSettings").first(),
+      ctx.db
+        .query("pagePublicationBlockReferences")
+        .withIndex("by_blockType_and_sourceKind", (q) =>
+          q.eq("blockType", type).eq("sourceKind", "candidate")
+        )
+        .first(),
     ])
-    const archived = (settings?.archivedBlockTypes ?? []).includes(type)
-
-    const legacyDetailPageIds = [
-      ...new Set([...saved.detailPageIds, ...staged.detailPageIds]),
-    ].slice(0, BLOCK_USAGE_DETAIL_LIMIT)
-    const publication = await scanPublicationBlockUsage(
-      ctx,
-      type,
-      legacyDetailPageIds
+    const enabledLocales = new Set(
+      settings?.enabledLocales ??
+        (settings?.defaultLocale ? [settings.defaultLocale] : [])
     )
-    const publicationDetails = new Map(
-      publication.details.map((detail) => [detail.pageId, detail])
-    )
-    const selectedPageIds = [
-      ...new Set([
-        ...legacyDetailPageIds,
-        ...publication.details.map(({ pageId }) => pageId),
-      ]),
-    ].slice(0, BLOCK_USAGE_DETAIL_LIMIT)
-    const savedUsageCount = saved.usageCount
-    const stagedUsageCount = staged.usageCount
-    const publicationUsageCount = publication.usageCount
-    const usageCount =
-      savedUsageCount + stagedUsageCount + publicationUsageCount
+    const byPage = new Map<Id<"pages">, LiveUse[]>()
+    for (const use of scan.uses) {
+      byPage.set(use.pageId, [...(byPage.get(use.pageId) ?? []), use])
+    }
+    let usageCount = 0
+    for (const use of scan.uses) usageCount += use.count
     if (!Number.isSafeInteger(usageCount))
       throw new ConvexError("INVALID_BLOCK_PUBLICATION_USAGE")
-    const pageCount =
-      saved.pageCount +
-      staged.stagingOnlyPageCount +
-      publication.publicationOnlyPageCount
-    const deletedPageCount =
-      saved.deletedPageCount +
-      staged.stagingOnlyDeletedPageCount +
-      publication.publicationOnlyDeletedPageCount
-    const usageRows = await Promise.all(
-      selectedPageIds.map(async (pageId) => {
-        const [page, staging] = await Promise.all([
-          ctx.db.get("pages", pageId),
-          ctx.db
-            .query("pageStaging")
-            .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
-            .unique(),
-        ])
-        const savedUsage =
-          page?.content && hasBlockBody(page)
-            ? countBlockContentUsage(page.content, type)
-            : { count: 0, locales: [] }
-        const stagedUsage = countBlockContentUsage(
-          staging?.content as
-            | Record<
-                string,
-                { readonly blocks?: readonly { readonly type: string }[] }
-              >
-            | undefined,
-          type
-        )
-        const publicationUsage = publicationDetails.get(pageId) ?? {
-          count: 0,
-          locales: [],
-        }
-        return {
-          row: {
-            pageId,
-            title: page ? pageTitle(page) : "Unavailable Page",
-            slug: page?.slug ?? "",
-            locales: [
-              ...new Set([
-                ...savedUsage.locales,
-                ...stagedUsage.locales,
-                ...publicationUsage.locales,
-              ]),
-            ].sort(),
-            savedLocales: savedUsage.locales.sort(),
-            stagedLocales: stagedUsage.locales.sort(),
-            publicationLocales: publicationUsage.locales,
-            count:
-              savedUsage.count + stagedUsage.count + publicationUsage.count,
-            savedCount: savedUsage.count,
-            stagedCount: stagedUsage.count,
-            publicationCount: publicationUsage.count,
-            deleted: await pageIsDeleted(ctx, pageId, page),
-          },
-          locations: [
-            ...(page?.content && hasBlockBody(page)
-              ? blockContentLocations(page.content, type, pageId)
-              : []),
-            ...blockContentLocations(
-              staging?.content as
-                | Record<
-                    string,
-                    {
-                      readonly blocks?: readonly { readonly type: string }[]
-                    }
-                  >
-                | undefined,
-              type,
-              pageId
-            ),
-          ],
-        }
+    let deletedPageCount = 0
+    const pages: BlockUsageSummary["pages"] = []
+    for (const [pageId, pageUses] of byPage) {
+      const context = await readPageContext(ctx, pageId)
+      // Page-level state only: AI copies are never "in Trash" even when their
+      // page is. The Trash tile counts every page, the rows only the first 100.
+      const deleted =
+        (context.marker !== null ||
+          !context.page ||
+          context.lifecycle === "trashed") &&
+        pageUses.some(({ kind }) => kind !== "ai_running" && kind !== "ai_copy")
+      if (deleted) deletedPageCount++
+      if (pages.length >= BLOCK_USAGE_DETAIL_LIMIT) continue
+      const rows = await Promise.all(
+        pageUses.map(async (use) => ({
+          locale: use.locale,
+          status: await statusOf(ctx, use, context, enabledLocales),
+          count: use.count,
+        }))
+      )
+      const locales = [...new Set(rows.map(({ locale }) => locale))].sort()
+      pages.push({
+        pageId,
+        ...(await pageTitleAndSlug(ctx, pageId, context, locales)),
+        locales,
+        count: rows.reduce((sum, row) => sum + row.count, 0),
+        deleted,
+        uses: rows,
       })
-    )
-    const usagePages = usageRows.map(({ row }) => row)
-    const contentLocations = usageRows.flatMap(({ locations }) => locations)
-
+    }
     return {
-      archived,
-      pageCount,
+      archived: (settings?.archivedBlockTypes ?? []).includes(type),
+      complete: scan.complete,
+      hasHistory: history !== null,
+      pageCount: byPage.size,
       deletedPageCount,
-      usageCount,
-      savedUsageCount,
-      stagedUsageCount,
-      publicationUsageCount,
-      pages: usagePages,
-      ...(contentLocations.length > 0 ? { contentLocations } : {}),
+      // An unfinished scan never reports 0.
+      usageCount: scan.complete ? usageCount : Math.max(usageCount, 1),
+      pages,
     }
   },
 })

@@ -161,7 +161,6 @@ import type * as lib_pages_storageFields from "../lib/pages/storageFields.js";
 import type * as lib_pages_types from "../lib/pages/types.js";
 import type * as lib_pilotEnvelope from "../lib/pilotEnvelope.js";
 import type * as lib_publishing_checklist from "../lib/publishing/checklist.js";
-import type * as lib_publishing_legacyMigration from "../lib/publishing/legacyMigration.js";
 import type * as lib_publishing_localeCandidate from "../lib/publishing/localeCandidate.js";
 import type * as lib_publishing_locks from "../lib/publishing/locks.js";
 import type * as lib_publishing_pagePurge from "../lib/publishing/pagePurge.js";
@@ -355,7 +354,6 @@ declare const fullApi: ApiFromModules<{
   "lib/pages/types": typeof lib_pages_types;
   "lib/pilotEnvelope": typeof lib_pilotEnvelope;
   "lib/publishing/checklist": typeof lib_publishing_checklist;
-  "lib/publishing/legacyMigration": typeof lib_publishing_legacyMigration;
   "lib/publishing/localeCandidate": typeof lib_publishing_localeCandidate;
   "lib/publishing/locks": typeof lib_publishing_locks;
   "lib/publishing/pagePurge": typeof lib_publishing_pagePurge;

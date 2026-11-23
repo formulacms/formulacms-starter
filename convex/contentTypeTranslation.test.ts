@@ -7,6 +7,7 @@ import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import schema from "./schema"
+import { isActiveContentType } from "./lib/contentTypes"
 
 // ADR-0037 amendment (2026-11-17), clauses 3, 4 and 7: the translation switch
 // per content type. Off hides a type's versions in every language but the one
@@ -14,6 +15,14 @@ import schema from "./schema"
 // deleted and on again restores them without a republish.
 
 const modules = import.meta.glob("./**/*.ts")
+// A generated starter may not ship Post and Author; their cases skip there.
+const postAndAuthorActive =
+  isActiveContentType("post") && isActiveContentType("author")
+// `test.runIf` would lose to the block profile's own `skip: false` option.
+const withPostAndAuthor = (profile: ReturnType<typeof blockProfile>) => ({
+  ...profile,
+  skip: profile.skip || !postAndAuthorActive,
+})
 const OWNER = { subject: "ctt-owner", tokenIdentifier: "ctt-owner" }
 const FIXED_NOW = Date.UTC(2026, 10, 17, 12, 0, 0)
 
@@ -26,8 +35,8 @@ type Site = {
   aboutId: Id<"pages">
   teamId: Id<"pages">
   contactId: Id<"pages">
-  authorId: Id<"pages">
-  postId: Id<"pages">
+  authorId?: Id<"pages">
+  postId?: Id<"pages">
 }
 
 beforeEach(() => {
@@ -190,26 +199,31 @@ async function mlSite(): Promise<Site> {
     title: "contact",
     content: bothLanguages("contact"),
   })
-  const authorId = await owner.mutation(api.cms.pages.create, {
-    pageType: "author",
-    status: "draft",
-    slug: "ada",
-    title: "Ada",
-    name: "Ada",
-    content: bothLanguages("Ada"),
-  })
-  const postId = await owner.mutation(api.cms.pages.create, {
-    pageType: "post",
-    status: "draft",
-    slug: "proof",
-    title: "Proof",
-    authorIds: [authorId],
-    content: {
-      en: { title: "Proof", blocks: [bodyBlock("pe", "English proof")] },
-      fr: { title: "Preuve", blocks: [bodyBlock("pf", "Preuve")] },
-    },
-  })
+  const authorId = postAndAuthorActive
+    ? await owner.mutation(api.cms.pages.create, {
+        pageType: "author",
+        status: "draft",
+        slug: "ada",
+        title: "Ada",
+        name: "Ada",
+        content: bothLanguages("Ada"),
+      })
+    : undefined
+  const postId = authorId
+    ? await owner.mutation(api.cms.pages.create, {
+        pageType: "post",
+        status: "draft",
+        slug: "proof",
+        title: "Proof",
+        authorIds: [authorId],
+        content: {
+          en: { title: "Proof", blocks: [bodyBlock("pe", "English proof")] },
+          fr: { title: "Preuve", blocks: [bodyBlock("pf", "Preuve")] },
+        },
+      })
+    : undefined
   for (const pageId of [teamId, contactId, authorId, postId]) {
+    if (!pageId) continue
     for (const locale of ["en", "fr"]) await publish(base, pageId, locale)
   }
   await t.run(async (ctx) => {
@@ -336,12 +350,13 @@ async function addMenu(site: Site) {
   }
 }
 
-const switchOff = (site: Pick<Site, "owner">, pageType: "landing-page" | "author") =>
+type SwitchedType = "landing-page" | "page" | "author"
+const switchOff = (site: Pick<Site, "owner">, pageType: SwitchedType) =>
   site.owner.mutation(api.cms.contentTypes.setContentTypeTranslation, {
     pageType,
     translated: false,
   })
-const switchOn = (site: Pick<Site, "owner">, pageType: "landing-page" | "author") =>
+const switchOn = (site: Pick<Site, "owner">, pageType: SwitchedType) =>
   site.owner.mutation(api.cms.contentTypes.setContentTypeTranslation, {
     pageType,
     translated: true,
@@ -429,11 +444,12 @@ describe("translation switch: the public readers", () => {
     expect(await publicPage(site.t, site.homeId, "fr")).not.toBeNull()
   })
 
-  test("a credited author vanishes from the other languages' byline and cards", blockProfile(["rich-text-body"]), async () => {
+  test("a credited author vanishes from the other languages' byline and cards", withPostAndAuthor(blockProfile(["rich-text-body"])), async () => {
     const site = await mlSite()
+    const authorId = site.authorId!
     const read = async (locale: string) =>
       site.t.query(api.cms.pages.getPublicByline, {
-        authorPageId: site.authorId,
+        authorPageId: authorId,
         locale,
         languageVersion: await languageVersion(site.t),
       })
@@ -442,7 +458,7 @@ describe("translation switch: the public readers", () => {
     await drain(site.t)
     expect(await read("fr")).toBeNull()
     expect(await read("en")).not.toBeNull()
-    expect((await cards(site.t, [site.authorId], "fr"))[site.authorId]).toBeNull()
+    expect((await cards(site.t, [authorId], "fr"))[authorId]).toBeNull()
   })
 
   test("an old address of a hidden version answers not found, never a redirect", blockProfile(["rich-text-body"]), async () => {
@@ -704,7 +720,7 @@ describe("translation switch: the owner command", () => {
       { pageType: "landing-page", locale: "en" },
     ])
     expect((await settingsRow(site.t)).updatedAt).toBe(first.updatedAt)
-    await expect(switchOn(site, "author")).resolves.toEqual([
+    await expect(switchOn(site, "page")).resolves.toEqual([
       { pageType: "landing-page", locale: "en" },
     ])
     await expect(
@@ -718,7 +734,7 @@ describe("translation switch: the owner command", () => {
       const row = (await ctx.db.query("cmsModuleState").first())!
       await ctx.db.patch("cmsModuleState", row._id, { enabledModules: [] })
     })
-    await expect(switchOn(site, "author")).resolves.toEqual([])
+    await expect(switchOn(site, "page")).resolves.toEqual([])
     expect((await settingsRow(site.t)).untranslatedContentTypes).toBeUndefined()
   })
 
@@ -1000,7 +1016,7 @@ describe("translation switch: guards", () => {
   })
 })
 
-describe("translation switch: links to a one-language type", () => {
+describe.runIf(postAndAuthorActive)("translation switch: links to a one-language type", () => {
   const newPost = (site: Site, slug: string, authorId: Id<"pages">) =>
     site.owner.mutation(api.cms.pages.create, {
       pageType: "post",
@@ -1016,9 +1032,10 @@ describe("translation switch: links to a one-language type", () => {
 
   test("a French post naming an author of a one-language type publishes and shows no byline", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
+    const authorId = site.authorId!
     await switchOff(site, "author")
     await drain(site.t)
-    const postId = await newPost(site, "linked", site.authorId)
+    const postId = await newPost(site, "linked", authorId)
     await publish(site, postId, "en")
     await publish(site, postId, "fr")
     // The row still records the link, so counts and deletion guards work.
@@ -1027,7 +1044,7 @@ describe("translation switch: links to a one-language type", () => {
         .query("pagePublicationDocumentReferences")
         .withIndex("by_targetId_and_sourceKind_and_locale", (q) =>
           q
-            .eq("targetId", site.authorId)
+            .eq("targetId", authorId)
             .eq("sourceKind", "current_public")
             .eq("locale", "fr")
         )
@@ -1037,18 +1054,18 @@ describe("translation switch: links to a one-language type", () => {
     // Public readers leave the author out in French, not in English.
     const read = async (locale: string) =>
       site.t.query(api.cms.pages.getPublicByline, {
-        authorPageId: site.authorId,
+        authorPageId: authorId,
         locale,
         languageVersion: await languageVersion(site.t),
       })
     expect(await read("fr")).toBeNull()
     expect(await read("en")).not.toBeNull()
     expect(
-      (await cards(site.t, [site.authorId], "fr"))[site.authorId]
+      (await cards(site.t, [authorId], "fr"))[authorId]
     ).toBeNull()
     expect(await publicPage(site.t, postId, "fr")).not.toBeNull()
     expect(
-      (await cards(site.t, [site.authorId], "en"))[site.authorId]
+      (await cards(site.t, [authorId], "en"))[authorId]
     ).not.toBeNull()
   })
 
@@ -1135,7 +1152,7 @@ describe("translation switch: links to a page hidden through an ancestor", () =>
     ).blockers.map((item) => item.code)
   const profile = blockProfile(["rich-text-body"])
 
-  test("publish and the checklist accept a credit to an author below a hidden parent", profile, async () => {
+  test("publish and the checklist accept a credit to an author below a hidden parent", withPostAndAuthor(profile), async () => {
     const site = await mlSite()
     const authorId = await childAuthor(site, "kid", ["en", "fr"])
     const postId = await linker(site, "by-kid", { authorId })
@@ -1155,7 +1172,7 @@ describe("translation switch: links to a page hidden through an ancestor", () =>
     expect(await publicPage(site.t, postId, "fr")).not.toBeNull()
   })
 
-  test("the frozen ancestry decides, not the draft parent", profile, async () => {
+  test("the frozen ancestry decides, not the draft parent", withPostAndAuthor(profile), async () => {
     const site = await mlSite()
     const authorId = await childAuthor(site, "mover", ["en", "fr"])
     await switchOff(site, "landing-page")
@@ -1177,7 +1194,7 @@ describe("translation switch: links to a page hidden through an ancestor", () =>
     expect(await publicPage(site.t, postId, "fr")).not.toBeNull()
   })
 
-  test("control: an author with no French version still blocks, even with a hidden draft parent", profile, async () => {
+  test("control: an author with no French version still blocks, even with a hidden draft parent", withPostAndAuthor(profile), async () => {
     const site = await mlSite()
     const authorId = await childAuthor(site, "solo", ["en"])
     await switchOff(site, "landing-page")
@@ -1199,7 +1216,7 @@ describe("translation switch: links to a page hidden through an ancestor", () =>
   // moved below a landing page and republished in French. The reader recurses
   // through P's current publication, so the switch-hidden answer must come from
   // the reader, not from a second walk of the frozen ancestry.
-  test("a credit to an author whose parent was moved below a hidden page is accepted", profile, async () => {
+  test("a credit to an author whose parent was moved below a hidden page is accepted", withPostAndAuthor(profile), async () => {
     const site = await mlSite()
     const parentId = site.contactId
     const authorId = await childAuthor(site, "reparented", ["en", "fr"], parentId)
@@ -1357,7 +1374,7 @@ describe("translation switch: links to a page hidden through an ancestor", () =>
 describe("translation switch: impact", () => {
   test("counts what an off switch hides, with N+ when bounded", blockProfile(["rich-text-body"]), async () => {
     const site = await mlSite()
-    const impact = (pageType: "landing-page" | "author") =>
+    const impact = (pageType: "landing-page") =>
       site.owner.query(api.cms.contentTypes.getContentTypeTranslationImpact, {
         pageType,
       })
@@ -1369,6 +1386,14 @@ describe("translation switch: impact", () => {
       linkingPages: { count: 0, capped: false },
       childPages: { count: 1, capped: false },
     })
+  })
+
+  test("counts the pages that link to an author an off switch hides", withPostAndAuthor(blockProfile(["rich-text-body"])), async () => {
+    const site = await mlSite()
+    const impact = (pageType: "author") =>
+      site.owner.query(api.cms.contentTypes.getContentTypeTranslationImpact, {
+        pageType,
+      })
     // author: Ada in French; the post credits her in French.
     await expect(impact("author")).resolves.toEqual({
       keptLocale: "en",

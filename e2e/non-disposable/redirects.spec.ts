@@ -64,10 +64,10 @@ test("V08 Redirects enablement, rule, blocker, denial surface, and stale owner r
     await setRedirects(first, true)
     const ownerClient = await clientFor(first)
     const anonymous = anonymousClient()
-    const emptyRules = await ownerClient.query(api.cms.redirects.list, {})
+    const emptyRules = (await ownerClient.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } })).page
     expect(emptyRules).toEqual([])
-    await expectConvexDenial(anonymous.query(api.cms.redirects.list, {}), "UNAUTHENTICATED")
-    expect(await ownerClient.query(api.cms.redirects.list, {})).toEqual(emptyRules)
+    await expectConvexDenial(anonymous.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } }), "UNAUTHENTICATED")
+    expect((await ownerClient.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } })).page).toEqual(emptyRules)
 
     await first.goto("/admin/redirects")
     await first.getByRole("button", { name: (await pageTranslator(first))("inventory.redirects.add") }).click()
@@ -122,8 +122,8 @@ test("V08 Redirects enablement, rule, blocker, denial surface, and stale owner r
     await first.goto("/admin/redirects")
     await expect(first).toHaveURL(/\/admin\/settings\/modules(?:\?|$)/)
     await expect(first.getByText((await pageTranslator(first))("inventory.redirects.moduleOffNotice"))).toBeVisible()
-    await expectConvexDenial(ownerClient.query(api.cms.redirects.list, {}), "CMS_MODULE_DISABLED")
-    await expectConvexDenial(anonymous.query(api.cms.redirects.list, {}), "UNAUTHENTICATED")
+    await expectConvexDenial(ownerClient.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } }), "CMS_MODULE_DISABLED")
+    await expectConvexDenial(anonymous.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } }), "UNAUTHENTICATED")
     const historicalAfter = await request.get(historicalPath, {
       maxRedirects: 0,
       failOnStatusCode: false,

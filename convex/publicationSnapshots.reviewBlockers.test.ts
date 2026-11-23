@@ -51,7 +51,6 @@ const PUBLICATION_TABLES = [
   "pagePublicationBlockReferences",
   "pageHistoricalLocaleRoutes",
   "pagePublicationRevalidationIntents",
-  "pagePublicationMigrationPages",
 ] as const
 
 /** Byte-for-byte dump of every publication family, for rollback assertions. */

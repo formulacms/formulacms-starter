@@ -181,7 +181,7 @@ test("M05 stage 4 reviews complete removals, returns to S1, and disables safely"
     expect(englishAfterDisable.body).toContain(required("FR6_E2E_M05_EN_MARKER"))
 
     expect((await client.query(api.cms.modules.effective, {})).modules).toContainEqual({ id: "redirects", outcome: "on" })
-    const retainedRules = await client.query(api.cms.redirects.list, {})
+    const retainedRules = (await client.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } })).page
     expect(retainedRules).toEqual(expect.arrayContaining([
       expect.objectContaining({ locale: "en", fromPath: required("FR6_E2E_M05_MANUAL_EN_PATH") }),
       expect.objectContaining({ locale: "fr", fromPath: required("FR6_E2E_M05_MANUAL_FR_PATH") }),

@@ -189,6 +189,81 @@ describe("M05 C5 getPublicLocaleAlternates (P13a, P20)", () => {
     ])
   })
 
+  test("a French-default site's home alternates are / and /en despite localized slugs", async () => {
+    const t = convexTest({ schema, modules, ownerIdentity: OWNER })
+    const owner = t.withIdentity(OWNER)
+    await owner.mutation(api.cms.settings.bootstrapInstallation, {
+      siteName: "French-default site",
+      timezone: "UTC",
+      defaultLocale: "fr",
+    })
+    const changes = [{ moduleId: "multilingual", enabled: true }]
+    const preview = await owner.query(api.cms.modules.preview, { changes })
+    await owner.mutation(api.cms.modules.commit, {
+      changes,
+      expectedConfigurationVersion: preview.configurationVersion,
+    })
+    const { commandTokens } = await owner.query(
+      api.cms.multilingual.getMultilingualState,
+      {}
+    )
+    if (commandTokens.settingsUpdatedAt === null)
+      throw new Error("Missing bootstrapped settings")
+    const added = await owner.mutation(api.cms.multilingual.addSiteLanguage, {
+      locale: "en",
+      expectedSettingsUpdatedAt: commandTokens.settingsUpdatedAt,
+      expectedModuleConfigurationVersion:
+        commandTokens.moduleConfigurationVersion,
+      expectedAuthorityVersion: commandTokens.authorityVersion,
+    })
+    expect(added.ok).toBe(true)
+    const { homePageId, languageVersion } = await t.query(
+      api.cms.settings.getSiteConfig,
+      {}
+    )
+    expect(homePageId).toBeTruthy()
+    const homeId = homePageId!
+    const site = { t, owner, locales: ["fr", "en"] }
+
+    for (const [locale, slug] of [
+      ["fr", "accueil"],
+      ["en", "home"],
+    ] as const) {
+      const state = await t.run((ctx) =>
+        ctx.db
+          .query("pageLocalePublicationStates")
+          .withIndex("by_pageId_and_locale", (q) =>
+            q.eq("pageId", homeId).eq("locale", locale)
+          )
+          .unique()
+      )
+      await owner.mutation(api.cms.publication.saveLocaleDraft, {
+        pageId: homeId,
+        locale,
+        slug,
+        expectedDraftGeneration: state?.draftGeneration ?? 0,
+        expectedLifecycleGeneration: 1,
+        draft: {
+          pageType: "landing-page",
+          localized: { title: locale === "fr" ? "Accueil" : "Home" },
+          blocks: [],
+        },
+      })
+      await publish(site, homeId, locale)
+    }
+    await drain(t)
+
+    await expect(
+      t.query(api.cms.pages.getPublicLocaleAlternates, {
+        pageId: homeId,
+        languageVersion,
+      })
+    ).resolves.toEqual([
+      { locale: "fr", url: "/", indexable: true },
+      { locale: "en", url: "/en", indexable: true },
+    ])
+  })
+
   test("the default language from settings is the unprefixed one", async () => {
     const site = await snapshotSite(["de", "en", "fr"])
     const pageId = await publishedPage(site, "about", ["de", "en", "fr"])

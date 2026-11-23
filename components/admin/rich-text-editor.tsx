@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
 import {
@@ -127,7 +127,10 @@ type SlashCommand = {
   keywords?: string[]
   shortcut?: string
   disabled?: boolean
-  run: () => void | Promise<void>
+  /** `stillCurrent` reports whether this editor is still mounted and the
+   *  editing language is still the one the command started in (AI commands
+   *  drop a late answer otherwise). */
+  run: (stillCurrent: () => boolean) => void | Promise<void>
 }
 
 function modLabel(shortcut: string) {
@@ -794,6 +797,7 @@ export function RichTextEditor({
   sourceValue,
   translate,
   generate,
+  locale,
 }: {
   id?: string
   value: string
@@ -806,9 +810,26 @@ export function RichTextEditor({
   sourceValue?: string
   translate?: FieldTranslate
   generate?: FieldGenerate
+  /** The language being edited; a late AI answer is dropped if it changes. */
+  locale?: string
 }) {
   const displayError = useCaughtError()
   const t = useTranslations("editor.richText")
+  const tFields = useTranslations("editor.fields")
+  // The newest editing language, read when a slash AI answer arrives.
+  const localeRef = useRef(locale)
+  useLayoutEffect(() => {
+    localeRef.current = locale
+  })
+  // False from the moment this editor unmounts. TipTap destroys the editor in
+  // setTimeout(…, 1), so `isDestroyed` alone misses an answer in that tick.
+  const mountedRef = useRef(false)
+  useLayoutEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
   const confirm = useConfirm()
   const promptUser = usePrompt()
   const [slashState, setSlashState] = useState<SlashState | null>(null)
@@ -870,7 +891,25 @@ export function RichTextEditor({
       activeEditor.commands.setContent(toEditorContent(next, profile, contract))
     }
 
-    async function writeWithAI() {
+    // Snapshot this field's document right before an AI request. The answer
+    // is dropped with a toast if, when it arrives, the language changed, the
+    // document changed, or the editor is gone.
+    function beginAnswer(stillCurrent: () => boolean) {
+      const startDoc = JSON.stringify(activeEditor.getJSON())
+      return function apply(next: string) {
+        if (
+          activeEditor.isDestroyed ||
+          !stillCurrent() ||
+          JSON.stringify(activeEditor.getJSON()) !== startDoc
+        ) {
+          toast.error(tFields("changedDuringAi"))
+          return
+        }
+        replaceContent(next)
+      }
+    }
+
+    async function writeWithAI(stillCurrent: () => boolean) {
       if (!generate) return
       if (hasContent) {
         const ok = await confirm({
@@ -894,10 +933,14 @@ export function RichTextEditor({
         presetsLabel: t("write.presets"),
       })
       if (!brief) return
-      replaceContent(await generate.run(brief, fieldLabel, "richText", profile))
+      const apply = beginAnswer(stillCurrent)
+      apply(await generate.run(brief, fieldLabel, "richText", profile))
     }
 
-    async function refineWithAI(instruction?: string) {
+    async function refineWithAI(
+      stillCurrent: () => boolean,
+      instruction?: string
+    ) {
       if (!generate || !hasContent) return
       const promptInstruction =
         instruction ??
@@ -913,7 +956,8 @@ export function RichTextEditor({
           presetsLabel: t("refine.presets"),
         }))
       if (!promptInstruction) return
-      replaceContent(
+      const apply = beginAnswer(stillCurrent)
+      apply(
         await generate.runRefine(
           currentJson,
           promptInstruction,
@@ -923,7 +967,7 @@ export function RichTextEditor({
       )
     }
 
-    async function translateField() {
+    async function translateField(stillCurrent: () => boolean) {
       if (!translate || !sourceValue) return
       if (hasContent) {
         const ok = await confirm({
@@ -936,7 +980,8 @@ export function RichTextEditor({
         })
         if (!ok) return
       }
-      replaceContent(await translate.run(sourceValue, "richText"))
+      const apply = beginAnswer(stillCurrent)
+      apply(await translate.run(sourceValue, "richText"))
     }
 
     function fromSlash(
@@ -1007,7 +1052,8 @@ export function RichTextEditor({
           icon: WandSparkles,
           keywords: ["ai", "rewrite", "refine"],
           disabled: !hasContent,
-          run: () => refineWithAI("Improve clarity while preserving meaning."),
+          run: (stillCurrent) =>
+            refineWithAI(stillCurrent, "Improve clarity while preserving meaning."),
         },
         {
           id: "ai-shorten",
@@ -1016,7 +1062,8 @@ export function RichTextEditor({
           icon: Wand2,
           keywords: ["ai", "shorten", "concise"],
           disabled: !hasContent,
-          run: () => refineWithAI("Make this shorter and more concise."),
+          run: (stillCurrent) =>
+            refineWithAI(stillCurrent, "Make this shorter and more concise."),
         },
         {
           id: "ai-expand",
@@ -1025,7 +1072,8 @@ export function RichTextEditor({
           icon: Wand2,
           keywords: ["ai", "expand", "longer"],
           disabled: !hasContent,
-          run: () => refineWithAI("Expand this with useful detail."),
+          run: (stillCurrent) =>
+            refineWithAI(stillCurrent, "Expand this with useful detail."),
         },
         {
           id: "ai-tone",
@@ -1034,7 +1082,7 @@ export function RichTextEditor({
           icon: Wand2,
           keywords: ["ai", "tone", "voice"],
           disabled: !hasContent,
-          run: () => refineWithAI(),
+          run: (stillCurrent) => refineWithAI(stillCurrent),
         }
       )
     }
@@ -1291,8 +1339,13 @@ export function RichTextEditor({
     if (!command || command.disabled || slashRunningId) return
     setSlashRunningId(command.id)
     setSlashState(null)
+    const startLocale = localeRef.current
     await Promise.resolve()
-      .then(() => command.run())
+      .then(() =>
+        command.run(
+          () => mountedRef.current && localeRef.current === startLocale
+        )
+      )
       .then(
         () => {
           setSlashRunningId(null)

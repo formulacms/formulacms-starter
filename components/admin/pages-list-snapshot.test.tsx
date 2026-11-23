@@ -50,9 +50,6 @@ vi.mock("sonner", () => ({
 vi.mock("@/app/(core)/admin/(authenticated)/pages/actions", () => ({
   revalidatePagePaths: vi.fn(async () => undefined),
 }))
-vi.mock("@/components/admin/duplicate-page-dialog", () => ({
-  DuplicatePageDialog: () => <div data-testid="duplicate-dialog" />,
-}))
 vi.mock("@/lib/admin/content-types", () => ({
   adminContentTypeSingularMessageKey: (type: string) => `${type}.singular`,
   adminContentTypePluralMessageKey: (type: string) => `${type}.plural`,

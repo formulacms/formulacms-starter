@@ -47,11 +47,6 @@ describe("caught error display consumer boundary", () => {
     expect(source).toContain("reason: error.code")
     expect(source).not.toContain("new ConvexError(error.message)")
   })
-  it("legacy slug refusal retains diagnostic and carries a stable code", () => {
-    const source = read("convex/cms/pages.ts")
-    expect(source.match(/code: "SLUG_TAKEN"/g)).toHaveLength(4)
-    expect(source.match(/Please choose a different slug/g)).toHaveLength(4)
-  })
   it("formatting uses explicit effective admin locale", () => {
     expect(read("components/admin/pages-list-client.tsx")).not.toContain(
       'toLocaleString("en-US"'

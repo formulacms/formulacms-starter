@@ -76,7 +76,6 @@ vi.mock("@/components/admin/command-palette", () => ({
   },
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({ DuplicatePageDialog: () => null }))
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: () => null,
 }))
@@ -261,5 +260,5 @@ test("the language tabs carry no green dot, only the selected pill colours", () 
   })
   expect(view.container.querySelector(".bg-emerald-400")).toBeNull()
   const selected = header.getByRole("tab", { selected: true })
-  expect(selected).toHaveClass("bg-primary", "text-primary-foreground")
+  expect(selected).toHaveClass("bg-accent", "text-accent-foreground")
 })

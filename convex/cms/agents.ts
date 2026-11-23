@@ -2,7 +2,7 @@
 // Read/write the operator-editable AI agent configs. Defaults live in
 // convex/lib/agents/registry.ts; the DB (`agentConfigs`) stores only overrides.
 import { v, ConvexError } from "convex/values"
-import { internalMutation, mutation, query } from "../_generated/server"
+import { mutation, query } from "../_generated/server"
 import { requireOwnerAndOptionalModule } from "../lib/modules/state"
 import {
   AGENTS,
@@ -20,13 +20,12 @@ import type { TaskProfile } from "../../lib/ai/execution-contract"
 // build-lane work is no longer a runtime agent. The literal union stays
 // tighter than the schema table's own union so `updateAgent` refuses those
 // keys even if a legacy client sends them; the schema keeps them so existing
-// rows remain schema-valid until `clearRetiredBlockAgents` sweeps them.
+// rows remain schema-valid. Fresh installs do not create those rows.
 const agentLiteral = v.union(
   v.literal("translation"),
   v.literal("content"),
   v.literal("help-assistant")
 )
-const RETIRED_AGENT_IDS = ["block-author", "block-renderer"] as const
 const presetValidator = v.object({ label: v.string(), body: v.string() })
 
 export const AGENT_TASK_PROFILES = {
@@ -58,8 +57,6 @@ export const listAgents = query({
       id: agentLiteral,
       label: v.string(),
       description: v.string(),
-      // No `systemPlaceholders`: they only ever labelled the system-prompt
-      // editor, which no longer exists.
       userPlaceholders: v.array(v.string()),
       defaultModel: v.union(v.string(), v.null()),
       model: v.union(v.string(), v.null()),
@@ -107,9 +104,6 @@ export const listAgents = query({
         refinePresets: row?.refinePresets ?? defaultRefinePresets,
         defaultWriteBriefs,
         defaultRefinePresets,
-        // A stale `row.systemPrompt` deliberately does NOT count: the runtime no
-        // longer reads it, so flagging the agent "customized" over a value that
-        // has no effect would be a lie.
         isCustomized: Boolean(
           row &&
           (row.model !== undefined ||
@@ -165,7 +159,7 @@ export const updateAgent = mutation({
     modelOverrides: v.optional(providerModelSelectionsValidator),
     // For preset arrays: pass an array (possibly empty) to store an override,
     // omit the arg to leave the override unchanged. There's no "" sentinel for
-    // arrays — to revert to defaults, use `resetAgentPresets`.
+    // arrays.
     writeBriefs: v.optional(v.array(presetValidator)),
     refinePresets: v.optional(v.array(presetValidator)),
   },
@@ -257,82 +251,6 @@ export const updateAgent = mutation({
     } else {
       await ctx.db.insert("agentConfigs", { agent: args.agent, ...fields })
     }
-    return null
-  },
-})
-
-/** One-shot cleanup for the two retired build-lane block agents
- *  (`block-author`, `block-renderer`) — the runtime no longer routes to them,
- *  `listAgents` no longer surfaces them, and `updateAgent` refuses to write
- *  them. Any surviving `agentConfigs` row for those ids is dead data. Run once
- *  per deployment: `npx convex run cms/agents:clearRetiredBlockAgents`. Keep
- *  the schema union entries for both ids until this has run everywhere;
- *  removing a literal from a defineTable union while rows still carry it is a
- *  schema-validation break. */
-export const clearRetiredBlockAgents = internalMutation({
-  args: {},
-  returns: v.number(),
-  handler: async (ctx) => {
-    const rows = await ctx.db.query("agentConfigs").collect()
-    const toDelete = rows.filter((row) =>
-      (RETIRED_AGENT_IDS as readonly string[]).includes(row.agent)
-    )
-    await Promise.all(toDelete.map((row) => ctx.db.delete("agentConfigs", row._id)))
-    return toDelete.length
-  },
-})
-
-/** One-shot cleanup for the retired system-prompt override (see `updateAgent`).
- *  The runtime already ignores `agentConfigs.systemPrompt`, so any stored value
- *  is dead data — this drops it so the column can eventually leave the schema.
- *  Run once per deployment: `npx convex run cms/agents:clearStoredSystemPrompts`.
- *  Uses `replace` because `patch` can set a field but not remove it. */
-export const clearStoredSystemPrompts = internalMutation({
-  args: {},
-  returns: v.number(),
-  handler: async (ctx) => {
-    const rows = await ctx.db.query("agentConfigs").collect()
-    const toClear = rows.filter((row) => row.systemPrompt !== undefined)
-    await Promise.all(
-      toClear.map((row) => {
-        const { _id, _creationTime, ...rest } = row
-        void _creationTime
-        const replacement: typeof rest = { ...rest }
-        delete replacement.systemPrompt
-        return ctx.db.replace("agentConfigs", _id, replacement)
-      })
-    )
-    return toClear.length
-  },
-})
-
-/** Revert one preset list (or both) on the content agent to registry defaults.
- *  Uses `replace` so we can drop a field — `patch` can only set, not clear. */
-export const resetAgentPresets = mutation({
-  args: {
-    agent: agentLiteral,
-    writeBriefs: v.optional(v.boolean()),
-    refinePresets: v.optional(v.boolean()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await requireOwnerAndOptionalModule(ctx, "ai", { requireReady: false })
-    if (args.agent !== "content") {
-      throw new ConvexError(
-        "Presets are only configurable on the content agent"
-      )
-    }
-    const existing = await ctx.db
-      .query("agentConfigs")
-      .withIndex("by_agent", (q) => q.eq("agent", args.agent as AgentId))
-      .unique()
-    if (!existing) return null
-    const { _id, _creationTime, ...rest } = existing
-    void _creationTime
-    const replacement: typeof rest = { ...rest, updatedAt: Date.now() }
-    if (args.writeBriefs) delete replacement.writeBriefs
-    if (args.refinePresets) delete replacement.refinePresets
-    await ctx.db.replace("agentConfigs", _id, replacement)
     return null
   },
 })

@@ -93,6 +93,7 @@ describe("cms.redirects provenance", () => {
       return [
         await ctx.db.insert("redirects", {
           fromPath: "/campaign",
+          locale: "en",
           toPath: "https://example.com/landing",
           statusCode: 302,
           createdAt: now,
@@ -100,6 +101,7 @@ describe("cms.redirects provenance", () => {
         }),
         await ctx.db.insert("redirects", {
           fromPath: "/old-slug",
+          locale: "en",
           toPath: "/new-slug",
           statusCode: 301,
           createdAt: now,
@@ -115,6 +117,7 @@ describe("cms.redirects provenance", () => {
       fromPath: "/manual",
       toPath: "/elsewhere",
       statusCode: 301,
+      locale: "en",
     })
 
     const after = await t.run((ctx) =>
@@ -132,6 +135,7 @@ describe("cms.redirects provenance", () => {
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/campaign",
+        locale: "en",
       })
     ).resolves.toEqual({
       destination: "https://example.com/landing",
@@ -141,12 +145,14 @@ describe("cms.redirects provenance", () => {
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/old-slug",
+        locale: "en",
       })
     ).resolves.toEqual({ destination: "/new-slug", statusCode: 301 })
     await expect(
       t.query(api.cms.redirects.resolve, {
         languageVersion: 0,
         path: "/manual",
+        locale: "en",
       })
     ).resolves.toEqual({ destination: "/elsewhere", statusCode: 301 })
     const keys = await t.query(api.cms.redirects.listActiveKeys, {
@@ -157,7 +163,7 @@ describe("cms.redirects provenance", () => {
       "/manual",
       "/old-slug",
     ])
-    const listed = await owner.query(api.cms.redirects.list, {})
+    const listed = (await owner.query(api.cms.redirects.listPaginated, { paginationOpts: { numItems: 500, cursor: null } })).page
     expect(listed.map((row) => row.fromPath)).toEqual([
       "/campaign",
       "/manual",

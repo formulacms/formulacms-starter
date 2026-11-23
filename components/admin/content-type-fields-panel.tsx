@@ -226,6 +226,7 @@ function SharedFieldsToolbar({
               sourceValue={sourceValueFor(sourceValues, key)}
               translate={translate}
               generate={generate}
+              locale={locale}
               onChange={(v) => set(key, v)}
             />
           ))}
@@ -273,6 +274,7 @@ function TextFieldChip({
   sourceValue,
   translate,
   generate,
+  locale,
   onChange,
 }: {
   label: string
@@ -281,6 +283,8 @@ function TextFieldChip({
   sourceValue?: string
   translate?: FieldTranslate
   generate?: FieldGenerate
+  /** The language being edited; a late AI answer is dropped if it changes. */
+  locale: string
   onChange(value: unknown): void
 }) {
   const t = useTranslations("editor.contentFields")
@@ -309,6 +313,7 @@ function TextFieldChip({
         translate={translate}
         generate={generate}
         onResult={set}
+        locale={locale}
       />
     </div>
   )

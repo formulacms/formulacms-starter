@@ -1,3 +1,4 @@
+import { isActiveContentType } from "@/convex/lib/contentTypes"
 import type { ReactNode } from "react"
 import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { render } from "@/test-utils/admin-i18n"
@@ -158,10 +159,6 @@ vi.mock("@/components/ui/popover", () => ({
   PopoverTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({
-  DuplicatePageDialog: () => null,
-}))
-
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: ({
     localizedValues,
@@ -269,6 +266,20 @@ function seoValues() {
   return JSON.parse(screen.getByTestId("seo-values").textContent ?? "{}")
 }
 
+function publication() {
+  return {
+    authority: "snapshot_active" as const,
+    lifecycleGeneration: 3,
+    sharedDraftGeneration: 4,
+    locales: ["en", "fr"].map((locale) => ({
+      locale,
+      draftGeneration: 2,
+      publicGeneration: 1,
+      releaseGeneration: 1,
+    })),
+  }
+}
+
 function openTab(name: "English" | "Français") {
   fireEvent.click(screen.getByTitle(name))
 }
@@ -286,6 +297,7 @@ describe("PageEditor per-language search and social values", () => {
         page={post()}
         hasStaging={false}
         stagingUpdatedAt={undefined}
+        publication={publication()}
       />
     )
     fireEvent.click(screen.getByTitle("SEO"))
@@ -316,12 +328,13 @@ describe("PageEditor per-language search and social values", () => {
     })
   })
 
-  test("Copy from copies the other language's search, social and card values and category", async () => {
+  test.runIf(isActiveContentType("post"))("Copy from copies the other language's search, social and card values and category", async () => {
     render(
       <PageEditor
         page={post()}
         hasStaging={false}
         stagingUpdatedAt={undefined}
+        publication={publication()}
       />
     )
     fireEvent.click(screen.getByRole("button", { name: /Copy from FR/i }))
@@ -347,8 +360,9 @@ describe("PageEditor per-language search and social values", () => {
     await waitFor(() =>
       expect(mocks.mutation).toHaveBeenCalledWith(
         expect.objectContaining({
-          content: {
-            en: expect.objectContaining({
+          localized: expect.objectContaining({
+            locale: "en",
+            draft: expect.objectContaining({
               cardExcerpt: "Un petit bonjour.",
               seo: {
                 ogTitle: "Bonjour social",
@@ -357,18 +371,19 @@ describe("PageEditor per-language search and social values", () => {
                 keywords: ["bonjour"],
               },
             }),
-          },
+          }),
         })
       )
     )
   })
 
-  test("Push sends this language's search, social and card values and category", async () => {
+  test.runIf(isActiveContentType("post"))("Push sends this language's search, social and card values and category", async () => {
     render(
       <PageEditor
         page={post()}
         hasStaging={false}
         stagingUpdatedAt={undefined}
+        publication={publication()}
       />
     )
     openTab("Français")
@@ -392,8 +407,9 @@ describe("PageEditor per-language search and social values", () => {
     await waitFor(() =>
       expect(mocks.mutation).toHaveBeenCalledWith(
         expect.objectContaining({
-          content: {
-            en: expect.objectContaining({
+          localized: expect.objectContaining({
+            locale: "en",
+            draft: expect.objectContaining({
               localized: expect.objectContaining({ category: "Actualités" }),
               cardExcerpt: "Un petit bonjour.",
               seo: {
@@ -403,7 +419,7 @@ describe("PageEditor per-language search and social values", () => {
                 keywords: ["bonjour"],
               },
             }),
-          },
+          }),
         })
       )
     )

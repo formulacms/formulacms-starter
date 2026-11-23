@@ -50,7 +50,7 @@ export function LocaleTabs({
             onClick={() => onLocaleChange(locale)}
             className={`relative rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               isActive
-                ? "bg-primary text-primary-foreground shadow-sm"
+                ? "bg-accent text-accent-foreground shadow-sm"
                 : "text-muted-foreground hover:bg-background/50 hover:text-foreground"
             }`}
           >

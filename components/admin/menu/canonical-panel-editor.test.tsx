@@ -74,16 +74,20 @@ test("secondary-locale mode removes structural controls", () => {
   expect(screen.getByDisplayValue("First")).toBeEnabled()
 })
 
-test("adds a dynamic list with a bounded active content source", () => {
+test("each region offers its add buttons", () => {
   render(<Harness />)
-  fireEvent.click(
-    screen.getAllByRole("button", { name: /add dynamic list/i })[0]!
+  expect(
+    screen.getAllByRole("button", { name: /^add link group — /i })
+  ).toHaveLength(2)
+  expect(
+    screen.getAllByRole("button", { name: /^add featured section — /i })
+  ).toHaveLength(2)
+  expect(
+    screen.getAllByRole("button", { name: / — panel (sections|bottom)$/i })
+  ).toHaveLength(
+    // Only the source offers a dynamic list in each region.
+    4
   )
-  expect(screen.getByTestId("kinds")).toHaveTextContent(
-    "linkGroup,linkGroup,dynamicList"
-  )
-  expect(screen.getByLabelText("Content type")).toHaveValue("post")
-  expect(screen.getByLabelText("Item limit")).toHaveValue(3)
 })
 
 test("renders canonical panel controls in French", () => {
@@ -94,22 +98,10 @@ test("renders canonical panel controls in French", () => {
   expect(
     screen.getAllByRole("button", { name: /Ajouter un groupe de liens —/ })
   ).toHaveLength(2)
-  fireEvent.click(
-    screen.getAllByRole("button", {
-      name: /Ajouter une liste automatique —/,
-    })[0]!
-  )
-  expect(screen.getByRole("option", { name: "Articles" })).toBeInTheDocument()
 })
 
 test("new lists have no heading and section widths are bounded by the panel", () => {
   render(<Harness />)
-  fireEvent.click(
-    screen.getAllByRole("button", {
-      name: /add dynamic list — panel sections/i,
-    })[0]!
-  )
-  expect(screen.getByPlaceholderText("List heading (optional)")).toHaveValue("")
   for (const select of screen.getAllByLabelText("Section width")) {
     expect(
       Array.from(select.querySelectorAll("option")).map(

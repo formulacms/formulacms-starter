@@ -4,8 +4,6 @@ import type { ContentType } from "@/convex/lib/contentTypes"
 // @content-type-codegen:content-type-renderer-imports:start
 import { LandingPageRenderer } from "./landing-page"
 import { PageRenderer } from "./page"
-import { PostRenderer } from "./post"
-import { AuthorRenderer } from "./author"
 // @content-type-codegen:content-type-renderer-imports:end
 import type { ContentTypeRenderer } from "./types"
 
@@ -15,8 +13,6 @@ const contentTypeRenderers: Partial<
 > = {
   "landing-page": { kind: "blockBody", Component: LandingPageRenderer },
   page: { kind: "blockBody", Component: PageRenderer },
-  post: { kind: "blockBody", Component: PostRenderer },
-  author: { kind: "blockBody", Component: AuthorRenderer },
 }
 // @content-type-codegen:content-type-renderers:end
 

@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest"
+import { NextIntlClientProvider } from "next-intl"
+import fr from "@/messages/admin/fr.json"
+import { describe, it, expect, vi } from "vitest"
 import { screen } from "@testing-library/react"
 import { render } from "@/test-utils/admin-i18n"
 import { PrePublishChecklistContent } from "./pre-publish-checklist"
@@ -61,14 +63,80 @@ describe("PrePublishChecklistContent", () => {
   })
 })
 
-  it("translates a known server code instead of displaying its English message", () => {
-    render(<PrePublishChecklistContent checklist={checklist({ canPublish: false, blockers: [{ code: "missing_default_locale_title", severity: "blocker", message: "SERVER ENGLISH", locales: ["en"] }] })} warningsAcknowledged={false} />, { locale: "fr" })
-    expect(screen.getByText("Ajoutez un titre dans la langue par défaut (EN) avant de publier.", { exact: true })).toBeInTheDocument()
-    expect(screen.queryByText("SERVER ENGLISH")).not.toBeInTheDocument()
-  })
+it("translates a known server code instead of displaying its English message", () => {
+  render(
+    <PrePublishChecklistContent
+      checklist={checklist({
+        canPublish: false,
+        blockers: [
+          {
+            code: "missing_default_locale_title",
+            severity: "blocker",
+            message: "SERVER ENGLISH",
+            locales: ["en"],
+          },
+        ],
+      })}
+      warningsAcknowledged={false}
+    />,
+    { locale: "fr" }
+  )
+  expect(
+    screen.getByText(
+      "Ajoutez un titre dans la langue par défaut (EN) avant de publier.",
+      { exact: true }
+    )
+  ).toBeInTheDocument()
+  expect(screen.queryByText("SERVER ENGLISH")).not.toBeInTheDocument()
+})
 
-  it("localizes descriptor and field parameters in the rendered checklist", () => {
-    render(<PrePublishChecklistContent checklist={checklist({ canPublish: false, blockers: [{ code: "missing_required_field", severity: "blocker", message: "Author is missing required name.", params: { contentType: "author", fieldName: "name" } }] })} warningsAcknowledged={false} />, { locale: "fr" })
-    expect(screen.getByText("Auteur : le champ obligatoire Nom est vide.", { exact: true })).toBeInTheDocument()
-    expect(screen.queryByText("Author is missing required name.")).not.toBeInTheDocument()
-  })
+it("localizes descriptor and field parameters in the rendered checklist", async () => {
+  vi.resetModules()
+  vi.doMock("@/convex/lib/contentTypes/starterSelection", () => ({
+    STARTER_CONTENT_TYPES: ["landing-page", "page", "author"],
+  }))
+  try {
+    const { PrePublishChecklistContent: Content } =
+      await import("./pre-publish-checklist")
+    const messages = {
+      ...fr,
+      sidebar: {
+        ...fr.sidebar,
+        contentType: {
+          ...fr.sidebar.contentType,
+          author: { singular: "Auteur", plural: "Auteurs" },
+        },
+      },
+    }
+    render(
+      <NextIntlClientProvider locale="fr" messages={messages}>
+        <Content
+          checklist={checklist({
+            canPublish: false,
+            blockers: [
+              {
+                code: "missing_required_field",
+                severity: "blocker",
+                message: "Author is missing required name.",
+                params: { contentType: "author", fieldName: "name" },
+              },
+            ],
+          })}
+          warningsAcknowledged={false}
+        />
+      </NextIntlClientProvider>,
+      { locale: "fr" }
+    )
+    expect(
+      screen.getByText("Auteur : le champ obligatoire Nom est vide.", {
+        exact: true,
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("Author is missing required name.")
+    ).not.toBeInTheDocument()
+  } finally {
+    vi.doUnmock("@/convex/lib/contentTypes/starterSelection")
+    vi.resetModules()
+  }
+})

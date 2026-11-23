@@ -1,6 +1,7 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
+import { ConvexError } from "convex/values"
 import { api } from "@/convex/_generated/api"
 import { assertLocalDevelopment } from "@/lib/assert-local-dev"
 import {
@@ -20,8 +21,25 @@ function assertLocalBlockWrite(): void {
   assertLocalDevelopment("Block edits")
 }
 
-import type { DeleteBlockResult } from "@/lib/blocks/authoring/service"
-export type { DeleteBlockResult } from "@/lib/blocks/authoring/service"
+import type { DeleteBlockResult as ServiceDeleteBlockResult } from "@/lib/blocks/authoring/service"
+
+/** The Delete guard's refusal codes come back as values, so the owner sees a
+ * plain, translated message (by `reason`) instead of a raw server error. The
+ * `message` keeps the stable code for non-UI callers. */
+const DELETE_REFUSALS = {
+  BLOCK_TYPE_REFERENCED_BY_PUBLICATION: "referenced",
+  BLOCK_USAGE_CHECK_INCOMPLETE: "incomplete",
+  // A stored usage count that cannot be read is also an unfinished check.
+  INVALID_BLOCK_PUBLICATION_USAGE: "incomplete",
+} as const
+
+export type DeleteBlockResult =
+  | ServiceDeleteBlockResult
+  | {
+      status: "blocked"
+      reason: (typeof DELETE_REFUSALS)[keyof typeof DELETE_REFUSALS]
+      message: string
+    }
 
 // Deferred on purpose: the authoring graph is heavy (it pulls in the scaffolder
 // and its template fs work) and is only ever reachable in local development, so
@@ -134,28 +152,53 @@ export async function deleteBlockAction({
   await requireAuth("Sign in to edit blocks.")
   assertLocalBlockWrite()
   await requireInstallationOwner("Only the installation owner can edit blocks.")
-  const { deleteBlockModelForCurrentRequest } = await loadBlockService()
-  const result = await deleteBlockModelForCurrentRequest(
-    { type },
-    {
-      assertRetirementAllowed: (type) =>
-        fetchAuthQuery(api.cms.blockLibrary.assertBlockTypeRetirementAllowed, {
-          type,
-        }),
-      readRetirementUsage: (type) =>
-        fetchAuthQuery(api.cms.blockLibrary.getBlockUsageSummary, {
-          type,
-          forRetirement: true,
-        }),
-      cleanupArchive: (type) =>
-        fetchAuthMutation(api.cms.blockLibrary.cleanupDeletedBlockTypeArchive, {
-          type,
-        }),
-      runDeletionGate: () => runTypecheckGate(),
-      forceGateFailure: shouldForceBlockDeletionGateFailure,
-    },
-    process["cwd"]()
-  )
+  const { deleteBlockModelForCurrentRequest, SystemBlockDeletionError } =
+    await loadBlockService()
+  let result: DeleteBlockResult
+  try {
+    result = await deleteBlockModelForCurrentRequest(
+      { type },
+      {
+        assertRetirementAllowed: (type) =>
+          fetchAuthQuery(
+            api.cms.blockLibrary.assertBlockTypeRetirementAllowed,
+            {
+              type,
+            }
+          ),
+        readRetirementUsage: (type) =>
+          fetchAuthQuery(api.cms.blockLibrary.getBlockUsageSummary, {
+            type,
+            forRetirement: true,
+          }),
+        cleanupArchive: (type) =>
+          fetchAuthMutation(
+            api.cms.blockLibrary.cleanupDeletedBlockTypeArchive,
+            {
+              type,
+            }
+          ),
+        runDeletionGate: () => runTypecheckGate(),
+        forceGateFailure: shouldForceBlockDeletionGateFailure,
+      },
+      process["cwd"]()
+    )
+  } catch (error) {
+    // System blocks are never deleted (ADR-0045 amendment, 2026-11-22).
+    if (error instanceof SystemBlockDeletionError)
+      return { status: "blocked", reason: "system", message: error.message }
+    if (
+      error instanceof ConvexError &&
+      typeof error.data === "string" &&
+      Object.hasOwn(DELETE_REFUSALS, error.data)
+    )
+      return {
+        status: "blocked",
+        reason: DELETE_REFUSALS[error.data as keyof typeof DELETE_REFUSALS],
+        message: error.data,
+      }
+    throw error
+  }
   if (result.status === "blocked") return result
   revalidatePath("/admin/blocks")
   revalidatePath(`/admin/blocks/${result.type}`)

@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
 import { getFunctionName } from "convex/server"
+import { isActiveContentType } from "@/convex/lib/contentTypes"
 import type { ReactNode } from "react"
 import LiveFramePage from "./page"
 
@@ -121,7 +122,7 @@ it("NEW B2 retries the anonymous bootstrap against fresh language authority rath
     "/new-published"
   )
 })
-it.each(["page", "landing-page", "post", "author"])(
+it.each(["page", "landing-page", "post", "author"].filter(isActiveContentType))(
   "bootstraps the live frame for a %s row, including on a single-language site",
   async (pageType) => {
     reads.auth.mockImplementation(async (ref) =>

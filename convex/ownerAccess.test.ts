@@ -90,27 +90,9 @@ async function expectProtectedDenial(
 }
 
 describe("durable Community owner access", () => {
-  test("keeps unauthenticated, missing, and legacy-Admin-only callers closed through registered boundaries", async () => {
+  test("keeps unauthenticated, missing-owner, and non-owner callers closed through registered boundaries", async () => {
     const t = makeTest()
     const mediaId = await insertHistoricalMedia(t)
-    await t.run(async (ctx) => {
-      const now = Date.now()
-      await ctx.db.insert("roles", {
-        authId: "legacy-admin",
-        role: "admin",
-        assignedAt: now,
-      })
-      await ctx.db.insert("cmsMemberships", {
-        authId: "legacy-admin",
-        tokenIdentifier: "https://issuer.test|legacy-admin",
-        role: "admin",
-        status: "active",
-        createdAt: now,
-        activatedAt: now,
-        updatedAt: now,
-        transitionId: "legacy-admin",
-      })
-    })
 
     await expect(
       t.query(api.cms.owner.getOwnerEstablished, {})

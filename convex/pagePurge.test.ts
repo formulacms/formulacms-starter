@@ -1762,7 +1762,7 @@ describe("review round 1 fixes", () => {
         return found
       })
       expect(hits).toEqual([])
-      expect(Object.keys(schema.tables).length).toBeGreaterThan(80)
+      expect(Object.keys(schema.tables).length).toBeGreaterThan(70)
     }
   )
 })

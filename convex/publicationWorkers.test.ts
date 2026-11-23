@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test, vi } from "vitest"
 import { api, internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { convexTest } from "../convexTestWithExplicitAdmin"
+import { isActiveContentType } from "./lib/contentTypes"
 import schema from "./schema"
 import {
   PUBLICATION_REVALIDATION_LEASE_MS,
@@ -14,7 +15,7 @@ import {
 import publicationSource from "./cms/publication.ts?raw"
 
 // F08c required workers: the durable revalidation intent → bounded cursor
-// worker → retry path, and post-cutover digest-gated legacy staging cleanup.
+// worker → retry path.
 
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
@@ -150,7 +151,7 @@ async function insertIntent(
 }
 
 describe("F08c required revalidation worker", () => {
-  test("a real withdrawal purges its path, then only same-locale current referrers", blockProfile(["rich-text-body"]), async () => {
+  test("a real withdrawal purges its path, then only same-locale current referrers", { ...blockProfile(["rich-text-body"]), skip: blockProfile(["rich-text-body"]).skip || !isActiveContentType("post") || !isActiveContentType("author") }, async () => {
     const { t, owner } = await activeApp()
     const authorId = await owner.mutation(api.cms.pages.create, {
       pageType: "author",
@@ -569,9 +570,8 @@ describe("F08c required revalidation worker", () => {
       publicationSource.slice(purgeEnd, sitemapStart)
     const sitemap = publicationSource.slice(sitemapStart)
     const schedulerCalls = publication.match(/scheduler\.run(?:After|At)\(/g)
-    // The one revalidation-intent helper schedules the immediate drain; the
-    // other call is the pre-existing publication follow-up.
-    expect(schedulerCalls).toHaveLength(2)
+    // The one revalidation-intent helper schedules the immediate drain.
+    expect(schedulerCalls).toHaveLength(1)
     expect(publication).toContain(
       "internal.cms.revalidate.drainPublicationRevalidationIntents"
     )
@@ -593,10 +593,6 @@ describe("F08c required revalidation worker", () => {
     expect(sitemap.match(/scheduler\.run(?:After|At)\(/g)).toHaveLength(
       sitemapTargets.length
     )
-    const cleanup = publication.slice(
-      publication.indexOf("export const cleanupMigratedLegacyStaging")
-    )
-    expect(cleanup).toMatch(/scheduler\.runAfter\(/)
   })
 })
 

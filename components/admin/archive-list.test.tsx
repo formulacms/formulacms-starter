@@ -7,15 +7,13 @@ import { ArchiveList } from "./archive-list"
 
 const mocks = vi.hoisted(() => ({
   loadMore: vi.fn(),
-  restoreLegacy: vi.fn(),
   restoreSnapshot: vi.fn(),
-  trashLegacy: vi.fn(),
   trashSnapshot: vi.fn(),
   confirm: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
   refresh: vi.fn(),
-  authority: "legacy" as "legacy" | "snapshot_active" | "invalid",
+  authority: "snapshot_active" as "snapshot_active" | "invalid",
   usePaginatedQuery: vi.fn(),
 }))
 
@@ -24,9 +22,7 @@ vi.mock("convex/react", () => ({
   useMutation: (reference: unknown) => {
     const name = getFunctionName(reference as never)
     const byName: Record<string, unknown> = {
-      "cms/pages:update": mocks.restoreLegacy,
       "cms/publication:restorePage": mocks.restoreSnapshot,
-      "cms/pages:softDelete": mocks.trashLegacy,
       "cms/publication:softDeletePage": mocks.trashSnapshot,
     }
     if (!byName[name]) throw new Error(`unexpected mutation ${name}`)
@@ -57,13 +53,13 @@ const page = {
   effectiveTitles: { en: "Staged archived title" },
 } as { _id: string; pageType: "post"; slug: string; status: "archived" }
 
+const AUTHORITY_INCOMPLETE = "Publication authority is incomplete. Run the supported bootstrap or cutover command before managing archived pages."
+
 describe("ArchiveList", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.authority = "legacy"
-    mocks.restoreLegacy.mockResolvedValue("ok")
+    mocks.authority = "snapshot_active"
     mocks.restoreSnapshot.mockResolvedValue("ok")
-    mocks.trashLegacy.mockResolvedValue(null)
     mocks.trashSnapshot.mockResolvedValue("ok")
     mocks.confirm.mockResolvedValue(true)
   })
@@ -120,22 +116,6 @@ describe("ArchiveList", () => {
     ).toBeInTheDocument()
   })
 
-  test("restores an archived document to draft", async () => {
-    mocks.usePaginatedQuery.mockReturnValue({
-      status: "Exhausted",
-      results: [page],
-      loadMore: mocks.loadMore,
-    })
-
-    render(<ArchiveList />)
-    await screen.getByRole("button", { name: "Restore" }).click()
-
-    expect(mocks.restoreLegacy).toHaveBeenCalledWith({
-      id: page._id,
-      status: "draft",
-    })
-  })
-
   test("restores through the snapshot lifecycle command", async () => {
     mocks.authority = "snapshot_active"
     mocks.usePaginatedQuery.mockImplementation((reference: unknown) =>
@@ -155,7 +135,21 @@ describe("ArchiveList", () => {
       pageId: page._id,
       expectedLifecycleGeneration: 4,
     })
-    expect(mocks.restoreLegacy).not.toHaveBeenCalled()
+  })
+
+  test("keeps the notice for an unfinished publishing setup", () => {
+    mocks.authority = "invalid"
+    mocks.usePaginatedQuery.mockReturnValue({
+      status: "LoadingFirstPage",
+      results: [],
+      loadMore: mocks.loadMore,
+    })
+
+    render(<ArchiveList />)
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      AUTHORITY_INCOMPLETE
+    )
   })
 
   test("renders a query failure state", () => {
@@ -333,21 +327,6 @@ describe("ArchiveList", () => {
       )
 
       await waitFor(() => expect(mocks.confirm).toHaveBeenCalled())
-      expect(mocks.trashSnapshot).not.toHaveBeenCalled()
-    })
-
-    test("legacy sites move a row to trash through the legacy soft delete", async () => {
-      mocks.usePaginatedQuery.mockReturnValue({
-        status: "Exhausted",
-        results: [page],
-        loadMore: mocks.loadMore,
-      })
-      render(<ArchiveList />)
-      fireEvent.click(screen.getByRole("button", { name: "Move to trash" }))
-
-      await waitFor(() =>
-        expect(mocks.trashLegacy).toHaveBeenCalledWith({ id: page._id })
-      )
       expect(mocks.trashSnapshot).not.toHaveBeenCalled()
     })
   })

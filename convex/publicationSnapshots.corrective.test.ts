@@ -12,6 +12,7 @@ import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import { enableRedirectsForTest } from "../redirectsTestHelpers"
+import { isActiveContentType } from "./lib/contentTypes"
 import schema from "./schema"
 import { heroWithImageDef } from "./lib/blocks/heroWithImage"
 
@@ -337,7 +338,6 @@ describe("F08a corrective authority and ownership proof", () => {
     }
     expect(route).toContain("publication={view.publication}")
     expect(pagesList).toContain("api.cms.publication.listAdminPages")
-    expect(pagesList).toContain('publicationAuthority === "legacy"')
     expect(archive).toContain("api.cms.publication.listAdminPages")
     expect(archive).toContain("api.cms.publication.restorePage")
     expect(trash).toContain("api.cms.publication.listAdminPages")
@@ -399,31 +399,9 @@ describe("F08a corrective authority and ownership proof", () => {
         title: "Bypass",
       })
     ).rejects.toThrow("PUBLISHED_SNAPSHOT_USE_PUBLISH_LOCALE")
-    await expect(
-      owner.mutation(api.cms.pages.update, {
-        id: homeId,
-        title: "Legacy mutation",
-      })
-    ).rejects.toThrow("LEGACY_PUBLICATION_WRITER_DISABLED")
-    await expect(
-      owner.mutation(api.cms.pages.updateDraft, {
-        pageId: homeId,
-      })
-    ).rejects.toThrow("LEGACY_PUBLICATION_WRITER_DISABLED")
-    await expect(
-      owner.mutation(api.cms.pages.publish, {
-        pageId: homeId,
-      })
-    ).rejects.toThrow("LEGACY_PUBLICATION_WRITER_DISABLED")
-    await expect(
-      owner.mutation(api.cms.pages.duplicate, {
-        id: homeId,
-        title: "Legacy duplicate",
-      })
-    ).rejects.toThrow("LEGACY_PUBLICATION_WRITER_DISABLED")
   })
 
-  test("bootstrap is owner-only, atomic, exactly idempotent, and disables the deferred wizard", async () => {
+  test("bootstrap is owner-only, atomic, and exactly idempotent", async () => {
     const unauthorized = app()
     await expect(
       unauthorized.mutation(api.cms.settings.bootstrapInstallation, {
@@ -534,19 +512,6 @@ describe("F08a corrective authority and ownership proof", () => {
         defaultLocale: "fr",
       })
     ).rejects.toThrow("INSTALLATION_ALREADY_BOOTSTRAPPED")
-    await expect(
-      owner.mutation(api.cms.settings.markOnboardingStep, {
-        step: "locales",
-      })
-    ).rejects.toThrow("SNAPSHOT_ONBOARDING_WIZARD_DEFERRED")
-    await expect(
-      owner.mutation(api.cms.settings.completeOnboarding, {
-        siteName: "Atomic site",
-        timezone: "America/Toronto",
-        defaultLocale: "fr",
-        enabledLocales: ["fr"],
-      })
-    ).rejects.toThrow("SNAPSHOT_ONBOARDING_WIZARD_DEFERRED")
   })
 
   test("the real editor command saves locale and hierarchy atomically with independent clocks", async () => {
@@ -838,17 +803,8 @@ describe("F08a corrective authority and ownership proof", () => {
   )
 
   // FR2b: the Search half of this case moved to convex/search.boundaries.test.ts.
-  test("legacy lists close while successor admin lifecycle projections remain usable", async () => {
+  test("successor admin lifecycle projections are usable", async () => {
     const { owner, pageId } = await activeFixture()
-
-    await expect(owner.query(api.cms.pages.list, {})).rejects.toThrow(
-      "SNAPSHOT_ADMIN_PROJECTION_REQUIRED"
-    )
-    await expect(
-      owner.query(api.cms.pages.listPaginated, {
-        paginationOpts: { numItems: 10, cursor: null },
-      })
-    ).rejects.toThrow("SNAPSHOT_ADMIN_PROJECTION_REQUIRED")
 
     expect(await owner.query(api.cms.pages.listSummaries, {})).toEqual(
       expect.arrayContaining([
@@ -923,8 +879,11 @@ describe("F08a corrective authority and ownership proof", () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     await expect(
-      owner.mutation(api.cms.settings.markOnboardingStep, {
-        step: "account",
+      owner.mutation(api.cms.pages.create, {
+        pageType: "landing-page",
+        status: "draft",
+        slug: "no-authority",
+        title: "No authority",
       })
     ).rejects.toThrow("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
     expect(
@@ -1134,9 +1093,6 @@ describe("F08a corrective authority and ownership proof", () => {
           ref.sourceId === published.snapshotId
       )
     ).toBe(true)
-    await expect(
-      owner.mutation(api.cms.pages.remove, { id: pageId })
-    ).rejects.toThrow("PERMANENT_PAGE_PURGE_NOT_IMPLEMENTED")
 
     expect(
       await t.query(api.cms.pages.getPublicRelationCardsByIds, {
@@ -1207,7 +1163,7 @@ describe("F08a corrective authority and ownership proof", () => {
 
   test(
     "document references own every source arm and failed same-locale capture rolls back",
-    blockProfile(["rich-text-body"]),
+    { ...blockProfile(["rich-text-body"]), skip: blockProfile(["rich-text-body"]).skip || !isActiveContentType("post") || !isActiveContentType("author") },
     async () => {
       const { t, owner } = await activeFixture()
       const authorId = await owner.mutation(api.cms.pages.create, {
@@ -1617,7 +1573,10 @@ describe("CVX-REPRO-1 ordinary publication", () => {
   ] as const) {
     test.each([profileRow])(
       "F03 publishes %s edit with immutable base and other locale",
-      blockProfile(profileRow === "descriptor" ? [] : ["rich-text-body"]),
+      {
+        ...blockProfile(profileRow === "descriptor" ? [] : ["rich-text-body"]),
+        skip: blockProfile(profileRow === "descriptor" ? [] : ["rich-text-body"]).skip || (profileRow === "descriptor" && !isActiveContentType("author")),
+      },
       async (kind) => {
         const { t, owner, pageId: landing } = await activeFixture()
         const pageId =

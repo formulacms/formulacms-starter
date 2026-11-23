@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest"
 import {
   CONTENT_TYPES,
   REGISTERED_CONTENT_TYPES,
+  isActiveContentType,
 } from "@/convex/lib/contentTypes"
 import en from "@/messages/admin/en.json"
 import fr from "@/messages/admin/fr.json"
@@ -26,9 +27,18 @@ const nonRoutableType = CONTENT_TYPES.find(
 describe("admin content-type projections", () => {
   test("enumerates the active catalog and exposes client-safe detail", () => {
     const summaries = adminContentTypes()
-    const author = adminContentTypeDetail("author")
+    const page = adminContentTypeDetail("page")
 
-    expect(summaries.map((summary) => summary.type)).toContain("author")
+    expect(summaries.map((summary) => summary.type)).toEqual(CONTENT_TYPES)
+    expect(page).toMatchObject({ type: "page", routable: true })
+    expect(page?.localizedFields).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: "title" })])
+    )
+    expect(page).not.toHaveProperty("sharedValidator")
+  })
+
+  test.runIf(isActiveContentType("author"))("projects the Author path prefix and public shared fields", () => {
+    const author = adminContentTypeDetail("author")
     expect(author).toMatchObject({
       type: "author",
       routable: true,

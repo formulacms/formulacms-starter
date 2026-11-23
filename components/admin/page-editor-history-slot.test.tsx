@@ -77,7 +77,6 @@ const mocks = vi.hoisted(() => ({
   snapshotRestore: vi.fn(),
   saveDraft: vi.fn(),
   createPage: vi.fn(async () => "copy-page" as Id<"pages">),
-  legacyDraft: vi.fn(async () => ({ updatedAt: 101 })),
   targetSave: vi.fn(),
   sharedSave: vi.fn(),
   archivePage: vi.fn(async () => ({ lifecycleGeneration: 4 })),
@@ -85,7 +84,6 @@ const mocks = vi.hoisted(() => ({
   restorePage: vi.fn(async () => ({ lifecycleGeneration: 4 })),
   withdrawLocale: vi.fn(async () => null),
   discardLocale: vi.fn(async () => ({ generation: 6 })),
-  updateAdapter: vi.fn(async () => ({ updatedAt: 101 })),
   strictWrites: false,
   unlistedWrite: vi.fn((name: string) => {
     throw new Error(`Unlisted mutation: ${name}`)
@@ -220,7 +218,6 @@ vi.mock("convex/react", () => ({
     if (name === "cms/publication:restoreSnapshotAsDraft")
       return mocks.snapshotRestore
     if (name === "cms/publication:saveEditorDraft") return mocks.saveDraft
-    if (name === "cms/pages:updateDraft") return mocks.legacyDraft
     if (name === "cms/pages:create") return mocks.createPage
     if (name === "cms/publication:saveLocaleDraft") return mocks.targetSave
     if (name === "cms/publication:saveSharedDraft") return mocks.sharedSave
@@ -231,7 +228,6 @@ vi.mock("convex/react", () => ({
     if (name === "cms/publication:withdrawLocale") return mocks.withdrawLocale
     if (name === "cms/publication:discardLocaleDraft")
       return mocks.discardLocale
-    if (name === "cms/pages:update") return mocks.updateAdapter
     if (name === "cms/language:deleteRetainedTargetDraft")
       return mocks.deleteTarget
     // Presence and lease maintenance are the only non-content writes allowed
@@ -377,7 +373,6 @@ vi.mock("@/components/admin/command-palette", () => ({
   },
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({ DuplicatePageDialog: () => null }))
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: () => null,
 }))
@@ -676,29 +671,185 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
   )
 
   test(
-    "offers History and mounts the participant panel with the host inputs",
+    "cold FR loading witness: known route locale must not subscribe before client config arrives",
     blockProfile([]),
-    () => {
-      render(
+    async () => {
+      const convexHooks = await import("convex/react")
+      const originalQuery = convexHooks.useQuery
+      const coldConfig = vi.spyOn(convexHooks, "useQuery").mockImplementation(
+        (reference, args?: Parameters<typeof originalQuery>[1]) =>
+          getFunctionName(reference as never) === "cms/settings:getSiteConfig"
+            ? undefined
+            : originalQuery(reference, args)
+      )
+      mocks.enabledLocales = ["en", "fr"]
+      try {
+        render(
+          <PageEditor
+            page={page()}
+            hasStaging={false}
+            stagingUpdatedAt={undefined}
+            publication={publication()}
+            requestedLocale="fr"
+            routeDefaultLocale="en"
+            routeEnabledLocales={["en", "fr"]}
+          />
+        )
+        expect(mocks.checklistRequests).toEqual([])
+      } finally {
+        coldConfig.mockRestore()
+      }
+    }
+  )
+
+  test.each(["absent", "not_translated"] as const)(
+    "untranslated checklist: %s French stays quiet from mount and subscribes after save",
+    blockProfile([]),
+    async (kind) => {
+      mocks.enabledLocales = ["en", "fr"]
+      const emptyPublication = publication()
+      if (kind === "not_translated")
+        emptyPublication.locales.push({
+          locale: "fr",
+          state: "not_translated",
+          draftGeneration: 0,
+          publicGeneration: 0,
+          releaseGeneration: 0,
+        } as (typeof emptyPublication.locales)[number])
+      const view = render(
         <PageEditor
           page={page()}
           hasStaging={false}
           stagingUpdatedAt={undefined}
+          publication={emptyPublication}
+          requestedLocale="fr"
+          routeEnabledLocales={["en", "fr"]}
         />
       )
+      expect(mocks.checklistRequests).toEqual([])
+      expect(screen.getByRole("button", { name: /^Publish/ })).toBeDisabled()
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+      const readiness = screen.getByRole("button", {
+        name: "Page readiness: 1 blocker",
+      })
+      fireEvent.click(readiness)
+      expect(
+        screen.getByText(
+          "Add FR content before publishing to every enabled locale."
+        )
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText("Checking the saved draft…")
+      ).not.toBeInTheDocument()
+      fireEvent.click(readiness)
+      const saved = page()
+      saved.content = {
+        ...saved.content,
+        fr: { title: kind === "absent" ? "À propos" : "", blocks: [] },
+      }
+      const savedPublication = publication()
+      savedPublication.locales.push({
+        locale: "fr",
+        state: "draft",
+        draftGeneration: 1,
+        publicGeneration: 0,
+        releaseGeneration: 0,
+      } as (typeof savedPublication.locales)[number])
+      view.rerender(
+        <PageEditor
+          page={saved}
+          hasStaging
+          stagingUpdatedAt={101}
+          publication={savedPublication}
+          requestedLocale="fr"
+          routeEnabledLocales={["en", "fr"]}
+        />
+      )
+      await waitFor(() =>
+        expect(mocks.checklistRequests).toContainEqual({
+          name: "cms/pages:getPrePublishChecklist",
+          args: { pageId, locale: "fr" },
+        })
+      )
+      expect(screen.getByRole("button", { name: "Page readiness: Ready" })).toBeInTheDocument()
+    }
+  )
 
-      expect(mocks.commandIds).toContain("page-editor:history")
-      expect(screen.queryByText("History participant")).not.toBeInTheDocument()
+  test(
+    "untranslated checklist: a frozen-base French version still subscribes",
+    blockProfile([]),
+    async () => {
+      mocks.enabledLocales = ["en", "fr"]
+      const frozen = page()
+      frozen.content = {
+        ...frozen.content,
+        fr: { title: "Version publiée", blocks: [] },
+      }
+      const frozenPublication = publication()
+      frozenPublication.locales.push({
+        locale: "fr",
+        state: "published",
+        draftGeneration: 2,
+        publicGeneration: 1,
+        releaseGeneration: 1,
+        currentSnapshotId: "snapshot-fr",
+      } as (typeof frozenPublication.locales)[number])
+      render(
+        <PageEditor
+          page={frozen}
+          hasStaging={false}
+          stagingUpdatedAt={undefined}
+          publication={frozenPublication}
+          requestedLocale="fr"
+          routeEnabledLocales={["en", "fr"]}
+        />
+      )
+      await waitFor(() =>
+        expect(mocks.checklistRequests).toContainEqual({
+          name: "cms/pages:getPrePublishChecklist",
+          args: { pageId, locale: "fr" },
+        })
+      )
+    }
+  )
 
-      fireEvent.click(screen.getByTitle("History"))
-
-      expect(screen.getByText("History participant")).toBeInTheDocument()
-      const props = mocks.slotProps.at(-1)!
-      expect(props.pageId).toBe(pageId)
-      expect(props.restoreBlocked).toBe(false)
-
-      props.onRestored(500)
-      expect(mocks.refresh).toHaveBeenCalledOnce()
+  test.each(["disabled", "unprojected", "invalid-draft"] as const)(
+    "untranslated checklist: %s input keeps the server error visible",
+    blockProfile([]),
+    async (kind) => {
+      mocks.enabledLocales = kind === "disabled" ? ["en"] : ["en", "fr"]
+      mocks.checklistResult = new Error("locale projection refused")
+      const input = page()
+      if (kind === "unprojected") input.content = undefined
+      const inputPublication = publication()
+      if (kind === "invalid-draft")
+        inputPublication.locales.push({
+          locale: "fr",
+          state: "draft",
+          draftGeneration: 1,
+          publicGeneration: 0,
+          releaseGeneration: 0,
+        } as (typeof inputPublication.locales)[number])
+      render(
+        <PageEditor
+          page={input}
+          hasStaging={false}
+          stagingUpdatedAt={undefined}
+          publication={inputPublication}
+          requestedLocale="fr"
+          routeEnabledLocales={mocks.enabledLocales}
+        />
+      )
+      await waitFor(() =>
+        expect(mocks.checklistRequests).toContainEqual({
+          name: "cms/pages:getPrePublishChecklist",
+          args: { pageId, locale: "fr" },
+        })
+      )
+      expect(
+        screen.getByRole("button", { name: "Page readiness: Unavailable" })
+      ).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /^Publish/ })).toBeDisabled()
     }
   )
 
@@ -712,6 +863,7 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
             page={page()}
             hasStaging={false}
             stagingUpdatedAt={undefined}
+            publication={publication()}
           />
         </TestErrorBoundary>
       )
@@ -729,6 +881,7 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
             page={page()}
             hasStaging={false}
             stagingUpdatedAt={undefined}
+            publication={publication()}
           />
         </TestErrorBoundary>
       )
@@ -797,9 +950,6 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
       })
       expect(mocks.refresh).toHaveBeenCalledOnce()
       expect(mocks.queryNames).toContain("cms/publication:listSnapshotHistory")
-      expect(
-        mocks.queryNames.some((name) => name.startsWith("cms/pageHistory:"))
-      ).toBe(false)
       expect(screen.queryByText("History participant")).not.toBeInTheDocument()
     }
   )
@@ -4076,36 +4226,6 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       }
     )
 
-    test(
-      "ED1REC legacy restore keeps the original staging expectation",
-      blockProfile([]),
-      async () => {
-        writeRecoveryDraft(
-          pageId,
-          recovered({
-            draftGeneration: 4,
-            sharedDraftGeneration: 6,
-            lifecycleGeneration: 3,
-          }) as never
-        )
-        render(
-          <PageEditor
-            page={pageOf("About")}
-            hasStaging={true}
-            stagingUpdatedAt={77}
-          />
-        )
-        await restore()
-        act(() => window.dispatchEvent(new Event("pagehide")))
-        expect(readRecoveryDraft(pageId, "en")?.base).toBeNull()
-        await save()
-        expect(mocks.legacyDraft).toHaveBeenCalledWith(
-          expect.objectContaining({ expectedUpdatedAt: 77 })
-        )
-        expect(mocks.saveDraft).not.toHaveBeenCalled()
-        expect(mocks.confirm).not.toHaveBeenCalled()
-      }
-    )
   })
 
   describe("recovery after a conflict", () => {
@@ -4397,102 +4517,6 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       expect(toast.error).toHaveBeenCalledWith("This page changed elsewhere")
       expect(screen.getByLabelText("Page title")).toHaveValue("Nouveau")
       expect(mocks.refresh).not.toHaveBeenCalled()
-    }
-  )
-
-  test(
-    "E1-10 a tab opened before a legacy-to-snapshot cutover refuses Save and History through the stale path and keeps its typing",
-    blockProfile([]),
-    async () => {
-      const view = render(
-        <PageEditor
-          page={pageOf("About")}
-          hasStaging={false}
-          stagingUpdatedAt={undefined}
-        />
-      )
-      // The cutover happens while the tab is open; the next refresh delivers a
-      // publication payload this tab never loaded content from.
-      view.rerender(tab(pageOf("Their title"), states({ en: 7, shared: 9 })))
-      type("Page title", "Unsaved words")
-      mocks.confirm.mockResolvedValueOnce(false)
-      await save()
-      expect(mocks.saveDraft).not.toHaveBeenCalled()
-      expect(toast.error).toHaveBeenCalledWith("This page changed elsewhere")
-      expect(mocks.confirm).toHaveBeenCalledOnce()
-      expect(screen.getByLabelText("Page title")).toHaveValue("Unsaved words")
-      act(() => window.dispatchEvent(new Event("pagehide")))
-      expect(readRecoveryDraft(pageId, "en")?.title).toBe("Unsaved words")
-      // History: no base, so no restore request is made from the prop.
-      fireEvent.click(screen.getByTitle("History"))
-      expect(mocks.slotProps.at(-1)!.readSnapshotRestore!()).toBeUndefined()
-      await act(async () =>
-        fireEvent.click(screen.getByRole("button", { name: "Restore draft" }))
-      )
-      expect(mocks.snapshotRestore).not.toHaveBeenCalled()
-    }
-  )
-
-  test.each(["Restore draft", "Publish", "Archive", "Move to trash"])(
-    "P3-1 a clean cutover tab refuses %s before any publication write",
-    blockProfile([]),
-    async (action) => {
-      mocks.strictWrites = true
-      mocks.convex.query.mockImplementation(async (reference?: unknown) =>
-        getFunctionName(reference as never) ===
-        "cms/pages:getPrePublishChecklist"
-          ? { canPublish: true, blockers: [], warnings: [] }
-          : []
-      )
-      // Trash is offered only on archived pages. Persisted staging enables
-      // Publish without introducing unsaved typing that would disable History.
-      const source = {
-        ...pageOf("About"),
-        status: action === "Move to trash" ? "archived" : "draft",
-      } as Page
-      const props = {
-        page: source,
-        hasStaging: true,
-        stagingUpdatedAt: 100,
-      }
-      const view = render(<PageEditor {...props} />)
-      try {
-        view.rerender(
-          <PageEditor {...props} publication={states({ en: 7, shared: 9 })} />
-        )
-        expect(screen.getByLabelText("Page title")).toHaveValue("About")
-        fireEvent.click(screen.getByTitle("History"))
-        expect(mocks.slotProps.at(-1)!.restoreDisabled).toBe(false)
-        expect(mocks.slotProps.at(-1)!.readSnapshotRestore!()).toBeUndefined()
-        expect(
-          screen.getByRole("button", { name: "Restore draft" })
-        ).toBeEnabled()
-
-        if (action === "Archive" || action === "Move to trash")
-          fireEvent.click(screen.getByTitle("Settings"))
-        const button = screen.getByRole("button", {
-          name: action === "Archive" ? "Archive page" : action,
-        })
-        expect(button).toBeEnabled()
-        await act(async () => fireEvent.click(button))
-        expect(mocks.publish).not.toHaveBeenCalled()
-        expect(mocks.archivePage).not.toHaveBeenCalled()
-        expect(mocks.softDeletePage).not.toHaveBeenCalled()
-        expect(mocks.snapshotRestore).not.toHaveBeenCalled()
-        expect(mocks.updateAdapter).not.toHaveBeenCalled()
-        expect(mocks.saveDraft).not.toHaveBeenCalled()
-        expect(mocks.deleteTarget).not.toHaveBeenCalled()
-        expect(mocks.unlistedWrite).not.toHaveBeenCalled()
-        if (action === "Restore draft")
-          expect(mocks.confirm).not.toHaveBeenCalled()
-        if (action === "Move to trash")
-          expect(mocks.confirm).toHaveBeenCalledOnce()
-        // Observe the handler's refusal, so an enabled-looking control that
-        // never reaches its handler cannot satisfy the no-write assertions.
-        await waitFor(() => expect(toast.error).toHaveBeenCalledOnce())
-      } finally {
-        mocks.strictWrites = false
-      }
     }
   )
 
@@ -5299,7 +5323,7 @@ describe("round4 loading availability provenance", () => {
       const view = render(
         <PageEditor
           page={initial.page as Page}
-          publication={initial.publication}
+          publication={initial.publication!}
           requestedLocale="en"
           hasStaging={false}
           stagingUpdatedAt={undefined}
@@ -5359,7 +5383,7 @@ describe("round4 loading availability provenance", () => {
         const reopened = render(
           <PageEditor
             page={reloaded.page as Page}
-            publication={reloaded.publication}
+            publication={reloaded.publication!}
             requestedLocale="fr"
             hasStaging={false}
             stagingUpdatedAt={undefined}

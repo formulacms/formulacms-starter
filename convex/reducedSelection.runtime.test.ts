@@ -10,6 +10,7 @@ import {
   isActiveContentType,
   REGISTERED_CONTENT_TYPES,
 } from "./lib/contentTypes"
+import { STARTER_CONTENT_TYPES } from "./lib/contentTypes/starterSelection"
 import schema from "./schema"
 import { convexTest, seedCommunityOwner } from "../convexTestWithExplicitAdmin"
 
@@ -26,33 +27,20 @@ const OWNER = {
   email: "reduced-selection-owner@example.test",
 }
 
-function releaseContentTypes(): string[] {
-  const parsed = JSON.parse(readFileSync(releaseSelectionPath, "utf8")) as {
-    contentTypes?: unknown
-  }
-  if (
-    !Array.isArray(parsed.contentTypes) ||
-    !parsed.contentTypes.every((type) => typeof type === "string")
-  ) {
-    throw new Error(
-      "Generated starter release selection has no contentTypes array."
-    )
-  }
-  return parsed.contentTypes
-}
-
 describe("generated starter — reduced content-type selection", () => {
   generatedTest(
     "blocks inactive storage arms across the public route and renderer surfaces",
     async () => {
-      const selected = releaseContentTypes()
-      expect(selected).toEqual(["landing-page", "page", "post", "author"])
+      const selected: readonly string[] = STARTER_CONTENT_TYPES
       expect(CONTENT_TYPES).toEqual(selected)
 
       const inactive = REGISTERED_CONTENT_TYPES.filter(
         (type) => !isActiveContentType(type)
       )
-      expect(inactive).toEqual(["testimonial", "job"])
+      expect(inactive).toEqual(
+        REGISTERED_CONTENT_TYPES.filter((type) => !selected.includes(type))
+      )
+      expect(selected.every(isActiveContentType)).toBe(true)
       expect(
         readFileSync(
           join(starterRoot, "components/content-types/index.ts"),
@@ -60,7 +48,10 @@ describe("generated starter — reduced content-type selection", () => {
         )
       ).not.toContain('job: { kind: "blockBody", Component: JobRenderer }')
 
-      const t = convexTest(schema, modules)
+      const t = convexTest({
+        schema,
+        modules,
+      })
       await seedCommunityOwner(t, OWNER)
       const asOwner = t.withIdentity(OWNER)
       const inactiveJobId = await t.run(async (ctx) => {
@@ -134,20 +125,11 @@ describe("generated starter — reduced content-type selection", () => {
         asOwner.query(api.cms.pages.getForEdit, { id: inactiveJobId })
       ).resolves.toBeNull()
       await expect(
-        asOwner.query(api.cms.pages.listByPageType, { pageType: "job" })
-      ).resolves.toEqual([])
-      await expect(
         asOwner.query(api.cms.relations.getReferenceCard, {
           id: inactiveJobId,
           locale: "en",
         })
       ).resolves.toBeNull()
-      await expect(
-        asOwner.mutation(api.cms.pages.update, {
-          id: inactiveJobId,
-          slug: "legacy-inactive-job-renamed",
-        })
-      ).rejects.toThrow(/not active in this starter/)
       await expect(
         asOwner.mutation(api.cms.pages.create, {
           pageType: "job",

@@ -97,25 +97,15 @@ function ArchiveListContent() {
   const router = useRouter()
   const confirm = useConfirm()
   const authority = useQuery(api.cms.publication.getAdminAuthority)
-  const restoreLegacy = useMutation(api.cms.pages.update)
   const restoreSnapshot = useMutation(api.cms.publication.restorePage)
-  const trashLegacy = useMutation(api.cms.pages.softDelete)
   const trashSnapshot = useMutation(api.cms.publication.softDeletePage)
-  const legacyPaginated = usePaginatedQuery(
-    api.cms.pages.listPaginated,
-    authority === "legacy" ? { status: "archived" } : "skip",
-    { initialNumItems: 25 }
-  )
-  const snapshotPaginated = usePaginatedQuery(
+  const paginated = usePaginatedQuery(
     api.cms.publication.listAdminPages,
     authority === "snapshot_active" ? { scope: "archive" } : "skip",
     { initialNumItems: 25 }
   )
   const [selected, setSelected] = useState<string[]>([])
   const [pending, setPending] = useState<Record<string, PendingAction>>({})
-
-  const paginated =
-    authority === "snapshot_active" ? snapshotPaginated : legacyPaginated
 
   const isLoading = paginated.status === "LoadingFirstPage"
   const isLoadingMore = paginated.status === "LoadingMore"
@@ -144,22 +134,18 @@ function ArchiveListContent() {
   }
 
   function restoreOne(page: ArchivePage) {
-    if (authority === "snapshot_active")
-      return restoreSnapshot({
-        pageId: page._id,
-        expectedLifecycleGeneration: generation(page),
-      })
-    return restoreLegacy({ id: page._id, status: "draft" })
+    return restoreSnapshot({
+      pageId: page._id,
+      expectedLifecycleGeneration: generation(page),
+    })
   }
 
   /** Same calls and refusal messages as the Content list's "Move to trash". */
   function trashOne(page: ArchivePage) {
-    if (authority === "snapshot_active")
-      return trashSnapshot({
-        pageId: page._id,
-        expectedLifecycleGeneration: generation(page),
-      })
-    return trashLegacy({ id: page._id })
+    return trashSnapshot({
+      pageId: page._id,
+      expectedLifecycleGeneration: generation(page),
+    })
   }
 
   function trashRefusal(error: unknown) {

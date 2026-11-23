@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "vitest"
 import { api } from "./_generated/api"
-import { CONTENT_TYPES } from "./lib/contentTypes"
+import { CONTENT_TYPES, isActiveContentType } from "./lib/contentTypes"
 import schema from "./schema"
 import { convexTest, seedCommunityOwner } from "../convexTestWithExplicitAdmin"
 
@@ -46,9 +46,9 @@ describe("Content Type usage", () => {
 
     for (let index = 1; index <= 26; index += 1) {
       await asOwner.mutation(api.cms.pages.create, {
-        pageType: "post",
+        pageType: "page",
         status: "draft",
-        title: `Usage post ${index}`,
+        title: `Usage page ${index}`,
       })
     }
 
@@ -60,13 +60,13 @@ describe("Content Type usage", () => {
     // than a literal list: a generated starter curates a subset, and this
     // query's contract is "all of them", not "these six".
     expect(usage.map((item) => item.type)).toEqual([...CONTENT_TYPES])
-    expect(usage.find((item) => item.type === "post")).toEqual({
-      type: "post",
+    expect(usage.find((item) => item.type === "page")).toEqual({
+      type: "page",
       count: 25,
       capped: true,
     })
     expect(
-      usage.every((item) => item.type !== "post" || item.count <= 25)
+      usage.every((item) => item.type !== "page" || item.count <= 25)
     ).toBe(true)
   })
 
@@ -107,7 +107,7 @@ describe("Content Type archive lifecycle", () => {
     ).rejects.toThrow(/unauthenticated/i)
   })
 
-  test("normalizes archive state and blocks create and duplicate until restored", async () => {
+  test("normalizes archive state and blocks create until restored, while an existing page still saves", { skip: !isActiveContentType("post") }, async () => {
     const t = convexTest(schema, modules)
     await seedCommunityOwner(t, OWNER)
     await seedSiteSettings(t, ["page", "page", "not-active"])
@@ -116,6 +116,7 @@ describe("Content Type archive lifecycle", () => {
     const postId = await asOwner.mutation(api.cms.pages.create, {
       pageType: "post",
       status: "draft",
+      slug: "existing-post",
       title: "Existing post",
     })
     await expect(
@@ -135,17 +136,21 @@ describe("Content Type archive lifecycle", () => {
         title: "Blocked post",
       })
     ).rejects.toThrow(/archived/i)
-    await expect(
-      asOwner.mutation(api.cms.pages.duplicate, {
-        id: postId,
-        title: "Blocked duplicate",
-      })
-    ).rejects.toThrow(/archived/i)
 
     await expect(
-      asOwner.mutation(api.cms.pages.update, {
-        id: postId,
-        title: "Existing post updated",
+      asOwner.mutation(api.cms.publication.saveEditorDraft, {
+        pageId: postId,
+        expectedLifecycleGeneration: 1,
+        localized: {
+          locale: "en",
+          slug: "existing-post",
+          expectedGeneration: 1,
+          draft: {
+            pageType: "post",
+            localized: { title: "Existing post updated" },
+            blocks: [],
+          },
+        },
       })
     ).resolves.toBeDefined()
     await expect(

@@ -136,25 +136,28 @@ vi.mock("@/components/admin/command-palette", () => ({
   },
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({ DuplicatePageDialog: () => null }))
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: () => null,
 }))
 vi.mock("./page-editor/components/seo-panel", () => ({ SeoPanel: () => null }))
 vi.mock("./page-editor/components/settings-panel", () => ({
   SettingsPanel: ({
+    slug,
     tags,
     onTagsChange,
   }: Parameters<
     typeof import("./page-editor/components/settings-panel").SettingsPanel
   >[0]) => (
-    <input
-      aria-label="Synthetic shared tags"
-      value={tags.join(",")}
-      onChange={(event) =>
-        onTagsChange(event.target.value ? event.target.value.split(",") : [])
-      }
-    />
+    <>
+      <span data-testid="address">{slug}</span>
+      <input
+        aria-label="Synthetic shared tags"
+        value={tags.join(",")}
+        onChange={(event) =>
+          onTagsChange(event.target.value ? event.target.value.split(",") : [])
+        }
+      />
+    </>
   ),
 }))
 vi.mock("./page-editor/components/blocks-panel", () => ({
@@ -177,7 +180,6 @@ vi.mock("./page-editor/components/snapshot-history-panel", () => ({
 }))
 import { PageEditor } from "./page-editor"
 import { resolveRequestedEditorLocale } from "./page-editor/lib/requested-locale"
-
 
 const source = {
   _id: "locale-page" as Id<"pages">, _creationTime: 1, pageType: "page",
@@ -212,7 +214,7 @@ describe("requested editor locale", () => {
   ])("$name", ({ expected, requestedLocale, ...scenario }) => {
     const { targetDraftLocale, replacementTargetLocale } = scenario
     mocks.siteConfig!.enabledLocales.push("es")
-    render(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} requestedLocale={requestedLocale} targetDraftLocale={targetDraftLocale} replacementTargetLocale={replacementTargetLocale} />)
+    render(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} publication={publication} requestedLocale={requestedLocale} targetDraftLocale={targetDraftLocale} replacementTargetLocale={replacementTargetLocale} />)
     expect(screen.getByLabelText("Page title")).toHaveValue(expected)
   })
 
@@ -227,7 +229,7 @@ describe("requested editor locale", () => {
   ])("validated route prop: $name", ({ raw, expected }) => {
     const requestedLocale = resolveRequestedEditorLocale(raw, ["en", "fr"])
     render(<PageEditor page={{ ...source, content: { fr: source.content!.fr, en: source.content!.en } } as Page}
-      hasStaging={false} stagingUpdatedAt={undefined} requestedLocale={requestedLocale} />)
+      hasStaging={false} stagingUpdatedAt={undefined} publication={publication} requestedLocale={requestedLocale} />)
     expect(screen.getByLabelText("Page title")).toHaveValue(expected)
   })
 
@@ -237,19 +239,19 @@ describe("requested editor locale", () => {
     { name: "English interface, default is French", admin: "en" as const, config: { defaultLocale: "fr", enabledLocales: ["fr", "es"] }, expected: "À propos" },
   ])("opens on the interface language or else the site default: $name", ({ admin, config, expected }) => {
     mocks.siteConfig = config
-    render(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} />, { locale: admin })
+    render(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} publication={publication} />, { locale: admin })
     expect(screen.getByLabelText(admin === "fr" ? "Titre de la page" : "Page title")).toHaveValue(expected)
   })
 
   test("the first render already knows the site languages from the route, before the query answers", () => {
     mocks.siteConfig = undefined
-    render(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} routeDefaultLocale="en" routeEnabledLocales={["en", "fr"]} />, { locale: "fr" })
+    render(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} publication={publication} routeDefaultLocale="en" routeEnabledLocales={["en", "fr"]} />, { locale: "fr" })
     expect(screen.getByLabelText("Titre de la page")).toHaveValue("À propos")
   })
 
   test("a Not translated language shows the real Page title placeholder in the empty title input", () => {
     mocks.siteConfig!.enabledLocales.push("es")
-    render(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} requestedLocale="es" />)
+    render(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} publication={publication} requestedLocale="es" />)
     const header = screen.getByLabelText("Page title")
     expect(header).toHaveValue("")
     expect(header).toHaveAttribute("placeholder", "Page title")
@@ -268,9 +270,9 @@ describe("requested editor locale", () => {
   })
 
   test("a requested locale prop update preserves an unsaved mounted session", () => {
-    const view = render(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} requestedLocale="en" />)
+    const view = render(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} publication={publication} requestedLocale="en" />)
     fireEvent.change(screen.getByLabelText("Page title"), { target: { value: "Unsaved title" } })
-    view.rerender(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} requestedLocale="fr" />)
+    view.rerender(<PageEditor page={source} hasStaging={false} stagingUpdatedAt={undefined} publication={publication} requestedLocale="fr" />)
     expect(screen.getByLabelText("Page title")).toHaveValue("Unsaved title")
   })
 
@@ -279,11 +281,16 @@ describe("requested editor locale", () => {
     { requestedLocale: "de", expectedTitle: "Über uns", expectedSlug: "deutscher-name", afterSlug: "deutscher-name" },
   ])("cold load default de, requested $requestedLocale seeds the right slug and linkage", ({ requestedLocale, expectedTitle, expectedSlug, afterSlug }) => {
     mocks.siteConfig = undefined
+    const germanPublication = {
+      ...publication,
+      locales: ["en", "de"].map((locale) => ({ locale, draftGeneration: 2, publicGeneration: 1, releaseGeneration: 1 })),
+    }
     render(<PageEditor page={{ ...source, slug: "deutscher-name", content: { en: source.content!.en, de: { title: "Über uns", blocks: [] } } } as Page}
-      hasStaging={false} stagingUpdatedAt={undefined} requestedLocale={requestedLocale} routeDefaultLocale="de" />)
+      hasStaging={false} stagingUpdatedAt={undefined} publication={germanPublication} requestedLocale={requestedLocale} routeDefaultLocale="de" />)
     expect(screen.getByLabelText("Page title")).toHaveValue(expectedTitle)
-    expect(screen.getByText(`/${expectedSlug}`)).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle("Settings"))
+    expect(screen.getByTestId("address")).toHaveTextContent(expectedSlug)
     fireEvent.change(screen.getByLabelText("Page title"), { target: { value: "Revised" } })
-    expect(screen.getByText(`/${afterSlug}`)).toBeInTheDocument()
+    expect(screen.getByTestId("address")).toHaveTextContent(afterSlug)
   })
 })

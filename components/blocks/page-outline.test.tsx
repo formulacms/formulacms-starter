@@ -12,10 +12,8 @@ import { BlockList } from "./block-list"
 import { FeaturesIconGrid } from "./features-icon-grid"
 import { FaqSimple } from "./faq-simple"
 import { DefaultBlockBodyRenderer } from "./_shared/default-block-body"
-import { PostRenderer } from "@/components/content-types/post"
 import { PageRenderer } from "@/components/content-types/page"
 import { LandingPageRenderer } from "@/components/content-types/landing-page"
-import { AuthorRenderer } from "@/components/content-types/author"
 import { resolveRenderedBlockPresentation } from "./presentations/resolution"
 import type { BlockBodyRendererProps } from "@/components/content-types/types"
 
@@ -43,7 +41,6 @@ function props(
   return {
     page: {
       pageType: type,
-      name: "Author name",
     } as BlockBodyRendererProps["page"],
     content: {
       title: "Page title",
@@ -131,40 +128,32 @@ describe("outlines through real consumers", () => {
   }
 
   it.each(["en", "fr"])(
-    "keeps one h1 across default/Post/Author in %s", blockProfile(["faq-simple","hero-with-image"]),
+    "keeps one h1 in the default block-body renderer in %s", blockProfile(["faq-simple","hero-with-image"]),
     (locale) => {
       const hero = createSampleBlock("hero-with-image")
       hero.primary.title = doc("Opening title")
       const later = { ...hero, id: "later", presentationIdV1: "centered" }
       const first = createSampleBlock("faq-simple")
-      for (const Renderer of [
-        DefaultBlockBodyRenderer,
-        PostRenderer,
-        AuthorRenderer,
-      ]) {
-        for (const [blocks, expectedTitle] of [
-          [[], "Page title"],
-          [[hero, later], "Opening title"],
-          [[first, hero], "Opening title"],
-          [
-            [{ ...hero, primary: { ...hero.primary, title: doc("") } }, later],
-            "Opening title",
-          ],
-          [[{ ...hero, enabled: false }, later], "Opening title"],
-        ] as Array<[Block[], string]>) {
-          const input = props(
-            blocks,
-            locale,
-            Renderer === AuthorRenderer ? "author" : "post"
-          )
-          const container = host(renderToStaticMarkup(<Renderer {...input} />))
-          expect(container.querySelectorAll("h1")).toHaveLength(1)
-          expect(container.querySelector("h1")?.textContent).toBe(
-            Renderer === AuthorRenderer ? "Author name" : expectedTitle
-          )
-          ordered(container)
-          expect(container.innerHTML).not.toMatch(/data-(preview|tweak)-/)
-        }
+      for (const [blocks, expectedTitle] of [
+        [[], "Page title"],
+        [[hero, later], "Opening title"],
+        [[first, hero], "Opening title"],
+        [
+          [{ ...hero, primary: { ...hero.primary, title: doc("") } }, later],
+          "Opening title",
+        ],
+        [[{ ...hero, enabled: false }, later], "Opening title"],
+      ] as Array<[Block[], string]>) {
+        const input = props(blocks, locale)
+        const container = host(
+          renderToStaticMarkup(<DefaultBlockBodyRenderer {...input} />)
+        )
+        expect(container.querySelectorAll("h1")).toHaveLength(1)
+        expect(container.querySelector("h1")?.textContent).toBe(
+          expectedTitle
+        )
+        ordered(container)
+        expect(container.innerHTML).not.toMatch(/data-(preview|tweak)-/)
       }
     }
   )
@@ -334,7 +323,7 @@ describe("RF4b public ownership", () => {
     ["M05", "en", "en", "English opening"],
     ["M05", "fr", "en", ""],
   ])(
-    "%s %s resolves the selected locale through Page, LandingPage and Post", blockProfile(["faq-simple","hero-with-image"]),
+    "%s %s resolves the selected locale through Page and LandingPage", blockProfile(["faq-simple","hero-with-image"]),
     (_operation, locale, defaultLocale, firstTitle) => {
       for (const presentationId of ["default", "centered"]) {
         expect(
@@ -375,7 +364,6 @@ describe("RF4b public ownership", () => {
         for (const [type, Renderer] of [
           ["page", PageRenderer],
           ["landing-page", LandingPageRenderer],
-          ["post", PostRenderer],
         ] as const) {
           for (const [blocks, expectedTitle] of [
             [[], "Page title"],

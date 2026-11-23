@@ -143,6 +143,7 @@ export function SettingsPanel({
               translate={fieldTranslate}
               generate={fieldGenerate}
               onResult={onTitleChange}
+              locale={currentLocale}
             />
           </div>
           <input

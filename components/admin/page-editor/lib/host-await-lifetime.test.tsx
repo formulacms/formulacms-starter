@@ -1,3 +1,4 @@
+import { isActiveContentType } from "@/convex/lib/contentTypes"
 import type { ReactNode } from "react"
 import type { AdminAiTranslationHostProps } from "@/components/admin/contributions/ai-translation"
 import type { AdminPageHistoryHostProps } from "@/components/admin/contributions/history"
@@ -218,9 +219,6 @@ vi.mock("@/components/admin/command-palette", () => ({
   },
 }))
 
-vi.mock("@/components/admin/duplicate-page-dialog", () => ({
-  DuplicatePageDialog: () => null,
-}))
 vi.mock("@/components/admin/content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: (props: NonNullable<typeof mocks.fields>) => {
     mocks.fields = props
@@ -357,8 +355,8 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-function mount(snapshot = false, copyFields = false) {
-  const publicationState = snapshot ? publication() : undefined
+function mount(copyFields = false) {
+  const publicationState = publication()
   const source = {
     ...page(),
     // `featured` is a shared descriptor field; the category moved into each
@@ -411,7 +409,6 @@ test.each(
       "release",
       "retained",
       "delete",
-      "snapshot delete",
       "conflict",
     ] as const
   ).flatMap((site) =>
@@ -427,18 +424,21 @@ test.each(
         isMine: site === "release",
         lock: { name: "Other", lastActiveAt: 100 },
       }
-    const view = mount(
-      site === "snapshot delete" || site === "retained",
-      site === "conflict"
-    )
+    // The conflict copy reads the created page's publishing state.
+    if (site === "conflict")
+      mocks.convex.query.mockImplementation(async (reference: unknown) =>
+        getFunctionName(reference as never) === "cms/pages:getForEdit"
+          ? copyTarget()
+          : []
+      )
+    const view = mount(site === "conflict")
     const mutation = deferred<unknown>()
     const names = {
       claim: "cms/pages:acquirePageEditorLock",
       force: "cms/pages:acquirePageEditorLock",
       release: "cms/pages:releasePageEditorLock",
       retained: "cms/language:deleteRetainedTargetDraft",
-      delete: "cms/pages:softDelete",
-      "snapshot delete": "cms/publication:softDeletePage",
+      delete: "cms/publication:softDeletePage",
       conflict: "cms/pages:create",
     }
     mocks.mutation.mockImplementation((name: string) =>
@@ -451,7 +451,7 @@ test.each(
       act(() => {
         pending = mocks.hookArgs!.onSaveConflict()
       })
-    else if (site === "delete" || site === "snapshot delete") {
+    else if (site === "delete") {
       const panel = settings()
       act(() => panel.onDelete?.())
     } else
@@ -480,6 +480,7 @@ test.each(
           page={{ ...view.source, _id: "page-2" as Id<"pages"> }}
           hasStaging={false}
           stagingUpdatedAt={undefined}
+          publication={publication()}
         />
       )
     writeRecoveryDraft(pageId, {
@@ -502,10 +503,10 @@ test.each(
     expect(readRecoveryDraft(pageId, "fr")).not.toBeNull()
     if (site === "conflict") {
       const copied = mocks.mutation.mock.calls.find(
-        ([name]) => name === "cms/pages:updateDraft"
+        ([name]) => name === "cms/publication:saveEditorDraft"
       )?.[1]
       expect(copied).toMatchObject({ pageId: "new-page" })
-      expect(JSON.parse(copied.sharedFieldsJson)).toMatchObject({
+      expect(JSON.parse(copied.shared.sharedFieldsJson)).toMatchObject({
         featured: true,
       })
       expect(
@@ -524,7 +525,6 @@ test.each([
   "release",
   "retained",
   "delete",
-  "snapshot delete",
   "conflict",
 ] as const)("host await %s preserves active success", async (site) => {
   if (site === "retained") mocks.remedy = { pageId, locale: "fr" }
@@ -534,15 +534,12 @@ test.each([
       isMine: site === "release",
       lock: { name: "Other", lastActiveAt: 100 },
     }
-  const view = mount(
-    site === "snapshot delete" || site === "retained",
-    site === "conflict"
-  )
+  const view = mount(site === "conflict")
   if (site === "conflict")
     await act(async () => {
       await mocks.hookArgs!.onSaveConflict()
     })
-  else if (site === "delete" || site === "snapshot delete") {
+  else if (site === "delete") {
     const panel = settings()
     act(() => panel.onDelete?.())
   } else
@@ -562,7 +559,7 @@ test.each([
   expect(toast.error).not.toHaveBeenCalled()
   if (site === "conflict")
     expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/admin/pages/new-page")
-  if (site === "delete" || site === "snapshot delete")
+  if (site === "delete")
     expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/admin/pages")
   view.unmount()
 })
@@ -593,9 +590,7 @@ test.each(["pull", "push", "participant"] as const)(
     expect(mocks.hookArgs!.draft).toEqual(before)
     expect(
       mocks.mutation.mock.calls.filter(([name]) =>
-        ["cms/pages:updateDraft", "cms/publication:saveEditorDraft"].includes(
-          name
-        )
+        ["cms/publication:saveEditorDraft"].includes(name)
       )
     ).toEqual([])
     if (site === "participant") await expect(pending).resolves.toBe(false)
@@ -614,7 +609,7 @@ test.each(["force", "retained", "delete", "conflict"] as const)(
         isMine: false,
         lock: { name: "Other", lastActiveAt: 100 },
       }
-    const view = mount(site === "retained")
+    const view = mount()
     const confirmation = deferred<boolean>()
     mocks.confirm.mockImplementation(() => confirmation.promise)
     let pending: Promise<void> | undefined
@@ -643,7 +638,7 @@ test.each(["force", "retained", "delete", "conflict"] as const)(
         [
           "cms/pages:acquirePageEditorLock",
           "cms/language:deleteRetainedTargetDraft",
-          "cms/pages:softDelete",
+          "cms/publication:softDeletePage",
           "cms/pages:create",
         ].includes(name)
       )
@@ -659,7 +654,6 @@ test.each([
   "release",
   "retained",
   "delete",
-  "snapshot delete",
 ] as const)("host %s suppresses stale mutation refusal", async (site) => {
   if (site === "retained") mocks.remedy = { pageId, locale: "fr" }
   if (site === "force" || site === "release")
@@ -668,22 +662,21 @@ test.each([
       isMine: site === "release",
       lock: { name: "Other", lastActiveAt: 100 },
     }
-  const view = mount(site === "snapshot delete" || site === "retained")
+  const view = mount()
   const mutation = deferred<unknown>()
   const names = {
     claim: "cms/pages:acquirePageEditorLock",
     force: "cms/pages:acquirePageEditorLock",
     release: "cms/pages:releasePageEditorLock",
     retained: "cms/language:deleteRetainedTargetDraft",
-    delete: "cms/pages:softDelete",
-    "snapshot delete": "cms/publication:softDeletePage",
+    delete: "cms/publication:softDeletePage",
   }
   mocks.mutation.mockImplementation((name: string) =>
     name === names[site]
       ? mutation.promise
       : Promise.resolve({ updatedAt: 102 })
   )
-  if (site === "delete" || site === "snapshot delete") {
+  if (site === "delete") {
     const panel = settings()
     act(() => panel.onDelete?.())
   } else
@@ -743,14 +736,10 @@ test.each(["pull", "push", "participant"] as const)(
   }
 )
 
-test.each(
-  [true, false].flatMap((snapshot) =>
-    (["en", "fr"] as const).map((locale) => ({ snapshot, locale }))
-  )
-)(
-  "conflict copy writes only target descriptor fields and tokens (snapshot=$snapshot, locale=$locale)",
-  async ({ snapshot, locale }) => {
-    const view = mount(snapshot, true)
+test.runIf(isActiveContentType("post")).each(["en", "fr"] as const)(
+  "conflict copy writes only target descriptor fields and tokens (locale=%s)",
+  async (locale) => {
+    const view = mount(true)
     if (locale === "fr") switchLocale(locale)
     // Exercise the generic localized-bag seam with a declared post field.
     // Author-only extras cannot be copied: the host explicitly refuses authors.
@@ -780,7 +769,7 @@ test.each(
         localizedSlugs: { [locale]: "copy-allocated-2" },
       },
       hasStaging: true,
-      ...(snapshot ? { publication: targetPublication } : {}),
+      publication: targetPublication,
     })
     mocks.mutation.mockImplementation(async (name: string) =>
       name === "cms/pages:create"
@@ -792,7 +781,6 @@ test.each(
     })
     const writes = mocks.mutation.mock.calls.filter(([name]) =>
       [
-        "cms/pages:updateDraft",
         "cms/publication:saveEditorDraft",
         "cms/publication:saveLocaleDraft",
         "cms/publication:saveSharedDraft",
@@ -803,47 +791,33 @@ test.each(
     expect(view.source).toEqual(originalDraft)
     expect(writes).toHaveLength(1)
     const [name, args] = writes[0]!
-    const created = mocks.mutation.mock.calls.find(
-      ([call]) => call === "cms/pages:create"
-    )![1]
     expect(args.pageId).toBe("new-page")
-    if (snapshot) {
-      expect(name).toBe("cms/publication:saveEditorDraft")
-      expect(
-        mocks.convex.query.mock.calls
-          .map(([reference, queryArgs]) => [
-            getFunctionName(reference as never),
-            queryArgs,
-          ])
-          .filter(([name]) => name === "cms/pages:getForEdit")
-      ).toEqual([["cms/pages:getForEdit", { id: "new-page" }]])
-      expect(args).toMatchObject({
-        expectedLifecycleGeneration: 11,
-        shared: { expectedGeneration: 12 },
-        localized: {
-          locale,
-          slug: "copy-allocated-2",
-          expectedGeneration: 13,
-          draft: {
-            pageType: "post",
-            localized: { metaDescription: `Copy ${locale}` },
-            blocks: [],
-          },
+    expect(name).toBe("cms/publication:saveEditorDraft")
+    expect(
+      mocks.convex.query.mock.calls
+        .map(([reference, queryArgs]) => [
+          getFunctionName(reference as never),
+          queryArgs,
+        ])
+        .filter(([name]) => name === "cms/pages:getForEdit")
+    ).toEqual([["cms/pages:getForEdit", { id: "new-page" }]])
+    expect(args).toMatchObject({
+      expectedLifecycleGeneration: 11,
+      shared: { expectedGeneration: 12 },
+      localized: {
+        locale,
+        slug: "copy-allocated-2",
+        expectedGeneration: 13,
+        draft: {
+          pageType: "post",
+          localized: { metaDescription: `Copy ${locale}` },
+          blocks: [],
         },
-      })
-      expect(JSON.parse(args.shared.sharedFieldsJson)).toMatchObject({
-        featured: true,
-      })
-    } else {
-      expect(name).toBe("cms/pages:updateDraft")
-      expect(args.expectedUpdatedAt).toBeUndefined()
-      expect(args.content[locale].localized.metaDescription).toBe(
-        `Copy ${locale}`
-      )
-      expect(JSON.parse(args.sharedFieldsJson)).toMatchObject({
-        featured: true,
-      })
-    }
+      },
+    })
+    expect(JSON.parse(args.shared.sharedFieldsJson)).toMatchObject({
+      featured: true,
+    })
     expect(toast.success).toHaveBeenCalledExactlyOnceWith(
       "Recovered draft saved as a new page"
     )
@@ -855,7 +829,7 @@ test.each(
 test.each(["query", "missing", "write"] as const)(
   "snapshot conflict-copy carry-over stays best-effort on %s failure",
   async (failure) => {
-    const view = mount(true, true)
+    const view = mount(true)
     const original = structuredClone(view.publicationState)
     if (failure === "query")
       mocks.convex.query.mockRejectedValue(new Error("Target read refused"))
@@ -892,7 +866,7 @@ test.each(["query", "missing", "write"] as const)(
 test.each(["query", "write"] as const)(
   "snapshot conflict copy keeps submitted target and ignores stale %s completion",
   async (boundary) => {
-    const view = mount(true, true)
+    const view = mount(true)
     const original = structuredClone(view.publicationState)
     const pendingTarget = deferred<unknown>()
     const pendingWrite = deferred<unknown>()
@@ -950,48 +924,11 @@ test.each(["query", "write"] as const)(
   }
 )
 
-test("host conflict ignores stale descriptor-write completion", async () => {
-  const view = mount(false, true)
-  const update = deferred<unknown>()
-  mocks.mutation.mockImplementation((name: string) =>
-    name === "cms/pages:updateDraft"
-      ? update.promise
-      : Promise.resolve(
-          name === "cms/pages:create" ? "new-page" : { updatedAt: 101 }
-        )
-  )
-  let pending!: Promise<void>
-  act(() => {
-    pending = mocks.hookArgs!.onSaveConflict()
-  })
-  await waitFor(() =>
-    expect(
-      mocks.mutation.mock.calls.some(
-        ([name]) => name === "cms/pages:updateDraft"
-      )
-    ).toBe(true)
-  )
-  switchLocale("fr")
-  await act(async () => {
-    update.resolve({ updatedAt: 102 })
-    await pending
-  })
-  expectSilent()
-  const copied = mocks.mutation.mock.calls.find(
-    ([name]) => name === "cms/pages:updateDraft"
-  )?.[1]
-  expect(copied).toMatchObject({ pageId: "new-page" })
-  expect(JSON.parse(copied.sharedFieldsJson)).toMatchObject({
-    featured: true,
-  })
-  view.unmount()
-})
-
 // fad4bec8: the delete reads the lifecycle at submission, after the
 // confirmation. E1: the value it reads is this tab's own base, which a
 // transition made by this tab while the dialog was open has advanced.
 test("review snapshot delete uses the lifecycle this tab's own transition set during confirmation", async () => {
-  const view = mount(true)
+  const view = mount()
   const confirmation = deferred<boolean>()
   mocks.confirm.mockImplementation(() => confirmation.promise)
   mocks.mutation.mockImplementation(async (name: string, args: unknown) => {
@@ -1037,7 +974,7 @@ test("review snapshot delete uses the lifecycle this tab's own transition set du
 // that was reviewed against 3. The old test pinned the opposite: that the
 // base followed every new `publication` prop.
 test("review snapshot delete keeps the lifecycle this tab loaded when a refresh carries a newer one", async () => {
-  const view = mount(true)
+  const view = mount()
   const confirmation = deferred<boolean>()
   mocks.confirm.mockImplementation(() => confirmation.promise)
   mocks.mutation.mockImplementation(async (name: string, args: unknown) => {

@@ -37,16 +37,18 @@ export default async function PageEditorPage({
     fetchQuery(api.cms.settings.getSiteConfig, {}),
   ])
 
-  if (!view) notFound()
+  // The editor runs only on a page's publishing state. The query already
+  // returns null for an unfinished publishing setup; a view without the state
+  // is shown as not found too.
+  if (!view?.publication) notFound()
 
   // F09b: `?language=new` opens the owner's new-language version of this page
   // during a content replacement. The language comes from the open change on
   // the server, never from the address.
-  const notice = view.publication
-    ? await fetchAuthQuery(api.cms.language.getSourcePublicationNotice, {
-        pageId: id as Id<"pages">,
-      })
-    : null
+  const notice = await fetchAuthQuery(
+    api.cms.language.getSourcePublicationNotice,
+    { pageId: id as Id<"pages"> }
+  )
   const writingTarget = query?.language === "new"
   if (writingTarget) {
     // A change being cancelled no longer accepts new-language drafts.
@@ -75,9 +77,8 @@ export default async function PageEditorPage({
       routeEnabledLocales={siteConfig.enabledLocales}
       {...(siteConfig.homePageId ? { routeHomePageId: siteConfig.homePageId } : {})}
       hasStaging={view.hasStaging}
-      stagingUpdatedAt={
-        "stagingUpdatedAt" in view ? view.stagingUpdatedAt : undefined
-      }
+      // The publishing state carries its own generations, not a staging token.
+      stagingUpdatedAt={undefined}
       publication={view.publication}
       {...(aiWritingRouteData === undefined ? {} : { aiWritingRouteData })}
       {...(aiTranslationRouteData === undefined

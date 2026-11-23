@@ -148,7 +148,6 @@ vi.mock("@/components/admin/command-palette", () => ({
   },
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({ DuplicatePageDialog: () => null }))
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: () => null,
 }))
@@ -266,7 +265,6 @@ describe("PageEditor new-language version during a replacement", () => {
 
   function expectTargetWritesOnly() {
     expect(mutation("cms/publication:saveEditorDraft")).not.toHaveBeenCalled()
-    expect(mutation("cms/pages:updateDraft")).not.toHaveBeenCalled()
     expect(mutation("cms/publication:publishLocale")).not.toHaveBeenCalled()
   }
 
@@ -746,7 +744,7 @@ describe("PageEditor effective-dictionary publish and language notices", () => {
         code: "missing_required_field",
         severity: "warning",
         message: "SERVER ENGLISH FIELD",
-        params: { contentType: "author", fieldName: "name.first" },
+        params: { contentType: "page", fieldName: "title.first" },
       },
       {
         code: "broken_internal_link",
@@ -754,7 +752,7 @@ describe("PageEditor effective-dictionary publish and language notices", () => {
         message: "SERVER ENGLISH RELATION",
         params: {
           variant: "disallowed_type",
-          contentType: "post",
+          contentType: "page",
           targetTitle: "Équipe",
         },
       },
@@ -793,8 +791,8 @@ describe("PageEditor effective-dictionary publish and language notices", () => {
       title: "Publier malgré les avertissements ?",
       description: [
         "Ajoutez un titre pour les moteurs de recherche en EN avant de publier.",
-        "Auteur : le champ obligatoire Nom.first est vide.",
-        "Ce contenu (Article) renvoie à « Équipe », dont le type de contenu n’est pas autorisé ici. Choisissez une autre page.",
+        "Page : le champ obligatoire Titre.first est vide.",
+        "Ce contenu (Page) renvoie à « Équipe », dont le type de contenu n’est pas autorisé ici. Choisissez une autre page.",
         "Future compatibility message",
       ].join("\n"),
       confirmText: "Publier quand même",

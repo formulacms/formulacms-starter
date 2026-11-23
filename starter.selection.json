@@ -2,9 +2,7 @@
   "schemaVersion": 1,
   "contentTypes": [
     "landing-page",
-    "page",
-    "post",
-    "author"
+    "page"
   ],
   "setup": {
     "emailDelivery": "unconfigured"

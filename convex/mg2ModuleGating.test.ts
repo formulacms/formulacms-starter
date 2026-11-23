@@ -196,7 +196,6 @@ export const guardedCalls = [
     "mutation",
     { migrationId, expectedGeneration: 1 },
   ],
-  ["redirects:list", "query", {}],
   [
     "redirects:listPaginated",
     "query",

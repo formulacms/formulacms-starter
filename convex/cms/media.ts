@@ -9,12 +9,11 @@ import {
   query,
 } from "../_generated/server"
 import { api, internal } from "../_generated/api"
-import type { QueryCtx, MutationCtx } from "../_generated/server"
 import type { Doc, Id } from "../_generated/dataModel"
 import { requireOperationAccess } from "../lib/access/policy"
-import type { OwnerPrincipal } from "../lib/access/owner"
 import { rateLimiter } from "../lib/rateLimits"
 import { ensureTagsForLabels } from "./tags"
+import { assertIdBatchSize } from "../lib/pages/types"
 import { mediaDocValidator } from "../schema"
 import {
   assertMediaSoftDeleteAllowed,
@@ -36,19 +35,6 @@ const MEDIA_LIST_CANDIDATE_FACTOR = 4
 const IMAGE_DIMENSION_BACKFILL_BATCH_SIZE = 10
 const IMAGE_DIMENSION_BACKFILL_MAX_BATCH_SIZE = 25
 const IMAGE_DIMENSION_BACKFILL_READ_CONCURRENCY = 2
-
-/**
- * F03a compatibility adapter. Operation labels and historical uploadedBy
- * values remain diagnostics/attribution only; Community authorization comes
- * solely from F01's verified operation-access principal.
- */
-async function requirePermission(
-  ctx: QueryCtx | MutationCtx,
-  _operation: string,
-  _scope?: { ownerId?: string | null; prospectiveOwner?: boolean }
-): Promise<OwnerPrincipal> {
-  return requireOperationAccess(ctx)
-}
 
 const focalPointValidator = v.object({
   x: v.number(),
@@ -144,14 +130,18 @@ export const getStorageUrls = query({
   args: { storageIds: v.array(v.id("_storage")) },
   returns: v.record(v.string(), v.string()),
   handler: async (ctx, { storageIds }) => {
-    const unique = [...new Set(storageIds)].slice(0, 100)
+    assertIdBatchSize(storageIds)
+    const unique = [...new Set(storageIds)]
     const entries = await Promise.all(
       unique.map(async (storageId) => {
         const media = await ctx.db
           .query("media")
           .withIndex("by_storageId", (q) => q.eq("storageId", storageId))
           .first()
-        if (!media) return [storageId, null] as const
+        // D3 (2026-11-22): trashed media has no public URL for any caller.
+        if (!media || media.deletedAt !== undefined) {
+          return [storageId, null] as const
+        }
         const url = await ctx.storage.getUrl(storageId)
         return [storageId, url] as const
       })
@@ -209,7 +199,7 @@ export const getByName = query({
   args: { name: v.string() },
   returns: v.union(mediaDocValidator, v.null()),
   handler: async (ctx, { name }) => {
-    await requirePermission(ctx, "media:view")
+    await requireOperationAccess(ctx)
     const row = await ctx.db
       .query("media")
       .withIndex("by_filename", (q) => q.eq("filename", name))
@@ -228,7 +218,7 @@ export const list = query({
   },
   returns: v.array(mediaDocValidator),
   handler: async (ctx, { folder, mimeType, limit = 50, includeDeleted }) => {
-    await requirePermission(ctx, "media:view")
+    await requireOperationAccess(ctx)
     const boundedLimit = Math.min(
       Math.max(Math.floor(limit), 1),
       MAX_MEDIA_LIST_LIMIT
@@ -285,7 +275,7 @@ export const listPaginated = query({
   },
   returns: paginatedMediaValidator,
   handler: async (ctx, args) => {
-    await requirePermission(ctx, "media:view")
+    await requireOperationAccess(ctx)
     const dbQuery =
       args.folder !== undefined
         ? ctx.db
@@ -361,7 +351,7 @@ export const listFolders = query({
   args: {},
   returns: v.array(v.string()),
   handler: async (ctx) => {
-    await requirePermission(ctx, "media:view")
+    await requireOperationAccess(ctx)
     const folders = await ctx.db.query("folders").collect()
     return folders.map((f) => f.name).sort()
   },
@@ -382,7 +372,7 @@ export const generateUploadUrl = mutation({
   args: {},
   returns: v.string(),
   handler: async (ctx) => {
-    await requirePermission(ctx, "media:upload")
+    await requireOperationAccess(ctx)
     return ctx.storage.generateUploadUrl()
   },
 })
@@ -391,7 +381,7 @@ export const assertCanUpload = internalMutation({
   args: {},
   returns: v.boolean(),
   handler: async (ctx) => {
-    await requirePermission(ctx, "media:upload")
+    await requireOperationAccess(ctx)
     return true
   },
 })
@@ -400,7 +390,7 @@ export const assertCanBackfillImageDimensions = internalMutation({
   args: {},
   returns: v.boolean(),
   handler: async (ctx) => {
-    await requirePermission(ctx, "media:update")
+    await requireOperationAccess(ctx)
     return true
   },
 })
@@ -646,7 +636,7 @@ export const create = mutation({
   },
   returns: v.id("media"),
   handler: async (ctx, args) => {
-    const auth = await requirePermission(ctx, "media:upload")
+    const auth = await requireOperationAccess(ctx)
     const url = await ctx.storage.getUrl(args.storageId)
     if (!url) throw new ConvexError("Failed to get storage URL")
 
@@ -673,7 +663,7 @@ export const create = mutation({
 export const update = mutation({
   args: {
     id: v.id("media"),
-    folder: v.optional(v.string()),
+    folder: v.optional(v.union(v.string(), v.null())),
     tags: v.optional(v.array(v.string())),
     focal: v.optional(v.union(focalPointValidator, v.null())),
     crop: v.optional(v.union(cropRectValidator, v.null())),
@@ -684,7 +674,12 @@ export const update = mutation({
     await requireOperationAccess(ctx)
     const media = await ctx.db.get("media", id)
     if (!media) throw new ConvexError("Media not found")
-    const patch: Partial<Doc<"media">> = { folder: updates.folder }
+    const patch: Partial<Doc<"media">> = {}
+    // Omitted keeps the folder. `null` or a blank string clears it. A patch
+    // value of `undefined` removes the field, so only set it when named.
+    if (updates.folder !== undefined) {
+      patch.folder = updates.folder?.trim() || undefined
+    }
     if (updates.tags !== undefined) {
       patch.tags = await ensureTagsForLabels(ctx, updates.tags)
     }
@@ -901,7 +896,7 @@ export const createFolder = mutation({
   },
   returns: v.object({ name: v.string() }),
   handler: async (ctx, { name, parentFolder }) => {
-    await requirePermission(ctx, "media:update")
+    await requireOperationAccess(ctx)
     const cleanName = name.trim().toLowerCase().replace(/\//g, "-")
     if (!cleanName) throw new ConvexError({ code: "FOLDER_NAME_REQUIRED", message: "Folder name cannot be empty" })
 
@@ -930,7 +925,7 @@ export const deleteFolder = mutation({
   },
   returns: v.object({ success: v.boolean(), count: v.number() }),
   handler: async (ctx, { name, moveToFolder }) => {
-    await requirePermission(ctx, "media:update")
+    await requireOperationAccess(ctx)
     const folderDoc = await ctx.db
       .query("folders")
       .withIndex("by_name", (q) => q.eq("name", name))

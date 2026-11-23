@@ -169,6 +169,9 @@ type SlotOptions = {
     complete: (generation: number) => void
   }
   ensureSaved?: () => Promise<boolean>
+  canTranslateCurrentLocale?: boolean
+  hasUnsavedTarget?: (locale: Locale) => boolean
+  getActiveLocale?: () => Locale
   /** Translation's route data: `{ engine }` on this computer, null elsewhere. */
   route?: { engine: "claude" | "codex" | null } | null
 }
@@ -176,6 +179,8 @@ type SlotOptions = {
 function slot(options: SlotOptions = {}) {
   const language = options.language ?? "en"
   const hasAny = options.hasAny ?? ((locale: Locale) => locale === "en")
+  const target = options.currentLocale ?? "fr"
+  const saved = options.content?.[target] as { blocks?: unknown[] } | undefined
   return (
     <NextIntlClientProvider
       locale={language}
@@ -202,7 +207,11 @@ function slot(options: SlotOptions = {}) {
             hasTranslatable: hasAny(locale),
           }) as never
         }
-        getActiveLocale={() => options.currentLocale ?? "fr"}
+        canTranslateCurrentLocale={options.canTranslateCurrentLocale ?? (saved
+          ? Array.isArray(saved.blocks) && saved.blocks.length === 0
+          : !hasAny(target))}
+        hasUnsavedTranslationTarget={options.hasUnsavedTarget ?? ((locale) => hasAny(locale) && options.content?.[locale] === undefined)}
+        getActiveLocale={options.getActiveLocale ?? (() => options.currentLocale ?? "fr")}
         ensureSaved={options.ensureSaved ?? (async () => true)}
         prepareTransfer={async () => true}
         closeTransfer={() => {}}
@@ -397,6 +406,38 @@ describe("header control eligibility", () => {
 })
 
 describe("Translate from EN", () => {
+  test("Start saves a pending title before pinning the target generation", async () => {
+    const ensureSaved = vi.fn().mockResolvedValue(true)
+    mocks.calls[START] = vi.fn().mockResolvedValue("job-1")
+    renderSlot({ content: { en: { title: "About" }, fr: { title: "Mon titre", blocks: [] } }, hasAny: () => true, ensureSaved })
+    fireEvent.click(translateButton()!)
+    fireEvent.click(screen.getByTestId("start-job"))
+    await waitFor(() => expect(mocks.calls[START]).toHaveBeenCalled())
+    expect(ensureSaved.mock.invocationCallOrder[0]).toBeLessThan(mocks.calls[START].mock.invocationCallOrder[0])
+  })
+
+  test("Start stops when saving fails or the owner switches locale while saving", async () => {
+    let finish!: (ok: boolean) => void
+    let active: Locale = "fr"
+    const ensureSaved = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve }))
+    mocks.calls[START] = vi.fn()
+    renderSlot({ ensureSaved, getActiveLocale: () => active })
+    fireEvent.click(translateButton()!)
+    fireEvent.click(screen.getByTestId("start-job"))
+    active = "en"
+    finish(true)
+    await waitFor(() => expect(screen.getByTestId("start-job")).toBeEnabled())
+    expect(mocks.calls[START]).not.toHaveBeenCalled()
+    active = "fr"
+    fireEvent.click(screen.getByTestId("start-job"))
+    finish(false)
+    await waitFor(() => expect(screen.getByTestId("start-job")).toBeEnabled())
+    expect(mocks.calls[START]).not.toHaveBeenCalled()
+  })
+  test("a saved title without blocks still offers Translate from EN", () => {
+    renderSlot({ content: { en: { title: "About" }, fr: { title: "Mon titre", blocks: [] } }, hasAny: () => true })
+    expect(translateButton()).toHaveTextContent("Translate from EN")
+  })
   test("shows on an empty language other than the source", () => {
     renderSlot()
     expect(translateButton()).toHaveTextContent("Translate from EN")
@@ -678,6 +719,24 @@ describe("review list", () => {
     fireEvent.click(review)
     expect(screen.getByRole("button", { name: "Accept" })).toBeEnabled()
     expect(screen.queryByTestId("target-changed")).not.toBeInTheDocument()
+  })
+
+  test("Accept on an untitled target prepares the host before the atomic translation save", async () => {
+    const ensureSaved = vi.fn().mockResolvedValue(true)
+    mocks.calls[ACCEPT] = vi.fn().mockResolvedValue({ pageId: "page-1", saved: 2, draftGeneration: 4 })
+    openReview({ content: { en: { title: "About" } }, hasAny: (locale) => locale === "en", ensureSaved })
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }))
+    await waitFor(() => expect(mocks.calls[ACCEPT]).toHaveBeenCalledWith({ jobId: "job-1", chosen: [] }))
+    expect(ensureSaved).toHaveBeenCalledTimes(1)
+    expect(ensureSaved.mock.invocationCallOrder[0]).toBeLessThan(mocks.calls[ACCEPT]!.mock.invocationCallOrder[0]!)
+    expect(mocks.toast.error).not.toHaveBeenCalled()
+  })
+
+  test("a saved target title alone does not block Accept", async () => {
+    mocks.calls[ACCEPT] = vi.fn().mockResolvedValue({ pageId: "page-1", saved: 2, draftGeneration: 4 })
+    openReview({ content: { en: { title: "About" }, fr: { title: "Mon titre", blocks: [] } }, hasAny: () => true })
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }))
+    await waitFor(() => expect(mocks.calls[ACCEPT]).toHaveBeenCalledWith({ jobId: "job-1", chosen: [] }))
   })
 
   test("unsaved text in the target language blocks Accept with the same line", async () => {

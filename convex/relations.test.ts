@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest"
 import { api } from "./_generated/api"
 import schema from "./schema"
 import { seedCommunityOwner } from "../convexTestWithExplicitAdmin"
+import { isActiveContentType } from "./lib/contentTypes"
 
 const modules = import.meta.glob("./**/*.ts")
 /** The one durable Community owner; both identity fields are explicit. */
@@ -22,7 +23,7 @@ const OWNER = {
  * `featured` silently stripped by Convex's return-validator shape check,
  * so no client (present or future) could ever see it.
  */
-describe("reference-card queries surface post.featured", () => {
+describe.runIf(isActiveContentType("post"))("reference-card queries surface post.featured", () => {
   test("getReferenceCard includes featured:true for a featured post", async () => {
     const t = convexTest(schema, modules)
     await seedCommunityOwner(t, OWNER)
@@ -118,37 +119,35 @@ describe("listRelationCandidates under legacy authority", () => {
       t.run(async (ctx) =>
         ctx.db.insert("pages", {
           slug,
-          pageType: "post",
+          pageType: "page",
           status,
           content: { en: { title, blocks: [] } },
           localizedSlugs: { en: slug },
-          featured: false,
-          promoteToFront: false,
           createdAt: now,
           updatedAt: now,
         })
       )
-    const livePost = await insert("live-post", "published", "Live Post")
-    const draftPost = await insert("draft-post", "draft", "Draft Post")
+    const livePage = await insert("live-page", "published", "Live Page")
+    const draftPage = await insert("draft-page", "draft", "Draft Page")
 
     const published = await asOwner.query(
       api.cms.pages.listRelationCandidates,
-      { pageTypes: ["post"], includeDrafts: false }
+      { pageTypes: ["page"], includeDrafts: false }
     )
     expect(published).toEqual([
       expect.objectContaining({
-        _id: livePost,
-        slug: "live-post",
-        localizedTitles: { en: "Live Post" },
+        _id: livePage,
+        slug: "live-page",
+        localizedTitles: { en: "Live Page" },
         localePublicationStates: { en: "published" },
         status: "published",
-        pageType: "post",
+        pageType: "page",
       }),
     ])
     const all = await asOwner.query(api.cms.pages.listRelationCandidates, {
-      pageTypes: ["post"],
+      pageTypes: ["page"],
       includeDrafts: true,
     })
-    expect(all.map((row) => row._id).sort()).toEqual([livePost, draftPost].sort())
+    expect(all.map((row) => row._id).sort()).toEqual([livePage, draftPage].sort())
   })
 })

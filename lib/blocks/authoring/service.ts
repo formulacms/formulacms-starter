@@ -12,6 +12,7 @@ import {
   type UpdatedBlock,
 } from "./persist"
 import { readBlockModelSourceRevision } from "./model-source-revision"
+import { readManifest } from "./registration"
 import {
   assertSeedFreeRetirement,
   SeedFreeRetirementError,
@@ -19,38 +20,49 @@ import {
 
 type FileSnapshot = { path: string; content: Buffer | null }
 type BlockDependencyDetail = BlockUsageDetail & {
-  savedLocales: string[]
-  stagedLocales: string[]
-  savedCount: number
-  stagedCount: number
-  publicationCount?: number
-  publicationLocales?: string[]
+  /** One entry per language: what holds the block there and how many times. */
+  uses: { locale: string; status: string; count: number }[]
 }
 
+/** The live uses of a Block Type (drafts, the published version, a withdrawn
+ * base, Trash, AI copies). Old publish history is not part of it. */
 export type BlockRetirementUsage = {
   archived: boolean
   usageCount: number
-  savedUsageCount: number
-  stagedUsageCount: number
-  publicationUsageCount?: number
+  /** False when the backend could not finish its scan; never treat as 0 uses. */
+  complete: boolean
+  /** Retained publish history still holds the type. Only Update reads it. */
+  hasHistory: boolean
   pageCount: number
   deletedPageCount: number
   pages: BlockDependencyDetail[]
-  contentLocations?: { pageId: string; path: string }[]
 }
 
 export type DeleteBlockResult =
   | ({ status: "deleted" } & DeletedBlock)
   | ({ status: "cleanup_pending"; message: string } & DeletedBlock)
-  | (Omit<BlockRetirementUsage, "contentLocations"> & {
+  | (BlockRetirementUsage & {
       status: "blocked"
       reason: "active" | "in_use"
       message: string
     })
+  | { status: "blocked"; reason: "system"; message: string }
 
 export type ReviewedBlockSource = {
   expectedType: string
   expectedSourceRevision: string
+}
+
+/** A block with origin "system" (a shipped reference block, or an entry with no
+ * origin) can never be deleted. Server action and CLI map `code`. */
+export class SystemBlockDeletionError extends Error {
+  readonly code = "BLOCK_TYPE_SYSTEM"
+  constructor(type: string) {
+    super(
+      `"${type}" is a system block. System blocks are never deleted; archive it instead.`
+    )
+    this.name = "SystemBlockDeletionError"
+  }
 }
 
 export class BlockSourceConflictError extends Error {
@@ -66,7 +78,10 @@ export class BlockSourceConflictError extends Error {
  * Callers enforce local/owner/installation authority before entering this
  * source-only service; these callbacks are not an authorization bypass. */
 export type BlockModelAdapters = {
-  readUsage: (type: string) => Promise<{ usageCount: number }>
+  /** `usageCount` is the live uses; `hasHistory` is retained publish history. */
+  readUsage: (
+    type: string
+  ) => Promise<{ usageCount: number; hasHistory: boolean }>
   runModelGate: (type: string, root: string) => Promise<void>
 }
 
@@ -168,7 +183,11 @@ export async function updateBlockModel(
   assertAuthoringPaths(root, paths)
   const refusal = { status: "refused", reason: "stale_source" } as const
   if (!(await reviewedSourceIsCurrent(request, spec.type, root))) return refusal
-  const { usageCount } = await adapters.readUsage(spec.type)
+  // Decision U: a breaking change needs no live use AND no retained history.
+  const { usageCount: liveCount, hasHistory } = await adapters.readUsage(
+    spec.type
+  )
+  const usageCount = liveCount + (hasHistory ? 1 : 0)
   const snapshots = await snapshotFiles(
     root,
     paths.filter((path) => !path.endsWith(`/${spec.type}.tsx`))
@@ -213,6 +232,10 @@ export async function deleteBlockModelForCurrentRequest(
     throw new Error(`Unknown Block Type "${type}".`)
   if (REGISTERED_BLOCK_TYPES.length <= 1)
     throw new Error("Create another block before deleting the last one.")
+  // Before any backend call or file work: an absent origin means "system".
+  const entry = (await readManifest(root)).find((e) => e.type === type)
+  if ((entry?.origin ?? "system") === "system")
+    throw new SystemBlockDeletionError(type)
   if (
     reviewedSource &&
     !(await reviewedSourceIsCurrent(reviewedSource, type, root))
@@ -228,9 +251,8 @@ export async function deleteBlockModelForCurrentRequest(
   const blockerBase = {
     archived: usage.archived,
     usageCount: usage.usageCount,
-    savedUsageCount: usage.savedUsageCount,
-    stagedUsageCount: usage.stagedUsageCount,
-    publicationUsageCount: usage.publicationUsageCount ?? 0,
+    complete: usage.complete,
+    hasHistory: usage.hasHistory,
     pageCount: usage.pageCount,
     deletedPageCount: usage.deletedPageCount,
     pages: usage.pages,
@@ -242,17 +264,24 @@ export async function deleteBlockModelForCurrentRequest(
       reason: "active",
       message: "Archive this Block Type before deleting it.",
     }
-  if (usage.usageCount > 0) {
-    const trashedNote =
-      usage.deletedPageCount > 0 ? ` (${usage.deletedPageCount} trashed)` : ""
-    const locationNote = usage.contentLocations?.length
-      ? ` Locations: ${usage.contentLocations.map((location) => `${location.pageId}:${location.path}`).join(", ")}.`
-      : ""
+  if (!usage.complete)
     return {
       ...blockerBase,
       status: "blocked",
       reason: "in_use",
-      message: `This Block Type has ${usage.savedUsageCount} saved and ${usage.stagedUsageCount} staged instance${usage.usageCount === 1 ? "" : "s"} on ${usage.pageCount} Page${usage.pageCount === 1 ? "" : "s"}${trashedNote}. Remove them in the Page editor before deleting the type.${locationNote}`,
+      message:
+        "The backend could not finish checking where this Block Type is used (too many pages or AI jobs). Nothing was deleted.",
+    }
+  if (usage.usageCount > 0) {
+    const trashedNote =
+      usage.deletedPageCount > 0
+        ? ` (${usage.deletedPageCount} in Trash or being erased)`
+        : ""
+    return {
+      ...blockerBase,
+      status: "blocked",
+      reason: "in_use",
+      message: `This Block Type is still used ${usage.usageCount} time${usage.usageCount === 1 ? "" : "s"} on ${usage.pageCount} Page${usage.pageCount === 1 ? "" : "s"}${trashedNote}: in drafts, published versions, withdrawn versions, Trash or unreviewed AI suggestions. Remove each use before deleting the type.`,
     }
   }
   // Local preflights stay outside rollback and after the final backend read.

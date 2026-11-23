@@ -230,34 +230,6 @@ export const listActiveKeys = query({
   },
 })
 
-// Admin list: returns redirects sorted by fromPath, with display labels for the
-// destination resolved server-side so the UI doesn't have to re-fetch pages.
-export const list = query({
-  args: {},
-  returns: v.array(
-    v.object({
-      _id: v.id("redirects"),
-      fromPath: v.string(),
-      toPath: v.optional(v.string()),
-      toPageId: v.optional(v.id("pages")),
-      locale: v.optional(v.string()),
-      statusCode: v.union(v.literal(301), v.literal(302)),
-      createdAt: v.number(),
-      toLabel: v.string(),
-      toPageTitle: v.union(v.string(), v.null()),
-    })
-  ),
-  handler: async (ctx) => {
-    await requireOperationAccess(ctx)
-    await requireOwnerAndOptionalModule(ctx, "redirects")
-    const rows: Doc<"redirects">[] = await ctx.db.query("redirects").take(500)
-    rows.sort((a, b) => a.fromPath.localeCompare(b.fromPath))
-
-    const cfg = await getLocaleConfig(ctx)
-    return await Promise.all(rows.map((r) => enrichRedirectRow(ctx, r, cfg)))
-  },
-})
-
 const redirectRowValidator = v.object({
   _id: v.id("redirects"),
   fromPath: v.string(),
@@ -282,8 +254,7 @@ const paginatedRedirectsValidator = v.object({
 
 /**
  * Cursor-paginated admin redirects list (plan 023 Phase 4 #2) for
- * `usePaginatedQuery`, sorted by source path via `by_fromPath` — the same
- * display order the bounded `list` produced in memory, minus the 500-row cap.
+ * `usePaginatedQuery`, sorted by source path via `by_fromPath`.
  */
 export const listPaginated = query({
   args: { paginationOpts: paginationOptsValidator },

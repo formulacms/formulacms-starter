@@ -194,12 +194,6 @@ describe("display name (ADR-0056 rule 8)", () => {
     const t = await siteWithOwner()
     const asOwner = t.withIdentity(sessionIdentity(await signIn(t, "ada", PASSWORD)))
     await t.run(async (ctx) => {
-      await ctx.db.insert("pagePublicationCutover", {
-        key: "published-snapshot-v1",
-        phase: "legacy",
-        revision: 1,
-        updatedAt: 1,
-      })
       await ctx.db.insert("siteSettings", {
         siteName: "Site",
         siteUrl: "",
@@ -208,6 +202,7 @@ describe("display name (ADR-0056 rule 8)", () => {
         updatedAt: 1,
       })
     })
+    await asOwner.mutation(api.cms.publication.initializeEmptySnapshotAuthority, {})
     const pageId = await asOwner.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",

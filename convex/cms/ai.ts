@@ -29,7 +29,6 @@ import {
 } from "../lib/aiValidators"
 import {
   internalMutation,
-  internalQuery,
   mutation,
   type MutationCtx,
 } from "../_generated/server"
@@ -41,7 +40,6 @@ import {
   aiAttemptAdmissionValidator,
   aiAttemptSettlementValidator,
   aiAttemptReceiptValidator,
-  aiPriceQuoteValidator,
   providerObservationValidator,
 } from "../lib/aiValidators"
 import {
@@ -805,70 +803,6 @@ export const settleAttemptAtDeadline = internalMutation({
   returns: receiptOrNull,
   handler: async (ctx, args) =>
     settleAttempt(ctx, { ...args, outcome: "failed" }),
-})
-/** Job termination can release unused holds without discarding a late receipt. */
-export const releaseAttemptReservation = internalMutation({
-  args: { attemptKey: v.string() },
-  returns: v.null(),
-  handler: async (ctx, { attemptKey }) => {
-    const row = await ctx.db
-      .query("aiSpendingAttempts")
-      .withIndex("by_attemptKey", (q) => q.eq("attemptKey", attemptKey))
-      .unique()
-    if (!row || row.reservedMicros === 0) return null
-    const month = await ctx.db.get("aiSpendingMonths", row.monthId)
-    if (!month) throw new Error("AI spending month is missing.")
-    await ctx.db.patch("aiSpendingMonths", month._id, {
-      reservedMicros: moneyInteger(month.reservedMicros - row.reservedMicros),
-    })
-    await ctx.db.patch("aiSpendingAttempts", row._id, {
-      reservedMicros: 0,
-      state: "released",
-    })
-    return null
-  },
-})
-export const estimateAttempt = internalQuery({
-  args: { request: aiAttemptAdmissionRequestValidator, now: v.number() },
-  returns: v.object({
-    price: aiPriceQuoteValidator,
-    estimateMicros: v.number(),
-  }),
-  handler: async (ctx, { request, now }) => pricing(ctx, request, now),
-})
-export const monthStatus = internalQuery({
-  args: { now: v.number() },
-  returns: v.object({
-    monthKey: v.string(),
-    spentMicros: v.number(),
-    reservedMicros: v.number(),
-    capMicros: v.number(),
-    status: v.union(
-      v.literal("below"),
-      v.literal("warn80"),
-      v.literal("reached")
-    ),
-  }),
-  handler: async (ctx, { now }) => {
-    const month = await currentMonth(ctx, now)
-    const spentMicros = month.row?.spentMicros ?? 0,
-      reservedMicros = month.row?.reservedMicros ?? 0
-    const total = BigInt(spentMicros) + BigInt(reservedMicros),
-      cap = BigInt(month.capMicros)
-    const status =
-      total >= cap
-        ? ("reached" as const)
-        : total * 5n >= cap * 4n
-          ? ("warn80" as const)
-          : ("below" as const)
-    return {
-      monthKey: month.monthKey,
-      spentMicros,
-      reservedMicros,
-      capMicros: month.capMicros,
-      status,
-    }
-  },
 })
 /** Called only by the erasure path, inside its transaction. */
 export async function eraseSpendingAttemptsForUser(

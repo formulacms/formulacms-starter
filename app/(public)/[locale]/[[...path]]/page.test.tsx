@@ -164,9 +164,6 @@ function queryResult(
   if (name === "cms/preview:getPreviewPage") {
     return { page, requestedLocale: "fr", renderLocale: "en", isFallback: true }
   }
-  if (name === "cms/pages:getById") {
-    return page
-  }
   if (name === "cms/pages:getPublicPageById") {
     const locale = args?.locale
     const content = locale ? page.content[locale] : undefined
@@ -361,6 +358,53 @@ describe("public localized Page route", () => {
       undefined
     )
     expect(screen.queryByText(/Content not available/)).toBeNull()
+  })
+
+  test("VISITOR-LIMITS refreshes every image on a 101-image page in reads of at most 50 ids", async () => {
+    const english = page.content.en
+    page.content.en = {
+      title: "Many images",
+      blocks: Array.from({ length: 101 }, (_, i) => ({
+        id: `block-${i}`,
+        image: {
+          storageId: `img_${i}`,
+          url: i === 100 ? "/stale-101" : `/old/${i}`,
+        },
+      })) as never[],
+    }
+    const storageReads: string[][] = []
+    mocks.fetchQuery.mockImplementation(async (reference, args) => {
+      if (getFunctionName(reference) === "cms/media:getStorageUrls") {
+        const ids = (args as { storageIds: string[] }).storageIds
+        if (ids.length > 50) throw new Error("TOO_MANY_IDS")
+        storageReads.push(ids)
+        return Object.fromEntries(ids.map((id) => [id, `/fresh/${id}`]))
+      }
+      return queryResult(
+        reference,
+        args as { locale?: string; languageVersion?: number }
+      )
+    })
+    try {
+      render(
+        await CmsPage({
+          params: Promise.resolve({ locale: "en", path: ["english-only"] }),
+        })
+      )
+      expect(storageReads.map((ids) => ids.length)).toEqual([50, 50, 1])
+      const rendered = (
+        mocks.renderer.mock.calls.at(-1) as unknown as [
+          { blocks: { image: { url: string } }[] },
+        ]
+      )[0].blocks
+      expect(rendered).toHaveLength(101)
+      expect(rendered[100].image.url).toBe("/fresh/img_100")
+      expect(rendered.every(({ image }) => image.url.startsWith("/fresh/"))).toBe(
+        true
+      )
+    } finally {
+      page.content.en = english
+    }
   })
 
   test("renders a rewritten default-locale path without redirecting to the visible URL", async () => {

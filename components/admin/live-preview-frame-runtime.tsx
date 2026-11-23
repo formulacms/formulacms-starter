@@ -38,6 +38,7 @@ import {
   applyFreshImageUrls,
   collectImageStorageIds,
 } from "@/lib/blocks/media-urls"
+import { chunkIds, mergeGroupAnswers } from "@/lib/cms/batched-read"
 import { useTranslations } from "next-intl"
 import { PageLivePreviewCanvas } from "./page-live-preview-canvas"
 import {
@@ -389,6 +390,43 @@ function bylineQueries(
   )
 }
 
+/** No subscriptions: used while a changed id set waits for its new request. */
+const NO_QUERIES: RequestForQueries = {}
+
+/**
+ * The display-context reads (image URLs, link paths, relation cards), each kind
+ * split into groups of at most `ID_BATCH_MAX` sorted ids, the most one batch
+ * read accepts. Keys are `<kind>:<group index>`.
+ */
+function dependencyQueries(
+  storageIds: Id<"_storage">[],
+  pageIds: Id<"pages">[],
+  relationIds: Id<"pages">[],
+  locale: string,
+  languageVersion: number
+): RequestForQueries {
+  const queries: RequestForQueries = {}
+  chunkIds(storageIds).forEach((group, index) => {
+    queries[`media:${index}`] = {
+      query: api.cms.media.getStorageUrls,
+      args: { storageIds: group },
+    }
+  })
+  chunkIds(pageIds).forEach((group, index) => {
+    queries[`paths:${index}`] = {
+      query: api.cms.pages.getLocalizedPathsByIds,
+      args: { ids: group, locale, languageVersion },
+    }
+  })
+  chunkIds(relationIds).forEach((group, index) => {
+    queries[`cards:${index}`] = {
+      query: api.cms.pages.getRelationCardsByIds,
+      args: { ids: group, locale, includeDrafts: true },
+    }
+  })
+  return queries
+}
+
 /** Independent reads form display context, never Save or field-write authority. */
 function LiveFrameContext({
   input,
@@ -429,36 +467,68 @@ function LiveFrameContext({
   const storageIds = [...storage].toSorted()
   const pageIds = collectPageIds(input.blocks).toSorted()
   const relationIds = collectRelationIds(input.blocks).toSorted()
-  // The existing media query truncates at 100. Never admit a partial context.
-  const withinMediaLimit = storageIds.length <= 100
-  const canResolve = authorized && withinMediaLimit
-  const media = useQuery(
-    api.cms.media.getStorageUrls,
-    canResolve && storageIds.length ? { storageIds } : "skip"
+  // Each kind reads in groups the batch reads accept, so every image, link
+  // and relation resolves. useQueries resubscribes whenever its argument
+  // object changes, so the request is rebuilt only when an id set, the
+  // language or the version changes. Nothing is subscribed without access, or
+  // while a new request waits to be stored; every group then counts as loading.
+  const dependencyKey = JSON.stringify([
+    storageIds,
+    pageIds,
+    relationIds,
+    input.locale,
+    input.languageVersion,
+  ])
+  const [dependencyRequest, setDependencyRequest] = useState(() => ({
+    key: dependencyKey,
+    queries: dependencyQueries(
+      storageIds,
+      pageIds,
+      relationIds,
+      input.locale,
+      input.languageVersion
+    ),
+  }))
+  if (dependencyRequest.key !== dependencyKey)
+    setDependencyRequest({
+      key: dependencyKey,
+      queries: dependencyQueries(
+        storageIds,
+        pageIds,
+        relationIds,
+        input.locale,
+        input.languageVersion
+      ),
+    })
+  const dependencyCurrent =
+    authorized && dependencyRequest.key === dependencyKey
+  const dependencyResults = useQueries(
+    dependencyCurrent ? dependencyRequest.queries : NO_QUERIES
   )
-  const paths = useQuery(
-    api.cms.pages.getLocalizedPathsByIds,
-    canResolve && pageIds.length
-      ? {
-          ids: pageIds,
-          locale: input.locale,
-          languageVersion: input.languageVersion,
-        }
-      : "skip"
+  const groupAnswers = (kind: string, ids: readonly string[]) =>
+    chunkIds(ids).map((_, index) =>
+      dependencyCurrent
+        ? (dependencyResults[`${kind}:${index}`] as unknown)
+        : undefined
+    )
+  const mediaAnswers = groupAnswers("media", storageIds)
+  const pathAnswers = groupAnswers("paths", pageIds)
+  const cardAnswers = groupAnswers("cards", relationIds)
+  // A failed group fails the frame as a failed useQuery does: the render
+  // boundary catches it and the parent offers Retry.
+  const failure = [...mediaAnswers, ...pathAnswers, ...cardAnswers].find(
+    (value) => value instanceof Error
   )
-  const cards = useQuery(
-    api.cms.pages.getRelationCardsByIds,
-    canResolve && relationIds.length
-      ? { ids: relationIds, locale: input.locale, includeDrafts: true }
-      : "skip"
-  )
+  if (failure) throw failure
+  const loaded = (answers: unknown[]) =>
+    answers.every((value) => value !== undefined)
   // Post bylines use the public page's rules for this language: the same
   // public query and exposure gate, so an author visitors cannot see (draft,
   // archived, or missing this language) is left out here too.
   // useQueries resubscribes whenever its argument object changes, so the
   // request is rebuilt only when the selection, language or version changes.
   const authorIds =
-    canResolve && view?.page.pageType === "post" && AUTHOR_IDS_PUBLIC
+    authorized && view?.page.pageType === "post" && AUTHOR_IDS_PUBLIC
       ? (input.authorIds ?? [])
       : []
   const bylineKey = JSON.stringify([
@@ -483,10 +553,10 @@ function LiveFrameContext({
   )
   const bylineFailed = bylineValues.some((value) => value instanceof Error)
   const ready =
-    canResolve &&
-    (!storageIds.length || media !== undefined) &&
-    (!pageIds.length || paths !== undefined) &&
-    (!relationIds.length || cards !== undefined) &&
+    authorized &&
+    loaded(mediaAnswers) &&
+    loaded(pathAnswers) &&
+    loaded(cardAnswers) &&
     !bylineFailed &&
     bylineValues.every((value) => value !== undefined)
   const unavailable =
@@ -495,7 +565,6 @@ function LiveFrameContext({
       view !== undefined &&
       config !== undefined &&
       !authorized) ||
-    !withinMediaLimit ||
     bylineFailed
   useLayoutEffect(() => {
     onContext(ready)
@@ -506,8 +575,14 @@ function LiveFrameContext({
     presentationLocale: input.locale,
     defaultLocale: input.defaultLocale,
     languageVersion: input.languageVersion,
-    pagePaths: ready ? (paths ?? {}) : {},
-    relationCards: ready ? (cards ?? {}) : {},
+    pagePaths: ready
+      ? mergeGroupAnswers(pathAnswers as BlockRenderContext["pagePaths"][])
+      : {},
+    relationCards: ready
+      ? mergeGroupAnswers(
+          cardAnswers as NonNullable<BlockRenderContext["relationCards"]>[]
+        )
+      : {},
     presentationCatalog,
   }
   const bylines = ready
@@ -515,7 +590,10 @@ function LiveFrameContext({
         (value): value is PublicByline => !!value && !(value instanceof Error)
       )
     : []
-  return children(ctx, ready ? (media ?? {}) : {}, ready, bylines)
+  const mediaUrls = ready
+    ? mergeGroupAnswers(mediaAnswers as Record<string, string>[])
+    : {}
+  return children(ctx, mediaUrls, ready, bylines)
 }
 
 /** Rendering failures cannot destroy the parent draft or escape the frame. */

@@ -3139,22 +3139,6 @@ describe("M05 P2a owner-only foundation", () => {
     })
     await t.finishAllScheduledFunctions(vi.runAllTimers)
     await t.run(async (ctx) => {
-      const now = Date.now()
-      await ctx.db.insert("roles", {
-        authId: LEGACY_ADMIN.subject,
-        role: "admin",
-        assignedAt: now,
-      })
-      await ctx.db.insert("cmsMemberships", {
-        authId: LEGACY_ADMIN.subject,
-        tokenIdentifier: LEGACY_ADMIN.tokenIdentifier,
-        role: "admin",
-        status: "active",
-        createdAt: now,
-        activatedAt: now,
-        updatedAt: now,
-        transitionId: "m05-p2a",
-      })
       // The owner binding moves to a new identity; FORMER is now replaced.
       const owner = (await ctx.db.query("cmsOwner").unique())!
       await ctx.db.patch("cmsOwner", owner._id, {
@@ -3450,16 +3434,10 @@ const FRESHNESS_SOURCE_TABLES = [
 const RETIREMENT_HOOKED = "retires through retireContinuityRowForClaim"
 const PREPARED_TARGET_EXCLUSION =
   "F09 preparing target is never currentLocale; C3e owns post-activation collisions"
-const SNAPSHOT_MIGRATION_EXCLUSION =
-  "publication cutover is preparing, before snapshot authority can hold a pointer"
 const CLEARING_WRITE = "clears a current route; creates no claim"
 
 /** M05 P10b: every current or historical route-claim writer. */
 const CLAIM_WRITER_INVENTORY: Record<string, string> = {
-  "convex/cms/publication.ts#prepareSnapshotMigrationPage#insert#pageHistoricalLocaleRoutes":
-    SNAPSHOT_MIGRATION_EXCLUSION,
-  "convex/cms/publication.ts#prepareSnapshotMigrationPage#patch#pageLocalePublicationStates#currentPath":
-    SNAPSHOT_MIGRATION_EXCLUSION,
   "convex/cms/publication.ts#publishLocale#insert#pageHistoricalLocaleRoutes":
     RETIREMENT_HOOKED,
   "convex/cms/publication.ts#publishLocale#patch#pageLocalePublicationStates#currentPath":
@@ -3517,7 +3495,6 @@ describe("M05 P10b durable retirement source ownership", () => {
 
 const RECORDS = "records"
 const F09_ONLY = "F09 transition writer; unreachable under multilingual (M6)"
-const MIGRATION_EPOCH = "migration epoch (S9)"
 const F09_REMEDY =
   "F09 retained-draft remedy; requires the current state, so unreachable under multilingual"
 
@@ -3545,14 +3522,6 @@ const FRESHNESS_WRITER_INVENTORY: Record<string, string> = {
     RECORDS,
   "convex/cms/modules.ts#commitModuleTransitionInTransaction#patch#cmsModuleState":
     RECORDS,
-  "convex/cms/pages.ts#remove#delete#redirects":
-    "legacy publication epoch only; refuses under snapshot authority",
-  "convex/cms/publication.ts#abortSnapshotMigrationPage#delete#pageHistoricalLocaleRoutes":
-    MIGRATION_EPOCH,
-  "convex/cms/publication.ts#abortSnapshotMigrationPage#delete#pageLocalePublicationReleases":
-    MIGRATION_EPOCH,
-  "convex/cms/publication.ts#abortSnapshotMigrationPage#delete#pageLocalePublicationStates":
-    MIGRATION_EPOCH,
   "convex/cms/publication.ts#createTransitionTargetDraft#insert#pageLocalePublicationStates":
     F09_ONLY,
   "convex/cms/publication.ts#createTransitionTargetDraft#patch#pageLocalePublicationStates":
@@ -3567,14 +3536,6 @@ const FRESHNESS_WRITER_INVENTORY: Record<string, string> = {
     RECORDS,
   "convex/cms/publication.ts#initializeSuccessorPage#insert#pageLocalePublicationStates":
     "a new Page's first state rows carry no selection or route",
-  "convex/cms/publication.ts#prepareSnapshotMigrationPage#insert#pageHistoricalLocaleRoutes":
-    MIGRATION_EPOCH,
-  "convex/cms/publication.ts#prepareSnapshotMigrationPage#insert#pageLocalePublicationReleases":
-    MIGRATION_EPOCH,
-  "convex/cms/publication.ts#prepareSnapshotMigrationPage#patch#pageLocalePublicationReleases":
-    MIGRATION_EPOCH,
-  "convex/cms/publication.ts#prepareSnapshotMigrationPage#patch#pageLocalePublicationStates":
-    MIGRATION_EPOCH,
   "convex/cms/publication.ts#publishLocale#insert#pageHistoricalLocaleRoutes":
     RECORDS,
   "convex/cms/publication.ts#publishLocale#insert#pageLocalePublicationReleases":
@@ -5149,24 +5110,6 @@ describe("M05 P2b owner-only previews and receipts (preview half)", () => {
     await runPreview(t, formerPreview)
     const [formerDigest] = await pageDigests(t, formerPreview)
 
-    await t.run(async (ctx) => {
-      const now = Date.now()
-      await ctx.db.insert("roles", {
-        authId: LEGACY_ADMIN.subject,
-        role: "admin",
-        assignedAt: now,
-      })
-      await ctx.db.insert("cmsMemberships", {
-        authId: LEGACY_ADMIN.subject,
-        tokenIdentifier: LEGACY_ADMIN.tokenIdentifier,
-        role: "admin",
-        status: "active",
-        createdAt: now,
-        activatedAt: now,
-        updatedAt: now,
-        transitionId: "m05-p2b",
-      })
-    })
     // The binding moves; FORMER is replaced and `formerPreview` stays its own.
     await bindOwner(CURRENT)
     const current = t.withIdentity(CURRENT)
@@ -6701,24 +6644,6 @@ describe("M05 P2b owner-only add and reveal (command half)", () => {
     await bindOwner(FORMER)
     const former = t.withIdentity(FORMER)
     const formerPreview = await reviewedReveal({ t, owner: former })
-    await t.run(async (ctx) => {
-      const now = Date.now()
-      await ctx.db.insert("roles", {
-        authId: LEGACY_ADMIN.subject,
-        role: "admin",
-        assignedAt: now,
-      })
-      await ctx.db.insert("cmsMemberships", {
-        authId: LEGACY_ADMIN.subject,
-        tokenIdentifier: LEGACY_ADMIN.tokenIdentifier,
-        role: "admin",
-        status: "active",
-        createdAt: now,
-        activatedAt: now,
-        updatedAt: now,
-        transitionId: "m05-p2b-add",
-      })
-    })
     await bindOwner(CURRENT)
     const current = t.withIdentity(CURRENT)
     const currentPreview = await reviewedReveal({ t, owner: current })
@@ -7419,24 +7344,6 @@ describe("M05 P2b owner-only remove (command half)", () => {
     await bindOwner(FORMER)
     const former = t.withIdentity(FORMER)
     const formerPreview = await reviewedRemoval({ t, owner: former })
-    await t.run(async (ctx) => {
-      const now = Date.now()
-      await ctx.db.insert("roles", {
-        authId: LEGACY_ADMIN.subject,
-        role: "admin",
-        assignedAt: now,
-      })
-      await ctx.db.insert("cmsMemberships", {
-        authId: LEGACY_ADMIN.subject,
-        tokenIdentifier: LEGACY_ADMIN.tokenIdentifier,
-        role: "admin",
-        status: "active",
-        createdAt: now,
-        activatedAt: now,
-        updatedAt: now,
-        transitionId: "m05-p2b-remove",
-      })
-    })
     await bindOwner(CURRENT)
     const current = t.withIdentity(CURRENT)
     const currentPreview = await reviewedRemoval({ t, owner: current })
@@ -9810,24 +9717,6 @@ describe("M05 P2c owner-only default migration (enumeration, validation and canc
     const migrationId = await startMigration(site, "fr", former)
     await runMigration(t, migrationId)
     const [page] = await migrationPages(t, migrationId, 1)
-    await t.run(async (ctx) => {
-      const now = Date.now()
-      await ctx.db.insert("roles", {
-        authId: LEGACY_ADMIN.subject,
-        role: "admin",
-        assignedAt: now,
-      })
-      await ctx.db.insert("cmsMemberships", {
-        authId: LEGACY_ADMIN.subject,
-        tokenIdentifier: LEGACY_ADMIN.tokenIdentifier,
-        role: "admin",
-        status: "active",
-        createdAt: now,
-        activatedAt: now,
-        updatedAt: now,
-        transitionId: "m05-p2c",
-      })
-    })
     await bindOwner(CURRENT)
     const current = t.withIdentity(CURRENT)
 
@@ -11791,24 +11680,6 @@ describe("M05 P2c owner-only default migration (activation)", () => {
     await runMigration(t, migrationId)
     await validateMigration(t, migrationId)
     await reviewMigration(t, former, migrationId)
-    await t.run(async (ctx) => {
-      const now = Date.now()
-      await ctx.db.insert("roles", {
-        authId: LEGACY_ADMIN.subject,
-        role: "admin",
-        assignedAt: now,
-      })
-      await ctx.db.insert("cmsMemberships", {
-        authId: LEGACY_ADMIN.subject,
-        tokenIdentifier: LEGACY_ADMIN.tokenIdentifier,
-        role: "admin",
-        status: "active",
-        createdAt: now,
-        activatedAt: now,
-        updatedAt: now,
-        transitionId: "m05-p2c-act",
-      })
-    })
     await bindOwner(CURRENT)
     const args = await activationArgs(t, migrationId)
     const denied: [string, Pick<Caller, "mutation">, string][] = [

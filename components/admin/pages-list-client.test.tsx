@@ -1,3 +1,4 @@
+import { isActiveContentType } from "@/convex/lib/contentTypes"
 const moduleTestGate = vi.hoisted(() => ({ state: "off" }))
 vi.mock("./admin-module-state-provider", () => ({ useModuleGate: () => ({ state: moduleTestGate.state }) }))
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
@@ -89,11 +90,11 @@ vi.mock("next/navigation", () => ({
 vi.mock("convex/react", () => ({
   useConvex: () => ({ query: vi.fn() }),
   useMutation: () => mutate,
-  usePaginatedQuery: () => ({
-    loadMore: vi.fn(),
-    results: snapshotResults,
-    status: "Exhausted",
-  }),
+  // Like Convex, a skipped list reads as still loading its first page.
+  usePaginatedQuery: (_query: unknown, args: unknown) =>
+    args === "skip"
+      ? { loadMore: vi.fn(), results: [], status: "LoadingFirstPage" }
+      : { loadMore: vi.fn(), results: snapshotResults, status: "Exhausted" },
   useQuery,
 }))
 
@@ -113,16 +114,12 @@ vi.mock("@/app/(core)/admin/(authenticated)/pages/actions", () => ({
   revalidatePagePaths: vi.fn(async () => undefined),
 }))
 
-vi.mock("@/components/admin/duplicate-page-dialog", () => ({
-  DuplicatePageDialog: () => null,
-}))
-
 vi.mock("@/lib/admin/content-types", () => ({
   adminContentTypeSingularMessageKey: (type: string) => `${type}.singular`,
   adminContentTypes: () => [
     { routable: true, singular: "Page", type: "page" },
     { routable: false, singular: "Author", type: "author" },
-  ],
+  ].filter(({ type }) => isActiveContentType(type)),
 }))
 
 import { PagesListClient } from "./pages-list-client"
@@ -366,13 +363,51 @@ describe("PagesListClient filters", () => {
     expect(
       screen.getByRole("combobox", { name: "Filtrer par type de contenu" })
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole("option", { name: "Auteur — sans URL publique" })
-    ).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: "Page" })).toBeInTheDocument()
+    if (isActiveContentType("author")) {
+      expect(
+        screen.getByRole("option", { name: "Auteur — sans URL publique" })
+      ).toBeInTheDocument()
+    } else {
+      expect(screen.queryByRole("option", { name: /Auteur/ })).toBeNull()
+    }
     expect(
       screen.getByRole("combobox", { name: "Filtrer par état" })
     ).toHaveDisplayValue("Tous les états")
     expect(screen.getAllByText("Chargement…")).toHaveLength(2)
+  })
+
+  // Pins today's behaviour for an unfinished publishing setup: the list
+  // keeps loading and shows no notice. A notice waits for the owner.
+  it("keeps loading, with no notice, when publishing is not set up", () => {
+    useQuery.mockImplementation((reference: unknown, args: unknown) => {
+      const name = getFunctionName(reference as never)
+      if (name === "cms/publication:getAdminAuthority") return "invalid"
+      if (name === "cms/settings:getSiteConfig") return siteConfig
+      if (name === "cms/owner:getOwnerSession") return ownerSession
+      if (name === "cms/revalidate:getRevalidationHealth") {
+        return args === "skip"
+          ? undefined
+          : {
+              recentAttempts: [],
+              consecutiveFailureCount: 0,
+              consecutiveFailureCountCapped: false,
+              unconfigured: false,
+            }
+      }
+      return undefined
+    })
+    render(list())
+
+    expect(screen.getAllByText("Loading…")).toHaveLength(2)
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    const status = screen.getByRole("combobox", { name: "Filter by status" })
+    expect(
+      [...status.querySelectorAll("option")].map((option) => option.textContent)
+    ).toEqual(["All statuses", "published", "draft", "archived"])
+    expect(
+      screen.getByRole("combobox", { name: "Filter by locale" })
+    ).toHaveDisplayValue("EN")
   })
 
   it.each([
@@ -456,186 +491,4 @@ describe("PagesListClient filters", () => {
     await waitFor(() => expect(toastError).toHaveBeenCalledWith(fixture.expected))
     expect(refresh).not.toHaveBeenCalled()
   })
-})
-
-const rowScenarios = (["en", "fr"] as const).flatMap((locale) =>
-  [false, true].flatMap((multilingual) =>
-    ["Short title", "Annual community health report ".repeat(4).trim(), "社区健康计划与区域合作伙伴关系年度报告".repeat(4)].flatMap((title, titleKind) =>
-      ["about", "annual-report-community-health-programmes-regional-partnerships-2026", "report-communityhealthprogrammesandregionalpartnerships2026"].map((slug) => ({ locale, multilingual, title, titleKind, slug }))
-    )
-  )
-)
-
-describe("approved Pages row structure", () => {
-  beforeEach(() => {
-    snapshotResults.length = 0
-    useQuery.mockReset()
-  })
-
-  it.each(rowScenarios)("$locale M05=$multilingual title=$titleKind URL=$slug", async ({ locale, multilingual, title, titleKind, slug }) => {
-    const contentLocale = titleKind === 2 ? "zh" : locale
-    const copy = (locale === "fr" ? fr : en).pages.list
-    const enabledLocales = ["en", "fr", "es", "it", "pt", "pt-br", "nl", "sv", "pl", "ru", "tr", "hi", "zh", "ja", "ko"]
-    snapshotResults.push({
-      _id: "layout-page", pageType: "page", slug, status: "draft", updatedAt: 1,
-      scheduledAt: Date.UTC(2026, 10, 4, 14),
-      content: { [contentLocale]: { title, blocks: [] } },
-    })
-    useQuery.mockImplementation((reference: unknown) => {
-      const name = getFunctionName(reference as never)
-      if (name === "cms/publication:getAdminAuthority") return "legacy"
-      if (name === "cms/settings:getSiteConfig") return { ...siteConfig, defaultLocale: contentLocale, enabledLocales }
-      if (name === "cms/owner:getOwnerSession") return ownerSession
-      if (name === "cms/multilingual:getMultilingualState") throw new Error("visibility must use shared gate")
-      return undefined
-    })
-    moduleTestGate.state = multilingual ? "on" : "off"
-    const view = render(list(locale))
-    const link = screen.getByRole("link", { name: title })
-    expect(link).toHaveClass("block", "min-w-0", "wrap-break-word")
-    expect(link.className).not.toMatch(/truncate|line-clamp/)
-    expect(link).not.toHaveAttribute("title")
-    expect(link).toHaveAttribute("lang", contentLocale)
-    expect(link).toHaveAttribute("dir", "auto")
-    const identity = link.parentElement!
-    expect(identity).toHaveClass("min-w-[140px]", "flex-1")
-    expect(identity.parentElement).toHaveClass("flex-wrap", "items-start", "gap-x-4", "gap-y-2")
-    const url = identity.querySelector("[title]")!
-    expect(url).toHaveAttribute("title", slug)
-    expect(url).toHaveAttribute("lang", contentLocale)
-    expect(url).toHaveAttribute("dir", "auto")
-    expect(url.firstElementChild).toHaveClass("min-w-0", "truncate")
-    const bounded = slug.length > 32 && slug.endsWith("-2026")
-    expect(url.children).toHaveLength(bounded ? 2 : 1)
-    if (bounded) {
-      expect(url.lastElementChild).toHaveClass("shrink-0", "max-w-1/2", "truncate")
-      expect(url.lastElementChild).toHaveTextContent("-2026")
-    }
-    const schedule = identity.querySelector('[data-slot="badge"]')!
-    expect(schedule).toHaveClass("h-auto", "min-h-5", "overflow-visible", "whitespace-normal", "wrap-break-word")
-    expect(schedule).not.toHaveClass("h-5", "overflow-hidden", "hidden", "lg:inline-flex")
-    expect(schedule.children).toHaveLength(2) // icon + one complete translated text run
-    expect(schedule.lastElementChild!.childNodes).toHaveLength(1)
-    expect(schedule.textContent).toMatch(locale === "en" ? /^Publishes / : /^Publication /)
-    const label = copy.languagesDetails.replace("{translated}", "1").replace("{total}", "15")
-    if (!multilingual) {
-      expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument()
-      expect(view.container.querySelector(".w-28")).toBeNull()
-      return
-    }
-    const languages = screen.getByRole("button", { name: label })
-    expect(languages).toHaveTextContent("1/15")
-    expect(languages).toHaveClass("hidden", "sm:inline-flex", "w-28", "tabular-nums", "border-amber-400")
-    expect(languages.querySelector(".lucide-x")).not.toBeNull()
-    expect(languages.parentElement).toHaveClass("sm:-mt-1.5")
-    fireEvent.click(languages)
-    const popover = await screen.findByRole("dialog", { name: copy.languages })
-    expect(popover).toHaveClass("max-w-[calc(100vw-2rem)]")
-    expect(popover.querySelectorAll("li")).toHaveLength(15)
-    const names = popover.querySelectorAll('li > span[lang]')
-    expect(names).toHaveLength(15)
-    for (const name of names) {
-      expect(name).toHaveClass("min-w-0", "flex-1", "wrap-break-word")
-      expect(name).toHaveAttribute("dir", "auto")
-      expect(name.parentElement!.querySelector("a")).toHaveAttribute("href", `/admin/pages/layout-page?locale=${name.getAttribute("lang")}`)
-    }
-    expect(popover.querySelector("li .sr-only")).toHaveTextContent(copy.missingTranslation)
-    fireEvent.keyDown(popover, { key: "Escape" })
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
-    expect(languages).toHaveFocus()
-  })
-
-  it.each(["en", "fr"] as const)("%s shows complete status and wrapping default URL name", (locale) => {
-    const copy = (locale === "fr" ? fr : en).pages.list
-    snapshotResults.push({ _id: "complete", pageType: "page", slug: "about", status: "published", updatedAt: 1,
-      expiresAt: Date.UTC(2026, 11, 31, 22),
-      content: { en: { title: "English title", blocks: [] }, fr: { title: "Titre français", blocks: [] } },
-    })
-    useQuery.mockImplementation((reference: unknown) => {
-      const name = getFunctionName(reference as never)
-      if (name === "cms/publication:getAdminAuthority") return "legacy"
-      if (name === "cms/settings:getSiteConfig") return siteConfig
-      if (name === "cms/owner:getOwnerSession") return ownerSession
-      if (name === "cms/multilingual:getMultilingualState") throw new Error("visibility must use shared gate")
-      return undefined
-    })
-    moduleTestGate.state = "on"
-    render(list(locale))
-    const languages = screen.getByRole("button", { name: copy.languagesDetails.replace("{translated}", "2").replace("{total}", "2") })
-    expect(languages).toHaveTextContent("2/2")
-    expect(languages).toHaveClass("text-muted-foreground")
-    expect(languages.querySelector(".lucide-check")).not.toBeNull()
-    fireEvent.change(screen.getByRole("combobox", { name: copy.filters.locale }), { target: { value: "fr" } })
-    const badge = screen.getByText(copy.defaultSlug)
-    expect(badge).toHaveClass("h-auto", "whitespace-normal", "overflow-visible")
-    expect(badge.childNodes).toHaveLength(1)
-    expect(badge.children).toHaveLength(0)
-    expect(screen.queryByText(copy.missingLocaleContent.replace("{locale}", "FR"))).not.toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Titre français" })).toHaveAttribute("lang", "fr")
-  })
-})
-
-const frenchBodyWithoutTitle = { title: "", blocks: [{ id: "body-fr", type: "rich-text-body", enabled: true, primary: { body: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Bonjour" }] }] }) } }] }
-const provenanceCases = [
-  { name: "localized title, default slug", filter: "fr", content: { fr: { title: "Bonjour" } }, title: "Bonjour", titleLocale: "fr", slugLocale: "en" },
-  { name: "localized title and slug", filter: "fr", content: { fr: { title: "Bonjour" } }, localizedSlugs: { fr: "bonjour" }, title: "Bonjour", titleLocale: "fr", slug: "bonjour", slugLocale: "fr" },
-  { name: "admin placeholder", filter: "fr", content: { en: { title: "Hello" }, fr: frenchBodyWithoutTitle }, titleLocale: undefined, slugLocale: "en" },
-  { name: "all French-first content", filter: "all", content: { fr: { title: "Bonjour" }, en: { title: "Hello" } }, title: "Bonjour", titleLocale: "fr", slugLocale: "en" },
-  { name: "all empty first content uses effective key", filter: "all", content: { en: { title: "" }, fr: { title: "Unused second content" } }, effectiveTitles: { fr: "Titre effectif" }, title: "Titre effectif", titleLocale: "fr", slugLocale: "en" },
-  { name: "all localized title has priority", filter: "all", content: {}, localizedTitles: { fr: "Titre localisé" }, effectiveTitles: { en: "Old effective title" }, title: "Titre localisé", titleLocale: "fr", slugLocale: "en" },
-  { name: "all untitled inherits admin", filter: "all", content: {}, titleLocale: undefined, slugLocale: "en" },
-  { name: "single staged title", filter: "fr", content: {}, effectiveTitles: { fr: "Titre effectif" }, title: "Titre effectif", titleLocale: "fr", slugLocale: "en" },
-  { name: "unknown default omits slug language", filter: "all", content: { fr: { title: "Bonjour" } }, unknownDefault: true, title: "Bonjour", titleLocale: "fr", slugLocale: undefined },
-  { name: "missing slug literal inherits admin", filter: "fr", content: { fr: frenchBodyWithoutTitle }, slug: "", titleLocale: undefined, slugLocale: undefined },
-]
-
-describe.each(["en", "fr"] as const)("Pages row language provenance, admin %s", (adminLocale) => {
-  it.each(provenanceCases)("$name", (scenario) => {
-    snapshotResults.length = 0
-    const copy = (adminLocale === "en" ? en : fr).pages.list
-    const slug = scenario.slug ?? "about"
-    const shownSlug = scenario.filter === "fr" && !slug ? "missing-slug" : slug
-    snapshotResults.push({ _id: "provenance", pageType: "page", status: "draft", updatedAt: 1, ...scenario, slug })
-    useQuery.mockImplementation((reference: unknown) => {
-      const name = getFunctionName(reference as never)
-      if (name === "cms/publication:getAdminAuthority") return "legacy"
-      if (name === "cms/settings:getSiteConfig") return { enabledLocales: ["en", "fr"], defaultLocale: scenario.unknownDefault ? undefined : "en" }
-      if (name === "cms/multilingual:getMultilingualState") throw new Error("visibility must use shared gate")
-      return undefined
-    })
-    render(list(adminLocale))
-    fireEvent.change(screen.getByRole("combobox", { name: copy.filters.locale }), { target: { value: scenario.filter } })
-    const title = scenario.title ?? (scenario.filter === "all" ? copy.untitled : copy.missingLocaleTitle.replace("{locale}", "FR"))
-    const link = screen.getByRole("link", { name: title })
-    if (scenario.titleLocale) expect(link).toHaveAttribute("lang", scenario.titleLocale)
-    else expect(link).not.toHaveAttribute("lang")
-    const url = link.parentElement!.querySelector("[title]")!
-    expect(url).toHaveAttribute("title", shownSlug)
-    if (scenario.slugLocale) expect(url).toHaveAttribute("lang", scenario.slugLocale)
-    else expect(url).not.toHaveAttribute("lang")
-    expect(link).toHaveAttribute("href", `/admin/pages/provenance${scenario.filter === "all" ? "" : "?locale=fr"}`)
-  })
-})
-
-it.each(["loading", "off", "on", "error"])("Pages gate %s controls contributions and closes open details", (gate) => {
-  snapshotResults.length = 0
-  snapshotResults.push({ _id: "gate-page", pageType: "page", slug: "gate-page", status: "draft", updatedAt: 1, content: { en: { title: "Gate page", blocks: [] } } })
-  useQuery.mockImplementation((reference: unknown) => {
-    const name = getFunctionName(reference as never)
-    if (name === "cms/publication:getAdminAuthority") return "legacy"
-    if (name === "cms/settings:getSiteConfig") return siteConfig
-    if (name === "cms/owner:getOwnerSession") return ownerSession
-    if (name === "cms/multilingual:getMultilingualState") return { moduleEnabled: true }
-    return undefined
-  })
-  moduleTestGate.state = "on"
-  const view = render(list("en"))
-  const label = en.pages.list.languagesDetails.replace("{translated}", "1").replace("{total}", "2")
-  const button = screen.getByRole("button", { name: label })
-  fireEvent.click(button)
-  moduleTestGate.state = gate
-  view.rerender(list("en"))
-  expect(screen.queryByRole("button", { name: label }) !== null).toBe(gate === "on")
-  expect(screen.queryByRole("link", { name: /Edit.*Français/ }) !== null).toBe(gate === "on")
-  expect(screen.getByRole("link", { name: "Gate page" })).toBeInTheDocument()
 })

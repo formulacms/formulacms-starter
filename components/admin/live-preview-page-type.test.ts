@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import {
   CONTENT_TYPES,
   REGISTERED_CONTENT_TYPES,
+  isActiveContentType,
   type ContentType,
 } from "@/convex/lib/contentTypes"
 import { supportsLivePreviewFrame } from "./live-preview-page-type"
@@ -42,10 +43,17 @@ describe("live preview gate covers the content-type registry", () => {
   })
 
   it.each(REGISTERED_CONTENT_TYPES)(
-    "previews the registered type %s unless it has no renderer",
+    "matches selection and renderer availability for registered type %s",
     (type) => {
-      expect(supportsLivePreviewFrame(type)).toBe(!(type in NO_RENDERER_YET))
+      expect(supportsLivePreviewFrame(type)).toBe(
+        isActiveContentType(type) && !(type in NO_RENDERER_YET)
+      )
     }
+  )
+  it.each(
+    REGISTERED_CONTENT_TYPES.filter((type) => !isActiveContentType(type))
+  )("refuses the inactive registered type %s", (type) =>
+    expect(supportsLivePreviewFrame(type)).toBe(false)
   )
 })
 

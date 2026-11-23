@@ -151,9 +151,13 @@ export const rename = mutation({
     if (!cleaned) {
       throw new ConvexError("Label cannot be empty")
     }
+    // Omitted keeps the description. A blank string clears it. A patch value
+    // of `undefined` removes the field, so only set it when named.
     await ctx.db.patch("tags", id, {
       label: cleaned,
-      description: description?.trim() || undefined,
+      ...(description !== undefined
+        ? { description: description.trim() || undefined }
+        : {}),
       updatedAt: Date.now(),
     })
     return null

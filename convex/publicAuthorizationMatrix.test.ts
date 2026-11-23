@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { blockProfile } from "@/test-utils/block-profile"
 import { afterEach, describe, expect, test, vi } from "vitest"
+import { isActiveContentType } from "./lib/contentTypes"
 import { coreRows } from "../test-utils/authorization-matrix/core"
 import { coreLanguageRows } from "../test-utils/authorization-matrix/core_language"
 import { coreMultilingualRows } from "../test-utils/authorization-matrix/core_multilingual"
@@ -123,7 +124,11 @@ describe("public Convex authorization matrix", () => {
       "cms/blocks:setPresentationArchived",
       "cms/blocks:getBlockAuthoringState",
     ].includes(row.name)
-    test(row.name, blockProfile(needsHero ? ["hero-with-image"] : []), async () => {
+    const profile = blockProfile(needsHero ? ["hero-with-image"] : [])
+    test(row.name, {
+      ...profile,
+      skip: profile.skip || (row.name === "cms/pages:getPublicByline" && !isActiveContentType("author")),
+    }, async () => {
       await row.run(testModules)
     })
   }

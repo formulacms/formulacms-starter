@@ -117,4 +117,4 @@ async function loadLocalTools(): Promise<LocalToolsData | undefined> {
 
 /** Installed AI settings route; OptionalModuleRoute owns the runtime gate. */
 export const ADMIN_AI_SETTINGS_SERVER_BINDING: AdminAiSettingsServerBinding | null =
-  { renderSettingsPage: (props) => createElement(AiSettingsRoute, props), resolveBlockCreatorReady, loadLocalTools }
+  { renderSettingsPage: (props) => createElement(AiSettingsRoute, { ...props, siteFolder: process.cwd() }), resolveBlockCreatorReady, loadLocalTools }

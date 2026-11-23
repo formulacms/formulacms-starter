@@ -96,7 +96,6 @@ const DUMPED_TABLES = [
   "pagePublicationBlockReferences",
   "pageHistoricalLocaleRoutes",
   "pagePublicationRevalidationIntents",
-  "pagePublicationMigrationPages",
   "pageRevisions",
   "pageSearch",
 ] as const

@@ -97,6 +97,8 @@ function localToolContext(options: DevAiConnectionOptions) {
   const env = options.env ?? process.env
   return {
     env,
+    // Same sanitized environment and native-installer PATH fallback as an
+    // actual run; keep explicit test/caller environments unchanged.
     toolEnv: options.toolEnv ?? localToolEnvironment({ env }),
     runCommand: options.runCommand ?? runStatusCommand,
   }

@@ -1,15 +1,12 @@
 "use client"
 
-import { useMutation } from "convex/react"
 import { useTranslations } from "next-intl"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
-import { hasErrorCode } from "./pages-list-errors"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
 import {
@@ -40,15 +37,21 @@ type DuplicatePageValues = z.input<
   ReturnType<typeof createDuplicatePageSchema>
 >
 
+/**
+ * Asks for the copy's title, then runs the caller's duplicate command. Not
+ * shown anywhere yet: the content-duplicate unit wires it to the publishing
+ * commands.
+ */
 export function DuplicatePageDialog({
-  pageId,
+  onDuplicate,
   sourceTitle,
   beforeDuplicate,
   onCloseAutoFocus,
   onDuplicated,
   onClose,
 }: {
-  pageId: Id<"pages">
+  /** Creates the copy with the confirmed title; returns the new page. */
+  onDuplicate: (title: string) => Promise<Id<"pages">>
   sourceTitle: string
   beforeDuplicate?: () => boolean | Promise<boolean>
   /** Radix hook that runs when the dialog closes, before focus returns to
@@ -59,7 +62,6 @@ export function DuplicatePageDialog({
 }) {
   const displayError = useCaughtError()
   const t = useTranslations("editor.duplicateDialog")
-  const duplicatePage = useMutation(api.cms.pages.duplicate)
   const form = useForm<DuplicatePageValues>({
     resolver: zodResolver(createDuplicatePageSchema(t("titleRequired"))),
     defaultValues: {
@@ -77,18 +79,8 @@ export function DuplicatePageDialog({
     let duplicatedPageId: Id<"pages">
     try {
       if (beforeDuplicate && !(await beforeDuplicate())) return
-      duplicatedPageId = await duplicatePage({
-        id: pageId,
-        title: confirmedTitle,
-      })
+      duplicatedPageId = await onDuplicate(confirmedTitle)
     } catch (cause) {
-      // Snapshot publication cannot duplicate pages yet (a separate unit).
-      // Say so plainly instead of offering a retry; never report success.
-      if (hasErrorCode(cause, "LEGACY_PUBLICATION_WRITER_DISABLED")) {
-        onClose()
-        toast.error(t("unavailable"))
-        return
-      }
       // A failed duplicate is about the whole operation, not the title field.
       form.setError("root", {
         message: displayError(cause, t("failed")),

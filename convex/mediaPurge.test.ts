@@ -790,7 +790,12 @@ describe("review round 1 fixes", () => {
   )
 
   test("permanent delete is refused outside snapshot authority, before any write", async () => {
-    const t = convexTest({ schema, modules, ownerIdentity: OWNER })
+    const t = convexTest({
+      schema,
+      modules,
+      ownerIdentity: OWNER,
+      publicationAuthority: "missing",
+    })
     migrationsTest.register(t)
     const owner = t.withIdentity(OWNER)
     const f = { t, owner } as unknown as Site

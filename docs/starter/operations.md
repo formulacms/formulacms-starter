@@ -3,6 +3,14 @@
 This guide is the Phase 15 handoff for running, configuring, and upgrading the
 starter without private project context.
 
+> **Modular Community successor notice (2026-09-11):**
+> ADR-0053 (internal decision record) defines the
+> accepted fresh Community target as one durable owner with one fixed `admin`
+> role. Member, invitation, Editor/Viewer, role-policy, entitlement, and related
+> procedures below describe preserved pre-successor behavior; they are not
+> fresh Community operating instructions. R01/R03 must reconcile this guide
+> with the proven released artifact before customer use.
+
 > **Email successor notice (2026-09-21):**
 > ADR-0054 is the current email authority in the private source repository.
 > E01-E08 are source-integrated, the sole generated FormulaCMS starter
@@ -53,14 +61,17 @@ installs only, and `starter.transitions.json` declares the 0.2.0 to 0.3.0 hop
 decision, 2026-11-19: 0.3.0 supports fresh installs only; start a new site
 from v0.3.0. Release 0.3.1 declares no path from 0.3.0: it supports fresh
 installs only, and `starter.transitions.json` declares the 0.3.0 to 0.3.1 hop
-`unsupported`. Owner decision, 2026-11-20: breaking changes are accepted until
-0.5; start a new site from v0.3.1. Release 0.4.0 declares no path from 0.3.1:
+`unsupported`; start a new site from v0.3.1. Owner split, 2026-11-22:
+each 0.5.x hop also supports fresh installs only; the breaking window closes
+with the release that ships STORED-DATA-INVENTORY (0.5.4). Release 0.4.0 declares no path from 0.3.1:
 it supports fresh installs only, and `starter.transitions.json` declares the
 0.3.1 to 0.4.0 hop `unsupported`; start a new site and a new Convex deployment
-from v0.4.0. From 1.0.0 on, the checker refuses an `unsupported` hop that keeps
+from v0.4.0. Release 0.5.1 declares the v0.4.0 to v0.5.1 hop
+`unsupported`; start a new site and a new Convex deployment from v0.5.1.
+From 1.0.0 on, the checker refuses an `unsupported` hop that keeps
 the major version. Per-hop transitions may be non-composable.
 
-`engine.manifest.json` records schema version 6 (release 0.4.0) as the fresh-install baseline. It supports no upgrade from schema version 5 (releases 0.3.0 and 0.3.1) or schema version 4 (release 0.2.0), and schema version 3 or older is unsupported.
+`engine.manifest.json` records schema version 7 (release 0.5.1) as the fresh-install baseline: the retired page-wide publication, migration, membership, entitlement and role tables were removed. It supports no upgrade from schema version 6 (release 0.4.0), schema version 5 (releases 0.3.0 and 0.3.1) or schema version 4 (release 0.2.0), and schema version 3 or older is unsupported.
 The separate `starter.transitions.json` is the
 machine-readable authority for exact tagged source-to-target paths. Validate a
 named hop before merging it:
@@ -365,6 +376,15 @@ A local `NEXT_PUBLIC_SITE_URL` (`localhost`, `127.0.0.1` or `[::1]`) also sets
 the address `pnpm dev` binds, for example `http://localhost:3001`. Any other
 value keeps `http://localhost:3000` (`scripts/lib/dev-server-origin.ts`).
 
+Production AI reads these Convex values:
+
+| Variable                 | Where                   | Purpose                                                               |
+| ------------------------ | ----------------------- | --------------------------------------------------------------------- |
+| `OPENROUTER_API_KEY`     | Convex env              | Enables the OpenRouter Production AI provider.                        |
+| `ANTHROPIC_API_KEY`      | Convex env              | Enables the direct Anthropic Production AI provider.                  |
+| `OPENAI_API_KEY`         | Convex env              | Enables the direct OpenAI Production AI provider.                     |
+| `CMS_AI_MODEL`           | Convex env              | Legacy OpenRouter default before a typed provider is saved.           |
+
 `CONTACT_IP_PROOF_SECRET` and `REVALIDATE_SECRET` are each set in the
 Next.js environment and in Convex, and the two values must be equal. If you set one by hand, send the same value to Convex over stdin, never
 as a command argument. `pnpm check:preflight` fails when either side is
@@ -378,6 +398,29 @@ A new `FORMULACMS_OWNER_CLAIM` does not replace an existing owner: setup
 accepts the code only while the site has no owner (`convex/cms/owner.ts`). An
 owner who cannot sign in uses a recovery link instead; see
 [Owner recovery](#owner-recovery).
+
+Production AI is BYOK. Set keys only in Convex environment variables, then choose
+one provider, model, and reasoning effort in Settings → AI. The browser receives
+credential-present booleans, never key values. If the selected provider's key is
+missing, generation fails with a configuration error; it does not fall back to a
+different configured provider.
+
+### Local block-generation AI
+
+Developer-local block generation is separate from Production AI. Put only the
+keys you use in gitignored `.env.local`:
+
+| Variable                            | Purpose                                   |
+| ----------------------------------- | ----------------------------------------- |
+| `FORMULACMS_DEV_AI_ENGINE`          | Default local engine alias.               |
+| `FORMULACMS_DEV_OPENROUTER_API_KEY` | Local OpenRouter API engine credential.   |
+| `FORMULACMS_DEV_ANTHROPIC_API_KEY`  | Local direct Anthropic engine credential. |
+| `FORMULACMS_DEV_OPENAI_API_KEY`     | Local direct OpenAI engine credential.    |
+
+Override a run with `--engine`; for API engines, pass `--engine-model` and
+`--engine-effort` together when overriding the committed task-profile tuple.
+Local scripts never fetch Convex secrets, use Production AI credentials, or let
+runtime Settings choose the local provider/model/reasoning tuple.
 
 ## Quickstart
 
@@ -428,6 +471,29 @@ egress. Review the current [pricing](https://www.convex.dev/pricing),
 [per-deployment usage limits](https://docs.convex.dev/production/usage-limits),
 and [team spending limits](https://docs.convex.dev/dashboard/teams/teams)
 before changing thresholds or adding sites.
+
+### Public read limits
+
+_Measured 2026-11-22 (0.5.1)._
+
+The public reads that take a list of ids accept at most 50 ids per call:
+page links (`getLocalizedPathsByIds`), relation cards
+(`getPublicRelationCardsByIds`, and `getRelationCardsByIds` for the owner) and
+image URLs (`getStorageUrls`). A longer list is refused with the error code
+`TOO_MANY_IDS`. The limit bounds what one anonymous call can cost; it does not
+limit pages. The public page, the admin preview and the live preview split
+their ids into groups of 50, so a page with hundreds of images or links still
+shows all of them. The value is `ID_BATCH_MAX` in `convex/lib/pages/types.ts`.
+
+Why 50: Convex allows 4,096 index reads per query. A page link costs about 9
+index reads when the linked pages share their parent pages, and about 36 when
+each linked page has its own three-level chain of parent pages; every further
+level adds about 9. With 50 ids, pages nested up to about six levels resolve
+in one call. Image URLs cost about 2 index reads each.
+
+`getStorageUrls` gives no URL for media in the Trash. Media that a page, a
+setting or a menu uses cannot be moved to the Trash, so this changes no
+visible page.
 
 ## Email Setup
 
@@ -565,10 +631,9 @@ against the deployment can take over the site.
 
 ## Author and member identity
 
-Authors are editorial content documents. Their names, localized bylines, body
-content, publication, trash, and restore lifecycle are independent of member
-accounts, so the installation owner may create and maintain multiple Authors
-without creating or selecting a member.
+The starter ships two content types: Page and Landing page. The Post and
+Author types stay in the formulacms engine and are not active in a generated
+site, so a new site has no Authors to create or maintain.
 
 Authors are not linked to member accounts. The unused `authorMemberLinks` table
 was removed on 2026-11-17 (owner decision), and no Author operation depended

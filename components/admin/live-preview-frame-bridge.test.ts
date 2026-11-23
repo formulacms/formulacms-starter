@@ -1,6 +1,7 @@
 import { readInstalledBlockDefinition } from "@/convex/lib/blocks"
 import { createSampleBlock } from "@/convex/lib/blocks/sample"
 import { blockProfile } from "@/test-utils/block-profile"
+import { isActiveContentType } from "@/convex/lib/contentTypes"
 import { describe, expect, it, vi } from "vitest"
 import { v, type GenericValidator, type VObject } from "convex/values"
 import {
@@ -136,7 +137,9 @@ it("accepts a well-formed retained choice without rewriting frame input", blockP
   expect(JSON.stringify(retained)).toBe(before)
 })
 
-it.each(["page", "landing-page", "post", "author"])("accepts a %s frame input", blockProfile([]), (pageType) => {
+it.each(
+  ["page", "landing-page", "post", "author"].filter(isActiveContentType)
+)("accepts a %s frame input", blockProfile([]), (pageType) => {
   expect(validLiveFrameInput({ ...input, pageType })).toBe(true)
 })
 
@@ -146,7 +149,7 @@ it.each([
   { authorIds: "author-1" },
   { authorIds: ["author-1", ""] },
 ])("refuses malformed unsaved field values %j", blockProfile([]), (extra) => {
-  expect(validLiveFrameInput({ ...input, pageType: "post", ...extra })).toBe(
+  expect(validLiveFrameInput({ ...input, pageType: "page", ...extra })).toBe(
     false
   )
 })

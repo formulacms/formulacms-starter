@@ -17,12 +17,10 @@ const UNRELATED = {
   subject: "unit3-publication-unrelated",
   tokenIdentifier: "unit3-publication-unrelated",
 }
-type Authority = "legacy" | "snapshot"
 type App = ReturnType<typeof convexTest>
 type Fixture = {
   t: App
   owner: ReturnType<App["withIdentity"]>
-  mode: Authority
   pageId: Id<"pages">
 }
 const apps: App[] = []
@@ -39,19 +37,17 @@ function draftContent(title: string) {
   }
 }
 
-async function makeFixture(mode: Authority): Promise<Fixture> {
+async function makeFixture(): Promise<Fixture> {
   const t = convexTest({
     schema,
     modules,
     ownerIdentity: OWNER,
-    publicationAuthority: mode === "snapshot" ? "missing" : "legacy",
+    publicationAuthority: "missing",
   })
   apps.push(t)
   scheduledExpectations.set(t, { jobs: 0, intents: 0 })
   const owner = t.withIdentity(OWNER)
-  if (mode === "snapshot") {
-    await owner.mutation(api.cms.publication.initializeEmptySnapshotAuthority, {})
-  }
+  await owner.mutation(api.cms.publication.initializeEmptySnapshotAuthority, {})
   const homePageId = await owner.mutation(api.cms.pages.create, {
     pageType: "landing-page",
     status: "draft",
@@ -76,51 +72,36 @@ async function makeFixture(mode: Authority): Promise<Fixture> {
     title: "Initial draft",
     content: { en: { title: "Initial draft", blocks: [] } },
   })
-  if (mode === "legacy") {
-    await owner.mutation(api.cms.pages.acquirePageEditorLock, { pageId })
-  }
-  return { t, owner, pageId, mode }
+  return { t, owner, pageId }
 }
 
 async function draftArguments(f: Fixture, title: string) {
   const editor = await f.owner.query(api.cms.pages.getForEdit, { id: f.pageId })
   if (!editor) throw new Error("Valid editor fixture required")
-  if (f.mode === "snapshot") {
-    const state = editor.publication
-    const locale = state?.locales.find((row) => row.locale === "en")
-    if (!state || !locale) throw new Error("Valid snapshot clocks required")
-    const args: FunctionArgs<typeof api.cms.publication.saveEditorDraft> = {
-      pageId: f.pageId,
-      expectedLifecycleGeneration: state.lifecycleGeneration,
-      localized: {
-        locale: "en",
-        slug: "unit3-proof",
-        expectedGeneration: locale.draftGeneration,
-        draft: draftContent(title),
-      },
-    }
-    return { kind: "snapshot" as const, args }
-  }
-  const args: FunctionArgs<typeof api.cms.pages.updateDraft> = {
+  const state = editor.publication
+  const locale = state?.locales.find((row) => row.locale === "en")
+  if (!state || !locale) throw new Error("Valid snapshot clocks required")
+  const args: FunctionArgs<typeof api.cms.publication.saveEditorDraft> = {
     pageId: f.pageId,
-    expectedUpdatedAt: "stagingUpdatedAt" in editor ? editor.stagingUpdatedAt : undefined,
-    content: { en: draftContent(title) },
+    expectedLifecycleGeneration: state.lifecycleGeneration,
+    localized: {
+      locale: "en",
+      slug: "unit3-proof",
+      expectedGeneration: locale.draftGeneration,
+      draft: draftContent(title),
+    },
   }
-  return { kind: "legacy" as const, args }
+  return args
 }
 
 async function saveDraft(f: Fixture, title: string) {
-  const write = await draftArguments(f, title)
-  if (write.kind === "snapshot") {
-    return f.owner.mutation(api.cms.publication.saveEditorDraft, write.args)
-  }
-  return f.owner.mutation(api.cms.pages.updateDraft, write.args)
+  return f.owner.mutation(
+    api.cms.publication.saveEditorDraft,
+    await draftArguments(f, title)
+  )
 }
 
 async function publishArguments(f: Fixture) {
-  if (f.mode === "legacy") {
-    return { kind: "legacy" as const, args: { pageId: f.pageId } }
-  }
   const editor = await f.owner.query(api.cms.pages.getForEdit, { id: f.pageId })
   const state = editor?.publication
   const locale = state?.locales.find((row) => row.locale === "en")
@@ -134,21 +115,18 @@ async function publishArguments(f: Fixture) {
     expectedLifecycleGeneration: state.lifecycleGeneration,
     expectedReleaseGeneration: locale.releaseGeneration,
   }
-  return { kind: "snapshot" as const, args }
+  return args
 }
 
 async function publish(f: Fixture) {
-  const write = await publishArguments(f)
-  if (write.kind === "snapshot") {
-    await f.owner.mutation(api.cms.publication.publishLocale, write.args)
-    // The publish inserts one intent and schedules one immediate drain, which
-    // (with no revalidation target configured) records one attempt.
-    scheduledExpectations.get(f.t)!.intents += 1
-    scheduledExpectations.get(f.t)!.jobs += 1
-  } else {
-    await f.owner.mutation(api.cms.pages.publish, write.args)
-    scheduledExpectations.get(f.t)!.jobs += 1
-  }
+  await f.owner.mutation(
+    api.cms.publication.publishLocale,
+    await publishArguments(f)
+  )
+  // The publish inserts one intent and schedules one immediate drain, which
+  // (with no revalidation target configured) records one attempt.
+  scheduledExpectations.get(f.t)!.intents += 1
+  scheduledExpectations.get(f.t)!.jobs += 1
 }
 
 function publicPage(f: Fixture) {
@@ -233,88 +211,68 @@ describe("Unit3 selected publication and write authorization", () => {
     }
   })
 
-  for (const mode of ["legacy", "snapshot"] as const) {
-    test(`${mode}: owner create, editor save, publish and anonymous readback`, async () => {
-      const f = await makeFixture(mode)
-      let publicPath = "/unit3-proof"
-      if (mode === "legacy") {
-        // Existing hierarchy cases cover creation and ancestor slug changes.
-        // Trace the missing real hierarchy-only update used by the editor.
-        const parentId = await f.owner.mutation(api.cms.pages.create, {
-          pageType: "landing-page",
-          status: "published",
-          slug: "section",
-          title: "Section",
-          content: { en: { title: "Section", blocks: [] } },
-        })
-        await f.owner.mutation(api.cms.pages.update, { id: f.pageId, parentId })
-        scheduledExpectations.get(f.t)!.jobs += 1
-        await expect(f.owner.query(api.cms.pages.getById, { id: f.pageId }))
-          .resolves.toMatchObject({ parentId, ancestryPath: "/section", hierarchyDepth: 1 })
-        publicPath = "/section/unit3-proof"
-      }
-      await expect(publicPage(f)).resolves.toBeNull()
-      await saveDraft(f, "Published title")
-      await expect(publicPage(f)).resolves.toBeNull()
-      await publish(f)
-      const selected = await publicPage(f)
-      expect(selected).toMatchObject({
-        _id: f.pageId,
-        content: { en: { title: "Published title" } },
-      })
-      await expect(f.t.query(api.cms.pages.resolveLocalizedPathQuery, {
-        languageVersion: 0,
-        path: publicPath,
-        locale: "en",
-      })).resolves.toBe(f.pageId)
-
-      await saveDraft(f, "Unpublished later edit")
-      expect(await publicPage(f)).toEqual(selected)
-      await publish(f)
-      await expect(publicPage(f)).resolves.toMatchObject({
-        content: { en: { title: "Unpublished later edit" } },
-      })
+  test(`owner create, editor save, publish and anonymous readback`, async () => {
+    const f = await makeFixture()
+    const publicPath = "/unit3-proof"
+    await expect(publicPage(f)).resolves.toBeNull()
+    await saveDraft(f, "Published title")
+    await expect(publicPage(f)).resolves.toBeNull()
+    await publish(f)
+    const selected = await publicPage(f)
+    expect(selected).toMatchObject({
+      _id: f.pageId,
+      content: { en: { title: "Published title" } },
     })
+    await expect(f.t.query(api.cms.pages.resolveLocalizedPathQuery, {
+      languageVersion: 0,
+      path: publicPath,
+      locale: "en",
+    })).resolves.toBe(f.pageId)
 
-    for (const caller of ["anonymous", "unrelated"] as const) {
-      test(`${mode}: ${caller} create, draft-save and publish deny without state change`, async () => {
-        const f = await makeFixture(mode)
-        await saveDraft(f, "Published title")
-        await publish(f)
-        await settleScheduledWork(f.t)
-        await saveDraft(f, "Valid pending draft")
-        const draft = await draftArguments(f, "Denied edit")
-        const publication = await publishArguments(f)
-        const actor = caller === "anonymous" ? f.t : f.t.withIdentity(UNRELATED)
-        const code = caller === "anonymous" ? "UNAUTHENTICATED" : "CMS_OWNER_REQUIRED"
-        const before = await selectedState(f.t)
-        const beforePublic = await publicPage(f)
-        expect(beforePublic).toMatchObject({ content: { en: { title: "Published title" } } })
+    await saveDraft(f, "Unpublished later edit")
+    expect(await publicPage(f)).toEqual(selected)
+    await publish(f)
+    await expect(publicPage(f)).resolves.toMatchObject({
+      content: { en: { title: "Unpublished later edit" } },
+    })
+  })
 
-        await expect(actor.mutation(api.cms.pages.create, {
-          pageType: "landing-page",
-          status: "draft",
-          slug: "valid-denied-create",
-          title: "Denied creation",
-          content: { en: { title: "Denied creation", blocks: [] } },
-        })).rejects.toMatchObject({ data: code })
-        expect(await selectedState(f.t)).toEqual(before)
-        expect(await publicPage(f)).toEqual(beforePublic)
+  for (const caller of ["anonymous", "unrelated"] as const) {
+    test(`${caller} create, draft-save and publish deny without state change`, async () => {
+      const f = await makeFixture()
+      await saveDraft(f, "Published title")
+      await publish(f)
+      await settleScheduledWork(f.t)
+      await saveDraft(f, "Valid pending draft")
+      const draft = await draftArguments(f, "Denied edit")
+      const publication = await publishArguments(f)
+      const actor = caller === "anonymous" ? f.t : f.t.withIdentity(UNRELATED)
+      const code = caller === "anonymous" ? "UNAUTHENTICATED" : "CMS_OWNER_REQUIRED"
+      const before = await selectedState(f.t)
+      const beforePublic = await publicPage(f)
+      expect(beforePublic).toMatchObject({ content: { en: { title: "Published title" } } })
 
-        await expect(draft.kind === "snapshot"
-          ? actor.mutation(api.cms.publication.saveEditorDraft, draft.args)
-          : actor.mutation(api.cms.pages.updateDraft, draft.args)
-        ).rejects.toMatchObject({ data: code })
-        expect(await selectedState(f.t)).toEqual(before)
-        expect(await publicPage(f)).toEqual(beforePublic)
+      await expect(actor.mutation(api.cms.pages.create, {
+        pageType: "landing-page",
+        status: "draft",
+        slug: "valid-denied-create",
+        title: "Denied creation",
+        content: { en: { title: "Denied creation", blocks: [] } },
+      })).rejects.toMatchObject({ data: code })
+      expect(await selectedState(f.t)).toEqual(before)
+      expect(await publicPage(f)).toEqual(beforePublic)
 
-        await expect(publication.kind === "snapshot"
-          ? actor.mutation(api.cms.publication.publishLocale, publication.args)
-          : actor.mutation(api.cms.pages.publish, publication.args)
-        ).rejects.toMatchObject({ data: code })
-        expect(await selectedState(f.t)).toEqual(before)
-        expect(await publicPage(f)).toEqual(beforePublic)
-      })
-    }
+      await expect(
+        actor.mutation(api.cms.publication.saveEditorDraft, draft)
+      ).rejects.toMatchObject({ data: code })
+      expect(await selectedState(f.t)).toEqual(before)
+      expect(await publicPage(f)).toEqual(beforePublic)
+
+      await expect(
+        actor.mutation(api.cms.publication.publishLocale, publication)
+      ).rejects.toMatchObject({ data: code })
+      expect(await selectedState(f.t)).toEqual(before)
+      expect(await publicPage(f)).toEqual(beforePublic)
+    })
   }
 })

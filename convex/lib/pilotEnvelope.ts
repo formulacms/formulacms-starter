@@ -149,33 +149,6 @@ export async function assertBoundedPilotCanCreate(
 }
 
 /**
- * Reject a draft/archived promotion that would enter or remain in a truncated
- * route/sitemap state. Republishing an already-live page does not add a row
- * to the published set, so it remains allowed while the envelope is healthy.
- */
-export async function assertBoundedPilotCanPublish(
-  ctx: MutationCtx,
-  currentlyPublished: boolean
-): Promise<void> {
-  const envelope = await getOrInitializePilotEnvelope(ctx)
-  if (envelope.totalPageCount >= BOUNDED_PILOT_PAGE_SENTINEL) {
-    throw new ConvexError({ code: "PILOT_PAGE_LIMIT", message: envelopeMessage("total") })
-  }
-  if (
-    !currentlyPublished &&
-    envelope.publishedPageCount >= BOUNDED_PILOT_MAX_PAGE_COUNT
-  ) {
-    throw new ConvexError(envelopeMessage("published"))
-  }
-  if (!currentlyPublished) {
-    await ctx.db.patch("pilotEnvelope", envelope.id, {
-      publishedPageCount: envelope.publishedPageCount + 1,
-      updatedAt: Date.now(),
-    })
-  }
-}
-
-/**
  * Non-mutating scheduling preflight. A legacy/imported tree without a ledger
  * is measured once; an unsafe result is treated as a failed preflight so the
  * cron can clear the schedule instead of retrying it forever.

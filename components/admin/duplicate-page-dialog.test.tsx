@@ -1,16 +1,11 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { render } from "@/test-utils/admin-i18n"
 import { beforeEach, describe, expect, test, vi } from "vitest"
-import type { Id } from "@/convex/_generated/dataModel"
 
 const mocks = vi.hoisted(() => ({
   duplicate: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
-}))
-
-vi.mock("convex/react", () => ({
-  useMutation: () => mocks.duplicate,
 }))
 
 vi.mock("sonner", () => ({
@@ -31,7 +26,7 @@ describe("DuplicatePageDialog", () => {
 
     render(
       <DuplicatePageDialog
-        pageId={"source-page-id" as Id<"pages">}
+        onDuplicate={mocks.duplicate}
         sourceTitle="About"
         onDuplicated={onDuplicated}
         onClose={onClose}
@@ -46,10 +41,7 @@ describe("DuplicatePageDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Duplicate page" }))
 
     await waitFor(() => {
-      expect(mocks.duplicate).toHaveBeenCalledWith({
-        id: "source-page-id",
-        title: "Our story",
-      })
+      expect(mocks.duplicate).toHaveBeenCalledWith("Our story")
     })
     expect(onDuplicated).toHaveBeenCalledWith("duplicate-page-id")
     expect(onClose).toHaveBeenCalledOnce()
@@ -61,7 +53,7 @@ describe("DuplicatePageDialog", () => {
 
     render(
       <DuplicatePageDialog
-        pageId={"source-page-id" as Id<"pages">}
+        onDuplicate={mocks.duplicate}
         sourceTitle="About"
         beforeDuplicate={beforeDuplicate}
         onDuplicated={vi.fn()}
@@ -78,7 +70,7 @@ describe("DuplicatePageDialog", () => {
   test("renders and reports the duplicate flow in French", async () => {
     render(
       <DuplicatePageDialog
-        pageId={"source-page-id" as Id<"pages">}
+        onDuplicate={mocks.duplicate}
         sourceTitle="À propos"
         onDuplicated={vi.fn()}
         onClose={vi.fn()}
@@ -98,38 +90,23 @@ describe("DuplicatePageDialog", () => {
     )
   })
 
-  test.each([
-    ["en", "Duplicating pages isn’t available yet."],
-    ["fr", "La duplication des pages n’est pas encore disponible."],
-  ] as const)(
-    "a snapshot site's duplicate refusal is one plain %s toast, never a success",
-    async (locale, message) => {
-      mocks.duplicate.mockRejectedValue(
-        new Error("[Request ID: x] Server Error Uncaught LEGACY_PUBLICATION_WRITER_DISABLED")
-      )
-      const onClose = vi.fn()
-      const onDuplicated = vi.fn()
-      render(
-        <DuplicatePageDialog
-          pageId={"source-page-id" as Id<"pages">}
-          sourceTitle="About"
-          onDuplicated={onDuplicated}
-          onClose={onClose}
-        />,
-        { locale }
-      )
-      fireEvent.click(
-        screen.getByRole("button", {
-          name: locale === "en" ? "Duplicate page" : "Dupliquer la page",
-        })
-      )
-      await waitFor(() => expect(mocks.error).toHaveBeenCalledWith(message))
-      expect(mocks.error).toHaveBeenCalledOnce()
-      expect(mocks.success).not.toHaveBeenCalled()
-      expect(onDuplicated).not.toHaveBeenCalled()
-      expect(onClose).toHaveBeenCalledOnce()
-    }
-  )
+  test("shows a failed duplicate in the dialog, never a success", async () => {
+    mocks.duplicate.mockRejectedValue(new Error("server"))
+    const onDuplicated = vi.fn()
+    render(
+      <DuplicatePageDialog
+        onDuplicate={mocks.duplicate}
+        sourceTitle="About"
+        onDuplicated={onDuplicated}
+        onClose={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate page" }))
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument()
+    expect(mocks.success).not.toHaveBeenCalled()
+    expect(onDuplicated).not.toHaveBeenCalled()
+  })
 
   test("lets the caller place focus as the dialog closes", async () => {
     const opener = document.createElement("button")
@@ -137,7 +114,7 @@ describe("DuplicatePageDialog", () => {
     document.body.append(opener, target)
     opener.focus()
     const props = {
-      pageId: "source-page-id" as Id<"pages">,
+      onDuplicate: mocks.duplicate,
       sourceTitle: "About",
       onDuplicated: vi.fn(),
       onClose: vi.fn(),

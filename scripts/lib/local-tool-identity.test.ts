@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
 import { localToolIdentity } from "./local-tool-identity"
+import { localToolEnvironment } from "./subscription-cli-process"
+import { claudeOnPath } from "./claude-cli-discovery"
 
 // Fake executables in a temp directory; nothing is started (only file
 // metadata is read). Each env is explicit: no real PATH or FORMULACMS_CODEX_BIN.
@@ -27,6 +29,23 @@ describe("localToolIdentity", () => {
     }
     return { root, bin, install, env: { PATH: bin } }
   }
+
+  test.skipIf(process.platform === "win32")("native Claude discovery and cache identity agree when the starting shell omits its install directory", () => {
+    const { root, bin, install, env } = setup()
+    const one = install("native", "#!/bin/sh\n")
+    const nativeBin = join(root, ".local", "bin")
+    mkdirSync(nativeBin, { recursive: true })
+    const nativeClaude = join(nativeBin, "claude")
+    symlinkSync(one, nativeClaude)
+    const startingEnv = { ...env, HOME: root }
+    const toolEnv = localToolEnvironment({ env: startingEnv, root, readFile: () => null })
+    expect(claudeOnPath(toolEnv)).toBe(nativeClaude)
+    expect(localToolIdentity("claude", startingEnv)).toBeDefined()
+    // A different installation already on PATH continues to take precedence.
+    const earlier = join(bin, "claude")
+    symlinkSync(one, earlier)
+    expect(claudeOnPath(localToolEnvironment({ env: startingEnv, root, readFile: () => null }))).toBe(earlier)
+  })
 
   test("Claude Code through a symlink on PATH: defined; changes with size, time or a new target", () => {
     const { bin, install, env } = setup()

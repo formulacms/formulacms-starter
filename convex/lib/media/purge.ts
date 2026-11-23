@@ -103,11 +103,6 @@ export const MEDIA_KEYED_TABLES: Record<string, MediaKeyedRole> = {
     reason:
       "Unit outputs of an AI job; same reader as `aiJobs`: applying them goes through the page writers.",
   },
-  pageCandidateMediaReferences: {
-    role: "kept",
-    reason:
-      "Legacy-authority candidate rows. They never blocked a delete before this unit and a snapshot-authority site writes none; not read here.",
-  },
 }
 
 /**

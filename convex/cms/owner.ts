@@ -52,6 +52,18 @@ function configuredOwnerClaimHash(): Promise<string | null> {
   return claim?.trim() ? hashOwnerClaim(claim) : Promise.resolve(null)
 }
 
+/**
+ * True when the configured owner code has the shape the setup tools create:
+ * 64 hexadecimal characters. It reads only the configured code, never the
+ * submitted one, so a caller cannot choose which rule applies to them. It
+ * tests the raw value that the code check hashes, untrimmed: a padded value
+ * is not the generated shape and keeps the limit.
+ */
+function configuredOwnerClaimIsGenerated(): boolean {
+  const claim = resolveOwnerClaim(env)
+  return claim !== undefined && /^[0-9a-f]{64}$/i.test(claim)
+}
+
 async function submittedClaimMatchesConfigured(
   claim: string
 ): Promise<string | null> {
@@ -113,11 +125,17 @@ function parseNotificationEmail(value: string): string | null {
 
 /**
  * Creates the first owner account (ADR-0056 rule 1, owner-code grant). One
- * transaction: the global owner-claim limit, owner-code check, a claiming
- * grant, the library
- * sign-up (which calls `users.createUser`, which consumes the grant and binds
- * the durable owner), then the minted session is ended. The person signs in
+ * transaction: the owner-code check with the global owner-claim limit, a
+ * claiming grant, the library sign-up (which calls `users.createUser`, which
+ * consumes the grant and binds the durable owner), then the minted session is
+ * ended. The person signs in
  * afterwards through the normal sign-in route.
+ *
+ * The global limit bounds code guessing. A wrong code (or any code when none
+ * is configured) always uses up one try. The right code gets in without
+ * touching the limit when the configured code is the long random kind the
+ * setup tools create (64 hex characters), because that code cannot be
+ * guessed; a hand-set code keeps the limit before the check, as before.
  *
  * Every refusal returns normally so the rate-limit writes commit. A failed
  * sign-up deletes the grant before returning, so no committed state holds one.
@@ -138,10 +156,14 @@ export const createOwnerAccount = mutation({
     const unavailable = { status: "unavailable" as const }
 
     // The grants cannot be guessed; this one global limit bounds code guessing.
-    const claimGlobal = await rateLimiter.limit(ctx, "ownerClaimGlobal")
-    if (!claimGlobal.ok) return unavailable
-
+    // A wrong code always spends it. The right code skips it only when the
+    // configured code is the generated 64-hex kind, so flooding wrong codes
+    // can never lock the real owner out of /setup.
     const claimHash = await submittedClaimMatchesConfigured(args.code)
+    if (!claimHash || !configuredOwnerClaimIsGenerated()) {
+      const claimGlobal = await rateLimiter.limit(ctx, "ownerClaimGlobal")
+      if (!claimGlobal.ok) return unavailable
+    }
     if (
       !claimHash ||
       (await resolveOwnerClaimTransition(ctx)).kind !== "fresh"

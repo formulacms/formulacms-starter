@@ -30,7 +30,10 @@ const UNRELATED = {
 }
 
 async function ownerTest() {
-  const t = convexTest(schema, modules)
+  const t = convexTest({
+    schema,
+    modules,
+  })
   await seedCommunityOwner(t, OWNER)
   return t
 }
@@ -44,15 +47,11 @@ async function makeConfiguredTest({
   siteUrl = "https://site.example.com",
 }: { siteUrl?: string } = {}) {
   const t = await ownerTest()
-  await t.run(async (ctx) => {
-    const now = Date.now()
-    await ctx.db.insert("siteSettings", {
-      siteName: "Test site",
-      siteUrl,
-      defaultLocale: "en",
-      enabledLocales: ["en"],
-      updatedAt: now,
-    })
+  await t.withIdentity(OWNER).mutation(api.cms.settings.bootstrapInstallation, {
+    siteName: "Test site",
+    ...(siteUrl ? { siteUrl } : {}),
+    timezone: "UTC",
+    defaultLocale: "en",
   })
   vi.stubEnv("REVALIDATE_SECRET", "test-revalidation-secret")
   return t
@@ -60,22 +59,34 @@ async function makeConfiguredTest({
 
 async function makeConfiguredPageTest(options: { siteUrl?: string } = {}) {
   const t = await makeConfiguredTest(options)
-  const pageId = await t.run(async (ctx) => {
-    const now = Date.now()
-    return await ctx.db.insert("pages", {
-      slug: "about",
-      pageType: "landing-page",
-      status: "published",
-      createdAt: now,
-      updatedAt: now,
-      content: {
-        en: {
-          title: "About",
-          blocks: [],
-        },
-      },
-    })
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })))
+  const owner = t.withIdentity(OWNER)
+  const pageId = await owner.mutation(api.cms.pages.create, {
+    pageType: "landing-page",
+    status: "draft",
+    slug: "about",
+    title: "About",
+    content: { en: { title: "About", blocks: [] } },
   })
+  await owner.mutation(api.cms.publication.publishLocale, {
+    pageId,
+    locale: "en",
+    expectedDraftGeneration: 1,
+    expectedSharedDraftGeneration: 1,
+    expectedPublicGeneration: 0,
+    expectedLifecycleGeneration: 1,
+    expectedReleaseGeneration: 0,
+  })
+  // Publishing schedules its own revalidation; this suite runs the action
+  // itself, so let the scheduled one finish against a stub and forget it.
+  await t.finishInProgressScheduledFunctions()
+  await t.run(async (ctx) => {
+    for (const job of await ctx.db.system.query("_scheduled_functions").take(50))
+      if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id)
+    for (const row of await ctx.db.query("revalidationAttempts").take(50))
+      await ctx.db.delete("revalidationAttempts", row._id)
+  })
+  vi.unstubAllGlobals()
   return { t, pageId }
 }
 

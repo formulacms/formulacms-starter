@@ -129,6 +129,37 @@
         "block-registration",
         "tokens"
       ]
+    },
+    {
+      "id": "v0.4.0-to-v0.5.1",
+      "source": {
+        "tag": "v0.4.0",
+        "tagObjectOid": "f996c5abf35c534803478e8494015215a1aab2f7",
+        "starterCommitOid": "aeba074bdf3eba799ed136ccc1f3083f160742fa",
+        "engineCommitOid": "b01225f1503d8253b021cba44a8f153ea295ad84",
+        "generatedTreeDigest": "b63d8de995d05ec2c4f6f6b14aaf660dd9e31ffd612fe9bae5b6635416cf2755"
+      },
+      "targetTag": "v0.5.1",
+      "class": "unsupported",
+      "composable": false,
+      "rollback": {
+        "codeArtifact": "unsupported",
+        "boundary": "There is no upgrade from v0.4.0 to v0.5.1: release 0.5.1 supports fresh installs only. Do not merge or pull v0.5.1 into a 0.4.0 site; start a new site and a new Convex deployment from v0.5.1 instead. Owner split, 2026-11-22: every 0.5.x hop is unsupported; fresh installs only."
+      },
+      "migrationIds": [],
+      "configurationChanges": [],
+      "manualActionIds": [],
+      "requirements": {
+        "membershipReconciliation": false
+      },
+      "checks": [
+        "frozen-install",
+        "typecheck",
+        "lint",
+        "tests",
+        "block-registration",
+        "tokens"
+      ]
     }
   ]
 }

@@ -70,6 +70,7 @@ import { readBlock } from "../lib/blocks/identity"
 import { readFrozenSnapshotProjection } from "../lib/publishing/snapshots"
 import { assertSnapshotPageSoftDeleteAllowed } from "./publication"
 import { contentTypeDefs } from "../lib/contentTypes"
+import { isPrimitiveValueEmpty } from "../lib/blocks/primitives"
 import { collectTranslatableLeaves } from "../../components/admin/page-editor/lib/descriptor-values"
 import {
   parseFieldPath,
@@ -420,49 +421,33 @@ async function estimateUnits(
   return total
 }
 /**
- * Whether a language of a page already has content, defined the way the
- * editor's "Not translated" status is (`projectAdminPageLocales`): a language
- * with no state row, or a state row with no published snapshot, no working
- * draft at the current generation and no readable snapshot base, is Not
- * translated. `draftGeneration` is what a save for that language must expect
- * (0 when the language has no state row).
+ * Whole-page translation fills an empty body, including a version whose title
+ * was saved first. Pure-form types keep their existing all-content protection.
+ * The effective draft/snapshot and its generation use the editor's reader.
  */
 async function targetLocaleStatus(
   ctx: Ctx,
-  pageId: Id<"pages">,
+  page: Doc<"pages">,
   locale: string
 ): Promise<{ hasContent: boolean; draftGeneration: number }> {
   const states = await ctx.db
     .query("pageLocalePublicationStates")
     .withIndex("by_pageId_and_locale", (q) =>
-      q.eq("pageId", pageId).eq("locale", locale)
+      q.eq("pageId", page._id).eq("locale", locale)
     )
     .take(2)
   if (states.length > 1) throw new ConvexError("AI_JOB_SOURCE_UNAVAILABLE")
   const state = states[0]
   if (!state) return { hasContent: false, draftGeneration: 0 }
   const draftGeneration = state.draftGeneration
-  if (state.currentSnapshotId !== undefined || state.hasCurrentSnapshot)
-    return { hasContent: true, draftGeneration }
-  const drafts = await ctx.db
-    .query("pageLocaleDrafts")
-    .withIndex("by_pageId_and_locale", (q) =>
-      q.eq("pageId", pageId).eq("locale", locale)
-    )
-    .take(2)
-  if (drafts.length > 1) throw new ConvexError("AI_JOB_SOURCE_UNAVAILABLE")
-  if (drafts[0] && drafts[0].generation === state.draftGeneration)
-    return { hasContent: true, draftGeneration }
-  if (state.draftBaseSnapshotId) {
-    const base = await readFrozenSnapshotProjection(
-      ctx,
-      state.draftBaseSnapshotId,
-      pageId,
-      locale
-    )
-    if (base) return { hasContent: true, draftGeneration }
+  const source = await currentLocaleSource(ctx, page, state)
+  return {
+    hasContent: source
+      ? !contentTypeDefs[page.pageType].capabilities.blockBody ||
+        ((source.content.blocks as unknown[] | undefined)?.length ?? 0) > 0
+      : state.currentSnapshotId !== undefined || state.hasCurrentSnapshot,
+    draftGeneration,
   }
-  return { hasContent: false, draftGeneration }
 }
 type TypedDraft = NonNullable<NonNullable<Job["sourcePage"]>["draft"]>
 /**
@@ -640,7 +625,7 @@ async function prepare(
     } catch (error) {
       if (error instanceof ConvexError) throw error
       // An inherited saved selection the catalog no longer accepts (for
-      // example its row was removed): the estimate and Start refuse it with
+      // example its row was removed): Start refuses it with
       // the same plain refusal as a saved assistant model, not a bare error.
       const saved = savedRuntimeSelection({ provider: cfg.assistant.provider, profile, ...options })
       if (!saved) throw error
@@ -727,7 +712,7 @@ async function prepare(
   }
   // The complete typed draft of this one generation, pinned with the segments.
   const sourceDraft = pinnedSourceDraft(page.pageType, content)
-  const target = await targetLocaleStatus(ctx, page._id, input.targetLocale)
+  const target = await targetLocaleStatus(ctx, page, input.targetLocale)
   if (target.hasContent) throw new ConvexError("AI_JOB_TARGET_HAS_CONTENT")
   let segments: Awaited<ReturnType<typeof enumerateSegments>>
   try {
@@ -770,25 +755,6 @@ function withApiTuple<P extends { tuple: Job["tuple"] }>(
 ): P & { tuple: NonNullable<Job["tuple"]> } {
   return { ...prepared, tuple: apiTupleOf(prepared) }
 }
-export const estimatePageJob = query({
-  args: { input: pageJobInputValidator },
-  returns: v.object({
-    estimateMicros: v.number(),
-    month: monthValidator,
-    fits: v.boolean(),
-  }),
-  handler: async (ctx, { input }) => {
-    const owner = await taskGate(ctx, input.kind)
-    const prepared = await prepare(ctx, owner, input)
-    const estimateMicros = await estimateUnits(
-      ctx,
-      withApiTuple(prepared),
-      prepared.units
-    )
-    const month = await monthBlock(ctx)
-    return { estimateMicros, month, fits: fits(month, estimateMicros) }
-  },
-})
 export async function noOtherActive(
   ctx: MutationCtx,
   authId: string,
@@ -1602,7 +1568,7 @@ async function currentLocaleSource(
   ctx: Ctx,
   page: Doc<"pages">,
   state: Doc<"pageLocalePublicationStates">
-): Promise<{ slug: string; content: Record<string, unknown> }> {
+): Promise<{ slug: string; content: Record<string, unknown> } | null> {
   const drafts = await ctx.db
     .query("pageLocaleDrafts")
     .withIndex("by_pageId_and_locale", (q) =>
@@ -1632,18 +1598,28 @@ async function currentLocaleSource(
         >,
       }
   }
-  throw new ConvexError("AI_JOB_SOURCE_UNAVAILABLE")
+  return null
 }
-/** B3: the temporary copies of a finished job (pinned source, suggestion, unit text). */
+/**
+ * B3: delete the brief and every temporary copy of a finished job (pinned
+ * source, suggestion, brief, prompts, unit text and purpose). It clears the same
+ * content fields as `expire`; the state and the bookkeeping fields stay.
+ */
 async function deleteJobCopies(ctx: MutationCtx, job: Job): Promise<void> {
   for (const unit of await unitsFor(ctx, job._id))
     await ctx.db.patch("aiJobUnits", unit._id, {
       input: undefined,
       output: undefined,
+      purpose: undefined,
     })
   await ctx.db.patch("aiJobs", job._id, {
+    brief: undefined,
     sourcePage: undefined,
     suggestion: undefined,
+    systemPrompt: undefined,
+    assistantInstructions: undefined,
+    userPromptTemplate: undefined,
+    brandVoice: undefined,
   })
 }
 /**
@@ -1683,6 +1659,23 @@ async function acceptTranslation(
   const pinned = suggestion.draft
   if (!pinned) throw new ConvexError("AI_JOB_NOT_REVIEWABLE")
   const localized = structuredClone(pinned.localized) as Record<string, unknown>
+  const target = targetStates[0]
+    ? await currentLocaleSource(ctx, page, targetStates[0])
+    : null
+  // A title-first version owns its saved title and other authored fields.
+  // Only empty values take the reviewed translation; a newer generation
+  // still refuses above, and nothing is written before the atomic save.
+  for (const [key, def] of Object.entries(
+    contentTypeDefs[page.pageType].localizedFields
+  )) {
+    const value = target?.content[key]
+    if (!isPrimitiveValueEmpty(def, value)) localized[key] = structuredClone(value)
+  }
+  const translatedFields = perLanguageDraftFields(
+    pinned as unknown as Record<string, unknown>
+  )
+  const targetFields = perLanguageDraftFields(target?.content)
+  const finalTitle = localized.title as string
   // The editor gives a translated section its own id in the new language.
   const blocks =
     "blocks" in pinned
@@ -1692,9 +1685,8 @@ async function acceptTranslation(
         }))
       : undefined
   // Copied sections carry their presentation choice with fresh ids, which are
-  // new assignments. Like Duplicate (`pages.ts`), pass the transaction's
-  // catalog revision so they are checked for eligibility; an archived or
-  // unavailable choice still refuses.
+  // new assignments. Pass the transaction's catalog revision so they are
+  // checked for eligibility; an archived or unavailable choice still refuses.
   const saved = await ctx.runMutation(api.cms.publication.saveEditorDraft, {
     pageId: job.pageId,
     expectedLifecycleGeneration: life.lifecycleGeneration,
@@ -1709,15 +1701,19 @@ async function acceptTranslation(
       : {}),
     localized: {
       locale: job.locale,
-      // The editor's first save of an untranslated language: an address made
-      // from the translated title, "generated" so a clash gets a free address.
-      slug: slugify(suggestion.title),
-      addressIntent: "generated",
+      // Keep a title-first version's own address. A new version gets one
+      // from its final title, "generated" so a clash gets a free address.
+      slug: target?.slug || slugify(finalTitle),
+      addressIntent: target?.slug ? "typed" : "generated",
       draft: {
         pageType: pinned.pageType,
         localized,
-        // The translated social text, card excerpt and robots choices.
-        ...perLanguageDraftFields(pinned as unknown as Record<string, unknown>),
+        // Keep existing authored values; empty fields take the translation.
+        ...translatedFields,
+        ...targetFields,
+        ...(translatedFields.seo || targetFields.seo
+          ? { seo: { ...translatedFields.seo, ...targetFields.seo } }
+          : {}),
         ...(blocks ? { blocks } : {}),
       } as never,
       expectedGeneration: targetGeneration,
@@ -1785,6 +1781,7 @@ export const acceptPageJob = mutation({
     if (!life || !page || stateRows.length !== 1)
       throw new ConvexError("AI_JOB_SOURCE_UNAVAILABLE")
     const source = await currentLocaleSource(ctx, page, stateRows[0]!)
+    if (!source) throw new ConvexError("AI_JOB_SOURCE_UNAVAILABLE")
     const current = ((source.content as { blocks?: Block[] }).blocks ??
       []) as Block[]
     // AI-written sections carry no presentation choice (`assembleBlock` sets
@@ -1805,6 +1802,9 @@ export const acceptPageJob = mutation({
         expectedGeneration: stateRows[0]!.draftGeneration,
       },
     })
+    // ADR-0015 B3: delete the copies after the save succeeded (a refused save
+    // rolls the whole mutation back, so a refused job keeps its outputs).
+    await deleteJobCopies(ctx, job)
     await ctx.db.patch("aiJobs", jobId, { reviewedAt: Date.now() })
     return {
       pageId: job.pageId,
@@ -1898,9 +1898,8 @@ export const dismissPageJob = mutation({
         if (!(error instanceof ConvexError)) throw error
       }
     }
-    // B3: Dismiss deletes a translation job's suggestion and unit text.
-    if (job.kind === "translation" && job.state !== "expired")
-      await deleteJobCopies(ctx, job)
+    // B3: Dismiss deletes the suggestion and the unit copies of every job kind.
+    if (job.state !== "expired") await deleteJobCopies(ctx, job)
     await ctx.db.patch("aiJobs", jobId, { reviewedAt: Date.now() })
     return { pageMovedToTrash }
   },

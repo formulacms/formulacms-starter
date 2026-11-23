@@ -25,9 +25,9 @@ describe("MultiRelationPicker", () => {
       if (getFunctionName(reference).endsWith("searchTargets")) {
         return [
           {
-            id: "author-page" as Id<"pages">,
-            type: "author",
-            title: "Ada Lovelace",
+            id: "about-page" as Id<"pages">,
+            type: "page",
+            title: "About us",
           },
         ]
       }
@@ -35,10 +35,10 @@ describe("MultiRelationPicker", () => {
     })
   })
 
-  test("keeps an allowed Author target selectable without archive filtering", () => {
+  test("keeps an allowed Page target selectable without archive filtering", () => {
     render(
       <MultiRelationPicker
-        pageTypes={["author"]}
+        pageTypes={["page"]}
         value={[]}
         onChange={mocks.onChange}
         locale="en"
@@ -46,10 +46,10 @@ describe("MultiRelationPicker", () => {
     )
 
     expect(
-      screen.getByRole("option", { name: /Ada Lovelace/i })
+      screen.getByRole("option", { name: /About us/i })
     ).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("option", { name: /Ada Lovelace/i }))
-    expect(mocks.onChange).toHaveBeenCalledWith(["author-page"])
+    fireEvent.click(screen.getByRole("option", { name: /About us/i }))
+    expect(mocks.onChange).toHaveBeenCalledWith(["about-page"])
     expect(
       mocks.useQuery.mock.calls.some(([reference]) =>
         getFunctionName(reference).endsWith("getArchivedContentTypes")

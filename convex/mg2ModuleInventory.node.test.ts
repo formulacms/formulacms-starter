@@ -81,7 +81,6 @@ export const C6_INVENTORY = {
   "convex/cms/redirects.ts": {
     resolve: "public RG9",
     listActiveKeys: "public RG9",
-    list: "guarded module work",
     listPaginated: "guarded module work",
     create: "guarded module work",
     remove: "guarded module work",

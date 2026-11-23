@@ -3,7 +3,8 @@
 // Release 0.3.0 (schema version 5): per-language page fields, the removed team tables and the new purge and AI model tables.
 // Release 0.3.1 keeps schema version 5: it only adds the optional pagePurges.startedAt field.
 // Release 0.4.0 (schema version 6): stored tables, fields and indexes are renamed to block names, for example the blockOccurrence* tables and the page field blocks.
-export const SCHEMA_VERSION = 6
+// Release 0.5.1 (schema version 7): retired page-wide publication, migration, membership, entitlement and role tables are removed. Fresh installs only.
+export const SCHEMA_VERSION = 7
 
 // The other per-write stamp: edit-time tokens (`updatedAt`) compared by equality.
 /**

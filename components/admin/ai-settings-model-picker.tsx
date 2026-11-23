@@ -72,6 +72,7 @@ export function AiSettingsModelPicker({
   onChange,
   disabled,
   updated,
+  describedBy,
 }: {
   taskLabel: string
   models: ModelChoice[]
@@ -82,6 +83,7 @@ export function AiSettingsModelPicker({
   disabled: boolean
   /** API services only: the lists footer. */
   updated?: ListsUpdated
+  describedBy?: string
 }) {
   const t = useTranslations("settings.aiScreen")
   const [open, setOpen] = useState(false)
@@ -111,6 +113,7 @@ export function AiSettingsModelPicker({
           type="button"
           disabled={disabled}
           aria-label={`${taskLabel} ${t("model")}`}
+          aria-describedby={describedBy}
           className="flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-md border bg-background px-3 text-left text-sm transition-colors hover:bg-muted/40"
         >
           <span

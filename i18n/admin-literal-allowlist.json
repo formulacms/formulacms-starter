@@ -213,16 +213,13 @@
     "components/admin/trash-list.tsx",
     "components/admin/visual-editing-types.ts",
     "components/auth/password-field.tsx",
-    "components/content-types/author.tsx",
     "components/content-types/byline.ts",
     "components/content-types/index.ts",
     "components/content-types/landing-page.tsx",
     "components/content-types/page.tsx",
-    "components/content-types/post.tsx",
     "components/content-types/types.ts",
     "components/development-instance-badge.tsx",
     "components/edition/page-workflow.tsx",
-    "components/edition/roles-manager.tsx",
     "components/edition/workflow-principal.tsx",
     "components/public/footer.tsx",
     "components/public/header-auth-controls.tsx",
@@ -269,31 +266,49 @@
     {
       "literal": "default",
       "reason": "Dialog state discriminant for the Make default dialog, not user-facing text.",
-      "categories": ["helper-return-label"],
-      "paths": ["components/admin/languages/languages-screen.tsx"]
+      "categories": [
+        "helper-return-label"
+      ],
+      "paths": [
+        "components/admin/languages/languages-screen.tsx"
+      ]
     },
     {
       "literal": "change",
       "reason": "Dialog state discriminant for the Change language dialog, not user-facing text.",
-      "categories": ["helper-return-label"],
-      "paths": ["components/admin/languages/languages-screen.tsx"]
+      "categories": [
+        "helper-return-label"
+      ],
+      "paths": [
+        "components/admin/languages/languages-screen.tsx"
+      ]
     },
     {
       "literal": "ready",
       "reason": "Dialog preparation-state discriminant, not user-facing text.",
-      "categories": ["helper-return-label"],
-      "paths": ["components/admin/languages/languages-screen.tsx"]
+      "categories": [
+        "helper-return-label"
+      ],
+      "paths": [
+        "components/admin/languages/languages-screen.tsx"
+      ]
     },
     {
       "literal": "working",
       "reason": "Dialog preparation-state discriminant, not user-facing text.",
-      "categories": ["helper-return-label"],
-      "paths": ["components/admin/languages/languages-screen.tsx"]
+      "categories": [
+        "helper-return-label"
+      ],
+      "paths": [
+        "components/admin/languages/languages-screen.tsx"
+      ]
     },
     {
       "literal": "polite",
       "reason": "ARIA live-region behavior token",
-      "categories": ["named-string-prop"],
+      "categories": [
+        "named-string-prop"
+      ],
       "paths": [
         "app/(core)/(auth)/sign-in/page.tsx",
         "components/admin/modules/modules-settings.tsx",
@@ -304,37 +319,59 @@
     {
       "literal": "revalidation-diagnostics-heading",
       "reason": "ARIA relationship identifier",
-      "categories": ["named-string-prop"],
-      "paths": ["components/admin/revalidation-diagnostics.tsx"]
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/revalidation-diagnostics.tsx"
+      ]
     },
     {
       "literal": "revalidation-self-test-result",
       "reason": "ARIA relationship identifier",
-      "categories": ["named-string-prop"],
-      "paths": ["components/admin/revalidation-diagnostics.tsx"]
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/revalidation-diagnostics.tsx"
+      ]
     },
     {
       "literal": "contact-ip-pairing-result",
       "reason": "ARIA relationship identifier",
-      "categories": ["named-string-prop"],
-      "paths": ["components/admin/revalidation-diagnostics.tsx"]
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/revalidation-diagnostics.tsx"
+      ]
     },
     {
       "literal": "Unstyled block:",
       "reason": "C-029 sealed unreachable exclusion: FallbackBlock is outside the exhaustive six-type shipped BLOCK_COMPONENTS registry; reconsider if a valid shipped type lacks a renderer.",
-      "categories": ["jsx-text"],
-      "paths": ["components/blocks/block-list.tsx"]
+      "categories": [
+        "jsx-text"
+      ],
+      "paths": [
+        "components/blocks/block-list.tsx"
+      ]
     },
     {
       "literal": "error-heading",
       "reason": "ARIA ID reference to the same public error heading; protocol identifier, not owner-visible prose.",
-      "categories": ["named-string-prop"],
-      "paths": ["app/(public)/[locale]/error.tsx"]
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "app/(public)/[locale]/error.tsx"
+      ]
     },
     {
       "literal": "true",
       "reason": "ARIA hidden/disabled boolean serialization in the named exact public loading/locale-switcher surfaces; protocol token, not prose.",
-      "categories": ["named-string-prop"],
+      "categories": [
+        "named-string-prop"
+      ],
       "paths": [
         "app/(public)/[locale]/loading.tsx",
         "components/public/navigation/locale-switcher.tsx"
@@ -343,49 +380,79 @@
     {
       "literal": "not-found-heading",
       "reason": "ARIA ID reference to the same public not-found heading; protocol identifier, not owner-visible prose.",
-      "categories": ["named-string-prop"],
-      "paths": ["app/(public)/[locale]/not-found.tsx"]
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "app/(public)/[locale]/not-found.tsx"
+      ]
     },
     {
       "literal": "listbox",
       "reason": "ARIA token value (aria-haspopup); protocol identifier, not owner-visible prose.",
-      "categories": ["named-string-prop"],
-      "paths": ["components/admin/languages/language-picker.tsx"]
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/languages/language-picker.tsx"
+      ]
     },
     {
       "literal": "list",
       "reason": "ARIA token value (aria-autocomplete); protocol identifier, not owner-visible prose.",
-      "categories": ["named-string-prop"],
-      "paths": ["components/admin/languages/language-picker.tsx"]
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/languages/language-picker.tsx"
+      ]
     },
     {
       "literal": "Facebook",
       "reason": "Social network brand name used as the footer link accessible name.",
-      "categories": ["named-string-prop"],
-      "paths": ["components/public/footer.tsx"]
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/public/footer.tsx"
+      ]
     },
     {
       "literal": "Instagram",
       "reason": "Social network brand name used as the footer link accessible name.",
-      "categories": ["named-string-prop"],
-      "paths": ["components/public/footer.tsx"]
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/public/footer.tsx"
+      ]
     },
     {
       "literal": "X",
       "reason": "Social network brand name used as the footer link accessible name.",
-      "categories": ["named-string-prop"],
-      "paths": ["components/public/footer.tsx"]
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/public/footer.tsx"
+      ]
     },
     {
       "literal": "LinkedIn",
       "reason": "Social network brand name used as the footer link accessible name.",
-      "categories": ["named-string-prop"],
-      "paths": ["components/public/footer.tsx"]
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/public/footer.tsx"
+      ]
     },
     {
       "literal": "en",
       "reason": "Language code: redirects display/persist the target locale identifier; it is the single-language authority default, not UI prose.",
-      "categories": ["helper-return-label"],
+      "categories": [
+        "helper-return-label"
+      ],
       "paths": [
         "app/(core)/admin/(authenticated)/redirects/redirects-manager.tsx"
       ]
@@ -393,80 +460,273 @@
     {
       "literal": "⌘K",
       "reason": "Keyboard shortcut notation for opening the command palette.",
-      "categories": ["helper-return-label"],
-      "paths": ["components/admin/command-palette.tsx"]
+      "categories": [
+        "helper-return-label"
+      ],
+      "paths": [
+        "components/admin/command-palette.tsx"
+      ]
     },
     {
       "literal": "Ctrl+K",
       "reason": "Keyboard shortcut notation for opening the command palette.",
-      "categories": ["helper-return-label"],
-      "paths": ["components/admin/command-palette.tsx"]
+      "categories": [
+        "helper-return-label"
+      ],
+      "paths": [
+        "components/admin/command-palette.tsx"
+      ]
     },
     {
       "literal": "settings.multilingualLanguages.migration.phase.${…}",
       "reason": "Terminal-phase next-intl dotted-key compatibility fallback in migrationPhaseMessage; open migration renders enumerating/validating/ready through translated keys.",
-      "categories": ["helper-return-label"],
-      "paths": ["components/admin/languages/default-migration-panel.tsx"]
+      "categories": [
+        "helper-return-label"
+      ],
+      "paths": [
+        "components/admin/languages/default-migration-panel.tsx"
+      ]
     },
     {
       "literal": "formulacms admin",
       "reason": "D-001 and D-010 sealed owner-approved document-title brand wording; exact auth/admin layout title only.",
-      "categories": ["object-default"],
-      "paths": ["app/(core)/(auth)/layout.tsx", "app/(core)/admin/layout.tsx"]
+      "categories": [
+        "object-default"
+      ],
+      "paths": [
+        "app/(core)/(auth)/layout.tsx",
+        "app/(core)/admin/layout.tsx"
+      ]
     },
     {
       "literal": "title",
       "reason": "CHECKLIST_FIELD_MESSAGE_KEYS title is a stable field key; prePublish field renderer resolves the key through admin translation.",
-      "categories": ["object-default"],
-      "paths": ["components/admin/page-editor/lib/checklist.ts"]
+      "categories": [
+        "object-default"
+      ],
+      "paths": [
+        "components/admin/page-editor/lib/checklist.ts"
+      ]
     },
     {
       "literal": "Add title",
       "reason": "Readonly readiness metadata for id focus-title; page-readiness.tsx suggestionLabel renders translated suggestions.addTitle by id.",
-      "categories": ["object-default"],
-      "paths": ["components/admin/page-editor/lib/readiness.ts"]
+      "categories": [
+        "object-default"
+      ],
+      "paths": [
+        "components/admin/page-editor/lib/readiness.ts"
+      ]
     },
     {
       "literal": "Add content",
       "reason": "Readonly readiness metadata for id add-content; page-readiness.tsx suggestionLabel renders translated suggestions.addContent by id.",
-      "categories": ["object-default"],
-      "paths": ["components/admin/page-editor/lib/readiness.ts"]
+      "categories": [
+        "object-default"
+      ],
+      "paths": [
+        "components/admin/page-editor/lib/readiness.ts"
+      ]
     },
     {
       "literal": "Review content",
       "reason": "Readonly readiness metadata for id open-content; page-readiness.tsx suggestionLabel renders translated suggestions.reviewContent by id.",
-      "categories": ["object-default"],
-      "paths": ["components/admin/page-editor/lib/readiness.ts"]
+      "categories": [
+        "object-default"
+      ],
+      "paths": [
+        "components/admin/page-editor/lib/readiness.ts"
+      ]
     },
     {
       "literal": "Generate SEO suggestion",
       "reason": "Readonly readiness metadata for id generate-meta; page-readiness.tsx suggestionLabel renders translated suggestions.generateSeo by id.",
-      "categories": ["object-default"],
-      "paths": ["components/admin/page-editor/lib/readiness.ts"]
+      "categories": [
+        "object-default"
+      ],
+      "paths": [
+        "components/admin/page-editor/lib/readiness.ts"
+      ]
     },
     {
       "literal": "Review SEO",
       "reason": "Readonly readiness metadata for id open-seo; page-readiness.tsx suggestionLabel renders translated suggestions.reviewSeo by id.",
-      "categories": ["object-default"],
-      "paths": ["components/admin/page-editor/lib/readiness.ts"]
+      "categories": [
+        "object-default"
+      ],
+      "paths": [
+        "components/admin/page-editor/lib/readiness.ts"
+      ]
     },
     {
       "literal": "Review ${…} content",
       "reason": "Readonly readiness metadata for id review-locale; page-readiness.tsx suggestionLabel renders translated suggestions.reviewLocale by id.",
-      "categories": ["object-default"],
-      "paths": ["components/admin/page-editor/lib/readiness.ts"]
+      "categories": [
+        "object-default"
+      ],
+      "paths": [
+        "components/admin/page-editor/lib/readiness.ts"
+      ]
     },
     {
       "literal": "remove",
       "reason": "Dialog state discriminant for the Remove language dialog, not user-facing text.",
-      "categories": ["helper-return-label"],
-      "paths": ["components/admin/languages/languages-screen.tsx"]
+      "categories": [
+        "helper-return-label"
+      ],
+      "paths": [
+        "components/admin/languages/languages-screen.tsx"
+      ]
     },
     {
       "literal": "page",
       "reason": "ARIA current-page token (aria-current) of the Settings › AI rail, not user-facing text.",
-      "categories": ["conditional-label"],
-      "paths": ["components/admin/ai-settings-screen.tsx"]
+      "categories": [
+        "conditional-label"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "assistant-title-${…}",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "assistant-summary-${…}${…}",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "instructions-description-${…}",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "${…}-intro",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "${…}-title",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "models-checked",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "${…}-name",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "${…}-description",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "provider-title",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "provider-description",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "ai-title",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "ai-description",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "assistants-description",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "named-string-prop"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "${…}-after",
+      "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "conditional-label"
+      ],
+      "paths": [
+        "components/admin/ai-settings-screen.tsx"
+      ]
     }
   ]
 }

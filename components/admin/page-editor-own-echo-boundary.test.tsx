@@ -203,7 +203,6 @@ vi.mock("@/components/admin/command-palette", () => ({
   },
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({ DuplicatePageDialog: () => null }))
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: () => null,
 }))

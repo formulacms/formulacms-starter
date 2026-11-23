@@ -453,20 +453,14 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
   const defaultLocale = useQuery(api.cms.settings.getSiteConfig)?.defaultLocale
   const addressMessages = usePageAddressMessages(defaultLocale ?? "en")
   const authority = useQuery(api.cms.publication.getAdminAuthority)
-  const legacyItems = useQuery(
-    api.cms.pages.list,
-    authority === "legacy" ? { includeDeleted: true } : "skip"
-  )
   const snapshotItems = usePaginatedQuery(
     api.cms.publication.listAdminPages,
     authority === "snapshot_active" ? { scope: "trash" } : "skip",
     { initialNumItems: PAGE_SIZE }
   )
-  const restoreLegacy = useMutation(api.cms.pages.restore)
   const restoreSnapshot = useMutation(
     api.cms.publication.restoreSoftDeletedPage
   )
-  const remove = useMutation(api.cms.pages.remove)
   // The Pages leave Trash at once; the server only queues the delete. A Page
   // the server refuses comes back when its answer arrives.
   const purge = useMutation(
@@ -485,12 +479,9 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
   const [pendingIds, setPendingIds] = useState<string[]>([])
 
   const items: TrashPage[] =
-    authority === "snapshot_active"
-      ? snapshotItems.results
-      : (legacyItems ?? []).filter((page) => page.deletedAt !== undefined)
+    authority === "snapshot_active" ? snapshotItems.results : []
   const isLoading =
     authority === undefined ||
-    (authority === "legacy" && legacyItems === undefined) ||
     (authority === "snapshot_active" &&
       snapshotItems.status === "LoadingFirstPage")
   const canLoadMore =
@@ -528,28 +519,23 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
   async function restoreOne(page: TrashPage) {
     const title = titleOf(page)
     const fallback = t("restored", { title })
-    if (authority === "snapshot_active") {
-      const result = await restoreSnapshot({
-        pageId: page._id,
-        expectedLifecycleGeneration: generation(page),
-      })
-      return {
+    if (authority !== "snapshot_active")
+      throw new Error(t("authorityIncomplete"))
+    const result = await restoreSnapshot({
+      pageId: page._id,
+      expectedLifecycleGeneration: generation(page),
+    })
+    return {
+      fallback,
+      messages: addressMessages.restored(
+        result.addressNotices,
+        "S5",
         fallback,
-        messages: addressMessages.restored(
-          result.addressNotices,
-          "S5",
-          fallback,
-          title,
-          page.pageType,
-          page.localizedTitles
-        ),
-      }
+        title,
+        page.pageType,
+        page.localizedTitles
+      ),
     }
-    if (authority === "legacy") {
-      await restoreLegacy({ id: page._id })
-      return { fallback, messages: [fallback] }
-    }
-    throw new Error(t("authorityIncomplete"))
   }
 
   async function handleRestore(ids: string[]) {
@@ -592,44 +578,25 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
    * call makes the real checks.
    */
   async function checkImpact(targets: TrashPage[], tolerant = false) {
+    if (authority !== "snapshot_active")
+      throw new Error(t("authorityIncomplete"))
     const refusals = new Map<string, PageRefusal>()
     let redirects = 0
-    if (authority === "snapshot_active") {
-      for (const group of chunks(targets, IMPACT_BATCH)) {
-        let impact
-        try {
-          impact = await convex.query(api.cms.publication.pagePurgeImpact, {
-            pageIds: group.map((page) => page._id),
-          })
-        } catch (error) {
-          if (tolerant) continue
-          throw error
-        }
-        for (const row of impact) {
-          redirects += row.redirects
-          if (!row.canPurge)
-            refusals.set(row.pageId, { reason: row.reason, detail: row.detail })
-        }
-      }
-    } else if (authority === "legacy") {
-      for (const page of targets) {
-        const impact = await convex.query(api.cms.pages.deleteImpact, {
-          id: page._id,
+    for (const group of chunks(targets, IMPACT_BATCH)) {
+      let impact
+      try {
+        impact = await convex.query(api.cms.publication.pagePurgeImpact, {
+          pageIds: group.map((page) => page._id),
         })
-        redirects += impact.redirects
-        if (impact.children.length > 0)
-          refusals.set(page._id, {
-            reason: "children",
-            detail: { count: impact.children.length },
-          })
-        else if (impact.menus.length > 0)
-          refusals.set(page._id, {
-            reason: "menus",
-            detail: { count: impact.menus.length, menus: impact.menus },
-          })
+      } catch (error) {
+        if (tolerant) continue
+        throw error
       }
-    } else {
-      throw new Error(t("authorityIncomplete"))
+      for (const row of impact) {
+        redirects += row.redirects
+        if (!row.canPurge)
+          refusals.set(row.pageId, { reason: row.reason, detail: row.detail })
+      }
     }
     return { refusals, redirects }
   }
@@ -638,60 +605,46 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
    * Starts the delete of every selected Page. A Page refused because a
    * selected child or linking Page was not queued yet is sent again, round
    * after round, until a round starts no new Page; only the final refusals
-   * are kept. Legacy sites delete at once and skip the refusals known before.
+   * are kept.
    */
-  async function runDelete(
-    targets: TrashPage[],
-    known: Map<string, PageRefusal>
-  ) {
+  async function runDelete(targets: TrashPage[]) {
+    if (authority !== "snapshot_active")
+      throw new Error(t("authorityIncomplete"))
     const accepted: TrashPage[] = []
-    if (authority === "snapshot_active") {
-      const refused = new Map<string, PageRefusal>()
-      let round = targets
-      while (round.length > 0) {
-        let started = 0
-        const retry: TrashPage[] = []
-        for (const group of chunks(round, PAGE_BATCH)) {
-          const results = await purge({
-            items: group.map((page) => ({
-              pageId: page._id,
-              expectedLifecycleGeneration: generation(page),
-            })),
-          })
-          for (const result of results) {
-            const page = group.find((p) => p._id === result.pageId)
-            if (!page) continue
-            if (result.status === "started") {
-              started += 1
-              accepted.push(page)
-              refused.delete(page._id)
-            } else {
-              refused.set(page._id, {
-                reason: result.reason,
-                detail: result.detail,
-              })
-              if (
-                result.reason === "children" ||
-                result.reason === "incoming_links"
-              )
-                retry.push(page)
-            }
+    const refused = new Map<string, PageRefusal>()
+    let round = targets
+    while (round.length > 0) {
+      let started = 0
+      const retry: TrashPage[] = []
+      for (const group of chunks(round, PAGE_BATCH)) {
+        const results = await purge({
+          items: group.map((page) => ({
+            pageId: page._id,
+            expectedLifecycleGeneration: generation(page),
+          })),
+        })
+        for (const result of results) {
+          const page = group.find((p) => p._id === result.pageId)
+          if (!page) continue
+          if (result.status === "started") {
+            started += 1
+            accepted.push(page)
+            refused.delete(page._id)
+          } else {
+            refused.set(page._id, {
+              reason: result.reason,
+              detail: result.detail,
+            })
+            if (
+              result.reason === "children" ||
+              result.reason === "incoming_links"
+            )
+              retry.push(page)
           }
         }
-        if (started === 0) break
-        round = retry
       }
-      return { accepted, refused }
-    }
-    const refused = new Map(known)
-    const eligible = targets.filter((page) => !known.has(page._id))
-    for (const page of eligible) {
-      try {
-        await remove({ id: page._id })
-        accepted.push(page)
-      } catch {
-        refused.set(page._id, {})
-      }
+      if (started === 0) break
+      round = retry
     }
     return { accepted, refused }
   }
@@ -701,14 +654,12 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
     accepted: TrashPage[],
     refused: Map<string, PageRefusal>
   ) {
-    // Snapshot sites queue the delete; a daily batch finishes it.
+    // The server queues the delete; a daily batch finishes it.
     const done = () =>
-      authority === "snapshot_active"
-        ? t("pagesQueued", {
-            count: accepted.length,
-            title: accepted[0] ? titleOf(accepted[0]) : "",
-          })
-        : t("deletedMany", { count: accepted.length })
+      t("pagesQueued", {
+        count: accepted.length,
+        title: accepted[0] ? titleOf(accepted[0]) : "",
+      })
     if (refused.size === 0) {
       toast.success(done())
       return
@@ -741,15 +692,12 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
     toast.error(parts.join(" "))
   }
 
-  async function deletePages(
-    targets: TrashPage[],
-    known: Map<string, PageRefusal>
-  ) {
+  async function deletePages(targets: TrashPage[]) {
     const ids = targets.map((page) => page._id)
     markPending(ids, true)
     unselect(ids)
     try {
-      const { accepted, refused } = await runDelete(targets, known)
+      const { accepted, refused } = await runDelete(targets)
       report(targets, accepted, refused)
       router.refresh()
     } catch (error) {
@@ -788,7 +736,7 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
       filled: true,
       icon: confirmIcon,
     })
-    if (ok) await deletePages([page], new Map())
+    if (ok) await deletePages([page])
   }
 
   // Several rows: confirm first; refused pages are named in one toast after.
@@ -821,7 +769,7 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
       filled: true,
       icon: confirmIcon,
     })
-    if (ok) await deletePages(targets, impact.refusals)
+    if (ok) await deletePages(targets)
   }
 
   if (authority === "invalid") {
@@ -888,7 +836,7 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
             size="sm"
             className="ml-1"
             disabled={pendingIds.includes(page._id)}
-            onClick={() => void deletePages([page], new Map())}
+            onClick={() => void deletePages([page])}
           >
             {t("retryDelete")}
           </Button>

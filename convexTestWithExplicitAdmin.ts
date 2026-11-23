@@ -1,5 +1,6 @@
 import { convexTest as baseConvexTest, type TestConvex } from "convex-test"
 import type { UserIdentity } from "convex/server"
+import { initializeEmptySnapshotAuthorityForOwner } from "./convex/cms/publication"
 import appSchema from "./convex/schema"
 import { enableAuthSessions } from "./test-utils/convexAuthFixtures"
 
@@ -22,7 +23,12 @@ type Options = {
    * identity stays unprivileged.
    */
   ownerIdentity?: OwnerIdentity
-  /** Opt out only in tests that deliberately exercise missing cutover state. */
+  /**
+   * Publication state a test starts in. The default is the snapshot-active
+   * state of a fresh install. `"missing"` starts without a cutover row. `"legacy"`
+   * starts in the old pre-snapshot phase and is only for tests that still
+   * exercise or refuse that phase.
+   */
   publicationAuthority?: "legacy" | "missing"
 }
 
@@ -59,8 +65,8 @@ export function convexTest(
       : (schemaOrOptions as Options).ownerIdentity
   const publicationAuthority =
     schemaOrOptions === appSchema
-      ? "legacy"
-      : (schemaOrOptions as Options).publicationAuthority ?? "legacy"
+      ? undefined
+      : (schemaOrOptions as Options).publicationAuthority
   const rawRun = t.run.bind(t)
   const ensurePublicationAuthority = async () => {
     if (publicationAuthority === "missing") return
@@ -68,12 +74,17 @@ export function convexTest(
       const rows = await ctx.db.query("pagePublicationCutover")
         .withIndex("by_key", (q) => q.eq("key", "published-snapshot-v1")).take(2)
       if (rows.length === 0) {
-        await ctx.db.insert("pagePublicationCutover", {
-          key: "published-snapshot-v1",
-          phase: "legacy",
-          revision: 1,
-          updatedAt: Date.now(),
-        })
+        if (publicationAuthority === "legacy") {
+          await ctx.db.insert("pagePublicationCutover", {
+            key: "published-snapshot-v1",
+            phase: "legacy",
+            revision: 1,
+            updatedAt: Date.now(),
+          })
+        } else {
+          // The real clean-install writer, so the row shape is never copied.
+          await initializeEmptySnapshotAuthorityForOwner(ctx)
+        }
       }
     })
   }

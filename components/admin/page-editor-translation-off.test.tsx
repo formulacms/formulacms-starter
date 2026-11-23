@@ -80,7 +80,6 @@ vi.mock("@/components/admin/command-palette", () => ({
   },
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({ DuplicatePageDialog: () => null }))
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: () => null,
 }))
@@ -164,7 +163,7 @@ const ENTRIES: Entry[] = [
   { locale: "en", state: "draft", path: "/about" },
   { locale: "fr", state: "draft", path: "/a-propos" },
 ]
-const POSTS_IN_ENGLISH = [{ pageType: "post", locale: "en" }]
+const PAGES_IN_ENGLISH = [{ pageType: "page", locale: "en" }]
 
 function publishButton(header: ReturnType<typeof mount>["header"]) {
   return header.getByRole("button", { name: /^(Publish|Publier)$/ })
@@ -174,11 +173,11 @@ test("the hidden language's tab shows the notice and Publish is disabled", () =>
   const { header } = mount({
     locale: "en",
     requestedLocale: "fr",
-    pageType: "post",
+    pageType: "page",
     entries: ENTRIES,
-    untranslated: POSTS_IN_ENGLISH,
+    untranslated: PAGES_IN_ENGLISH,
   })
-  const message = "Not shown on the site: translation is off for Posts."
+  const message = "Not shown on the site: translation is off for Pages."
   expect(screen.getByTestId("translation-off-notice")).toHaveTextContent(
     message
   )
@@ -190,9 +189,9 @@ test("the kept language's tab is unchanged", () => {
   const { header } = mount({
     locale: "en",
     requestedLocale: "en",
-    pageType: "post",
+    pageType: "page",
     entries: ENTRIES,
-    untranslated: POSTS_IN_ENGLISH,
+    untranslated: PAGES_IN_ENGLISH,
   })
   expect(screen.queryByTestId("translation-off-notice")).toBeNull()
   expect(publishButton(header)).toBeEnabled()
@@ -202,12 +201,12 @@ test("the notice reads in French", () => {
   mount({
     locale: "fr",
     requestedLocale: "fr",
-    pageType: "post",
+    pageType: "page",
     entries: ENTRIES,
-    untranslated: POSTS_IN_ENGLISH,
+    untranslated: PAGES_IN_ENGLISH,
   })
   expect(screen.getByTestId("translation-off-notice")).toHaveTextContent(
-    "Non affiché sur le site : la traduction est désactivée pour les articles."
+    "Non affiché sur le site : la traduction est désactivée pour les pages."
   )
 })
 
@@ -215,10 +214,10 @@ test("the Home page stays in every language", () => {
   const { header } = mount({
     locale: "en",
     requestedLocale: "fr",
-    pageType: "post",
+    pageType: "page",
     home: true,
     entries: ENTRIES,
-    untranslated: POSTS_IN_ENGLISH,
+    untranslated: PAGES_IN_ENGLISH,
   })
   expect(screen.queryByTestId("translation-off-notice")).toBeNull()
   expect(publishButton(header)).toBeEnabled()
@@ -230,7 +229,7 @@ test("another content type's switch has no effect here", () => {
     requestedLocale: "fr",
     pageType: "page",
     entries: ENTRIES,
-    untranslated: POSTS_IN_ENGLISH,
+    untranslated: [{ pageType: "landing-page", locale: "en" }],
   })
   expect(screen.queryByTestId("translation-off-notice")).toBeNull()
 })

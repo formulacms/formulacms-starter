@@ -16,35 +16,57 @@ const OWNER = {
 }
 
 describe("raw rich-text write guard", () => {
-  test("updateDraft rejects a full-only block in a basic body and leaves stored page and staging unchanged", blockProfile(["hero-agency"]), async () => {
-    const t = convexTest({ schema, modules, ownerIdentity: OWNER })
+  test("saveEditorDraft rejects a full-only block in a basic body and leaves the stored page and drafts unchanged", blockProfile(["hero-agency"]), async () => {
+    const t = convexTest({
+      schema,
+      modules,
+      ownerIdentity: OWNER,
+    })
     const actor = t.withIdentity(OWNER)
+    await actor.mutation(api.cms.settings.bootstrapInstallation, {
+      siteName: "Write tier",
+      timezone: "UTC",
+      defaultLocale: "en",
+    })
     const pageId = await actor.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",
+      slug: "write-tier-regression",
       title: "Write tier regression",
-    })
-    await actor.mutation(api.cms.pages.acquirePageEditorLock, {
-      pageId,
-      force: true,
     })
     const sample = createSampleBlock("hero-agency")
     if (sample.type !== "hero-agency") throw new Error("Expected Hero Agency")
-    await actor.mutation(api.cms.pages.updateDraft, {
-      pageId,
-      content: {
-        en: {
-          pageType: "landing-page",
-          localized: { title: "Write tier regression" },
-          blocks: [sample],
+    const save = (block: typeof sample, expectedGeneration: number) =>
+      actor.mutation(api.cms.publication.saveEditorDraft, {
+        pageId,
+        expectedLifecycleGeneration: 1,
+        localized: {
+          locale: "en",
+          slug: "write-tier-regression",
+          expectedGeneration,
+          draft: {
+            pageType: "landing-page",
+            localized: { title: "Write tier regression" },
+            blocks: [block],
+          },
         },
-      },
-    })
+      })
+    await save(sample, 1)
     const stored = () =>
       t.run(async (ctx) => ({
         page: await ctx.db.get("pages", pageId),
-        staging: await ctx.db
-          .query("pageStaging")
+        localeDrafts: await ctx.db
+          .query("pageLocaleDrafts")
+          .withIndex("by_pageId_and_locale", (q) =>
+            q.eq("pageId", pageId).eq("locale", "en")
+          )
+          .take(2),
+        states: await ctx.db
+          .query("pageLocalePublicationStates")
+          .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
+          .take(4),
+        sharedDrafts: await ctx.db
+          .query("pageSharedDrafts")
           .withIndex("by_pageId", (q) => q.eq("pageId", pageId))
           .take(2),
       }))
@@ -68,16 +90,7 @@ describe("raw rich-text write guard", () => {
       primary: { ...sample.primary, description: title },
     }
     await expect(
-      actor.mutation(api.cms.pages.updateDraft, {
-        pageId,
-        content: {
-          en: {
-            pageType: "landing-page",
-            localized: { title: "Write tier regression" },
-            blocks: [changed],
-          },
-        },
-      })
+      save(changed, 2)
     ).rejects.toThrow('node "blockquote" is not allowed in profile "basic"')
     expect(await stored()).toEqual(before)
   })

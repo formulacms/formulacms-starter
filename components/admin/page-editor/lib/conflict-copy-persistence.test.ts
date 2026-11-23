@@ -1,10 +1,17 @@
 /// <reference types="vite/client" />
 
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import schema from "@/convex/schema"
 import { convexTest } from "@/convexTestWithExplicitAdmin"
+
+// This persistence fixture exercises Post's category model even in a minimal
+// generated application. Selection is local to this isolated test module;
+// production creation guards and the real registered mutations stay intact.
+vi.mock("@/convex/lib/contentTypes/starterSelection", () => ({
+  STARTER_CONTENT_TYPES: ["landing-page", "page", "post"],
+}))
 
 // Reuse the registered-function harness, offline, without editing Convex code.
 const modules = import.meta.glob("../../../../convex/**/*.ts")

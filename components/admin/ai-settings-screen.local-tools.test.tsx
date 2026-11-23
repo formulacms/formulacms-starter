@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
 import { getFunctionName, type FunctionReturnType } from "convex/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
@@ -14,7 +14,7 @@ import type { LocalToolsData, LocalToolStatus } from "./ai-settings-screen"
 // No real tool command and no real local file: both are replaced here.
 const mocks = vi.hoisted(() => ({
   status: undefined as unknown, creator: undefined as unknown,
-  save: vi.fn(), saveCreator: vi.fn(), saveLocal: vi.fn(), success: vi.fn(), error: vi.fn(),
+  save: vi.fn(), saveCreator: vi.fn(), saveLocal: vi.fn(), success: vi.fn(), refresh: vi.fn(), error: vi.fn(),
   isLocalToolRequest: vi.fn(async () => false),
   inspectLocalTools: vi.fn(),
   readLocalToolChoices: vi.fn(() => ({})),
@@ -49,7 +49,7 @@ vi.mock("next/navigation", async () => {
   const { useSyncExternalStore } = await import("react")
   const subscribe = (listener: () => void) => { mocks.urlListeners.add(listener); return () => { mocks.urlListeners.delete(listener) } }
   return {
-    useRouter: () => ({ replace: vi.fn() }),
+    useRouter: () => ({ replace: vi.fn(), refresh: mocks.refresh }),
     notFound: () => { throw new Error("NEXT_NOT_FOUND") },
     useSearchParams: () => new URLSearchParams(useSyncExternalStore(subscribe, () => window.location.search, () => "")),
   }
@@ -170,21 +170,142 @@ beforeEach(() => {
 })
 
 describe("Settings › AI local tools on localhost", () => {
+  test("Check again feedback lasts two seconds after completion and restarts on each recheck", async () => {
+    await local(localTools("signed-out", "plan"))
+    openTab("claude-code")
+    vi.useFakeTimers()
+    try {
+      await act(async () => { fireEvent.click(screen.getByTestId("check-again")) })
+      expect(screen.getByTestId("check-again-status")).toHaveTextContent("Checked just now")
+      act(() => { vi.advanceTimersByTime(1999) })
+      expect(screen.getByTestId("check-again-status")).toHaveTextContent("Checked just now")
+      await act(async () => { fireEvent.click(screen.getByTestId("check-again")) })
+      act(() => { vi.advanceTimersByTime(1999) })
+      expect(screen.getByTestId("check-again-status")).toHaveTextContent("Checked just now")
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(screen.getByTestId("check-again-status")).toBeEmptyDOMElement()
+      expect(mocks.refresh).toHaveBeenCalledTimes(2)
+    } finally { vi.useRealTimers() }
+  })
+
+  test("Used by follows saved routes and changes only after Save", async () => {
+    await local(localTools("plan", "plan", { help: { engine: "claude", model: "claude-haiku-5-5", effort: "low" } }))
+    await choose("help", "codex")
+    openTab("claude-code")
+    expect(screen.getByTestId("used-by-names")).toHaveTextContent("Help assistant")
+    openTab("codex")
+    expect(screen.getByTestId("used-by-names")).toHaveTextContent(/^None$/)
+    openTab("assistants")
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mocks.saveLocal).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled())
+    openTab("codex")
+    expect(screen.getByTestId("used-by-names")).toHaveTextContent("Help assistant")
+    openTab("claude-code")
+    expect(screen.getByTestId("used-by-names")).toHaveTextContent(/^None$/)
+  })
+
+  test("the page badge counts the API keys the saved assistants actually use, excluding local routes and Block creator", async () => {
+    const status = statusFixture() as unknown as { connections: { state: string }[] }
+    for (const connection of status.connections) connection.state = "missing"
+    mocks.status = status
+    const tools = localTools("plan", "plan")
+    tools.choices = Object.fromEntries((["writing", "translation", "help"] as const).map((id) => [id, { engine: "codex" as const, ...tools.menus.codex.defaults[id] }]))
+    await local(tools)
+    expect(screen.getByTestId("ai-page-status")).toHaveTextContent(/^Active$/)
+    expect(screen.getByTestId("assistant-status-blockCreator")).toHaveTextContent("Not set up")
+  })
+
+  test.each((["en", "fr"] as const).flatMap((locale) => (["claude", "codex"] as const).flatMap((tool) => (["plan", "signed-out", "not-installed"] as const).map((state) => ({ locale, tool, state })))))
+  ("$locale $tool $state: exact setup command, real recheck and disabled-field reason", async ({ locale, tool, state }) => {
+    const tools = localTools(tool === "claude" ? state : "plan", tool === "codex" ? state : "plan")
+    tools.choices = { help: { engine: tool, ...tools.menus[tool].defaults.help } }
+    await mount({ isLocal: true, localKeys: noKeys, localTools: tools }, { locale })
+    expect(screen.getByTestId("top-line-help")).toHaveTextContent(locale === "en" ? "current tool sign-in" : "connexion actuelle de l’outil")
+    openTab(tool === "claude" ? "claude-code" : "codex")
+    expect(screen.queryByTestId(`setup-${tool}`) !== null).toBe(state !== "plan")
+    if (state === "plan") {
+      expect(screen.queryByTestId("steps-subscription")).not.toBeInTheDocument()
+      expect(screen.getByTestId("provider-status")).toHaveTextContent(locale === "en" ? "Signed in" : "Connecté")
+      return
+    }
+    const command = state === "not-installed"
+      ? tool === "claude" ? "curl -fsSL https://claude.ai/install.sh | bash" : "curl -fsSL https://chatgpt.com/codex/install.sh | sh"
+      : tool === "claude" ? "claude" : "codex login"
+    expect(screen.getByTestId("steps-subscription-code")).toHaveTextContent(command)
+    if (state === "signed-out") expect(screen.getByTestId("steps-subscription")).toHaveTextContent(process.cwd())
+    const after = document.getElementById("steps-subscription-after")!
+    expect(after).toHaveClass("sr-only")
+    expect(screen.getByTestId("steps-subscription")).toHaveAttribute("aria-describedby", after.id)
+    fireEvent.click(screen.getByTestId("check-again"))
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(1))
+    openTab("assistants")
+    expect(model("help")).toBeDisabled()
+    expect(screen.getByTestId("effort-help")).toBeDisabled()
+    expect(screen.getByTestId("assistant-reason-help")).toHaveTextContent(tool === "claude" ? "Claude Code" : "Codex")
+    expect(model("help")).toHaveAttribute("aria-describedby", "assistant-reason-help")
+  })
+
+  test.each((["en", "fr"] as const).flatMap((locale) => (["claude", "codex"] as const).flatMap((tool) => (["api-key", "unknown"] as const).map((state) => ({ locale, tool, state })))))
+  ("$locale $tool $state: every assistant and provider description uses truthful current-sign-in copy", async ({ locale, tool, state }) => {
+    const tools = { ...localTools(state, state), claudePlan: "max" as const }
+    const ids = ["writing", "translation", "help", "blockCreator"] as const
+    tools.choices = Object.fromEntries(ids.map((id) => [id, { engine: tool, ...tools.menus[tool].defaults[id] }]))
+    await mount({ isLocal: true, localKeys: noKeys, localTools: tools }, { locale })
+    const messages = (locale === "en" ? en : fr).settings.aiScreen
+    const label = locale === "en" ? "current tool sign-in" : "connexion actuelle de l’outil"
+    const sentence = locale === "en" ? "Runs on this computer during local development; your live site uses an API key."
+      : "Fonctionne sur cet ordinateur pendant le développement local ; votre site en ligne utilise une clé API."
+    const promises = locale === "en" ? /your Claude subscription|your ChatGPT subscription/ : /votre abonnement Claude|votre abonnement ChatGPT/
+    for (const id of ids) {
+      expect(screen.getByTestId(`top-line-${id}`)).toHaveTextContent(label)
+      expect(screen.getByTestId(`top-line-${id}`)).not.toHaveTextContent(promises)
+    }
+    openTab(tool === "claude" ? "claude-code" : "codex")
+    const description = document.getElementById("provider-description")!
+    expect(description).toHaveClass("sr-only")
+    expect(screen.getByTestId("provider-panel")).toHaveAttribute("aria-describedby", description.id)
+    expect(description).toHaveTextContent(sentence)
+    expect(description).toHaveTextContent(messages.local.note)
+    expect(description).not.toHaveTextContent(promises)
+    expect(screen.getByTestId("provider-status")).toHaveTextContent(messages.local.state[state])
+    expect(screen.queryByTestId(`setup-${tool}`)).not.toBeInTheDocument()
+  })
+
+  test.each((["en", "fr"] as const).flatMap((locale) => (["claude", "codex"] as const).map((tool) => ({ locale, tool }))))
+  ("$locale $tool: no assistant recommends a model; explicit saved selections stay unchanged", async ({ locale, tool }) => {
+    const models = tool === "claude"
+      ? [{ model: "claude-sonnet-4-5", name: "Sonnet 4.5", efforts: ["low", "high"] }, { model: "claude-sonnet-5-5", name: "Sonnet 5.5", efforts: ["low", "high"] }]
+      : [{ model: "gpt-5.6-luna", name: "GPT-5.6 Luna", efforts: ["low", "high"] }, { model: "gpt-6-luna", name: "GPT-6 Luna", efforts: ["low", "high"] }]
+    const ids = ["writing", "translation", "help", "blockCreator"] as const
+    const tools = { ...localTools("plan", "plan"), claudePlan: "max" as const,
+      menus: localToolMenus({ ...builtInLocalToolModels(), [tool]: { source: "installed", models } }) as LocalToolsData["menus"] }
+    tools.choices = Object.fromEntries(ids.map((id) => [id, { engine: tool, model: models[0].model, effort: "low" }]))
+    await mount({ isLocal: true, localKeys: noKeys, localTools: tools }, { locale })
+    expect(screen.queryAllByTestId("newer-model")).toHaveLength(0)
+    for (const id of ids) {
+      expect(model(id)).toHaveTextContent(models[0].name)
+      expect(screen.getByTestId(`top-line-${id}`)).toHaveTextContent(models[0].name)
+      expect(screen.getByTestId(`assistant-status-${id}`)).toHaveTextContent(locale === "en" ? "Ready" : "Prêt")
+    }
+    expect(mocks.saveLocal).not.toHaveBeenCalled()
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+
   test("both tools signed in with a plan: Your AI providers and the local options for every assistant", async () => {
     await local({ ...localTools("plan", "plan"), claudePlan: "max" })
-    expect([...screen.getByTestId("ai-rail").querySelectorAll("a")].map((a) => a.dataset.testid)).toEqual(["rail-assistants", "rail-providers"])
+    expect([...screen.getByTestId("ai-rail").querySelectorAll("a")].map((a) => a.dataset.testid)).toEqual(["rail-assistants", "rail-claude-code", "rail-codex", "rail-anthropic-api", "rail-openai-api", "rail-openrouter-api"])
     for (const id of ["writing", "translation", "help", "blockCreator"]) {
       const shown = await options(id)
       expect(shown.slice(0, 2)).toEqual([["Claude Code", true], ["Codex", true]])
     }
-    openTab("providers")
-    const group = screen.getByTestId("group-subscriptions")
-    expect(group).toHaveTextContent("SubscriptionsUses Claude Code or Codex signed in on this computer.")
-    // The plan name only while Ready; no setup link, command or billing words.
-    expect(screen.getByTestId("row-claude")).toHaveTextContent("Claude CodeClaude Max planReady")
-    expect(screen.getByTestId("row-codex")).toHaveTextContent("CodexChatGPT planReady")
-    expect(within(screen.getByTestId("providers")).queryAllByRole("link")).toEqual([])
-    expect(screen.queryByText(/billed|charges|caps|terminal/i)).not.toBeInTheDocument()
+    openTab("claude-code")
+    expect(screen.getByTestId("provider-status")).toHaveTextContent("Signed in · Claude Max plan")
+    expect(screen.queryByTestId("setup-claude")).not.toBeInTheDocument()
+    expect(screen.getByTestId("provider-models")).toBeInTheDocument()
+    openTab("codex")
+    expect(screen.getByTestId("provider-status")).toHaveTextContent("Signed in · ChatGPT plan")
+    expect(screen.queryByTestId("setup-codex")).not.toBeInTheDocument()
   })
 
   test("subscription only: Claude Code signed in and no API key is Ready, with no no-provider line", async () => {
@@ -196,23 +317,27 @@ describe("Settings › AI local tools on localhost", () => {
     expect(screen.getByTestId("assistant-status-writing")).toHaveTextContent("Ready")
     // Cards on a key that is not set up keep their own word and link.
     expect(screen.getByTestId("assistant-status-help")).toHaveTextContent("Not set up")
-    expect(screen.getByTestId("providers-link-help")).toHaveTextContent("Your AI providers")
-    openTab("providers")
-    expect(screen.getByTestId("row-claude")).toHaveAttribute("data-word", "ready")
-    // Plan not detected: no plan name.
-    expect(screen.queryByTestId("plan-claude")).not.toBeInTheDocument()
-    expect(screen.getByTestId("row-codex")).toHaveTextContent(/^CodexSigned out$/)
-    expect(screen.getAllByTestId(/^row-status-(anthropic|openai|openrouter)$/).map((b) => b.textContent)).toEqual(["Not set up", "Not set up", "Not set up"])
-    expect(screen.getByTestId("keys-note")).toHaveTextContent("Assistants use the keys set on your Convex deployment. The Block creator uses its own key from .env.local.")
+    expect(screen.getByTestId("providers-link-help")).toHaveTextContent("Anthropic API")
+    openTab("claude-code")
+    expect(screen.getByTestId("provider-status")).toHaveTextContent("Signed in")
+    expect(screen.queryByTestId("setup-claude")).not.toBeInTheDocument()
+    openTab("codex")
+    expect(screen.getByTestId("provider-status")).toHaveTextContent("Signed out")
+    expect(screen.getByTestId("steps-subscription-code")).toHaveTextContent(/^codex login$/)
+    for (const tab of ["anthropic-api", "openai-api", "openrouter-api"]) {
+      openTab(tab)
+      expect(screen.getByTestId("provider-status")).toHaveTextContent("Not set up")
+    }
   })
 
-  test("no subscription signed in and no API key: the no-provider line and no card badges", async () => {
+  test("no subscription signed in and no API key: each card exposes setup and its reason", async () => {
     const status = statusFixture() as unknown as { connections: { state: string }[] }
     for (const connection of status.connections) connection.state = "missing"
     mocks.status = status
     await local(localTools("signed-out", "not-installed"))
-    expect(screen.getByTestId("no-provider")).toHaveTextContent("No AI provider is set up. Your AI providers")
-    expect(screen.queryAllByTestId(/^assistant-status-/)).toEqual([])
+    expect(screen.queryByTestId("no-provider")).not.toBeInTheDocument()
+    expect(screen.getAllByTestId(/^assistant-status-/)).toHaveLength(4)
+    expect(screen.getByTestId("assistant-reason-writing")).toHaveTextContent("Not set up")
     // The menus stay usable, so the owner can pick what they will set up.
     expect(provider("writing")).toBeEnabled()
   })
@@ -263,7 +388,7 @@ describe("Settings › AI local tools on localhost", () => {
   })
 
   // Work item 4 (walk1c3 4d): switching back never lands on the first row.
-  test("switch back: Claude Code (saved Sonnet 5.5) → Anthropic → Claude Code shows Sonnet 5.5", async () => {
+  test("switch back: Claude Code (saved Sonnet 5.5) → Anthropic API → Claude Code shows Sonnet 5.5", async () => {
     await local(localTools("plan", "plan", { help: { engine: "claude", model: "claude-sonnet-5-5", effort: "high" } }))
     await choose("help", "anthropic")
     await choose("help", "claude")
@@ -385,9 +510,9 @@ describe("Settings › AI local tools on localhost", () => {
     mocks.status = status
     await local(localTools("plan", "plan", { help: { engine: "claude", model: "sonnet", effort: "high" } }))
     expect(provider("help")).toBeEnabled()
-    expect((await options("help")).slice(2)).toEqual([["Anthropic · Not set up", true], ["OpenAI · Not set up", true], ["OpenRouter · Not set up", true]])
+    expect((await options("help")).slice(2)).toEqual([["Anthropic API · Not set up", true], ["OpenAI API · Not set up", true], ["OpenRouter API · Not set up", true]])
     await choose("help", "openai")
-    expect(provider("help")).toHaveTextContent("OpenAI")
+    expect(provider("help")).toHaveTextContent("OpenAI API")
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
     await waitFor(() => expect(mocks.saveLocal).toHaveBeenCalledWith({ help: null }))
     expect(mocks.save).toHaveBeenCalledWith({ id: "help", tuple: openai })
@@ -444,23 +569,28 @@ describe("Settings › AI local tools on localhost", () => {
     expect(screen.getByTestId("effort-blockCreator")).toHaveValue("medium")
   })
 
-  test("a tool signed in with an API key or an unknown method is Ready; plan names show only for a plan", async () => {
+  test("an API-key or unknown local sign-in retains its actual method and hides setup while ready", async () => {
     await local({ ...localTools("api-key", "unknown"), claudePlan: "max" })
-    openTab("providers")
-    expect(screen.getByTestId("row-claude")).toHaveTextContent(/^Claude CodeReady$/)
-    expect(screen.getByTestId("row-codex")).toHaveTextContent(/^CodexReady$/)
+    openTab("claude-code")
+    expect(screen.getByTestId("provider-status")).toHaveAttribute("data-word", "ready")
+    expect(screen.queryByTestId("setup-claude")).not.toBeInTheDocument()
+    expect(screen.getByTestId("provider-status")).not.toHaveTextContent("Max")
+    openTab("codex")
+    expect(screen.getByTestId("provider-status")).toHaveAttribute("data-word", "ready")
+    expect(screen.queryByTestId("setup-codex")).not.toBeInTheDocument()
   })
 
-  test("a tool that is not installed or not signed in is shown as Signed out and cannot be chosen", async () => {
+  test("a missing program is Not installed, while an installed program needing login is Signed out", async () => {
     await local(localTools("signed-out", "not-installed"))
-    openTab("providers")
-    expect(screen.getByTestId("row-claude")).toHaveAttribute("data-word", "signedOut")
-    expect(screen.getByTestId("row-codex")).toHaveAttribute("data-word", "signedOut")
-    expect(screen.getByTestId("row-status-codex")).toHaveAttribute("data-tone", "off")
-    expect(screen.queryByText(/Not installed/)).not.toBeInTheDocument()
+    openTab("claude-code")
+    expect(screen.getByTestId("provider-status")).toHaveAttribute("data-word", "signedOut")
+    expect(screen.getByTestId("steps-subscription-code")).toHaveTextContent(/^claude$/)
+    openTab("codex")
+    expect(screen.getByTestId("provider-status")).toHaveAttribute("data-word", "notInstalled")
+    expect(screen.getByTestId("steps-subscription-code")).toHaveTextContent("curl -fsSL https://chatgpt.com/codex/install.sh | sh")
     openTab("assistants")
-    expect((await options("help")).slice(0, 2)).toEqual([["Claude Code · Signed out", false], ["Codex · Signed out", false]])
-    expect((await options("blockCreator")).slice(0, 2)).toEqual([["Claude Code · Signed out", false], ["Codex · Signed out", false]])
+    expect((await options("help")).slice(0, 2)).toEqual([["Claude Code · Signed out", false], ["Codex · Not installed", false]])
+    expect((await options("blockCreator")).slice(0, 2)).toEqual([["Claude Code · Signed out", false], ["Codex · Not installed", false]])
   })
 
   test("Block creator on Codex: Ready, no key lines, and both saves", async () => {
@@ -493,29 +623,52 @@ describe("Settings › AI local tools on localhost", () => {
     expect(mocks.saveLocal).toHaveBeenCalledWith({ help: { engine: "claude", model: "claude-haiku-5-5", effort: "low" } })
   })
 
-  test("FR: the rail, Vos fournisseurs d’IA and the provider options", async () => {
+  test("FR: the restored provider rail, plan, sign-out and setup copy", async () => {
     await mount({ isLocal: true, localKeys: noKeys, localTools: { ...localTools("plan", "signed-out"), claudePlan: "max" } }, { locale: "fr" })
-    expect(screen.getByTestId("ai-rail")).toHaveTextContent("AssistantsVos fournisseurs d’IA")
+    expect(screen.getByTestId("ai-rail")).toHaveTextContent("Abonnements · cet ordinateur")
     const help = await menu("help")
     expect(help.getByRole("group", { name: "Abonnements" })).toHaveTextContent("Claude CodeCodex · Déconnecté")
-    expect(help.getByRole("group", { name: "Clés API" })).toHaveTextContent("AnthropicOpenAI · Non configuréOpenRouter")
     fireEvent.click(provider("help"))
-    openTab("providers")
-    expect(screen.getByTestId("group-subscriptions")).toHaveTextContent("AbonnementsUtilise votre session Claude Code ou Codex ouverte sur cet ordinateur.")
-    expect(screen.getByTestId("row-claude")).toHaveTextContent("Claude CodeForfait Claude MaxPrêt")
-    expect(screen.getByTestId("row-codex")).toHaveTextContent("CodexDéconnecté")
-    expect(screen.getByTestId("keys-note")).toHaveTextContent("Les assistants utilisent les clés définies sur votre déploiement Convex. Le créateur de blocs utilise sa propre clé dans .env.local.")
-    expect(screen.getByTestId("row-openai")).toHaveTextContent("OpenAINon configuré")
+    openTab("claude-code")
+    expect(screen.getByTestId("provider-status")).toHaveTextContent("Connecté · forfait Claude Max")
+    expect(screen.queryByTestId("setup-claude")).not.toBeInTheDocument()
+    openTab("codex")
+    expect(screen.getByTestId("provider-status")).toHaveTextContent("Déconnecté")
+    expect(screen.getByTestId("check-again")).toHaveTextContent("Vérifier à nouveau")
+    openTab("openai-api")
+    expect(screen.getByTestId("provider-status")).toHaveTextContent("Non configuré")
+    expect(screen.getByTestId("steps-local")).toHaveTextContent("rechargez cette page")
   })
+})
+
+test("setup commands and key variables preserve whole tokens across all shared setup consumers", async () => {
+  await mount({ isLocal: true, localKeys: noKeys, localTools: localTools("not-installed", "signed-out") })
+  const command = (id: string) => {
+    const code = screen.getByTestId(id)
+    expect(code).toHaveClass("whitespace-pre", "overflow-x-auto", "basis-full")
+    expect(code).not.toHaveClass("break-all")
+    expect(code.parentElement).toHaveClass("@container/step")
+  }
+  openTab("claude-code")
+  command("steps-subscription-code") // Install.
+  openTab("codex")
+  command("steps-subscription-code") // Sign in.
+  openTab("openai-api")
+  command("steps-deployment-code")
+  command("steps-local-code")
+  for (const id of ["key-deployment-variable", "key-local-variable"]) {
+    expect(screen.getByTestId(id)).toHaveClass("basis-full", "whitespace-pre", "overflow-x-auto")
+    expect(screen.getByTestId(id)).not.toHaveClass("break-all")
+  }
 })
 
 describe("off localhost", () => {
   test("the live site shows no local tools and no local choice", async () => {
     await mount({ isLocal: false })
-    openTab("providers")
+    openTab("anthropic-api")
     expect(screen.queryByTestId("group-subscriptions")).not.toBeInTheDocument()
     openTab("assistants")
-    expect(await options("help")).toEqual([["Anthropic", true], ["OpenAI · Not set up", false], ["OpenRouter", true]])
+    expect(await options("help")).toEqual([["Anthropic API", true], ["OpenAI API · Not set up", false], ["OpenRouter API", true]])
   })
 
   test("another device in local development: no Subscriptions group and no local tool option", async () => {
@@ -525,8 +678,8 @@ describe("off localhost", () => {
     expect(screen.getByTestId("group-api-keys")).toBeInTheDocument()
     openTab("assistants")
     // The Block creator's words follow its .env.local keys, and this computer has none.
-    expect((await options("blockCreator")).map(([label]) => label)).toEqual(["Anthropic · Not set up", "OpenAI · Not set up", "OpenRouter · Not set up"])
-    expect((await options("help")).map(([label]) => label)).toEqual(["Anthropic", "OpenAI · Not set up", "OpenRouter"])
+    expect((await options("blockCreator")).map(([label]) => label)).toEqual(["Anthropic API · Not set up", "OpenAI API · Not set up", "OpenRouter API · Not set up"])
+    expect((await options("help")).map(([label]) => label)).toEqual(["Anthropic API", "OpenAI API · Not set up", "OpenRouter API"])
   })
 
   test("guard: a request from another device gets no local tools; no status command runs and the file is not read", async () => {

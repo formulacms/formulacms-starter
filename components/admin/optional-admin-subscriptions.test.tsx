@@ -42,7 +42,7 @@ vi.mock("convex/react", () => ({
     if (name === "cms/settings:getSiteConfig") {
       return { defaultLocale: "en", enabledLocales: ["en"], timezone: "UTC" }
     }
-    if (name === "cms/publication:getAdminAuthority") return "legacy"
+    if (name === "cms/publication:getAdminAuthority") return "snapshot_active"
     if (name.endsWith("getArchivedContentTypes")) return []
     if (name === "cms/media:listFolders") return []
     return undefined
@@ -98,10 +98,6 @@ vi.mock("@/app/(core)/admin/(authenticated)/pages/actions", () => ({
   revalidatePagePaths: vi.fn(async () => undefined),
 }))
 
-vi.mock("@/components/admin/duplicate-page-dialog", () => ({
-  DuplicatePageDialog: () => null,
-}))
-
 vi.mock("@/lib/media/use-media-upload", () => ({
   useMediaUpload: () => ({
     uploadMany: vi.fn(),
@@ -126,7 +122,6 @@ const OPTIONAL_QUERIES = [
   "cms/formSubmissions:getCounts",
   "cms/search:searchPages",
   "cms/search:searchMedia",
-  "cms/pageHistory:listRevisions",
 ]
 
 function openSubscriptions() {
@@ -196,7 +191,7 @@ describe("all-off admin shell subscriptions (F08d)", () => {
       screen.queryByRole("searchbox", { name: "Search pages" })
     ).not.toBeInTheDocument()
     const open = openSubscriptions()
-    expect(open.has("cms/pages:listPaginated")).toBe(true)
+    expect(open.has("cms/publication:listAdminPages")).toBe(true)
     expect(open.has("cms/search:searchPages")).toBe(false)
   })
 
@@ -211,20 +206,16 @@ describe("all-off admin shell subscriptions (F08d)", () => {
     expect(open.has("cms/search:searchMedia")).toBe(false)
   })
 
-  test("legacy revision History stays optional while snapshot history belongs to core Publication", () => {
-    expect(pageEditorSource).not.toContain("api.cms.pageHistory")
+  test("the editor offers only the snapshot history, which belongs to core Publication", () => {
     expect(pageEditorSource).not.toContain(
       'from "./page-editor/components/history-panel"'
     )
-    expect(snapshotHistorySource).not.toContain("api.cms.pageHistory")
     expect(snapshotHistorySource).toContain(
       "api.cms.publication.listSnapshotHistory"
     )
     expect(snapshotHistorySource).toContain(
       "api.cms.publication.restoreSnapshotAsDraft"
     )
-    expect(pageEditorSource).toContain(
-      'import { ADMIN_HISTORY_BROWSER_BINDING } from "./contributions/history"'
-    )
+    expect(pageEditorSource).not.toContain("ADMIN_HISTORY_BROWSER_BINDING")
   })
 })

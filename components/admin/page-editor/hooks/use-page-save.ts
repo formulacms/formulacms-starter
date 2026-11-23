@@ -15,7 +15,7 @@ import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import type { PerLanguageSeo } from "@/convex/lib/contentTypes/perLanguageFields"
-import type { FunctionArgs, FunctionReturnType } from "convex/server"
+import type { FunctionArgs } from "convex/server"
 import type { Block } from "@/convex/lib/blocks"
 import {
   isPrimitiveValueEmpty,
@@ -52,46 +52,30 @@ const UNMOUNTED_SCOPE = Symbol("unmounted page editor")
 type EditorScope = { key: string; generation: number }
 
 /**
- * Save/publish/discard mutations for the page editor.
+ * Save/publish/discard commands for the page editor.
  *
- * ADR-0041 §Migration step 2 (item 2) — editor writes flow through
- * `pages.updateDraft` (stages content + descriptor sharedFields + slug +
- * seo), `pages.publish` (promotes staging → live), and
- * `pages.discardDraft` (throws the staged working copy away). The legacy
- * `pages.update` mutation remains on the hook because a subset of fields
- * are NOT staged:
- *
- *   - `parentId` / `clearParent`  — hierarchy moves are live-immediate
- *     (ADR §1 "What stays live-immediate").
- *   - `pageType`                  — cross-arm change (rare; kept live).
- *   - `status` transitions        — unpublish / archive / unarchive are
- *     visibility flips, not content edits.
+ * The editor saves drafts through `saveSnapshotDraft` (content, shared
+ * fields, address and hierarchy). The three commands below are the
+ * editor's own wrappers around the publishing commands; each type says only
+ * what the hook passes and reads.
  *
  * FR2c row C (audit B9) removed Scheduling from the editor: this hook
- * never writes `scheduledAt` or `expiresAt`. Both stay on the page as
- * compatibility fields.
- *
- * The retired per-locale content mutation is gone from the server as of
- * ADR-0041 Deploy 3 (Narrow); its content bag is folded into
- * `updateDraft.content[locale]`.
+ * never writes `scheduledAt` or `expiresAt`.
  */
-export type UpdateDraft = (
-  args: FunctionArgs<typeof api.cms.pages.updateDraft>
-) => Promise<FunctionReturnType<typeof api.cms.pages.updateDraft>>
+/** Publishes the current language. */
+export type PublishPage = (args: {
+  pageId: Id<"pages">
+}) => Promise<{ updatedAt: number }>
 
-export type PublishPage = (
-  args: FunctionArgs<typeof api.cms.pages.publish>
-) => Promise<FunctionReturnType<typeof api.cms.pages.publish>>
+/** Discards the current language's draft. */
+export type DiscardDraft = (args: { pageId: Id<"pages"> }) => Promise<null>
 
-export type DiscardDraft = (
-  args: FunctionArgs<typeof api.cms.pages.discardDraft>
-) => Promise<FunctionReturnType<typeof api.cms.pages.discardDraft>>
-
-export type UpdatePage = (
-  args: FunctionArgs<typeof api.cms.pages.update>
-) => Promise<
-  FunctionReturnType<typeof api.cms.pages.update> & { staged?: boolean }
->
+/** Unpublishes ("draft"), restores ("draft") or archives the page. */
+export type UpdatePage = (args: {
+  id: Id<"pages">
+  status: "draft" | "archived"
+  expectedUpdatedAt: number
+}) => Promise<{ updatedAt: number }>
 
 type SnapshotEditorArgs = FunctionArgs<
   typeof api.cms.publication.saveEditorDraft
@@ -230,6 +214,8 @@ export type RetainedSharedPageSaveDraft = Buffered<{
 }>
 
 type UsePageSaveOptions = {
+  /** The host knows whether this locale owns the base address (including Home). */
+  localeOwnsBaseSlug?(locale: Locale): boolean
   page: Page
   defaultLocale: Locale
   currentLocale: Locale
@@ -266,12 +252,11 @@ type UsePageSaveOptions = {
    *  staged overlay (`pages.getForEdit`). These props are the initial
    *  values from that read. `hasStaging` seeds the "Unpublished changes"
    *  badge and Publish/Discard button enablement; `stagingUpdatedAt`
-   *  seeds the staging-row OCC token for `updateDraft`. Undefined
-   *  `stagingUpdatedAt` = lazy-create (there is no staging row yet). */
+   *  seeds the staging-row OCC token. Undefined `stagingUpdatedAt` =
+   *  lazy-create (there is no staging row yet). */
   hasStaging: boolean
   stagingUpdatedAt: number | undefined
-  updateDraft: UpdateDraft
-  saveSnapshotDraft?: SaveSnapshotEditorDraft
+  saveSnapshotDraft: SaveSnapshotEditorDraft
   refuseAddress?(): boolean
   addressIntent?(): "typed" | "generated"
   onAddressAllocated?(slug: string, wanted: string): void
@@ -352,7 +337,8 @@ export function sharedDraftValues(draft: SharedDraftValues) {
 function savedBaselineSnapshot(
   page: Page,
   defaultLocale: Locale,
-  currentLocale: Locale
+  currentLocale: Locale,
+  ownsBaseSlug = true
 ): string {
   // A cached or recovered draft is never evidence of persistence. Use the
   // same stored values and descriptor defaults as a fresh editor mount.
@@ -368,7 +354,7 @@ function savedBaselineSnapshot(
     title: getTitle(page, currentLocale),
     slug:
       page.localizedSlugs?.[currentLocale] ||
-      (currentLocale === defaultLocale
+      (currentLocale === defaultLocale && ownsBaseSlug
         ? (page.slug ?? "")
         : slugify(getTitle(page, currentLocale))),
     pageType: page.pageType,
@@ -481,6 +467,7 @@ async function tryOrElse<T>(
 }
 
 export function usePageSave({
+  localeOwnsBaseSlug,
   page,
   defaultLocale,
   currentLocale,
@@ -491,7 +478,6 @@ export function usePageSave({
   presentationCatalogRevision,
   hasStaging: initialHasStaging,
   stagingUpdatedAt: initialStagingUpdatedAt,
-  updateDraft,
   saveSnapshotDraft,
   refuseAddress,
   addressIntent,
@@ -532,11 +518,14 @@ export function usePageSave({
   }
   const currentSnapshot = snapshotForDraft(draft)
   const currentScope = `${page._id}:${currentLocale}`
+  const currentLocaleOwnsBaseSlug = localeOwnsBaseSlug?.(currentLocale)
   const [savedBaseline] = useState(() => {
     const baseline =
       retainedSaveBase?.locale === currentLocale
         ? retainedSaveBase.snapshot
-        : savedBaselineSnapshot(page, defaultLocale, currentLocale)
+        : savedBaselineSnapshot(
+            page, defaultLocale, currentLocale, currentLocaleOwnsBaseSlug
+          )
     return retainedSharedDraft
       ? snapshotForDraft({
           ...JSON.parse(baseline),
@@ -663,7 +652,9 @@ export function usePageSave({
     return (
       savedSnapshotsRef.current.get(`${page._id}:${locale}`) ??
       snapshotForDraft({
-        ...JSON.parse(savedBaselineSnapshot(page, defaultLocale, locale)),
+        ...JSON.parse(savedBaselineSnapshot(
+          page, defaultLocale, locale, localeOwnsBaseSlug?.(locale)
+        )),
         ...sharedBaselineRef.current,
       })
     )
@@ -734,7 +725,9 @@ export function usePageSave({
         savedSnapshotsRef.current.get(currentScope) ??
         snapshotForDraft({
           ...JSON.parse(
-            savedBaselineSnapshot(page, defaultLocale, currentLocale)
+            savedBaselineSnapshot(
+              page, defaultLocale, currentLocale, currentLocaleOwnsBaseSlug
+            )
           ),
           ...sharedBaselineRef.current,
         })
@@ -756,6 +749,7 @@ export function usePageSave({
     currentScope,
     currentSnapshot,
     currentLocale,
+    currentLocaleOwnsBaseSlug,
     defaultLocale,
     initialHasStaging,
     initialStagingUpdatedAt,
@@ -1032,10 +1026,6 @@ export function usePageSave({
         // image stays shared. Values the panel does not edit (structured data,
         // keywords) keep their stored value for this language unless another
         // language was copied in.
-        const storedPerLanguageSeo = (
-          page.content?.[currentLocale] as { seo?: PerLanguageSeo } | undefined
-        )?.seo
-        const localeSeo = languageSeoBlock(storedPerLanguageSeo, draft)
         const sharedSeo: Record<string, unknown> = { ...(page.seo ?? {}) }
         const persistedSharedSeo: Record<string, unknown> = {
           ...(page.seo ?? {}),
@@ -1049,9 +1039,6 @@ export function usePageSave({
         const localeSeoChanged = languageSeoChanged(draft, persistedDraft)
         const ogImageChanged =
           JSON.stringify(sharedSeo) !== JSON.stringify(persistedSharedSeo)
-        const seoChanged = localeSeoChanged || ogImageChanged
-        // The retained legacy-phase writer still takes one combined block.
-        const seo: Record<string, unknown> = { ...sharedSeo, ...localeSeo }
 
         // Slug delta — per-locale behavior: editing on the default locale
         // writes the base `slug`; editing on any other locale writes/clears
@@ -1118,16 +1105,8 @@ export function usePageSave({
             (contentDraft as { blocks?: unknown }).blocks ?? undefined
           ) !== JSON.stringify(priorLocaleBag?.blocks ?? undefined) ||
           localeSeoChanged
-        const anyStagedChange =
-          contentActuallyChanged ||
-          stagedSlug !== undefined ||
-          stagedLocalizedSlugs !== undefined ||
-          seoChanged ||
-          authorsChanged ||
-          tagsChanged ||
-          sharedFieldsChanged
 
-        if (saveSnapshotDraft && typeChanged) {
+        if (typeChanged) {
           toast.error(t("contentTypeChangeUnavailable"))
           return false
         }
@@ -1136,13 +1115,14 @@ export function usePageSave({
         // The server only needs a title/address for a localized write. The lock
         // refresh above already ran (it precedes the delta computation, and a
         // refused save leaves it harmlessly renewed); nothing is written yet.
-        // Clearing the default locale's saved address is not a slug delta (a
+        // Clearing this locale's saved address is not a slug delta (a
         // blank `desired` is ignored above), so it is asked about separately.
-        // It only widens the refusal check: nothing is written for it.
+        // A missing default-language version does not own another language's
+        // base slug. Compare against its own saved draft, including prior Saves.
         const defaultAddressCleared =
           currentLocale === defaultLocale &&
           desired === "" &&
-          currentBaseSlug.trim() !== ""
+          persistedDraft.slug.trim() !== ""
         if (
           (localizedChanged || defaultAddressCleared) &&
           refuseDraft?.(draft, {
@@ -1215,41 +1195,6 @@ export function usePageSave({
           setHasStaging(true)
         }
 
-        if (!saveSnapshotDraft && anyStagedChange) {
-          type UpdateDraftArgs = FunctionArgs<typeof api.cms.pages.updateDraft>
-          const updateDraftArgs: UpdateDraftArgs = {
-            pageId: page._id,
-            expectedUpdatedAt: knownStagingUpdatedAtRef.current,
-            ...(expectedPresentationCatalogRevision
-              ? { expectedPresentationCatalogRevision }
-              : {}),
-          }
-          if (contentActuallyChanged) {
-            const contentRecord = {
-              [currentLocale]: contentDraft,
-            } as unknown as UpdateDraftArgs["content"]
-            updateDraftArgs.content = contentRecord
-          }
-          if (stagedSlug !== undefined) updateDraftArgs.slug = stagedSlug
-          if (stagedLocalizedSlugs !== undefined)
-            updateDraftArgs.localizedSlugs = stagedLocalizedSlugs
-          if (seoChanged)
-            updateDraftArgs.seo = seo as FunctionArgs<
-              typeof api.cms.pages.updateDraft
-            >["seo"]
-          if (authorsChanged) updateDraftArgs.authorIds = draft.authorIds
-          if (tagsChanged) updateDraftArgs.tags = draft.tags
-          if (sharedFieldsChanged) {
-            updateDraftArgs.sharedFieldsJson =
-              JSON.stringify(changedSharedFields)
-          }
-
-          const draftResult = await updateDraft(updateDraftArgs)
-          knownStagingUpdatedAtRef.current = draftResult.updatedAt
-          if (!isCurrentScope(submittedScope)) return false
-          setHasStaging(true)
-        }
-
         if (stagedSlug !== undefined) persistedBaseSlugRef.current = stagedSlug
         if (stagedLocalizedSlugs !== undefined)
           persistedLocalizedSlugsRef.current = stagedLocalizedSlugs
@@ -1265,26 +1210,6 @@ export function usePageSave({
           }
           return next
         })
-
-        // ── pages.update (live-immediate write) ─────────────────────────
-        // Hierarchy, pageType — none staged per ADR §1. Runs after
-        // `updateDraft` so a hierarchy failure does not orphan a successful
-        // staged write.
-        if (!saveSnapshotDraft && (typeChanged || parentChanged)) {
-          const pageResult = await updatePage({
-            id: page._id,
-            pageType: typeChanged ? draft.pageType : undefined,
-            parentId:
-              parentChanged && draft.parentId
-                ? (draft.parentId as Id<"pages">)
-                : undefined,
-            clearParent: parentChanged && !draft.parentId ? true : undefined,
-            expectedUpdatedAt: knownPageUpdatedAtRef.current,
-          })
-          if (!isCurrentScope(submittedScope)) return false
-          rememberUpdatedAt(pageResult.updatedAt)
-          if (pageResult.staged) setHasStaging(true)
-        }
 
         // Silence unused warning — the pieces are consumed in the
         // deltas above; the flat booleans are also used to gate the

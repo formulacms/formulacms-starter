@@ -14,8 +14,8 @@
 // developer's machine via `scripts/generate-block-from-snapshot.ts` and the
 // dev-only Next server actions in `app/(core)/admin/(authenticated)/blocks/`.
 // Their system prompts live at `lib/blocks/authoring/agent-prompts.ts`.
-// Legacy `agentConfigs` rows for those two IDs are inert and are pruned by
-// `convex/cms/agents.ts:clearRetiredBlockAgents`.
+// Legacy `agentConfigs` rows for those two IDs are inert; the schema union
+// retains their literals for compatibility.
 
 export type AgentId =
   | "translation"
@@ -39,8 +39,7 @@ export interface AgentDef {
   defaultSystemPrompt: string
   /** Wraps the user message. `{text}` ⇒ the content being processed. */
   defaultUserPromptTemplate: string
-  /** Placeholders the templates may use, for UI hints, e.g. "{sourceLang}". */
-  systemPlaceholders: string[]
+  /** Placeholders the user template may use, for UI hints, e.g. "{text}". */
   userPlaceholders: string[]
   /** Content agent only: cold-start brief seeds offered in the Write dialog. */
   defaultWriteBriefs?: AgentPreset[]
@@ -133,7 +132,6 @@ export const AGENTS: Record<AgentId, AgentDef> = {
     defaultSystemPrompt: TRANSLATION_SYSTEM,
     // The user message is the text itself today; `{text}` reproduces that exactly.
     defaultUserPromptTemplate: "{text}",
-    systemPlaceholders: ["{sourceLang}", "{targetLang}"],
     userPlaceholders: ["{text}"],
   },
   content: {
@@ -146,7 +144,6 @@ export const AGENTS: Record<AgentId, AgentDef> = {
     // The user message is the brief. The per-block field list is appended by
     // contentWriter.ts (it varies by block type and can't be a flat template).
     defaultUserPromptTemplate: "Brief: {brief}",
-    systemPlaceholders: ["{language}", "{blockType}"],
     userPlaceholders: ["{brief}"],
     defaultWriteBriefs: [
       {
@@ -247,7 +244,6 @@ export const AGENTS: Record<AgentId, AgentDef> = {
     defaultModel: "google/gemini-2.5-flash",
     defaultSystemPrompt: HELP_ASSISTANT_SYSTEM,
     defaultUserPromptTemplate: HELP_ASSISTANT_USER_TEMPLATE,
-    systemPlaceholders: ["{route}", "{intentEnum}"],
     userPlaceholders: ["{question}", "{context}", "{route}"],
   },
 }

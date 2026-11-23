@@ -12,6 +12,7 @@ import {
 } from "./lib/publishing/localeCandidate"
 import { ensurePageBackfilled } from "./lib/publishing/perLanguageBackfill"
 import schema from "./schema"
+import { isActiveContentType } from "./lib/contentTypes"
 
 // ADR-0037 amendment (2026-11-17): the social share title and description,
 // noindex, nofollow, structured data, keywords, card excerpt and post category
@@ -768,7 +769,7 @@ describe("writers after the change", () => {
     expect(page.perLanguageFieldsBackfill).toBeDefined()
   })
 
-  test("the post category is a language's own text", async () => {
+  test.runIf(isActiveContentType("post"))("the post category is a language's own text", async () => {
     const site = await snapshotSite(["en", "fr"])
     const pageId = await site.owner.mutation(api.cms.pages.create, {
       pageType: "post",
@@ -847,4 +848,88 @@ describe("restoring an old snapshot", () => {
       seo: { ogImage: "/shared-social.png" },
     })
   })
+})
+
+
+const authorActive = isActiveContentType("author")
+
+describe("optional shared-field clearing", () => {
+  async function authorFixture() {
+    const site = await snapshotSite(["en"])
+    const pageId = await site.owner.mutation(api.cms.pages.create, {
+      pageType: "author",
+      status: "draft",
+      slug: "ada",
+      title: "Ada",
+      name: "Ada",
+      socials: [{ platform: "GitHub", url: "https://github.com/ada" }],
+      content: { en: { title: "Ada", blocks: [] } },
+    })
+    return { site, pageId }
+  }
+
+  for (const mutation of ["saveEditorDraft", "saveSharedDraft"] as const) {
+    async function save(site: Site, pageId: Id<"pages">, fields: Record<string, unknown>) {
+      const { shared, page } = await clocks(site, pageId, "en")
+      const sharedFieldsJson = JSON.stringify(fields)
+      if (mutation === "saveEditorDraft") {
+        return site.owner.mutation(api.cms.publication.saveEditorDraft, {
+          pageId,
+          expectedLifecycleGeneration: page.lifecycleGeneration,
+          shared: { expectedGeneration: shared.generation, sharedFieldsJson },
+        })
+      }
+      return site.owner.mutation(api.cms.publication.saveSharedDraft, {
+        pageId,
+        expectedLifecycleGeneration: page.lifecycleGeneration,
+        expectedSharedDraftGeneration: shared.generation,
+        sharedFieldsJson,
+      })
+    }
+
+    test.runIf(authorActive)(`${mutation}: null clears optional socials, including on reload`, async () => {
+      const { site, pageId } = await authorFixture()
+      await save(site, pageId, { socials: null })
+      const { shared } = await clocks(site, pageId, "en")
+      expect(shared.descriptor).not.toHaveProperty("socials")
+      const reloaded = await site.owner.query(api.cms.pages.getForEdit, { id: pageId })
+      expect(reloaded?.page).not.toHaveProperty("socials")
+      expect(reloaded?.page).toHaveProperty("name", "Ada")
+    })
+
+    test.runIf(authorActive)(`${mutation}: an omitted shared key stays unchanged`, async () => {
+      const { site, pageId } = await authorFixture()
+      const before = await clocks(site, pageId, "en")
+      await save(site, pageId, { name: "Ada Lovelace" })
+      const { shared } = await clocks(site, pageId, "en")
+      expect(shared.descriptor).toHaveProperty("socials", (before.shared.descriptor as { socials?: unknown }).socials)
+      const reloaded = await site.owner.query(api.cms.pages.getForEdit, { id: pageId })
+      expect(reloaded?.page).toHaveProperty("socials", (before.shared.descriptor as { socials?: unknown }).socials)
+    })
+
+    test.runIf(authorActive)(`${mutation}: null on required name refuses without writing`, async () => {
+      const { site, pageId } = await authorFixture()
+      const before = await clocks(site, pageId, "en")
+      const reloadedBefore = await site.owner.query(api.cms.pages.getForEdit, { id: pageId })
+      await expect(save(site, pageId, { socials: null, name: null })).rejects.toThrow("SHARED_FIELD_REQUIRED")
+      expect(await clocks(site, pageId, "en")).toEqual(before)
+      expect(await site.owner.query(api.cms.pages.getForEdit, { id: pageId })).toEqual(reloadedBefore)
+    })
+
+    test.runIf(authorActive && isActiveContentType("post"))(`${mutation}: cleared shared relations do not return from the identity shell`, async () => {
+      const { site, pageId: authorId } = await authorFixture()
+      const pageId = await site.owner.mutation(api.cms.pages.create, {
+        pageType: "post", status: "draft", slug: "by-ada", title: "By Ada", authorIds: [authorId],
+        content: { en: { title: "By Ada", blocks: [] } },
+      })
+      await save(site, pageId, { authorIds: null })
+      const { shared } = await clocks(site, pageId, "en")
+      expect(shared.descriptor).not.toHaveProperty("authorIds")
+      const references = await site.t.run((ctx) => ctx.db
+        .query("pagePublicationDocumentReferences")
+        .withIndex("by_pageId_and_sourceKind", (q) => q.eq("pageId", pageId).eq("sourceKind", "shared_draft"))
+        .take(100))
+      expect(references.filter((ref) => ref.sourceKind === "shared_draft" && ref.targetId === authorId)).toEqual([])
+    })
+  }
 })

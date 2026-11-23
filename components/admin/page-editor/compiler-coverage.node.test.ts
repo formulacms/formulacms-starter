@@ -71,6 +71,8 @@ const mustCompile = [
   ["components/admin/block-builder.tsx", "BlockBuilder"],
   ["components/admin/live-preview-frame.tsx", "BoundLivePreviewFrame"],
   ["components/admin/page-live-preview-canvas.tsx", "AdminBlockPreviewZone"],
+  ["components/admin/pages-list-client.tsx", "PagesListClient"],
+  ["components/admin/pages-list-client.tsx", "PagesListSurface"],
 ] as const
 
 describe("the editor's hot components stay compiled by the React Compiler", () => {

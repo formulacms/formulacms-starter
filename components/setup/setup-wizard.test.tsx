@@ -94,7 +94,6 @@ const mocks = vi.hoisted(() => ({
   createOwnerAccount: vi.fn(),
   httpQuery: vi.fn(),
   bootstrapInstallation: vi.fn(),
-  markStep: vi.fn(),
   setAdminLocale: vi.fn(),
   mutation: vi.fn(),
   action: vi.fn(),
@@ -172,7 +171,6 @@ describe("SetupWizard auth bridge", () => {
       revision: 1,
       onboardingCompletedAt: 1,
     })
-    mocks.markStep.mockResolvedValue(null)
     mocks.setAdminLocale.mockResolvedValue(null)
     mocks.mutation.mockResolvedValue(null)
     mocks.useMutation.mockImplementation((reference) => {
@@ -183,7 +181,6 @@ describe("SetupWizard auth bridge", () => {
       if (name === "cms/settings:bootstrapInstallation") {
         return mocks.bootstrapInstallation
       }
-      if (name === "cms/settings:markOnboardingStep") return mocks.markStep
       if (name === "cms/userPreferences:setAdminLocale") {
         return mocks.setAdminLocale
       }
@@ -309,7 +306,6 @@ describe("SetupWizard auth bridge", () => {
         defaultLocale: "ja",
       })
     })
-    expect(mocks.markStep).not.toHaveBeenCalled()
     expect(mocks.assign).toHaveBeenCalledWith("/admin")
     expect(mocks.push).not.toHaveBeenCalled()
   })

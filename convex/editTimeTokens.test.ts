@@ -4,10 +4,7 @@
 // mutation path per table; the helper itself is covered in lib/versions.test.ts.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { convexTestWithAuth as convexTest } from "../test-utils/convexAuthFixtures"
-import {
-  convexTest as convexTestExplicit,
-  seedCommunityOwner,
-} from "../convexTestWithExplicitAdmin"
+import { seedCommunityOwner } from "../convexTestWithExplicitAdmin"
 import { api } from "./_generated/api"
 import schema from "./schema"
 
@@ -83,74 +80,4 @@ describe("edit-time tokens move forward in the same millisecond", () => {
     ).resolves.toMatchObject({ id: menuId })
   })
 
-  test("pages: same-millisecond saves move the token and a stale save is refused", async () => {
-    const t = convexTestExplicit({ schema, modules, ownerIdentity: OWNER })
-    const owner = t.withIdentity(OWNER)
-    const pageId = await owner.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Initial",
-      content: { en: { title: "Initial", blocks: [] } },
-    })
-    const stored = async () =>
-      (await t.run((ctx) => ctx.db.get("pages", pageId)))!.updatedAt
-    const first = await owner.mutation(api.cms.pages.update, {
-      id: pageId,
-      expectedUpdatedAt: await stored(),
-      title: "One",
-    })
-    expect(first.updatedAt).toBe(await stored())
-    const second = await owner.mutation(api.cms.pages.update, {
-      id: pageId,
-      expectedUpdatedAt: first.updatedAt,
-      title: "Two",
-    })
-    expect(second.updatedAt).toBeGreaterThan(first.updatedAt)
-    expect(second.updatedAt).toBe(await stored())
-    await expect(
-      owner.mutation(api.cms.pages.update, {
-        id: pageId,
-        expectedUpdatedAt: first.updatedAt,
-        title: "Stale",
-      })
-    ).rejects.toThrow(/changed since you opened it/)
-  })
-
-  test("pageStaging: same-millisecond autosaves move the token and a stale one is refused", async () => {
-    const t = convexTestExplicit({ schema, modules, ownerIdentity: OWNER })
-    const owner = t.withIdentity(OWNER)
-    const pageId = await owner.mutation(api.cms.pages.create, {
-      pageType: "landing-page",
-      status: "draft",
-      title: "Initial",
-      content: { en: { title: "Initial", blocks: [] } },
-    })
-    await owner.mutation(api.cms.pages.acquirePageEditorLock, { pageId, force: true })
-    const stored = async () =>
-      (await t.run((ctx) =>
-        ctx.db.query("pageStaging").withIndex("by_pageId", (q) => q.eq("pageId", pageId)).first()
-      ))!.updatedAt
-    const body = (title: string) => ({
-      en: { pageType: "landing-page" as const, localized: { title }, blocks: [] },
-    })
-    const first = await owner.mutation(api.cms.pages.updateDraft, {
-      pageId,
-      content: body("First"),
-    })
-    expect(first.updatedAt).toBe(await stored())
-    const second = await owner.mutation(api.cms.pages.updateDraft, {
-      pageId,
-      expectedUpdatedAt: first.updatedAt,
-      content: body("Second"),
-    })
-    expect(second.updatedAt).toBeGreaterThan(first.updatedAt)
-    expect(second.updatedAt).toBe(await stored())
-    await expect(
-      owner.mutation(api.cms.pages.updateDraft, {
-        pageId,
-        expectedUpdatedAt: first.updatedAt,
-        content: body("Stale"),
-      })
-    ).rejects.toThrow(/took over editing/i)
-  })
 })

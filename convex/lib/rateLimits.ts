@@ -27,8 +27,11 @@ export const rateLimiter = new RateLimiter(components.rateLimiter, {
   emailOwnerTestPerOwner: { kind: "fixed window", rate: 5, period: HOUR },
   // G0 — the public owner-account function (ADR-0056 rule 1). One wide
   // deployment-level window bounds code guessing; the grants themselves cannot
-  // be guessed. Failed attempts return normally so the limiter writes commit
-  // instead of rolling back with a thrown error.
+  // be guessed. Every wrong code spends it. The right code skips it when the
+  // configured code is the long random kind the setup tools create (64 hex
+  // characters), so a flood of wrong codes cannot lock the owner out; a
+  // hand-set code spends it first. Failed attempts return normally so the
+  // limiter writes commit instead of rolling back with a thrown error.
   ownerClaimGlobal: { kind: "fixed window", rate: 300, period: HOUR },
   // Authenticated-but-costly endpoints. Both are already permission-gated, so
   // these are not anti-abuse gates against anonymous callers — they bound what

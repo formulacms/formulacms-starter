@@ -7,6 +7,7 @@ import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { refreshMenuReferences } from "./lib/menu/references"
 import { referrerContentTypes } from "./lib/documentReferences"
+import { isActiveContentType } from "./lib/contentTypes"
 import type { Block } from "./lib/blocks"
 import { convexTest } from "../convexTestWithExplicitAdmin"
 import schema from "./schema"
@@ -236,7 +237,7 @@ describe("snapshot Page destructive refusals", () => {
     })
   })
 
-  test("a current published Post byline refuses Author deletion without treating candidate history as current", async () => {
+  test.runIf(isActiveContentType("post") && isActiveContentType("author"))("a current published Post byline refuses Author deletion without treating candidate history as current", async () => {
     const { t, owner } = await activeFixture()
     const authorId = await owner.mutation(api.cms.pages.create, {
       pageType: "author",
@@ -337,22 +338,21 @@ describe("snapshot Page destructive refusals", () => {
 
   test("a published page that references itself does not block its own deletion", async () => {
     const { t, owner } = await activeFixture()
-    const authorId = await owner.mutation(api.cms.pages.create, {
-      pageType: "author",
+    const pageId = await owner.mutation(api.cms.pages.create, {
+      pageType: "page",
       status: "draft",
       slug: "self",
       title: "Self",
-      name: "Self",
       content: { en: { title: "Self", blocks: [] } },
     })
-    const publication = await publishEn(owner, authorId)
+    const publication = await publishEn(owner, pageId)
     // A self-relation (for example a "related" field that may name its own
     // page) records a current public row whose source is the target.
     await t.run((ctx) =>
       ctx.db.insert("pagePublicationDocumentReferences", {
-        pageId: authorId,
-        targetId: authorId,
-        targetType: "author",
+        pageId,
+        targetId: pageId,
+        targetType: "page",
         sourcePath: "related",
         referenceKind: "shared-field",
         sourceKind: "current_public",
@@ -363,14 +363,14 @@ describe("snapshot Page destructive refusals", () => {
         updatedAt: Date.now(),
       })
     )
-    vi.mocked(referrerContentTypes).mockReturnValueOnce(new Set(["author"]))
+    vi.mocked(referrerContentTypes).mockReturnValueOnce(new Set(["page"]))
     await expect(
       owner.mutation(api.cms.publication.softDeletePage, {
-        pageId: authorId,
+        pageId,
         expectedLifecycleGeneration: 1,
       })
-    ).resolves.toEqual({ pageId: authorId, lifecycleGeneration: 2 })
-    expect(vi.mocked(referrerContentTypes)).toHaveBeenCalledWith("author")
+    ).resolves.toEqual({ pageId, lifecycleGeneration: 2 })
+    expect(vi.mocked(referrerContentTypes)).toHaveBeenCalledWith("page")
   })
 })
 

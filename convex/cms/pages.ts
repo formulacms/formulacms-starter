@@ -1,25 +1,21 @@
 import {
   occurrenceUsageWrites,
-  occurrenceUsageInternalMutation as internalMutation,
   occurrenceUsageMutation as mutation,
 } from "../lib/publishing/staging"
-import { readBlock } from "@/convex/lib/blocks/identity"
 import type { Infer } from "convex/values"
 import {
   writePageContent,
   writeFieldMap,
-  writeBlockFields,
   type WriteOptions,
 } from "../lib/richtext/write"
 import { ConvexError, v } from "convex/values"
-import { paginationOptsValidator } from "convex/server"
 import type { PaginationResult } from "convex/server"
 import { query } from "../_generated/server"
-import { api, internal } from "../_generated/api"
+import { api, } from "../_generated/api"
 import type { QueryCtx, MutationCtx } from "../_generated/server"
 import type { Id, Doc } from "../_generated/dataModel"
 import { requireOperationAccess } from "../lib/access/policy"
-import { ownerDisplayName } from "../lib/access/owner"
+import { getOwnerIdentity, ownerDisplayName } from "../lib/access/owner"
 import type { OwnerPrincipal } from "../lib/access/owner"
 import type { PageType } from "../lib/pages/types"
 import { homeSlugsForLocale } from "../../lib/pages/home-aliases"
@@ -29,40 +25,22 @@ import {
   resolveEffectiveHomePageId,
 } from "../lib/pages/home"
 import {
-  assertBlockMutationIntegrity,
   diffBlockMutations,
   requireBlockMutationsPermitted,
 } from "../lib/blocks/permissions"
-import { readEffectiveBlockPresentationCatalog } from "../lib/blocks/presentations"
-import { hasExplicitBlockPresentations } from "../lib/blocks/presentationMutations"
 import {
-  clearPageReferences,
-  refreshPageReferences,
-} from "../lib/domains/media"
-import {
-  assertPrePublishAllowed,
   buildPrePublishChecklistWithReferences,
   languageChecklistShape,
   prePublishChecklistValidator,
   projectPublicPage,
   projectPublicReferenceCard,
-  snapshotPrePublishChecklist,
-  type PrePublishChecklist,
   type PublicPage,
   type PublicRelationCard,
 } from "../lib/domains/publication"
 import {
-  hasBlockBody,
-  type BlockBodyContent,
-  assertStagingFresh,
-  deleteStagingByPageId,
   enrichWithStagingOverlay,
   getStagingByPageId,
   overlayStagingOnPage,
-  pickEffectiveTitles,
-  resolvePageDisplayTitle,
-  STAGING_ABANDONED_TTL_MS,
-  STAGING_SWEEP_BATCH_SIZE,
 } from "../lib/domains/contentEditing"
 import {
   leavePagePresence as leavePagePresenceRow,
@@ -74,16 +52,7 @@ import {
   getPageEditorLockState,
   releasePageEditorLock as releasePageEditorLockRow,
 } from "../lib/publishing/locks"
-import { createPageRevision } from "../lib/publishing/revisions"
-import { nextUpdatedAt } from "../lib/versions"
-import { deletePageSearch, syncPageSearch } from "../lib/publishing/search"
 import {
-  SCHEDULED_TRANSITION_BATCH_SIZE,
-  queryDueScheduledExpiries,
-  queryDueScheduledPublishes,
-} from "../lib/publishing/scheduling"
-import {
-  assertLegacyPublicationWriterBlocked,
   createPublicSnapshotProjectionReader,
   projectSnapshotReferenceCard,
   type SnapshotPayload,
@@ -94,6 +63,7 @@ import {
   isPageHiddenInLocaleOrAncestry,
   readPublicationAuthority,
   readPublicSnapshotLocaleAlternates,
+  requireSnapshotAuthority,
 } from "../lib/publishing/snapshots"
 import { assertPublicLanguageVersion } from "../lib/language/state"
 import { recordPublicChange } from "../lib/language/freshness"
@@ -105,20 +75,17 @@ import {
   projectAdminPageLocales,
   type AdminLocaleSource,
 } from "./publication"
-import { pageTypeValidator } from "../lib/pages/types"
+import { assertIdBatchSize, pageTypeValidator } from "../lib/pages/types"
 import { assertNoPagePurge } from "../lib/publishing/pagePurge"
 import {
   assertBoundedPilotCanCreate,
-  assertBoundedPilotCanPublish,
-  canBoundedPilotPublish,
   initializeBoundedPilotEnvelope as reconcileBoundedPilotEnvelope,
   readBoundedPilotEnvelope,
-  releaseBoundedPilotPageSlot,
-  releaseBoundedPilotPublishedSlot,
 } from "../lib/pilotEnvelope"
 import {
   buildLocaleRelativePath,
   isRoutableContentType,
+  pathPrefixForContentType,
   resolveContentTypeByPath,
   slugify,
 } from "../lib/contentTypes/routing"
@@ -135,34 +102,7 @@ import {
 } from "./contentTypes"
 import {
   assertEditionCanCreatePublished,
-  assertEditionCanPublish,
-  assertEditionReviewAllowsLifecycleChange,
-  canEditionSweepStaging,
-  checkEditionScheduledPublish,
-  recordEditionDraftDiscard,
-  recordEditionDraftEdit,
-  recordEditionPublished,
-  recordEditionScheduledPublishRejected,
-  type EditionPublishApproval,
 } from "../edition/workflow"
-
-const childSummaryValidator = v.object({
-  _id: v.id("pages"),
-  title: v.string(),
-  slug: v.string(),
-})
-
-const deleteImpactValidator = v.object({
-  children: v.array(childSummaryValidator),
-  redirects: v.number(),
-  menus: v.array(v.string()),
-})
-
-const breadcrumbItemValidator = v.object({
-  id: v.id("pages"),
-  slug: v.string(),
-  title: v.string(),
-})
 
 const localizedBreadcrumbItemValidator = v.object({
   name: v.string(),
@@ -186,25 +126,18 @@ const boundedPilotEnvelopeValidator = v.object({
 })
 import { resolveRelations } from "../lib/blocks/resolve"
 import {
-  validateFieldMapRichText,
   validateBlocksRichText,
   validateUniqueBlockIds,
 } from "../lib/blocks/validate"
-import { repairLocalizedBlockIdsForPublish } from "../lib/blocks/identity"
 import {
   CONTENT_TYPES,
   contentTypeDefs,
   isActiveContentType,
-  contentDraftInputValidator,
 } from "../lib/domains/contentModel"
 import { blockValidator, type Block } from "../lib/blocks"
-import { image as imagePrimitive } from "../lib/blocks/primitives"
 import {
   buildInitialLocalizedContent,
-  copyDescriptorSharedFields,
   descriptorDefaults,
-  parseDescriptorSharedFieldPatch,
-  SYSTEM_OWNED_SHARED_FIELDS,
 } from "../lib/domains/contentModel"
 import { ensureTagsForLabels } from "./tags"
 import { publicPageValidator } from "../lib/contentTypes/publicValidator"
@@ -226,6 +159,7 @@ const statusValidator = v.union(
 
 const pagePickerRowValidator = v.object({
   _id: v.id("pages"),
+  path: v.optional(v.string()),
   slug: v.string(),
   localizedSlugs: v.optional(v.record(v.string(), v.string())),
   localizedTitles: v.record(v.string(), v.string()),
@@ -283,12 +217,6 @@ const acquirePageEditorLockResultValidator = v.union(
     lock: pageEditorLockDocValidator,
   })
 )
-
-const updateResultValidator = v.object({
-  updatedAt: v.number(),
-})
-const staleSaveMessage =
-  "This page changed since you opened it. Reload before saving, or save your current draft as a copy."
 const DEFAULT_PAGE_LIST_LIMIT = 500
 const MAX_PAGE_LIST_LIMIT = 1000
 const DEFAULT_PAGE_PICKER_LIMIT = 50
@@ -297,7 +225,6 @@ const DEFAULT_PAGE_PICKER_LIMIT = 50
 // average per locale draft with two locales, leaving room for metadata).
 const MAX_PAGE_PICKER_LIMIT = 100
 const PAGE_PICKER_CANDIDATE_LIMIT = 400
-const MEDIA_REFERENCE_BACKFILL_BATCH_SIZE = 50
 
 // ============================================================
 // Helpers
@@ -363,10 +290,11 @@ function pagePickerRow(
 
 async function snapshotPagePickerRow(
   ctx: QueryCtx,
-  state: Doc<"pagePublicationPageStates">
+  state: Doc<"pagePublicationPageStates">,
+  locale?: string
 ): Promise<PagePickerRow | null> {
-  // Pickers need locale text and publication metadata, not prospective paths.
-  // Keep frozen-snapshot verification in the shared projection owner.
+  // Published paths are already projected. Draft ancestry below needs at most
+  // one extra read for the requested language, never a parent-chain walk.
   const row = await snapshotAdminPageRow(ctx, state, {
     includeProspectivePaths: false,
   })
@@ -380,8 +308,44 @@ async function snapshotPagePickerRow(
   const textLocales = row.locales.filter(
     (locale) => locale.title?.trim() && locale.slug !== undefined
   )
+  const selected = textLocales.find((entry) => entry.locale === locale)
+  let path = selected?.path
+  if (selected && (path === "/" || selected.state === "draft")) {
+    // Keep the home's human slug words; the picker address is a locale-relative
+    // label, while actual link resolution continues to own the home alias.
+    if (
+      path === "/" ||
+      !row.parentId ||
+      pathPrefixForContentType(row.pageType) !== ""
+    ) {
+      path = buildLocaleRelativePath({
+        pageType: row.pageType,
+        slug: selected.slug!,
+      })
+    } else {
+      const parents = await ctx.db
+        .query("pageLocalePublicationStates")
+        .withIndex("by_pageId_and_locale", (q) =>
+          q.eq("pageId", row.parentId!).eq("locale", selected.locale)
+        )
+        .take(2)
+      const parent = parents.length === 1 ? parents[0] : undefined
+      if (
+        parent?.hasCurrentSnapshot &&
+        parent.currentSnapshotId &&
+        parent.currentPath
+      ) {
+        path = buildLocaleRelativePath({
+          pageType: row.pageType,
+          slug: selected.slug!,
+          ancestry: parent.currentPath === "/" ? "" : parent.currentPath,
+        })
+      }
+    }
+  }
   return {
     _id: row._id,
+    ...(typeof path === "string" ? { path } : {}),
     slug: row.slug,
     localizedSlugs: Object.fromEntries(
       textLocales.map((locale) => [locale.locale, locale.slug!])
@@ -429,7 +393,7 @@ function isPubliclyReadablePage(page: Doc<"pages">): boolean {
  * but it must not re-enter the ordinary editor lifecycle through an admin's
  * wildcard permission.
  */
-export function assertPageIsActiveForOrdinaryOperation(
+function assertPageIsActiveForOrdinaryOperation(
   page: Doc<"pages">,
   operation: "edit" | "delete" | "publish"
 ): void {
@@ -438,8 +402,8 @@ export function assertPageIsActiveForOrdinaryOperation(
 
 /**
  * Resolve the set of `pageType`s the caller can privately (draft/archived)
- * read (ADR-0036). Used by batch-read helpers that would otherwise call
- * `canReadPrivate` once per page — one auth resolve, in-memory filter.
+ * read (ADR-0036). Used by batch-read helpers that would otherwise resolve
+ * owner access once per page — one auth resolve, in-memory filter.
  * Anonymous callers get the empty set (public rows still surface via the
  * `isPubliclyReadablePage` fast path).
  */
@@ -454,83 +418,15 @@ async function privateReadablePageTypes(
   }
 }
 
-/**
- * Temporary page-operation adapters retain the call-site shape while F03
- * removes Community's legacy role, membership, and permission resolution.
- * Their ignored operation arguments are deliberately not authorization input:
- * the verified installation owner is the sole Community principal.
- */
-export async function requirePagePermission(
-  ctx: QueryCtx | MutationCtx,
-  pageType: PageType,
-  _operation: string,
-  _scope?: { ownerId?: string | null; prospectiveOwner?: boolean }
-): Promise<OwnerPrincipal> {
-  // Every ordinary page operation enters through this adapter. Release-excluded
-  // storage arms remain available to migrations, but never acquire owner access
-  // merely because F01's installation principal is otherwise authorized.
+function assertActivePageType(pageType: PageType): void {
+  // Release-excluded storage arms remain available to migrations, but never
+  // acquire owner access merely because F01's installation principal is
+  // otherwise authorized.
   if (!isActiveContentType(pageType)) {
     throw new ConvexError(
       `Content Type "${pageType}" is not active in this starter.`
     )
   }
-  return requireOperationAccess(ctx)
-}
-
-export async function requireAnyPageTypePermission(
-  ctx: QueryCtx | MutationCtx,
-  _operation: string
-): Promise<OwnerPrincipal> {
-  return requireOperationAccess(ctx)
-}
-
-async function requirePermission(
-  ctx: QueryCtx | MutationCtx,
-  _operation: string,
-  _scope?: { ownerId?: string | null; prospectiveOwner?: boolean }
-): Promise<OwnerPrincipal> {
-  return requireOperationAccess(ctx)
-}
-
-async function canReadPrivate(
-  ctx: QueryCtx | MutationCtx,
-  pageType: PageType,
-  _operation: string
-): Promise<boolean> {
-  // The nullable reader family shares this adapter. Its active-type guard must
-  // run before the F01 owner fallback so registered-but-inactive rows cannot
-  // reappear in ordinary private reads.
-  if (!isActiveContentType(pageType)) return false
-  try {
-    await requireOperationAccess(ctx)
-    return true
-  } catch {
-    return false
-  }
-}
-
-function permittedPageTypes(): Set<PageType> {
-  return new Set(CONTENT_TYPES as PageType[])
-}
-
-/**
- * Legacy page crons are useful only while the explicit legacy epoch owns
- * publication. A fresh install and every successor phase must leave the old
- * workers dormant, while duplicate authority remains an integrity failure.
- *
- * Keep this gate local to the two cron entry points: interactive legacy Page
- * writers continue to use `assertLegacyPublicationWriterBlocked` and stay
- * fail-closed outside the legacy phase.
- */
-async function shouldRunLegacyPageCron(ctx: MutationCtx): Promise<boolean> {
-  const cutoverRows = await ctx.db
-    .query("pagePublicationCutover")
-    .withIndex("by_key", (q) => q.eq("key", "published-snapshot-v1"))
-    .take(2)
-  if (cutoverRows.length > 1) {
-    throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
-  }
-  return cutoverRows[0]?.phase === "legacy"
 }
 
 function clampLimit(
@@ -539,204 +435,6 @@ function clampLimit(
   max: number
 ): number {
   return Math.min(Math.max(Math.floor(value ?? fallback), 1), max)
-}
-
-/**
- * Plan 029 C10 task 10 — sticky auto-unset for `post.promoteToFront`.
- *
- * At most one post carries `promoteToFront: true` at a time. When a caller
- * flips a post to sticky, this helper queries the `by_type_promoteToFront`
- * index for every other post already holding the flag and patches each to
- * `false` in the SAME mutation.
- *
- * Concurrency: Convex OCC gives second-wins deterministically. If sessions
- * A and B both stick different posts, both read the same "other stickies"
- * set. When A commits (unstucks the previous holder, sticks A), B's read
- * set now conflicts (the previous holder's row moved out of the sticky
- * set) and B is retried. On retry B reads A as the current sticky,
- * unstucks A, sticks B. Result: whichever commits last wins, exactly one
- * sticky remains.
- *
- * `excludePageId` skips the row being written by the caller — usually the
- * current mutation's own row (update path). Undefined on the create path,
- * where no row exists yet.
- */
-async function autoUnsetOtherPromoteToFront(
-  ctx: MutationCtx,
-  excludePageId: Id<"pages"> | undefined
-): Promise<void> {
-  const holders = await ctx.db
-    .query("pages")
-    .withIndex("by_type_promoteToFront", (q) =>
-      q.eq("pageType", "post").eq("promoteToFront", true)
-    )
-    .collect()
-  await Promise.all(
-    holders
-      .filter((holder) => holder._id !== excludePageId)
-      .map((holder) =>
-        occurrenceUsageWrites(ctx).patch("pages", holder._id, {
-          promoteToFront: false,
-          updatedAt: nextUpdatedAt(holder.updatedAt, Date.now()),
-        })
-      )
-  )
-}
-
-function blockLabel(block: Block): string {
-  return `${readBlock(block).type}:${readBlock(block).id}`
-}
-
-function summarizePageChange(
-  before: Doc<"pages">,
-  after: Partial<Doc<"pages">>
-): string[] {
-  const summary: string[] = []
-  const nextContent = after.content ?? before.content
-  const nextSeo = after.seo ?? before.seo
-  const beforeLocales = Object.keys(before.content ?? {}).sort()
-  const afterLocales = Object.keys(nextContent ?? {}).sort()
-
-  for (const locale of Array.from(
-    new Set([...beforeLocales, ...afterLocales])
-  )) {
-    const label = locale.toUpperCase()
-    const oldContent = before.content?.[locale]
-    const newContent = nextContent?.[locale]
-    if (!oldContent && newContent) {
-      summary.push(`${label} locale added`)
-      continue
-    }
-    if (oldContent && !newContent) {
-      summary.push(`${label} locale removed`)
-      continue
-    }
-    if (!oldContent || !newContent) continue
-    if (oldContent.title !== newContent.title) {
-      summary.push(`Title changed in ${label}`)
-    }
-    // Meta/block-specific summaries only apply to block-body arms. Pure-
-    // form arms (testimonial) don't carry `metaTitle` / `metaDescription`
-    // / `blocks` — descriptor-field summary would come from the C10
-    // descriptor walker if needed; the current revision summary is
-    // block-body-oriented and it's safe to skip here.
-    if (hasBlockBody(before)) {
-      const oldC = oldContent as BlockBodyContent
-      const newC = newContent as BlockBodyContent
-      if (oldC.metaTitle !== newC.metaTitle) {
-        summary.push(`Meta title changed in ${label}`)
-      }
-      if (oldC.metaDescription !== newC.metaDescription) {
-        summary.push(`Meta description changed in ${label}`)
-      }
-      const oldBlocks = oldC.blocks ?? []
-      const newBlocks = newC.blocks ?? []
-      const oldLabels = oldBlocks.map(blockLabel)
-      const newLabels = newBlocks.map(blockLabel)
-      if (oldLabels.join("|") !== newLabels.join("|")) {
-        if (oldBlocks.length !== newBlocks.length) {
-          summary.push(
-            `${label} blocks changed from ${oldBlocks.length} to ${newBlocks.length}`
-          )
-        } else {
-          summary.push(`${label} block order changed`)
-        }
-      } else if (JSON.stringify(oldBlocks) !== JSON.stringify(newBlocks)) {
-        summary.push(`${label} block content changed`)
-      }
-    }
-  }
-
-  if (before.slug !== after.slug && after.slug !== undefined) {
-    summary.push("Base slug changed")
-  }
-  if (
-    JSON.stringify(before.localizedSlugs ?? {}) !==
-    JSON.stringify(after.localizedSlugs ?? before.localizedSlugs ?? {})
-  ) {
-    summary.push("Localized slugs changed")
-  }
-  if (before.status !== after.status && after.status !== undefined) {
-    summary.push(`Status changed from ${before.status} to ${after.status}`)
-  }
-  if (JSON.stringify(before.seo ?? {}) !== JSON.stringify(nextSeo ?? {})) {
-    summary.push("Global SEO changed")
-  }
-
-  return summary.length > 0 ? summary : ["Saved page snapshot"]
-}
-
-function assertFresh(
-  page: Doc<"pages">,
-  expectedUpdatedAt: number | undefined
-) {
-  if (expectedUpdatedAt !== undefined && page.updatedAt !== expectedUpdatedAt) {
-    throw new ConvexError(staleSaveMessage)
-  }
-}
-
-async function getChildPageSummaries(
-  ctx: QueryCtx | MutationCtx,
-  id: Id<"pages">
-): Promise<{ _id: Id<"pages">; title: string; slug: string }[]> {
-  const children = await ctx.db
-    .query("pages")
-    .withIndex("by_parent", (q) => q.eq("parentId", id))
-    .collect()
-  const summaries: { _id: Id<"pages">; title: string; slug: string }[] = []
-  for (const child of children) {
-    summaries.push({
-      _id: child._id,
-      title: await resolvePageDisplayTitle(ctx, child),
-      slug: child.slug,
-    })
-  }
-  return summaries
-}
-
-async function getRedirectsToPage(
-  ctx: QueryCtx | MutationCtx,
-  id: Id<"pages">
-): Promise<Doc<"redirects">[]> {
-  return ctx.db
-    .query("redirects")
-    .withIndex("by_toPageId", (q) => q.eq("toPageId", id))
-    .collect()
-}
-
-async function getMenuSlugsReferencingPage(
-  ctx: QueryCtx | MutationCtx,
-  id: Id<"pages">
-): Promise<string[]> {
-  const menuIds = new Set<Id<"menus">>()
-  for await (const reference of ctx.db
-    .query("menuReferences")
-    .withIndex("by_target", (q) => q.eq("targetId", id))) {
-    menuIds.add(reference.menuId)
-  }
-
-  const menus = await Promise.all(
-    [...menuIds].map((menuId) => ctx.db.get("menus", menuId))
-  )
-  const slugs = new Set<string>()
-  for (const menu of menus) {
-    if (!menu || menu.deletedAt !== undefined) continue
-    slugs.add(menu.slug)
-  }
-  return [...slugs].sort()
-}
-
-async function getDeleteImpact(ctx: QueryCtx | MutationCtx, id: Id<"pages">) {
-  const [children, redirects, menus] = await Promise.all([
-    getChildPageSummaries(ctx, id),
-    getRedirectsToPage(ctx, id),
-    getMenuSlugsReferencingPage(ctx, id),
-  ])
-  return {
-    children,
-    redirects: redirects.length,
-    menus,
-  }
 }
 
 /** Run the rich-text write-path gate over every locale's blocks (ADR-0009). */
@@ -756,116 +454,6 @@ function validateContentBlockIds(
   if (!content) return
   for (const locale of Object.values(content)) {
     if (locale?.blocks) validateUniqueBlockIds(locale.blocks)
-  }
-}
-
-/** Build a transition-safe staging view without mutating the stored document. */
-function withRepairedStagingBlockIds(
-  staging: Doc<"pageStaging">
-): Doc<"pageStaging"> {
-  const content = repairLocalizedBlockIdsForPublish(
-    staging.content as
-      Record<string, { blocks?: Block[]; [key: string]: unknown }> | undefined
-  )
-  if (content === staging.content) return staging
-  return { ...staging, content } as Doc<"pageStaging">
-}
-
-/** Build a transition-safe live-row view while preserving revision history. */
-function withRepairedPageBlockIds(page: Doc<"pages">): Doc<"pages"> {
-  const content = repairLocalizedBlockIdsForPublish(
-    page.content as
-      Record<string, { blocks?: Block[]; [key: string]: unknown }> | undefined
-  )
-  if (content === page.content) return page
-  return { ...page, content } as Doc<"pages">
-}
-
-async function isSlugTaken(
-  ctx: QueryCtx | MutationCtx,
-  slug: string,
-  excludePageId?: Id<"pages">
-): Promise<boolean> {
-  // A slug must be unique across every page's base `slug` AND every locale's
-  // `localizedSlugs` value. Routing resolves a leaf either by base slug
-  // (default locale) or by `localizedSlugs[locale]`, so any duplicate value —
-  // base-vs-base, base-vs-localized, or localized-vs-localized — is ambiguous.
-  // The base-slug `by_slug` index can't cover record values, so we scan.
-  const pages = await ctx.db.query("pages").collect()
-  for (const p of pages) {
-    if (p.deletedAt !== undefined) continue
-    if (excludePageId && p._id === excludePageId) continue
-    if (p.slug === slug) return true
-    if (p.localizedSlugs && Object.values(p.localizedSlugs).includes(slug)) {
-      return true
-    }
-  }
-  return false
-}
-
-async function ensureSlugUnique(
-  ctx: QueryCtx | MutationCtx,
-  slug: string,
-  excludePageId?: Id<"pages">
-): Promise<void> {
-  if (await isSlugTaken(ctx, slug, excludePageId)) {
-    throw new ConvexError({
-      code: "SLUG_TAKEN",
-      message: `Slug "${slug}" is already taken. Please choose a different slug.`,
-    })
-  }
-}
-
-/**
- * Check several slugs against the live tree in ONE pass.
- *
- * `isSlugTaken` scans the whole `pages` table (see its comment for why
- * `localizedSlugs` can't be indexed). Publish used to call it once per changed
- * slug — a three-locale publish meant four full scans of the heaviest table in
- * the schema. The candidates are known up front, so one scan answers all of
- * them. Same validation, same error message, ~Nx less database I/O.
- *
- * Duplicates *within* `slugs` are also rejected: two locales staging the same
- * slug is just as ambiguous as colliding with another page.
- */
-async function ensureSlugsUnique(
-  ctx: QueryCtx | MutationCtx,
-  slugs: string[],
-  excludePageId?: Id<"pages">
-): Promise<void> {
-  if (slugs.length === 0) return
-
-  const seen = new Set<string>()
-  for (const slug of slugs) {
-    if (seen.has(slug)) {
-      throw new ConvexError({
-        code: "SLUG_TAKEN",
-        message: `Slug "${slug}" is already taken. Please choose a different slug.`,
-      })
-    }
-    seen.add(slug)
-  }
-
-  const pages = await ctx.db.query("pages").collect()
-  for (const p of pages) {
-    if (p.deletedAt !== undefined) continue
-    if (excludePageId && p._id === excludePageId) continue
-    if (seen.has(p.slug)) {
-      throw new ConvexError({
-        code: "SLUG_TAKEN",
-        message: `Slug "${p.slug}" is already taken. Please choose a different slug.`,
-      })
-    }
-    if (p.localizedSlugs) {
-      for (const value of Object.values(p.localizedSlugs)) {
-        if (seen.has(value)) {
-          throw new ConvexError({
-            code: "SLUG_TAKEN",
-            message: `Slug "${value}" is already taken. Please choose a different slug.`,
-          })
-        }
-      }
-    }
   }
 }
 
@@ -940,22 +528,6 @@ async function resolvePageRelations(
 
 /** Allowed target types for `post.sharedFields.authorIds`, per descriptor. */
 const POST_BYLINE_ALLOWED_TYPES: readonly string[] = ["author"]
-
-/**
- * Find a free slug for a copy of `baseSlug`: `<base>-copy`, then `<base>-copy-2`,
- * `<base>-copy-3`, … — the first that isn't taken across base or localized slugs.
- */
-async function nextAvailableSlug(
-  ctx: QueryCtx | MutationCtx,
-  baseSlug: string
-): Promise<string> {
-  let candidate = `${baseSlug}-copy`
-  let n = 2
-  while (await isSlugTaken(ctx, candidate)) {
-    candidate = `${baseSlug}-copy-${n++}`
-  }
-  return candidate
-}
 
 type LocaleConfig = {
   defaultLocale: string
@@ -1254,82 +826,6 @@ async function buildAncestryPath(
 }
 
 /**
- * Recompute `ancestryPath`/`hierarchyDepth` for every descendant of `parentId`.
- * Descendants encode each ancestor's base slug in their path, so after a page's
- * slug or parent changes the subtree below it must be rebuilt or it goes stale.
- * Call this *after* patching the page itself (it re-reads parents from the db).
- */
-async function rebuildDescendantAncestry(
-  ctx: MutationCtx,
-  parentId: Id<"pages">,
-  cfg: LocaleConfig
-): Promise<void> {
-  const children = await ctx.db
-    .query("pages")
-    .withIndex("by_parent", (q) => q.eq("parentId", parentId))
-    .collect()
-  if (children.length === 0) return
-  // All direct children share the same ancestry (their parent is `parentId`).
-  const { ancestryPath, hierarchyDepth, localizedAncestryPaths } =
-    await buildAncestryPath(ctx, parentId, cfg)
-  for (const child of children) {
-    if (child.deletedAt !== undefined) continue
-    await occurrenceUsageWrites(ctx).patch("pages", child._id, {
-      ancestryPath,
-      hierarchyDepth,
-      localizedAncestryPaths,
-      updatedAt: nextUpdatedAt(child.updatedAt, Date.now()),
-    })
-    await rebuildDescendantAncestry(ctx, child._id, cfg)
-  }
-}
-
-// ============================================================
-// Queries
-// ============================================================
-
-export const getById = query({
-  args: { id: v.id("pages") },
-  returns: v.union(pageDocValidator, v.null()),
-  handler: async (ctx, { id }) => {
-    // The legacy full Page document is not a publication read once the
-    // snapshot authority is active. Returning it here would let callers
-    // observe mutable fields alongside the immutable public boundary.
-    if ((await readPublicationAuthority(ctx)) !== "legacy") return null
-    const page = await ctx.db.get("pages", id)
-    if (!page) return null
-    if (
-      await canReadPrivate(ctx, page.pageType, `pages.${page.pageType}:list`)
-    ) {
-      return page
-    }
-    return null
-  },
-})
-
-/**
- * Legacy full-document published reader. This remains for authenticated
- * internal/admin flows only; anonymous rendering must use `getPublicPageById`.
- */
-export const getPublishedById = query({
-  args: {
-    id: v.id("pages"),
-  },
-  returns: v.union(pageDocValidator, v.null()),
-  handler: async (ctx, { id }) => {
-    const page = await ctx.db.get("pages", id)
-    if (
-      !page ||
-      !isPubliclyReadablePage(page) ||
-      !(await canReadPrivate(ctx, page.pageType, `pages.${page.pageType}:list`))
-    ) {
-      return null
-    }
-    return page
-  },
-})
-
-/**
  * Anonymous page reader: one Published Snapshot-shaped, requested-locale
  * projection. It never shares the full `pageDocValidator` response contract.
  */
@@ -1394,9 +890,8 @@ export const getStagedPreviewById = query({
     const page = await ctx.db.get("pages", id)
     if (!page) return null
     if (!isActiveContentType(page.pageType)) return null
-    await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
+    assertActivePageType(page.pageType)
+    await requireOperationAccess(ctx)
     const authority = await readPublicationAuthority(ctx)
     if (authority === "invalid") return null
     if (authority === "snapshot_active") {
@@ -1427,8 +922,8 @@ export const getStagedPreviewById = query({
 /**
  * ADR-0041 §5 + §Migration step 2 (item 1) — editor reader overlay.
  *
- * Same overlay shape as `getStagedPreviewById`, but permission-gated at
- * list scope via `canReadPrivate`. Unlike `getById`, this editor projection
+ * Same overlay shape as `getStagedPreviewById`, with a nullable owner-access
+ * refusal. Unlike `getById`, this editor projection
  * has no published-page fast path: a public live row never authorizes a read
  * of its Working Draft or Shared Draft. The editor page needs a reader that
  * (a) surfaces staged content — so the operator doesn't see phantom "changes
@@ -1479,9 +974,9 @@ export const getForEdit = query({
     const page = await ctx.db.get("pages", id)
     if (!page) return null
     if (!isActiveContentType(page.pageType)) return null
-    if (
-      !(await canReadPrivate(ctx, page.pageType, `pages.${page.pageType}:list`))
-    ) {
+    try {
+      await requireOperationAccess(ctx)
+    } catch {
       return null
     }
     const authority = await readPublicationAuthority(ctx)
@@ -1643,14 +1138,7 @@ export const getForEdit = query({
         },
       }
     }
-    if (authority === "invalid") return null
-    const staging = await getStagingByPageId(ctx, id)
-    const overlaid = overlayStagingOnPage(page, staging)
-    return {
-      page: overlaid,
-      hasStaging: staging !== null,
-      ...(staging ? { stagingUpdatedAt: staging.updatedAt } : {}),
-    }
+    return null
   },
 })
 
@@ -1747,9 +1235,8 @@ export const getPrePublishChecklist = query({
     const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
-    await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
+    assertActivePageType(page.pageType)
+    await requireOperationAccess(ctx)
     if ((await readPublicationAuthority(ctx)) === "snapshot_active") {
       const cfg = await getLocaleConfig(ctx)
       const requestedLocale = locale ?? cfg.defaultLocale
@@ -1844,9 +1331,8 @@ export const listActiveEditors = query({
     const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
-    await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
+    assertActivePageType(page.pageType)
+    await requireOperationAccess(ctx)
     return await listActivePagePresence(ctx, pageId, now)
   },
 })
@@ -1862,110 +1348,9 @@ export const getPageEditorLock = query({
     const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
-    const auth = await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
+    assertActivePageType(page.pageType)
+    const auth = await requireOperationAccess(ctx)
     return await getPageEditorLockState(ctx, pageId, auth.tokenIdentifier, now)
-  },
-})
-
-export const getBySlug = query({
-  args: {
-    slug: v.string(),
-  },
-  returns: v.union(pageDocValidator, v.null()),
-  handler: async (ctx, { slug }) => {
-    const page = await ctx.db
-      .query("pages")
-      .withIndex("by_slug", (q) => q.eq("slug", slug))
-      .first()
-    if (!page || page.deletedAt !== undefined) return null
-    if (
-      !(await canReadPrivate(ctx, page.pageType, `pages.${page.pageType}:list`))
-    ) {
-      return null
-    }
-    return page
-  },
-})
-
-export const isSlugAvailable = query({
-  args: {
-    slug: v.string(),
-    excludePageId: v.optional(v.id("pages")),
-  },
-  returns: v.object({ available: v.boolean(), slug: v.string() }),
-  handler: async (ctx, { slug, excludePageId }) => {
-    await requireAnyPageTypePermission(ctx, "create")
-    // Legacy slugs carry no successor meaning, and the scan is unbounded;
-    // under snapshot authority the route claim is checked at publish.
-    const authority = await readPublicationAuthority(ctx)
-    if (authority === "snapshot_active") {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_USE_PUBLISH_LOCALE")
-    }
-    if (authority === "invalid") {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
-    }
-    const taken = await isSlugTaken(ctx, slug, excludePageId)
-    return { available: !taken, slug }
-  },
-})
-
-export const list = query({
-  args: {
-    status: v.optional(statusValidator),
-    pageType: v.optional(pageTypeValidator),
-    includeDeleted: v.optional(v.boolean()),
-    limit: v.optional(v.number()),
-  },
-  returns: v.array(pageWithStagedOverlayValidator),
-  handler: async (ctx, args) => {
-    await requireAnyPageTypePermission(ctx, "list")
-    const authority = await readPublicationAuthority(ctx)
-    if (authority === "snapshot_active") {
-      throw new ConvexError("SNAPSHOT_ADMIN_PROJECTION_REQUIRED")
-    }
-    if (authority === "invalid") {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
-    }
-    const allowedTypes = permittedPageTypes()
-    // If the caller asked for a specific type they can't list, fall back to
-    // requirePagePermission so they get UNAUTHORIZED (matches admin/editor
-    // regression: passing a type is a targeted read).
-    if (args.pageType && !allowedTypes.has(args.pageType)) {
-      await requirePagePermission(ctx, args.pageType, "list")
-    }
-    let dbQuery
-
-    if (args.pageType && args.status) {
-      dbQuery = ctx.db
-        .query("pages")
-        .withIndex("by_pageType_status", (q) =>
-          q.eq("pageType", args.pageType!).eq("status", args.status!)
-        )
-    } else if (args.status) {
-      dbQuery = ctx.db
-        .query("pages")
-        .withIndex("by_status", (q) => q.eq("status", args.status!))
-    } else {
-      dbQuery = ctx.db.query("pages")
-    }
-
-    const limit = clampLimit(
-      args.limit,
-      DEFAULT_PAGE_LIST_LIMIT,
-      MAX_PAGE_LIST_LIMIT
-    )
-    let results = await dbQuery.take(limit)
-
-    if (!args.includeDeleted) {
-      results = results.filter((p) => p.deletedAt === undefined)
-    }
-    // The Community owner may list every active type, but never a
-    // registered-only storage arm that this release excludes.
-    results = results.filter((p) => allowedTypes.has(p.pageType))
-
-    return await enrichWithStagingOverlay(ctx, results)
   },
 })
 
@@ -2010,8 +1395,8 @@ export const listSummaries = query({
   },
   returns: v.array(pageSummaryRowValidator),
   handler: async (ctx, args) => {
-    await requireAnyPageTypePermission(ctx, "list")
-    const allowedTypes = permittedPageTypes()
+    await requireOperationAccess(ctx)
+    const allowedTypes = new Set(CONTENT_TYPES as PageType[])
 
     const limit = clampLimit(
       args.limit,
@@ -2067,79 +1452,6 @@ export const listSummaries = query({
   },
 })
 
-/** Shape of a `.paginate()` result for `returns:` validators. */
-const paginatedPagesValidator = v.object({
-  page: v.array(pageWithStagedOverlayValidator),
-  isDone: v.boolean(),
-  continueCursor: v.string(),
-  splitCursor: v.optional(v.union(v.string(), v.null())),
-  pageStatus: v.optional(
-    v.union(v.literal("SplitRecommended"), v.literal("SplitRequired"), v.null())
-  ),
-})
-
-/**
- * Cursor-paginated admin pages list (plan 023 Phase 4 #2) for
- * `usePaginatedQuery`, newest first. Soft-deleted pages are filtered out of
- * each page of results (never surfaced here — the trash view asks for them
- * explicitly via `list`).
- */
-export const listPaginated = query({
-  args: {
-    paginationOpts: paginationOptsValidator,
-    status: v.optional(statusValidator),
-    pageType: v.optional(pageTypeValidator),
-  },
-  returns: paginatedPagesValidator,
-  handler: async (ctx, args) => {
-    await requireAnyPageTypePermission(ctx, "list")
-    const authority = await readPublicationAuthority(ctx)
-    if (authority === "snapshot_active") {
-      throw new ConvexError("SNAPSHOT_ADMIN_PROJECTION_REQUIRED")
-    }
-    if (authority === "invalid") {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
-    }
-    const allowedTypes = permittedPageTypes()
-    if (args.pageType && !allowedTypes.has(args.pageType)) {
-      await requirePagePermission(ctx, args.pageType, "list")
-    }
-    let dbQuery
-    if (args.pageType && args.status) {
-      dbQuery = ctx.db
-        .query("pages")
-        .withIndex("by_pageType_status", (q) =>
-          q.eq("pageType", args.pageType!).eq("status", args.status!)
-        )
-    } else if (args.pageType) {
-      // Prefix-only lookup on `by_pageType_status` so a `pageType` filter
-      // WITHOUT a status filter still exercises the index instead of falling
-      // through to a full-table scan. C4's URL-driven Content sidebar lands
-      // on `?type=<slug>` with status = "all", so this branch is the hot
-      // path for per-type navigation.
-      dbQuery = ctx.db
-        .query("pages")
-        .withIndex("by_pageType_status", (q) =>
-          q.eq("pageType", args.pageType!)
-        )
-    } else if (args.status) {
-      dbQuery = ctx.db
-        .query("pages")
-        .withIndex("by_status", (q) => q.eq("status", args.status!))
-    } else {
-      dbQuery = ctx.db.query("pages")
-    }
-    const result = await dbQuery.order("desc").paginate(args.paginationOpts)
-    const filtered = result.page.filter(
-      (p) => p.deletedAt === undefined && allowedTypes.has(p.pageType)
-    )
-    return {
-      ...result,
-      page: await enrichWithStagingOverlay(ctx, filtered),
-    }
-  },
-})
-
 export const listLinkablePages = query({
   args: {
     locale: v.optional(v.string()),
@@ -2149,8 +1461,8 @@ export const listLinkablePages = query({
   },
   returns: v.array(pagePickerRowValidator),
   handler: async (ctx, { locale, search, includeDrafts = true, limit }) => {
-    await requireAnyPageTypePermission(ctx, "list")
-    const allowedTypes = permittedPageTypes()
+    await requireOperationAccess(ctx)
+    const allowedTypes = new Set(CONTENT_TYPES as PageType[])
     const rowLimit = clampLimit(
       limit,
       DEFAULT_PAGE_PICKER_LIMIT,
@@ -2160,6 +1472,7 @@ export const listLinkablePages = query({
     if (authority === "invalid") {
       throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
     }
+    const pathLocale = locale ?? (await getLocaleConfig(ctx)).defaultLocale
     const rows: PagePickerRow[] = []
     if (authority === "snapshot_active") {
       const states: Doc<"pagePublicationPageStates">[] = []
@@ -2190,7 +1503,7 @@ export const listLinkablePages = query({
         )
       }
       for (const state of states) {
-        const row = await snapshotPagePickerRow(ctx, state)
+        const row = await snapshotPagePickerRow(ctx, state, pathLocale)
         if (row) rows.push(row)
       }
     } else {
@@ -2208,7 +1521,14 @@ export const listLinkablePages = query({
           allowedTypes.has(page.pageType)
       )
       rows.push(
-        ...(await enrichWithStagingOverlay(ctx, active)).map(pagePickerRow)
+        ...(await enrichWithStagingOverlay(ctx, active)).map((page) => {
+          const path = buildLocaleRelativePath({
+            pageType: page.pageType,
+            slug: page.localizedSlugs?.[pathLocale] ?? page.slug,
+            ancestry: page.localizedAncestryPaths?.[pathLocale] ?? page.ancestryPath,
+          })
+          return { ...pagePickerRow(page), ...(path === null ? {} : { path }) }
+        })
       )
     }
     const normalizedSearch = search?.trim().toLowerCase()
@@ -2226,10 +1546,12 @@ export const listLinkablePages = query({
         if (!normalizedSearch) return true
         const text = locale
           ? [
+              row.path,
               row.localizedTitles[locale],
               row.localizedSlugs?.[locale] ?? row.slug,
             ]
           : [
+              row.path,
               ...Object.values(row.localizedTitles),
               row.slug,
               ...Object.values(row.localizedSlugs ?? {}),
@@ -2253,7 +1575,7 @@ export const getLinkablePageSelection = query({
   args: { pageId: v.id("pages") },
   returns: linkablePageSelectionValidator,
   handler: async (ctx, { pageId }) => {
-    await requireAnyPageTypePermission(ctx, "list")
+    await requireOperationAccess(ctx)
     const authority = await readPublicationAuthority(ctx)
     if (authority === "invalid") {
       throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
@@ -2262,7 +1584,7 @@ export const getLinkablePageSelection = query({
     if (!page || page.deletedAt !== undefined) {
       return { status: "missing" as const }
     }
-    const allowedTypes = permittedPageTypes()
+    const allowedTypes = new Set(CONTENT_TYPES as PageType[])
     if (!allowedTypes.has(page.pageType)) {
       return { status: "unavailable" as const }
     }
@@ -2635,7 +1957,7 @@ export const initializeBoundedPilotEnvelope = mutation({
   args: {},
   returns: boundedPilotEnvelopeValidator,
   handler: async (ctx) => {
-    await requirePermission(ctx, "settings:update")
+    await requireOperationAccess(ctx)
     const envelope = await reconcileBoundedPilotEnvelope(ctx)
     return {
       withinEnvelope:
@@ -2650,59 +1972,6 @@ export const initializeBoundedPilotEnvelope = mutation({
   },
 })
 
-export const deleteImpact = query({
-  args: { id: v.id("pages") },
-  returns: deleteImpactValidator,
-  handler: async (ctx, { id }) => {
-    await requireOperationAccess(ctx)
-    const authority = await readPublicationAuthority(ctx)
-    if (authority === "snapshot_active") {
-      throw new ConvexError("PERMANENT_PAGE_PURGE_NOT_IMPLEMENTED")
-    }
-    if (authority === "invalid") {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
-    }
-    const page = await ctx.db.get("pages", id)
-    if (!page) throw new ConvexError("Page not found")
-    await requirePagePermission(ctx, page.pageType, "delete", {
-      ownerId: page.createdBy,
-    })
-    return getDeleteImpact(ctx, id)
-  },
-})
-
-export const listByPageType = query({
-  args: {
-    pageType: pageTypeValidator,
-    status: v.optional(statusValidator),
-    hasLocale: v.optional(v.string()),
-  },
-  returns: v.array(pageDocValidator),
-  handler: async (ctx, { pageType, status, hasLocale }) => {
-    if (!isActiveContentType(pageType)) return []
-    await requirePagePermission(ctx, pageType, "list")
-    // Bounded: this returns full page documents (every block body, every
-    // locale), so an unbounded `.collect()` grew without limit as a type
-    // filled up — a few hundred posts is tens of MB of database I/O per call.
-    // `MAX_PAGE_LIST_LIMIT` matches the ceiling the other list endpoints use.
-    let pages = await ctx.db
-      .query("pages")
-      .withIndex("by_pageType_status", (q) => {
-        if (status) return q.eq("pageType", pageType).eq("status", status)
-        return q.eq("pageType", pageType)
-      })
-      .take(MAX_PAGE_LIST_LIMIT)
-
-    pages = pages.filter((p) => p.deletedAt === undefined)
-
-    if (hasLocale) {
-      pages = pages.filter((p) => p.content?.[hasLocale])
-    }
-
-    return pages
-  },
-})
-
 export const listRelationCandidates = query({
   args: {
     pageTypes: v.array(pageTypeValidator),
@@ -2712,8 +1981,8 @@ export const listRelationCandidates = query({
   },
   returns: v.array(pagePickerRowValidator),
   handler: async (ctx, { pageTypes, tag, includeDrafts, limit }) => {
-    await requireAnyPageTypePermission(ctx, "list")
-    const allowedTypes = permittedPageTypes()
+    await requireOperationAccess(ctx)
+    const allowedTypes = new Set(CONTENT_TYPES as PageType[])
     const max = clampLimit(
       limit,
       MAX_PAGE_PICKER_LIMIT,
@@ -2793,19 +2062,6 @@ export const listRelationCandidates = query({
   },
 })
 
-export const getByIds = query({
-  args: { ids: v.array(v.id("pages")) },
-  returns: v.array(pageDocValidator),
-  handler: async (ctx, { ids }) => {
-    const pages = await Promise.all(ids.map((id) => ctx.db.get("pages", id)))
-    const allowedPrivateTypes = await privateReadablePageTypes(ctx)
-    return pages.filter(
-      (p): p is Doc<"pages"> =>
-        p !== null && allowedPrivateTypes.has(p.pageType)
-    )
-  },
-})
-
 /**
  * Resolve a batch of page ids to their full, locale-prefixed public paths for
  * one render locale — `/<locale?>/<localized-ancestry>/<localized-leaf>`. The
@@ -2821,7 +2077,9 @@ export const getLocalizedPathsByIds = query({
   },
   returns: v.record(v.string(), v.string()),
   handler: async (ctx, { ids, locale, languageVersion }) => {
+    assertIdBatchSize(ids)
     await assertPublicLanguageVersion(ctx, languageVersion)
+    const uniqueIds = [...new Set(ids)]
     const { defaultLocale, enabledLocales, homePageId } =
       await getLocaleConfig(ctx)
     const authority = await readPublicationAuthority(ctx)
@@ -2829,8 +2087,12 @@ export const getLocalizedPathsByIds = query({
     if (authority === "snapshot_active") {
       if (!enabledLocales.includes(locale)) return {}
       const result: Record<string, string> = {}
-      for (const id of ids) {
-        const projection = await readCurrentSnapshotProjection(ctx, id, locale)
+      // One cached reader for the whole call: ancestors shared between ids
+      // are verified once. It returns what readCurrentSnapshotProjection
+      // returns for the same id and locale, and null when a gate is closed.
+      const project = await createPublicSnapshotProjectionReader(ctx)
+      for (const id of uniqueIds) {
+        const projection = project ? await project(id, locale) : null
         const path = prefixedSnapshotPath(
           projection?.path ?? null,
           locale,
@@ -2844,7 +2106,9 @@ export const getLocalizedPathsByIds = query({
     const enabledLocaleSet = new Set(enabledLocales)
     const localePrefix = locale === defaultLocale ? "" : `/${locale}`
     const result: Record<string, string> = {}
-    const pages = await Promise.all(ids.map((id) => ctx.db.get("pages", id)))
+    const pages = await Promise.all(
+      uniqueIds.map((id) => ctx.db.get("pages", id))
+    )
     for (const page of pages) {
       if (!page || page.deletedAt !== undefined) continue
       // A selected starter's route space contains only active routable types.
@@ -2897,6 +2161,7 @@ export const getPublicRelationCardsByIds = query({
   },
   returns: v.record(v.string(), v.union(publicRelationCardValidator, v.null())),
   handler: async (ctx, { ids, locale, languageVersion }) => {
+    assertIdBatchSize(ids)
     await assertPublicLanguageVersion(ctx, languageVersion)
     const cfg = await getLocaleConfig(ctx)
     const uniqueIds = [...new Set(ids)]
@@ -3070,7 +2335,8 @@ export const getRelationCardsByIds = query({
   returns: v.record(v.string(), v.union(publicRelationCardValidator, v.null())),
   handler: async (ctx, { ids, locale, includeDrafts }) => {
     const shouldIncludeDrafts = includeDrafts ?? false
-    await requireAnyPageTypePermission(ctx, "list")
+    await requireOperationAccess(ctx)
+    assertIdBatchSize(ids)
     // ADR-0036: when draft mode is on, restrict which draft ids the caller can
     // resolve to their private-readable page types — otherwise a caller with
     // `pages.post:list:all` could pass landing-page draft ids and receive full
@@ -3113,52 +2379,6 @@ export const getRelationCardsByIds = query({
       cards[id] = null
     }
     return cards
-  },
-})
-
-export const getBreadcrumb = query({
-  args: { pageId: v.id("pages") },
-  returns: v.array(breadcrumbItemValidator),
-  handler: async (ctx, { pageId }) => {
-    const rootPage = await ctx.db.get("pages", pageId)
-    if (
-      !rootPage ||
-      !isActiveContentType(rootPage.pageType) ||
-      !(await canReadPrivate(
-        ctx,
-        rootPage.pageType,
-        `pages.${rootPage.pageType}:list`
-      ))
-    ) {
-      return []
-    }
-    const crumbs: { id: Id<"pages">; slug: string; title: string }[] = []
-    let currentId: Id<"pages"> | undefined = pageId
-
-    while (currentId) {
-      const page: Doc<"pages"> | null = await ctx.db.get("pages", currentId)
-      if (!page) break
-      // Gate each ancestor by per-type private read grants — this full-document
-      // helper is never an anonymous metadata surface.
-      if (
-        !isActiveContentType(page.pageType) ||
-        !(await canReadPrivate(
-          ctx,
-          page.pageType,
-          `pages.${page.pageType}:list`
-        ))
-      ) {
-        break
-      }
-      crumbs.unshift({
-        id: page._id,
-        slug: page.slug,
-        title: page.content?.en?.title ?? page.content?.fr?.title ?? page.slug,
-      })
-      currentId = page.parentId
-    }
-
-    return crumbs
   },
 })
 
@@ -3324,46 +2544,6 @@ export const getLocalizedBreadcrumb = query({
     }
 
     return crumbs
-  },
-})
-
-export const getLocalizedPageUrls = query({
-  args: {
-    pageId: v.id("pages"),
-  },
-  returns: v.union(v.record(v.string(), v.string()), v.null()),
-  handler: async (ctx, { pageId }) => {
-    const page = await ctx.db.get("pages", pageId)
-    if (!page || !isActiveContentType(page.pageType)) return null
-    if (
-      !(await canReadPrivate(ctx, page.pageType, `pages.${page.pageType}:list`))
-    ) {
-      return null
-    }
-    const authority = await readPublicationAuthority(ctx)
-    if (authority === "invalid") return null
-    if (authority === "snapshot_active") {
-      // One point-read projection per enabled locale (M05 C5): no locale is
-      // dropped by a row cap.
-      const cfg = await getLocaleConfig(ctx)
-      const urls: Record<string, string> = {}
-      for (const locale of cfg.enabledLocales) {
-        const projection = await readCurrentSnapshotProjection(
-          ctx,
-          pageId,
-          locale
-        )
-        const path = prefixedSnapshotPath(
-          projection?.path ?? null,
-          locale,
-          cfg.defaultLocale
-        )
-        if (path) urls[locale] = path
-      }
-      return Object.keys(urls).length > 0 ? urls : null
-    }
-    const cfg = await getLocaleConfig(ctx)
-    return localizedUrlsForPage(page, cfg)
   },
 })
 
@@ -4242,19 +3422,21 @@ export const create = mutation({
   },
   returns: v.id("pages"),
   handler: async (ctx, args) => {
+    // Access first: a caller without it never reaches content validation.
+    const auth = await requireOperationAccess(ctx)
     const writeOptions: WriteOptions = {}
     args = {
       ...args,
       content: writePageContent(args.pageType, args.content, writeOptions)
         .value,
     }
-    const auth = await requireOperationAccess(ctx)
     const publicationAuthority = await readPublicationAuthority(ctx)
     if (publicationAuthority === "invalid") {
       throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
     }
     if (publicationAuthority !== "snapshot_active") {
-      await assertLegacyPublicationWriterBlocked(ctx, "pages.create")
+      // Pages are created only on the snapshot path.
+      await requireSnapshotAuthority(ctx)
     }
     if (
       publicationAuthority === "snapshot_active" &&
@@ -4298,11 +3480,7 @@ export const create = mutation({
 
     const slug = args.slug ?? generateSlug(title)
     // Successor draft addresses are allocated by initializeSuccessorPage in
-    // this transaction. Retained Page slugs are not the route authority; never
-    // run the legacy whole-table slug scan after snapshot cutover.
-    if (publicationAuthority !== "snapshot_active") {
-      await ensureSlugUnique(ctx, slug)
-    }
+    // this transaction. Retained Page slugs are not the route authority.
 
     // Seed every descriptor-declared localized field from its primitive
     // default, then overlay the universal create-dialog fields. This keeps
@@ -4446,25 +3624,8 @@ export const create = mutation({
       createdBy: auth.tokenIdentifier,
       publishedAt: args.status === "published" ? now : undefined,
     }
-    // Sticky auto-unset (plan 029 C10 task 10) on create too — a new post
-    // that comes in already-sticky demotes every prior holder. No
-    // `excludePageId` here (the new row doesn't exist yet), so every
-    // other sticky post is a legitimate demotion target.
-    if (
-      publicationAuthority === "legacy" &&
-      args.pageType === "post" &&
-      args.promoteToFront === true
-    ) {
-      await autoUnsetOtherPromoteToFront(ctx, undefined)
-    }
-    // ADR-0041 Deploy 2 PR B item 3 — new drafts seed staging, not
-    // `pages.content`. Insert the page with `content: {}`, then fan the
-    // seed content into a fresh `pageStaging` row below. Publishing on
-    // create (first-publish path) is the exception: skip staging and
-    // write directly to `pages.content` so the checklist walks the
-    // to-be-published shape.
-    const publishOnCreate = args.status === "published"
-    const contentForLiveRow = publishOnCreate ? initialContent : undefined
+    // The retained Pages row keeps no language content: the draft lives in the
+    // snapshot-path records that `initializeSuccessorPage` creates below.
     const sharedInsertFields = descriptorDefaults(descriptor.sharedFields, {
       includeOptional: false,
     })
@@ -4492,1126 +3653,22 @@ export const create = mutation({
     const pageId = await occurrenceUsageWrites(ctx).insert("pages", {
       ...commonInsertFields,
       ...sharedInsertFields,
-      content: contentForLiveRow,
       pageType: args.pageType,
     } as Parameters<typeof ctx.db.insert<"pages">>[1])
-    if (publicationAuthority === "snapshot_active") {
-      const created = await ctx.db.get("pages", pageId)
-      if (!created) throw new ConvexError("PAGE_NOT_FOUND")
-      await initializeSuccessorPage(
-        ctx,
-        created,
-        auth,
-        initialContent as Record<string, Record<string, unknown>>,
-        args.expectedPresentationCatalogRevision
-      )
-      // An open language change must give this new Page a row (and stale a
-      // ready change). With no open change this is one read.
-      await recordPublicChange(ctx, { pageId, scopes: [] })
-      return pageId
-    }
-    // Seed staging when the row is not being published on create. The
-    // §8 denormalized `effectiveTitles` mirrors what `updateDraft` writes
-    // so the admin list + palette can render a title before the first
-    // autosave (see `enrichWithStagingOverlay`).
-    if (!publishOnCreate) {
-      const effectiveTitles = pickEffectiveTitles(
-        initialContent as Record<string, { title?: string }>
-      )
-      await occurrenceUsageWrites(ctx).insert("pageStaging", {
-        pageId,
-        pageType: args.pageType,
-        createdBy: auth.tokenIdentifier,
-        updatedAt: now,
-        content: initialContent,
-        ...(effectiveTitles !== undefined ? { effectiveTitles } : {}),
-      } as Parameters<typeof ctx.db.insert<"pageStaging">>[1])
-    }
-    const page = await ctx.db.get("pages", pageId)
-    if (page) {
-      await refreshPageReferences(ctx, page)
-      await syncPageSearch(ctx, page)
-    }
+    // The guard above refuses every phase but the snapshot one.
+    const created = await ctx.db.get("pages", pageId)
+    if (!created) throw new ConvexError("PAGE_NOT_FOUND")
+    await initializeSuccessorPage(
+      ctx,
+      created,
+      auth,
+      initialContent as Record<string, Record<string, unknown>>,
+      args.expectedPresentationCatalogRevision
+    )
+    // An open language change must give this new Page a row (and stale a
+    // ready change). With no open change this is one read.
+    await recordPublicChange(ctx, { pageId, scopes: [] })
     return pageId
-  },
-})
-
-/**
- * Clone a single page (all locales + blocks) into a new **draft** with a fresh,
- * unique base slug (`<slug>-copy`). Child pages are not recursively copied, and
- * `localizedSlugs` are dropped (they'd collide) — localized URLs fall back to
- * the unique base slug until the editor re-sets per-locale slugs.
- */
-export const duplicate = mutation({
-  args: { id: v.id("pages"), title: v.string() },
-  returns: v.id("pages"),
-  handler: async (ctx, args) => {
-    const { id, title } = args
-    const writeOptions: WriteOptions = {}
-    await requireOperationAccess(ctx)
-    await assertLegacyPublicationWriterBlocked(ctx, "pages.duplicate")
-    const confirmedTitle = title.trim()
-    if (!confirmedTitle) {
-      throw new ConvexError("Title is required")
-    }
-    const rawSrc = await ctx.db.get("pages", id)
-    if (!rawSrc || rawSrc.deletedAt !== undefined) {
-      throw new ConvexError("Page not found")
-    }
-    if (rawSrc.pageType === "author") {
-      throw new ConvexError(
-        "Authors cannot be duplicated. Create another Author from the New Page flow."
-      )
-    }
-    // ADR-0036: duplicate gates on the source row's type — a post-only role
-    // can duplicate posts, not landing pages.
-    const auth = await requirePagePermission(ctx, rawSrc.pageType, "create", {
-      prospectiveOwner: true,
-    })
-    await assertContentTypeAcceptsCreation(ctx, rawSrc.pageType)
-    await assertBoundedPilotCanCreate(ctx, false)
-    // ADR-0041 ⚑5 — "Duplicate copies what you see." Overlay staging
-    // onto the source so the copy carries the editor's current view (not
-    // the last-published snapshot). `overlayStagingOnPage` handles the
-    // null-staging case as a pass-through.
-    //
-    // Deploy 2 PR B item 3: the duplicate lands as a draft, so its
-    // content seed goes onto a fresh `pageStaging` row and the live
-    // `pages.content` starts empty — same shape as `create` above.
-    const srcStaging = await getStagingByPageId(ctx, id)
-    const source = overlayStagingOnPage(rawSrc, srcStaging)
-    const src = {
-      ...source,
-      content: writePageContent(source.pageType, source.content, {
-        ...writeOptions,
-        duplicate: true,
-        readLegacyShapes: true,
-        trustedSource: {
-          recordId: srcStaging?._id ?? rawSrc._id,
-          version: srcStaging?.updatedAt ?? rawSrc.updatedAt,
-          content: source.content,
-        },
-      }).value,
-    }
-    const { defaultLocale } = await getLocaleConfig(ctx)
-    const titleLocale = src.content?.[defaultLocale]
-      ? defaultLocale
-      : Object.keys(src.content ?? {})[0]
-    if (!titleLocale) {
-      throw new ConvexError("Page has no localized content to duplicate")
-    }
-    await assertBlockMutationIntegrity(
-      ctx,
-      diffBlockMutations(rawSrc.content, rawSrc.content),
-      { existingContent: rawSrc.content, operation: "duplicate" }
-    )
-    await requireBlockMutationsPermitted(
-      ctx,
-      diffBlockMutations(undefined, src.content),
-      {
-        content: src.content,
-        operation: "duplicate",
-        // Entirely server-copied source content: new Page assignments still
-        // require active eligibility, using the transaction-effective revision.
-        expectedPresentationCatalogRevision: hasExplicitBlockPresentations([
-          src.content,
-        ])
-          ? (await readEffectiveBlockPresentationCatalog(ctx)).revision
-          : undefined,
-      }
-    )
-    const now = Date.now()
-    const newSlug = await nextAvailableSlug(ctx, src.slug)
-
-    // Per-arm extras — post carries byline/tags/category/flags; author
-    // carries proper noun + socials. Card surface stays shared per
-    // ADR-0037 §4. Revalidate the source bylines through
-    // `resolvePageRelations` so a duplicate never inherits a dangling /
-    // retyped / soft-deleted target. Plan 029 C10: `authorIds` plural.
-    const carriedAuthorIds =
-      src.pageType === "post"
-        ? await resolvePageRelations(
-            ctx,
-            (src.authorIds ?? [])
-              .map((r: { pageId?: Id<"pages"> }) => r.pageId)
-              .filter((id): id is Id<"pages"> => id !== undefined),
-            POST_BYLINE_ALLOWED_TYPES,
-            src.authorIds
-          )
-        : undefined
-
-    const commonInsertFields = {
-      slug: newSlug,
-      status: "draft" as const,
-      createdAt: now,
-      updatedAt: now,
-      parentId: src.parentId,
-      ancestryPath: src.ancestryPath,
-      localizedAncestryPaths: src.localizedAncestryPaths,
-      hierarchyDepth: src.hierarchyDepth,
-      siblingOrder: src.siblingOrder,
-      template: src.template,
-      showOnHomepage: false,
-      displayMode: src.displayMode,
-      cardImageMediaId: src.cardImageMediaId,
-      cardExcerpt: src.cardExcerpt,
-      seo: src.seo,
-      createdBy: auth.tokenIdentifier,
-    }
-
-    // Deep-copy content (JSON round-trip detaches blocks from the source), use
-    // the confirmed title for the default (or first available) locale, and
-    // append " (Copy)" to the remaining locale titles.
-    const copyContentWithSuffix = <T>(
-      content: T | undefined
-    ): T | undefined => {
-      if (!content) return undefined
-      return Object.fromEntries(
-        Object.entries(content as Record<string, { title: string }>).map(
-          ([locale, c]) => [
-            locale,
-            {
-              ...JSON.parse(JSON.stringify(c)),
-              title:
-                locale === titleLocale ? confirmedTitle : `${c.title} (Copy)`,
-            },
-          ]
-        )
-      ) as T
-    }
-
-    // Deploy 2 PR B item 3: duplicates always land as drafts, so the
-    // copied content bag seeds staging rather than `pages.content`. The
-    // duplicate row's `content` starts empty; publish promotes it as
-    // normal. `copyContentWithSuffix` applies the confirmed primary title and
-    // copy suffixes so effectiveTitles / the editor distinguish the new draft.
-    const stagedContent = copyContentWithSuffix(src.content)
-    const sourceDescriptor = contentTypeDefs[src.pageType]
-    const copiedSharedFields = copyDescriptorSharedFields(
-      sourceDescriptor,
-      src as unknown as Record<string, unknown>
-    )
-    if (src.pageType === "post") {
-      copiedSharedFields.authorIds = writeFieldMap(
-        sourceDescriptor.sharedFields,
-        { authorIds: carriedAuthorIds },
-        { duplicate: true }
-      ).authorIds
-      // Editorial flags are per-post editorial choice, not row shape.
-      copiedSharedFields.featured = false
-      copiedSharedFields.promoteToFront = false
-    }
-    if (src.pageType === "author") {
-      copiedSharedFields.name = `${src.name} (Copy)`
-    }
-    if (src.pageType === "testimonial") {
-      copiedSharedFields.personName = `${src.personName} (Copy)`
-    }
-    const pageId = await occurrenceUsageWrites(ctx).insert("pages", {
-      ...commonInsertFields,
-      ...copiedSharedFields,
-      content: undefined,
-      pageType: src.pageType,
-    } as Parameters<typeof ctx.db.insert<"pages">>[1])
-    // Seed staging on the duplicate. `effectiveTitles` denormalization
-    // matches `create` and `updateDraft` so the list/palette overlay has
-    // the (Copy) title immediately.
-    const effectiveTitles = pickEffectiveTitles(
-      stagedContent as Record<string, { title?: string }> | undefined
-    )
-    await occurrenceUsageWrites(ctx).insert("pageStaging", {
-      pageId,
-      pageType: src.pageType,
-      createdBy: auth.tokenIdentifier,
-      updatedAt: now,
-      content: stagedContent,
-      ...(effectiveTitles !== undefined ? { effectiveTitles } : {}),
-    } as Parameters<typeof ctx.db.insert<"pageStaging">>[1])
-    void auth
-    const page = await ctx.db.get("pages", pageId)
-    if (page) {
-      await refreshPageReferences(ctx, page)
-      await syncPageSearch(ctx, page)
-    }
-    return pageId
-  },
-})
-
-export const update = mutation({
-  args: {
-    id: v.id("pages"),
-    slug: v.optional(v.string()),
-    pageType: v.optional(pageTypeValidator),
-    // ADR-0041 Deploy 3 (Narrow) — `pages.update` no longer accepts
-    // `status: "published"`. Publish is `pages.publish` exclusively
-    // (staging → live, checklist gate, single `"publish"` revision
-    // writer). Callers use this mutation for the remaining transitions:
-    // `draft` (unpublish / unarchive) and `archived` (archive). The
-    // scheduled-publish cron uses `performPublish` directly.
-    status: v.optional(v.union(v.literal("draft"), v.literal("archived"))),
-    title: v.optional(v.string()),
-    content: v.optional(v.record(v.string(), localizedContentInput)),
-    expectedPresentationCatalogRevision: v.optional(v.string()),
-    tags: v.optional(v.array(v.string())),
-    // Plan 029 C9a — optional descriptor shared fields accept `null` as a
-    // clear signal. Convex serializes `undefined` as omitted, so `updatePage({
-    // ...changedSharedFields, id })` with a bag key that transitioned to
-    // `undefined` never reached the `!== undefined` branch below and the DB
-    // silently didn't change. The client now sends `null` for cleared values
-    // and the handler translates that back to `undefined` on the patch
-    // (Convex's "remove field" signal).
-    category: v.optional(v.union(v.string(), v.null())),
-    template: v.optional(v.string()),
-    showOnHomepage: v.optional(v.boolean()),
-    displayMode: v.optional(
-      v.union(v.literal("card"), v.literal("full"), v.literal("both"))
-    ),
-    cardImageMediaId: v.optional(v.id("media")),
-    cardExcerpt: v.optional(v.string()),
-    // Byline references — page ids pointing at `author`-typed rows.
-    // Position = byline order; first = lead. An empty array clears the
-    // byline entirely (`undefined` is "not touched"). Server wraps each
-    // id into `{ pageId }` for the relation() storage shape. Plan 029
-    // C10 renamed the singular `authorId` to plural `authorIds`.
-    authorIds: v.optional(v.array(v.id("pages"))),
-    // Editorial flags (plan 029 C10). Non-null booleans replace the stored
-    // value; `undefined` = untouched. `promoteToFront: true` auto-unsets
-    // any other post carrying the flag in the same mutation (task 10).
-    featured: v.optional(v.boolean()),
-    promoteToFront: v.optional(v.boolean()),
-    parentId: v.optional(v.id("pages")),
-    // Explicit "make this a root page" signal — `parentId: undefined` is
-    // ambiguous (it's also the JSON encoding of "field omitted = no change").
-    clearParent: v.optional(v.boolean()),
-    siblingOrder: v.optional(v.number()),
-    seo: v.optional(seoValidator),
-    // ADR-0041 Deploy 2 PR B — `scheduledAt` has moved from `pages` to
-    // `pageStaging`. It's staged through `pages.updateDraft` and promoted
-    // by `pages.publish` (or by the scheduled-publish cron via the shared
-    // `performPublish` helper). The arg is deliberately gone from this
-    // legacy update surface so callers can't drift back to writing it on
-    // the live row.
-    expiresAt: v.optional(v.union(v.number(), v.null())),
-    // Author-arm-only fields — proper noun + social profile links. Rejected
-    // for non-author rows.
-    name: v.optional(v.string()),
-    // Plan 029 C9a — `null` clears the author's `socials` list; empty array
-    // stays empty array. Same null-as-clear convention as `category` above.
-    socials: v.optional(
-      v.union(
-        v.array(contentTypeDefs.author.sharedFields.socials.validator.element),
-        v.null()
-      )
-    ),
-    // Testimonial-arm-only shared fields (plan 029 C10 task 13). Rejected for
-    // non-testimonial rows. `personName` is required per descriptor and
-    // mirrors author `name` (reject-empty, no null-as-clear). The rest are
-    // optional and follow the null-as-clear pattern established by
-    // `category` / `socials`.
-    personName: v.optional(v.string()),
-    personRole: v.optional(v.union(v.string(), v.null())),
-    personCompany: v.optional(v.union(v.string(), v.null())),
-    // `image().validator` is the same object shape the testimonial descriptor
-    // stores; the descriptor's `personImage.validator` is `.optional()`-
-    // wrapped which `v.union` won't accept as an arm — so we thread the
-    // required-shape base directly.
-    personImage: v.optional(v.union(imagePrimitive().validator, v.null())),
-    sourceUrl: v.optional(v.union(v.string(), v.null())),
-    expectedUpdatedAt: v.optional(v.number()),
-  },
-  returns: updateResultValidator,
-  handler: async (ctx, args) => {
-    const {
-      id,
-      expectedUpdatedAt,
-      expectedPresentationCatalogRevision,
-      ...updates
-    } = args
-    const writeOptions: WriteOptions = {}
-    await requireOperationAccess(ctx)
-    await assertLegacyPublicationWriterBlocked(ctx, "pages.update")
-    validateContentBlockIds(updates.content)
-    const existing = await ctx.db.get("pages", id)
-    if (!existing) throw new ConvexError("Page not found")
-    updates.content = writePageContent(
-      existing.pageType,
-      updates.content,
-      writeOptions
-    ).value
-    validateContentRichText(updates.content)
-    assertPageIsActiveForOrdinaryOperation(existing, "edit")
-    const auth = await requirePagePermission(ctx, existing.pageType, "update", {
-      ownerId: existing.createdBy,
-    })
-    // Plan 028 C1 + ADR-0037 §3 — `pageType` is immutable after creation.
-    // Typed union arms carry per-type fields that cannot survive a flip, so
-    // reject it here rather than silently corrupt the row at patch time.
-    // (Prior ADR-0036 TRAP 2 — the double-gate permission check on flip —
-    // is now unreachable and has been removed.)
-    if (
-      updates.pageType !== undefined &&
-      updates.pageType !== existing.pageType
-    ) {
-      throw new ConvexError(
-        "pageType is immutable; duplicate the page as the new type instead"
-      )
-    }
-    if (updates.content !== undefined) {
-      await requireBlockMutationsPermitted(
-        ctx,
-        diffBlockMutations(existing.content, updates.content),
-        {
-          // Deliberately retain cross-locale strictness: a disabled block in
-          // any stored locale blocks an ordinary Page edit until its code is
-          // restored or the content is migrated.
-          content: { ...(existing.content ?? {}), ...(updates.content ?? {}) },
-          existingContent: existing.content,
-          operation: "edit",
-          expectedPresentationCatalogRevision,
-        }
-      )
-    }
-    assertFresh(existing, expectedUpdatedAt)
-
-    if (updates.status !== undefined && updates.status !== existing.status) {
-      await assertEditionReviewAllowsLifecycleChange(ctx, id)
-    }
-
-    // Resolve locale config once for the whole mutation — it feeds the old-URL
-    // capture, ancestry rebuild, and descendant rebuild below (which would
-    // otherwise re-read siteSettings at every level of the subtree).
-    const cfg = await getLocaleConfig(ctx)
-
-    // Capture the page's current public URLs before mutating, so a slug/parent
-    // change can purge the old locations too.
-    const oldPublicUrls = Object.values(localizedUrlsForPage(existing, cfg))
-
-    if (updates.slug && updates.slug !== existing.slug) {
-      await ensureSlugUnique(ctx, updates.slug, id)
-    }
-
-    const now = Date.now()
-    const editToken = nextUpdatedAt(existing.updatedAt, now)
-    const patch: Record<string, unknown> = { updatedAt: editToken }
-
-    if (updates.slug !== undefined) patch.slug = updates.slug
-    if (updates.pageType !== undefined) patch.pageType = updates.pageType
-    if (updates.status !== undefined) {
-      patch.status = updates.status
-    }
-    if (updates.content !== undefined) patch.content = updates.content
-    // Post-only structural fields (byline + classification) live on the
-    // `post` arm only (plan 028 C1 / ADR-0037 §4). Reject an attempt to set
-    // them on a non-post row with a typed error rather than a downstream
-    // schema-validator throw.
-    const targetingPost = existing.pageType === "post"
-    if (updates.tags !== undefined) {
-      if (!targetingPost && updates.tags.length > 0) {
-        throw new ConvexError(
-          `tags is only valid on pageType='post' (row is '${existing.pageType}')`
-        )
-      }
-      if (targetingPost) {
-        patch.tags = await ensureTagsForLabels(ctx, updates.tags)
-      }
-    }
-    if (updates.category !== undefined) {
-      // `null` clears the field (`patch.<key> = undefined` is Convex's remove
-      // signal). Non-empty strings on a non-post row still throw; a null on a
-      // non-post row is a no-op clear.
-      if (!targetingPost) {
-        if (updates.category !== null && updates.category.length > 0) {
-          throw new ConvexError(
-            `category is only valid on pageType='post' (row is '${existing.pageType}')`
-          )
-        }
-      } else {
-        patch.category = updates.category ?? undefined
-      }
-    }
-    if (updates.authorIds !== undefined) {
-      if (!targetingPost && updates.authorIds.length > 0) {
-        throw new ConvexError(
-          `authorIds is only valid on pageType='post' (row is '${existing.pageType}')`
-        )
-      }
-      if (targetingPost) {
-        // Empty array → `undefined` (clears the field). `resolvePageRelations`
-        // returns `undefined` for empty input; Convex reads `patch.<key> =
-        // undefined` as "remove this field".
-        patch.authorIds = await resolvePageRelations(
-          ctx,
-          updates.authorIds,
-          POST_BYLINE_ALLOWED_TYPES,
-          existing.authorIds
-        )
-      }
-    }
-    if (updates.featured !== undefined) {
-      if (!targetingPost) {
-        throw new ConvexError(
-          `featured is only valid on pageType='post' (row is '${existing.pageType}')`
-        )
-      }
-      patch.featured = updates.featured
-    }
-    if (updates.promoteToFront !== undefined) {
-      if (!targetingPost) {
-        throw new ConvexError(
-          `promoteToFront is only valid on pageType='post' (row is '${existing.pageType}')`
-        )
-      }
-      // Sticky auto-unset (plan 029 C10 task 10). Only fires when the
-      // caller is flipping the flag ON — clearing the flag doesn't need
-      // to touch anything else, and the auto-unset writes below would
-      // just no-op. Ordering matters: unset OTHER holders first, then
-      // patch the current row (the patch itself lands at
-      // `ctx.db.patch(id, patch)` below).
-      if (updates.promoteToFront === true) {
-        await autoUnsetOtherPromoteToFront(ctx, id)
-      }
-      patch.promoteToFront = updates.promoteToFront
-    }
-    if (updates.template !== undefined) patch.template = updates.template
-    if (updates.showOnHomepage !== undefined)
-      patch.showOnHomepage = updates.showOnHomepage
-    if (updates.displayMode !== undefined)
-      patch.displayMode = updates.displayMode
-    if (updates.cardImageMediaId !== undefined)
-      patch.cardImageMediaId = updates.cardImageMediaId
-    if (updates.cardExcerpt !== undefined)
-      patch.cardExcerpt = stripHtml(updates.cardExcerpt)
-    if (updates.seo !== undefined) patch.seo = updates.seo
-    if (updates.expiresAt !== undefined) {
-      patch.expiresAt = updates.expiresAt ?? undefined
-    }
-    // Author-arm-only fields — symmetric with the post-only gate above.
-    const targetingAuthor = existing.pageType === "author"
-    if (updates.name !== undefined) {
-      if (!targetingAuthor) {
-        throw new ConvexError(
-          `name is only valid on pageType='author' (row is '${existing.pageType}')`
-        )
-      }
-      const trimmed = updates.name.trim()
-      if (trimmed.length === 0) {
-        throw new ConvexError("Author name cannot be empty")
-      }
-      patch.name = trimmed
-    }
-    if (updates.socials !== undefined) {
-      if (!targetingAuthor) {
-        if (updates.socials !== null && updates.socials.length > 0) {
-          throw new ConvexError(
-            `socials is only valid on pageType='author' (row is '${existing.pageType}')`
-          )
-        }
-      } else {
-        patch.socials = updates.socials ?? undefined
-      }
-    }
-    // Testimonial-arm-only shared fields (plan 029 C10 task 13). Mirrors the
-    // author-arm block above: reject non-null non-empty writes on other
-    // rows; on the testimonial row, `personName` is required (reject-empty),
-    // the rest use null-as-clear via `?? undefined`.
-    const targetingTestimonial = existing.pageType === "testimonial"
-    if (updates.personName !== undefined) {
-      if (!targetingTestimonial) {
-        throw new ConvexError(
-          `personName is only valid on pageType='testimonial' (row is '${existing.pageType}')`
-        )
-      }
-      const trimmed = updates.personName.trim()
-      if (trimmed.length === 0) {
-        throw new ConvexError("Testimonial personName cannot be empty")
-      }
-      patch.personName = trimmed
-    }
-    if (updates.personRole !== undefined) {
-      if (!targetingTestimonial) {
-        if (updates.personRole !== null && updates.personRole.length > 0) {
-          throw new ConvexError(
-            `personRole is only valid on pageType='testimonial' (row is '${existing.pageType}')`
-          )
-        }
-      } else {
-        patch.personRole = updates.personRole ?? undefined
-      }
-    }
-    if (updates.personCompany !== undefined) {
-      if (!targetingTestimonial) {
-        if (
-          updates.personCompany !== null &&
-          updates.personCompany.length > 0
-        ) {
-          throw new ConvexError(
-            `personCompany is only valid on pageType='testimonial' (row is '${existing.pageType}')`
-          )
-        }
-      } else {
-        patch.personCompany = updates.personCompany ?? undefined
-      }
-    }
-    if (updates.personImage !== undefined) {
-      if (!targetingTestimonial) {
-        if (updates.personImage !== null) {
-          throw new ConvexError(
-            `personImage is only valid on pageType='testimonial' (row is '${existing.pageType}')`
-          )
-        }
-      } else {
-        patch.personImage = updates.personImage ?? undefined
-      }
-    }
-    if (updates.sourceUrl !== undefined) {
-      if (!targetingTestimonial) {
-        if (updates.sourceUrl !== null && updates.sourceUrl.length > 0) {
-          throw new ConvexError(
-            `sourceUrl is only valid on pageType='testimonial' (row is '${existing.pageType}')`
-          )
-        }
-      } else {
-        patch.sourceUrl = updates.sourceUrl ?? undefined
-      }
-    }
-
-    const slugChanged =
-      updates.slug !== undefined && updates.slug !== existing.slug
-    let positionChanged = false
-
-    if (updates.parentId !== undefined || updates.clearParent) {
-      if (updates.parentId === id) {
-        throw new ConvexError("A page cannot be its own parent.")
-      }
-      const nextParent = updates.clearParent ? undefined : updates.parentId
-      // Cycle guard: walk the proposed parent's ancestry; if we hit `id`,
-      // the move would create a loop.
-      if (nextParent) {
-        let cursor: Id<"pages"> | undefined = nextParent
-        const seen = new Set<string>()
-        while (cursor) {
-          if (cursor === id) {
-            throw new ConvexError(
-              "Cannot move a page under one of its descendants."
-            )
-          }
-          if (seen.has(cursor)) break
-          seen.add(cursor)
-          const node: Doc<"pages"> | null = await ctx.db.get("pages", cursor)
-          cursor = node?.parentId
-        }
-      }
-      const { ancestryPath, hierarchyDepth, localizedAncestryPaths } =
-        nextParent
-          ? await buildAncestryPath(ctx, nextParent, cfg)
-          : {
-              ancestryPath: undefined,
-              hierarchyDepth: 0,
-              localizedAncestryPaths: undefined,
-            }
-      patch.parentId = nextParent
-      patch.ancestryPath = ancestryPath
-      patch.hierarchyDepth = hierarchyDepth
-      patch.localizedAncestryPaths = localizedAncestryPaths
-      positionChanged = true
-    }
-
-    if (updates.siblingOrder !== undefined)
-      patch.siblingOrder = updates.siblingOrder
-
-    if (updates.status === "archived") {
-      // ADR-0041 Deploy 2 PR B — scheduledAt lives on staging now.
-      // Archiving a page tears down its expiry; the scheduled-publish
-      // side has nothing to unwind here (a staged scheduledAt only
-      // fires against draft pages per cron parity).
-      patch.expiresAt = undefined
-    }
-
-    // ADR-0041 Deploy 3 (Narrow) — `pages.update` no longer publishes;
-    // `status: "published"` is rejected at the args validator. The
-    // publish gate (`pages.<type>:publish`), the pre-publish checklist,
-    // and the `"publish"` revision reason all live on `pages.publish`
-    // and `processScheduledTransitions` (both routed through
-    // `performPublish`). What remains here is the plain edit path with
-    // a single `"manual_save"` revision writer.
-    Object.assign(
-      patch,
-      writeFieldMap(contentTypeDefs[existing.pageType].sharedFields, patch)
-    )
-    const nextPageForSummary = { ...existing, ...patch } as Doc<"pages">
-    const revisionSummary = summarizePageChange(existing, nextPageForSummary)
-    const shouldCreateRevision =
-      updates.status !== undefined ||
-      updates.content !== undefined ||
-      updates.seo !== undefined
-    if (shouldCreateRevision) {
-      await createPageRevision(
-        ctx,
-        existing,
-        "manual_save",
-        auth.tokenIdentifier,
-        revisionSummary
-      )
-    }
-
-    if (existing.status === "published" && updates.status !== undefined) {
-      await releaseBoundedPilotPublishedSlot(ctx)
-    }
-    await occurrenceUsageWrites(ctx).patch("pages", id, patch)
-    // Refresh the C2 `documentReferences` fan-out unconditionally — matching
-    // every other refresh call site. C5 wired an early attempt at a
-    // field-name-coupled guard, but the next sharedField `relation()` would
-    // fall into the same trap (C6's authorId fix was symptomatic). Scanning
-    // a relation-free row is a single indexed clear + early `.length === 0`
-    // return in `refreshDocumentReferencesForPage`, so unconditional refresh
-    // is the honest cost.
-    await refreshPageReferences(ctx, nextPageForSummary)
-    await syncPageSearch(ctx, nextPageForSummary)
-    // A changed base slug or new position invalidates every descendant's path.
-    if (slugChanged || positionChanged) {
-      await rebuildDescendantAncestry(ctx, id, cfg)
-    }
-
-    // Purge the ISR cache for anything that changed the public surface. (Old
-    // URLs come from `oldPublicUrls`; the action adds the current ones.)
-    const publicChanged =
-      updates.status !== undefined ||
-      slugChanged ||
-      positionChanged ||
-      updates.content !== undefined ||
-      updates.seo !== undefined ||
-      updates.showOnHomepage !== undefined
-    if (publicChanged) {
-      await ctx.scheduler.runAfter(0, internal.cms.revalidate.revalidatePage, {
-        pageId: id,
-        extraPaths: oldPublicUrls,
-      })
-    }
-    return { updatedAt: editToken }
-  },
-})
-
-export const processScheduledTransitions = internalMutation({
-  args: {},
-  returns: v.object({
-    published: v.number(),
-    expired: v.number(),
-    hasMore: v.boolean(),
-  }),
-  handler: async (ctx) => {
-    if (!(await shouldRunLegacyPageCron(ctx))) {
-      return { published: 0, expired: 0, hasMore: false }
-    }
-    await assertLegacyPublicationWriterBlocked(
-      ctx,
-      "pages.processScheduledTransitions"
-    )
-    const now = Date.now()
-    // ADR-0041 Deploy 2 PR B — scheduledAt now lives on `pageStaging`.
-    // `queryDueScheduledPublishes` returns staging rows; the caller
-    // resolves the page via `staging.pageId`. `by_scheduledAt` carries
-    // no status filter, so preserve draft-only auto-publish here.
-    const dueStaging = await queryDueScheduledPublishes(ctx, now)
-    const dueExpiries = await queryDueScheduledExpiries(ctx, now)
-
-    // Idle-tick guard. This cron fires every minute — 43,200 times a month —
-    // and both queries above are `.take(1)` on an index, so a tick with no due
-    // work has read almost nothing at this point. `getLocaleConfig` is what
-    // makes an idle tick expensive: it reads `siteSettings` and then, when no
-    // valid `homePageId` is configured (the default state), scans
-    // `DEFAULT_HOME_SLUGS` with `by_slug .take(10)` per slug — up to ~20 FULL
-    // page documents, every minute, forever. On Convex's free plan database
-    // I/O (1 GB/mo) is the binding constraint, not function calls, so leaving
-    // this above the guard could consume the entire monthly budget doing
-    // nothing. Returning early keeps an idle tick at ~2 index reads.
-    //
-    // Safe because `cfg` is only consumed inside the two loops below, both of
-    // which this guard proves empty.
-    if (dueStaging.length === 0 && dueExpiries.length === 0) {
-      return { published: 0, expired: 0, hasMore: false }
-    }
-
-    let published = 0
-    let expired = 0
-    const cfg = await getLocaleConfig(ctx)
-
-    for (const storedStaging of dueStaging) {
-      const staging = withRepairedStagingBlockIds(storedStaging)
-      const page = await ctx.db.get("pages", staging.pageId)
-      // Orphaned staging (page hard-deleted between queue and here) — drop
-      // the row so the abandoned sweep doesn't have to chase it and the
-      // cron doesn't rediscover it next tick.
-      if (!page) {
-        await occurrenceUsageWrites(ctx).delete("pageStaging", staging._id)
-        continue
-      }
-      // Preserve the pre-PR-B draft-only semantics. A future feature can
-      // decide to auto-publish scheduled edits on an already-published or
-      // archived page, but item 5 explicitly ships behavioural parity.
-      //
-      // CRITICAL: this skip path must ALSO clear `staging.scheduledAt`,
-      // not just `continue`. `by_scheduledAt` carries no status filter
-      // (unlike the retired `by_status_and_scheduledAt`), and the batch
-      // is `take(1)` — so a match that gets skipped without clearing
-      // returns the same smallest-`scheduledAt` row next tick, `published`
-      // stays 0, `hasMore` stays true, and the cron reschedules itself
-      // immediately forever. Runaway. Reachable when a user schedules a
-      // draft then archives it, or edits a schedule on an already-
-      // published page. The clear is semantically correct too — a
-      // schedule on a non-draft page is void.
-      if (
-        page.deletedAt !== undefined ||
-        page.status !== "draft" ||
-        !isActiveContentType(page.pageType)
-      ) {
-        await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
-          scheduledAt: undefined,
-          updatedAt: nextUpdatedAt(staging.updatedAt, now),
-        })
-        continue
-      }
-      if (!(await canBoundedPilotPublish(ctx, false))) {
-        await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
-          scheduledAt: undefined,
-          updatedAt: nextUpdatedAt(staging.updatedAt, now),
-        })
-        continue
-      }
-      if (staging.scheduledAt === undefined || staging.scheduledAt > now) {
-        // Defensive — the index range already scopes `.lte(now)`, but a
-        // patch race could shift the value under us. `scheduledAt` future
-        // is not runaway (index range excludes it); `undefined` shouldn't
-        // be in the range at all (`.gte(0)`).
-        continue
-      }
-
-      const nextPage = overlayStagingOnPage(page, staging)
-
-      // Slug uniqueness pre-check: two pages can concurrently stage the
-      // same slug per ADR Consequences. First-to-publish wins — the
-      // loser can't publish and we don't want to hot-loop the cron on
-      // it. Clear the scheduledAt on failure and continue.
-      let slugOk = true
-      if (nextPage.slug !== page.slug) {
-        if (await isSlugTaken(ctx, nextPage.slug, page._id)) slugOk = false
-      }
-      if (slugOk && nextPage.localizedSlugs) {
-        for (const [locale, ls] of Object.entries(nextPage.localizedSlugs)) {
-          const before = page.localizedSlugs?.[locale]
-          if (ls && ls !== before && (await isSlugTaken(ctx, ls, page._id))) {
-            slugOk = false
-            break
-          }
-        }
-      }
-
-      // Plan 029 C9a — scheduled-publish worker runs against a page whose
-      // status is about to flip to `published`. Pass the `"publish"`
-      // intent so descriptor-relation target checks fire; otherwise a
-      // scheduled post could auto-publish with a draft-author byline.
-      const checklist = await buildPrePublishChecklistWithReferences(
-        ctx,
-        nextPage,
-        cfg,
-        "publish"
-      )
-      if (!slugOk || !checklist.canPublish) {
-        // Clear the staged scheduledAt so we don't hot-loop the cron on a
-        // permanently unpublishable row every minute. The staging row
-        // itself lives — the editor can still fix the blockers and
-        // reschedule.
-        await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
-          scheduledAt: undefined,
-          updatedAt: nextUpdatedAt(staging.updatedAt, now),
-        })
-        continue
-      }
-
-      const workflowCheck = await checkEditionScheduledPublish(ctx, {
-        page,
-        staging,
-      })
-      if (!workflowCheck.ok) {
-        await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, {
-          scheduledAt: undefined,
-          updatedAt: nextUpdatedAt(staging.updatedAt, now),
-        })
-        await recordEditionScheduledPublishRejected(ctx, {
-          pageId: page._id,
-          reason: workflowCheck.reason,
-        })
-        continue
-      }
-
-      await performPublish(ctx, {
-        page,
-        staging,
-        storedStaging,
-        checklist,
-        reason: "scheduled_publish",
-        actorUserId: undefined,
-        cfg,
-        workflowApproval: workflowCheck.approval,
-      })
-      published += 1
-    }
-
-    for (const page of dueExpiries) {
-      if (page.deletedAt !== undefined || page.expiresAt === undefined) {
-        continue
-      }
-      // The page may have been published earlier in this same run; read the
-      // stored row so the token moves past that write too.
-      const storedPage = await ctx.db.get("pages", page._id)
-      const patch = {
-        status: "archived" as const,
-        expiresAt: undefined,
-        updatedAt: nextUpdatedAt((storedPage ?? page).updatedAt, now),
-      }
-      await createPageRevision(ctx, page, "scheduled_expiry", undefined, [
-        "Archived automatically from expiry time",
-      ])
-      await releaseBoundedPilotPublishedSlot(ctx)
-      await occurrenceUsageWrites(ctx).patch("pages", page._id, patch)
-      await syncPageSearch(ctx, { ...page, ...patch })
-      await ctx.scheduler.runAfter(0, internal.cms.revalidate.revalidatePage, {
-        pageId: page._id,
-        extraPaths: [],
-      })
-      expired += 1
-    }
-
-    const hasMore =
-      dueStaging.length === SCHEDULED_TRANSITION_BATCH_SIZE ||
-      dueExpiries.length === SCHEDULED_TRANSITION_BATCH_SIZE
-    if (hasMore) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.cms.pages.processScheduledTransitions,
-        {}
-      )
-    }
-
-    return { published, expired, hasMore }
-  },
-})
-
-export const softDelete = mutation({
-  args: { id: v.id("pages") },
-  returns: v.null(),
-  handler: async (ctx, { id }) => {
-    await requireOperationAccess(ctx)
-    await assertLegacyPublicationWriterBlocked(ctx, "pages.softDelete")
-    const page = await ctx.db.get("pages", id)
-    if (!page) throw new ConvexError("Page not found")
-    assertPageIsActiveForOrdinaryOperation(page, "delete")
-    await requirePagePermission(ctx, page.pageType, "delete", {
-      ownerId: page.createdBy,
-    })
-    await assertEditionReviewAllowsLifecycleChange(ctx, id)
-    // Only archived pages can be moved to trash — forces an explicit
-    // archive step before anything is removed.
-    if (page.status !== "archived") {
-      throw new ConvexError(
-        "Only archived pages can be moved to trash. Archive it first."
-      )
-    }
-    await occurrenceUsageWrites(ctx).patch("pages", id, { deletedAt: Date.now() })
-    // Plan 028 C5 — a trashed row must not hold live fan-out; otherwise
-    // `pages.remove` on a still-referenced target refuses to delete because
-    // of a source the operator can no longer reach through the UI.
-    await clearPageReferences(ctx, id)
-    await deletePageSearch(ctx, id)
-    return null
-  },
-})
-
-export const restore = mutation({
-  args: { id: v.id("pages") },
-  returns: v.null(),
-  handler: async (ctx, { id }) => {
-    await requireOperationAccess(ctx)
-    await assertLegacyPublicationWriterBlocked(ctx, "pages.restore")
-    const page = await ctx.db.get("pages", id)
-    if (!page) throw new ConvexError("Page not found")
-    assertPageIsActiveForOrdinaryOperation(page, "edit")
-    await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
-    // Patch using db.patch with explicit undefined — removes the field
-    const restored = {
-      deletedAt: undefined,
-      updatedAt: nextUpdatedAt(page.updatedAt, Date.now()),
-    }
-    await occurrenceUsageWrites(ctx).patch("pages", id, restored)
-    // Restore the row's fan-out mirror to softDelete's clear above.
-    await refreshPageReferences(ctx, { ...page, ...restored })
-    await syncPageSearch(ctx, { ...page, ...restored })
-    return null
-  },
-})
-
-export const remove = mutation({
-  args: { id: v.id("pages") },
-  returns: v.null(),
-  handler: async (ctx, { id }) => {
-    await requireOperationAccess(ctx)
-    const publicationAuthority = await readPublicationAuthority(ctx)
-    if (publicationAuthority === "snapshot_active") {
-      throw new ConvexError("PERMANENT_PAGE_PURGE_NOT_IMPLEMENTED")
-    }
-    if (publicationAuthority === "invalid") {
-      throw new ConvexError("PUBLISHED_SNAPSHOT_CUTOVER_INVALID")
-    }
-    await assertLegacyPublicationWriterBlocked(ctx, "pages.remove")
-    const page = await ctx.db.get("pages", id)
-    if (!page) throw new ConvexError("Page not found")
-    assertPageIsActiveForOrdinaryOperation(page, "delete")
-    await requirePagePermission(ctx, page.pageType, "delete", {
-      ownerId: page.createdBy,
-    })
-    await assertEditionReviewAllowsLifecycleChange(ctx, id)
-    const children = await getChildPageSummaries(ctx, id)
-    if (children.length > 0) {
-      throw new ConvexError(
-        `This page has ${children.length} child page(s). Re-parent or delete them first.`
-      )
-    }
-    // Plan 028 C5 + Plan 035 A1c — refuse deletion when another page or a
-    // live menu still points at this page. The document guard short-circuits
-    // at one row; the menu guard returns sorted, unique slugs so direct
-    // mutation callers get the same actionable detail as `deleteImpact`.
-    const [firstIncoming, menuSlugs] = await Promise.all([
-      ctx.db
-        .query("documentReferences")
-        .withIndex("by_target", (q) => q.eq("targetId", id))
-        .first(),
-      getMenuSlugsReferencingPage(ctx, id),
-    ])
-    if (firstIncoming && menuSlugs.length > 0) {
-      throw new ConvexError(
-        "Cannot delete: this page is still referenced by another page and " +
-          `linked from menu(s): ${menuSlugs.join(", ")}. ` +
-          "Reassign or remove the page reference and remove the menu links first."
-      )
-    }
-    if (firstIncoming) {
-      throw new ConvexError(
-        "Cannot delete: this page is still referenced by another page. " +
-          "Reassign or remove the reference first."
-      )
-    }
-    if (menuSlugs.length > 0) {
-      throw new ConvexError(
-        `Cannot delete: this page is still linked from menu(s): ${menuSlugs.join(", ")}. ` +
-          "Remove those links or delete the menus first."
-      )
-    }
-    const redirects = await getRedirectsToPage(ctx, id)
-    await Promise.all(redirects.map((redirect) => ctx.db.delete("redirects", redirect._id)))
-    await clearPageReferences(ctx, id)
-    // Cascade the page's revision history (F6) — otherwise revisions are
-    // orphaned forever and, once they hold a retired block type, become
-    // unreachable by any cleanup. The index makes this a bounded scan.
-    const revisions = await ctx.db
-      .query("pageRevisions")
-      .withIndex("by_pageId_and_revisionNumber", (q) => q.eq("pageId", id))
-      .collect()
-    await Promise.all(revisions.map((revision) => ctx.db.delete("pageRevisions", revision._id)))
-    await deleteStagingByPageId(ctx, id)
-    await deletePageSearch(ctx, id)
-    await releaseBoundedPilotPageSlot(ctx, page.status === "published")
-    await occurrenceUsageWrites(ctx).delete("pages", id)
-    return null
-  },
-})
-
-const mediaReferenceBackfillResultValidator = v.object({
-  pagesScanned: v.number(),
-  pagesRefreshed: v.number(),
-  isDone: v.boolean(),
-})
-
-async function backfillMediaReferencesBatchImpl(
-  ctx: MutationCtx,
-  cursor: string | null
-): Promise<{
-  pagesScanned: number
-  pagesRefreshed: number
-  isDone: boolean
-  continueCursor: string
-}> {
-  const pageBatch: PaginationResult<Doc<"pages">> = await ctx.db
-    .query("pages")
-    .paginate({ numItems: MEDIA_REFERENCE_BACKFILL_BATCH_SIZE, cursor })
-  let pagesRefreshed = 0
-
-  for (const page of pageBatch.page) {
-    if (page.deletedAt !== undefined) {
-      await clearPageReferences(ctx, page._id)
-      continue
-    }
-    await refreshPageReferences(ctx, page)
-    pagesRefreshed++
-  }
-
-  return {
-    pagesScanned: pageBatch.page.length,
-    pagesRefreshed,
-    isDone: pageBatch.isDone,
-    continueCursor: pageBatch.continueCursor,
-  }
-}
-
-export const backfillMediaReferences = mutation({
-  args: {},
-  returns: mediaReferenceBackfillResultValidator,
-  handler: async (ctx) => {
-    // Whole-table backfill — requires ability to update at least one page type.
-    // Rows of forbidden types are still refreshed (this is a maintenance op the
-    // admin/editor triggers, not a per-row write against the caller's grants).
-    await requireAnyPageTypePermission(ctx, "update")
-    await assertLegacyPublicationWriterBlocked(
-      ctx,
-      "pages.backfillMediaReferences"
-    )
-    const result = await backfillMediaReferencesBatchImpl(ctx, null)
-    if (!result.isDone) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.cms.pages.backfillMediaReferencesBatch,
-        { cursor: result.continueCursor }
-      )
-    }
-    return {
-      pagesScanned: result.pagesScanned,
-      pagesRefreshed: result.pagesRefreshed,
-      isDone: result.isDone,
-    }
-  },
-})
-
-export const backfillMediaReferencesBatch = internalMutation({
-  args: { cursor: v.union(v.string(), v.null()) },
-  returns: mediaReferenceBackfillResultValidator,
-  handler: async (ctx, { cursor }) => {
-    await assertLegacyPublicationWriterBlocked(
-      ctx,
-      "pages.backfillMediaReferencesBatch"
-    )
-    const result = await backfillMediaReferencesBatchImpl(ctx, cursor)
-    if (!result.isDone) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.cms.pages.backfillMediaReferencesBatch,
-        { cursor: result.continueCursor }
-      )
-    }
-    return {
-      pagesScanned: result.pagesScanned,
-      pagesRefreshed: result.pagesRefreshed,
-      isDone: result.isDone,
-    }
   },
 })
 
@@ -5634,9 +3691,8 @@ export const touchPagePresence = mutation({
     const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
-    const auth = await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
+    assertActivePageType(page.pageType)
+    const auth = await requireOperationAccess(ctx)
     await touchPagePresenceRow(ctx, pageId, await editorIdentity(ctx, auth))
     return null
   },
@@ -5646,13 +3702,16 @@ export const leavePagePresence = mutation({
   args: { pageId: v.id("pages") },
   returns: v.null(),
   handler: async (ctx, { pageId }) => {
+    // Editor teardown may arrive after sign-out. No identity means no lease
+    // to release; acknowledge without reading page or presence/lock rows.
+    // An authenticated non-owner still goes through the ordinary denial.
+    if (!(await getOwnerIdentity(ctx))) return null
     await requireOperationAccess(ctx)
     const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
-    const auth = await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
+    assertActivePageType(page.pageType)
+    const auth = await requireOperationAccess(ctx)
     await leavePagePresenceRow(ctx, pageId, await editorIdentity(ctx, auth))
     return null
   },
@@ -5669,9 +3728,8 @@ export const acquirePageEditorLock = mutation({
     const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
-    const auth = await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
+    assertActivePageType(page.pageType)
+    const auth = await requireOperationAccess(ctx)
     return await acquirePageEditorLockRow(
       ctx,
       pageId,
@@ -5685,13 +3743,16 @@ export const releasePageEditorLock = mutation({
   args: { pageId: v.id("pages") },
   returns: v.null(),
   handler: async (ctx, { pageId }) => {
+    // Editor teardown may arrive after sign-out. No identity means no lease
+    // to release; acknowledge without reading page or presence/lock rows.
+    // An authenticated non-owner still goes through the ordinary denial.
+    if (!(await getOwnerIdentity(ctx))) return null
     await requireOperationAccess(ctx)
     const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
-    const auth = await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
+    assertActivePageType(page.pageType)
+    const auth = await requireOperationAccess(ctx)
     await releasePageEditorLockRow(ctx, pageId, await editorIdentity(ctx, auth))
     return null
   },
@@ -5719,9 +3780,8 @@ export const heartbeatPageEditor = mutation({
     const page = await ctx.db.get("pages", pageId)
     if (!page) throw new ConvexError("Page not found")
     assertPageIsActiveForOrdinaryOperation(page, "edit")
-    const auth = await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
+    assertActivePageType(page.pageType)
+    const auth = await requireOperationAccess(ctx)
     const identity = await editorIdentity(ctx, auth)
 
     await touchPagePresenceRow(ctx, pageId, identity)
@@ -5729,982 +3789,5 @@ export const heartbeatPageEditor = mutation({
     // Taking over is an explicit user action routed through
     // `acquirePageEditorLock`.
     return await acquirePageEditorLockRow(ctx, pageId, identity, false)
-  },
-})
-
-// ============================================================
-// ADR-0041 — Per-page atomic staging (Deploy 1: Widen ⇒ Deploy 3: Narrow)
-//
-// The three mutations below are the staging-aware write surface. Deploy
-// 3 (Narrow) retired the legacy `pages.updateLocaleContent`; the editor
-// now writes via `updateDraft` and promotes via `pages.publish` — the
-// row-level `pages.update` handles the remaining live-immediate fields
-// (hierarchy, `status: "draft" | "archived"`, `expiresAt`).
-// ============================================================
-
-/**
- * Assert that the caller holds the editor lock on `pageId`. ADR-0041 §4
- * promotes the previously-advisory lock to a hard save-time gate for
- * `updateDraft` / `discardDraft`. Publish deliberately does NOT require
- * the lock — a reviewer must be able to promote without displacing the
- * editor.
- *
- * The active-holder check reuses `getPageEditorLockState`, which returns
- * `status: "available"` when no holder is inside `PAGE_LOCK_ACTIVE_MS`
- * — the ADR's "heartbeat lapse mid-session → autosave hard-fails on the
- * next mutation" failure mode. The client re-acquires on autosave when
- * available; if someone else has taken over, the client surfaces the
- * take-over prompt described in §4.
- */
-async function requireHeldPageEditorLock(
-  ctx: MutationCtx,
-  pageId: Id<"pages">,
-  userId: string
-): Promise<void> {
-  const state = await getPageEditorLockState(ctx, pageId, userId)
-  if (state.status === "available") {
-    throw new ConvexError(
-      "Reacquire the editor lock before saving — it lapsed while idle."
-    )
-  }
-  if (!state.isMine) {
-    throw new ConvexError(
-      "Someone else is editing this page. Reload to keep your changes as a new staging revision."
-    )
-  }
-}
-
-/**
- * Build a fresh per-locale content block using the descriptor's declared
- * shape. Optional fields with an empty-string / undefined value are
- * omitted so the stored bag stays in the pre-C8 "no empty meta" shape
- * and clearing round-trips correctly.
- */
-function buildLocaleBlockFromDraft(
-  descriptor: (typeof contentTypeDefs)[keyof typeof contentTypeDefs],
-  localizedBag: Record<string, unknown>,
-  nextBlocks: readonly Block[] | undefined
-): Record<string, unknown> {
-  const localeBlock: Record<string, unknown> = {}
-  for (const [key, def] of Object.entries(descriptor.localizedFields)) {
-    const value = localizedBag[key]
-    const isOptional = def.validator.isOptional === "optional"
-    if (isOptional && (value === undefined || value === "")) continue
-    localeBlock[key] = value
-  }
-  if (nextBlocks !== undefined) {
-    localeBlock.blocks = nextBlocks
-  }
-  return localeBlock
-}
-
-/**
- * Save fields into a page's staging row (ADR-0041 §3). Lazy-creates the
- * row on first call. Every field is optional so the same mutation covers
- * partial autosaves (a single title tweak) and full multi-locale writes
- * (an AI translation of EN into FR + AR shipping together).
- *
- * Args mirror the STAGED subset of `pages.update` — hierarchy fields
- * (`parentId`/`siblingOrder`), `status`, and `expiresAt` are intentionally
- * absent; those bypass staging per ADR §1 / §7.
- *
- * Content is a `Record<locale, contentDraftInput>` where every arm's
- * `pageType` must equal the page's live pageType (cross-arm probe guard
- * — a stale editor can't smuggle post-shaped content onto an author
- * row). Each entry replaces the corresponding locale's stored content
- * atomically.
- *
- * Slug uniqueness is intentionally NOT enforced here — the ADR
- * (Consequences → "Slug uniqueness re-validates at publish") allows two
- * pages to concurrently stage the same slug; publish rejects the second.
- */
-export const updateDraft = mutation({
-  args: {
-    pageId: v.id("pages"),
-    // Full staged content bag, one entry per locale being written. A locale
-    // omitted from the record leaves that locale's currently-staged (or
-    // currently-live) content untouched.
-    content: v.optional(v.record(v.string(), contentDraftInputValidator)),
-    expectedPresentationCatalogRevision: v.optional(v.string()),
-    slug: v.optional(v.string()),
-    localizedSlugs: v.optional(v.record(v.string(), v.string())),
-    seo: v.optional(seoValidator),
-    scheduledAt: v.optional(v.union(v.number(), v.null())),
-    template: v.optional(v.string()),
-    // Post-listing card surface (shared across arms per ADR-0037 §4).
-    showOnHomepage: v.optional(v.boolean()),
-    displayMode: v.optional(
-      v.union(v.literal("card"), v.literal("full"), v.literal("both"))
-    ),
-    cardImageMediaId: v.optional(v.id("media")),
-    cardExcerpt: v.optional(v.string()),
-    // Descriptor-generic shared fields. JSON is an explicit transport
-    // envelope rather than `v.any()`: the handler parses it, rejects keys
-    // outside the active descriptor, and lets the generated staging union
-    // validate the resulting values at the database boundary.
-    sharedFieldsJson: v.optional(v.string()),
-    // Post-arm descriptor sharedFields.
-    tags: v.optional(v.array(v.string())),
-    category: v.optional(v.union(v.string(), v.null())),
-    authorIds: v.optional(v.array(v.id("pages"))),
-    featured: v.optional(v.boolean()),
-    promoteToFront: v.optional(v.boolean()),
-    // Author-arm descriptor sharedFields.
-    name: v.optional(v.string()),
-    socials: v.optional(
-      v.union(
-        v.array(contentTypeDefs.author.sharedFields.socials.validator.element),
-        v.null()
-      )
-    ),
-    // Testimonial-arm descriptor sharedFields.
-    personName: v.optional(v.string()),
-    personRole: v.optional(v.union(v.string(), v.null())),
-    personCompany: v.optional(v.union(v.string(), v.null())),
-    personImage: v.optional(v.union(imagePrimitive().validator, v.null())),
-    sourceUrl: v.optional(v.union(v.string(), v.null())),
-    // Freshness token — references the current staging row's `updatedAt`.
-    // Lazy-create semantics: a token against a no-longer-existing staging
-    // row (post-promote) is treated as fresh so autosave can rebuild on
-    // top of the newly-live content (ADR-0041 §4).
-    expectedUpdatedAt: v.optional(v.number()),
-  },
-  returns: v.object({ updatedAt: v.number() }),
-  handler: async (ctx, args) => {
-    const writeOptions: WriteOptions = {}
-    await assertLegacyPublicationWriterBlocked(ctx, "pages.updateDraft")
-    await requireOperationAccess(ctx)
-    const page = await ctx.db.get("pages", args.pageId)
-    if (!page) throw new ConvexError("Page not found")
-    assertPageIsActiveForOrdinaryOperation(page, "edit")
-    const auth = await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
-    await requireHeldPageEditorLock(ctx, args.pageId, auth.tokenIdentifier)
-
-    // Cross-arm probe guard — a stale editor cannot smuggle post-shaped
-    // content onto an author row.
-    if (args.content !== undefined) {
-      for (const [locale, draft] of Object.entries(args.content)) {
-        if (draft.pageType !== page.pageType) {
-          throw new ConvexError(
-            `Cannot save ${draft.pageType} content on a ${page.pageType} page (locale '${locale}')`
-          )
-        }
-      }
-    }
-
-    const descriptor = contentTypeDefs[page.pageType]
-    const blockBody = descriptor.capabilities.blockBody
-    const staging = await getStagingByPageId(ctx, args.pageId)
-    assertStagingFresh(staging, args.expectedUpdatedAt)
-    const changesWorkingDraft = Object.entries(args).some(
-      ([key, value]) =>
-        key !== "pageId" && key !== "expectedUpdatedAt" && value !== undefined
-    )
-    if (changesWorkingDraft) {
-      await recordEditionDraftEdit(ctx, {
-        pageId: args.pageId,
-        actorId: auth.tokenIdentifier,
-      })
-    }
-
-    // ADR-0041 Deploy 3 (Narrow) — carry forward the `translation:manual`
-    // gate the retired `updateLocaleContent` enforced on new-locale
-    // creation. A custom role with `pages.<type>:update` but without
-    // `translation:manual` (reachable under ADR-0035/0036) must still be
-    // blocked from seeding a brand-new locale. Existing locales already
-    // present on either the live row or the staging working copy are
-    // treated as "editing", not creation, so no translation gate fires
-    // for them.
-    if (args.content !== undefined) {
-      const existingLive = page.content ?? {}
-      const existingStaging = (staging?.content ?? {}) as Record<
-        string,
-        unknown
-      >
-      for (const locale of Object.keys(args.content)) {
-        const isNewLocale =
-          existingLive[locale] === undefined &&
-          existingStaging[locale] === undefined
-        if (isNewLocale) {
-          await requirePermission(ctx, "translation:manual", {
-            ownerId: page.createdBy,
-          })
-          break
-        }
-      }
-    }
-
-    // ADR-0041 §7 ⚑4 — scheduling AND cancel-schedule both require
-    // `publish`. Scheduling is a delayed publish decision; cancelling
-    // undoes one — gated symmetrically. Detect either transition by
-    // comparing the incoming `scheduledAt` against the current staged
-    // value (staging is authoritative — a running staging row shadows
-    // the page's scheduledAt at Deploy 1's widening boundary too).
-    if (args.scheduledAt !== undefined) {
-      const currentStagedSchedule = staging?.scheduledAt
-      const nextSchedule = args.scheduledAt ?? undefined
-      const settingSchedule =
-        nextSchedule !== undefined && nextSchedule !== currentStagedSchedule
-      const cancellingSchedule =
-        nextSchedule === undefined && currentStagedSchedule !== undefined
-      if (settingSchedule || cancellingSchedule) {
-        await requirePagePermission(ctx, page.pageType, "publish", {
-          ownerId: page.createdBy,
-        })
-      }
-    }
-
-    // Rich-text and block-identity validation run per locale. The full block
-    // diff remains necessary to reject archived types from a draft save.
-    const nextContentByLocale: Record<string, Record<string, unknown>> = {}
-    let anyContentWrite = false
-    if (args.content !== undefined) {
-      const priorContent = (staging?.content ?? page.content ?? {}) as Record<
-        string,
-        unknown
-      >
-      const nextContentForDiff: Record<string, { blocks: readonly Block[] }> =
-        {}
-      const priorContentForDiff: Record<string, unknown> = {}
-      for (const [locale, draft] of Object.entries(args.content)) {
-        anyContentWrite = true
-        const localizedBag = writeFieldMap(
-          descriptor.localizedFields,
-          draft.localized as Record<string, unknown>,
-          writeOptions
-        )
-        validateFieldMapRichText(descriptor.localizedFields, localizedBag)
-        const nextBlocks: readonly Block[] | undefined =
-          blockBody && "blocks" in draft
-            ? draft.blocks.map(
-                (block) => writeBlockFields(block, locale, writeOptions).value
-              )
-            : undefined
-        if (nextBlocks !== undefined) {
-          validateUniqueBlockIds(nextBlocks)
-          validateBlocksRichText(nextBlocks)
-        }
-        nextContentByLocale[locale] = buildLocaleBlockFromDraft(
-          descriptor,
-          localizedBag,
-          nextBlocks
-        )
-        if (nextBlocks !== undefined) {
-          nextContentForDiff[locale] = { blocks: nextBlocks }
-          priorContentForDiff[locale] = priorContent[locale]
-        }
-      }
-      if (Object.keys(nextContentForDiff).length > 0) {
-        await requireBlockMutationsPermitted(
-          ctx,
-          diffBlockMutations(
-            priorContentForDiff as Record<
-              string,
-              { blocks?: readonly Block[] } | undefined
-            >,
-            nextContentForDiff
-          ),
-          {
-            // Keep the same cross-locale rule as pages.update. A save cannot
-            // bypass an unavailable block by addressing a different locale.
-            content: { ...priorContent, ...nextContentByLocale },
-            existingContent: priorContent,
-            operation: "edit",
-            expectedPresentationCatalogRevision:
-              args.expectedPresentationCatalogRevision,
-          }
-        )
-      }
-    }
-
-    // Compose the staging patch. Each optional arg follows the
-    // pages.update convention: `undefined` = untouched, `null` = clear.
-    const now = Date.now()
-    const stagedAt = staging ? nextUpdatedAt(staging.updatedAt, now) : now
-    const stagingPatch: Record<string, unknown> = { updatedAt: stagedAt }
-
-    if (args.slug !== undefined) stagingPatch.slug = args.slug
-    if (args.localizedSlugs !== undefined)
-      stagingPatch.localizedSlugs = args.localizedSlugs
-    if (args.seo !== undefined) stagingPatch.seo = args.seo
-    if (args.scheduledAt !== undefined)
-      stagingPatch.scheduledAt = args.scheduledAt ?? undefined
-    if (args.template !== undefined) stagingPatch.template = args.template
-    if (args.showOnHomepage !== undefined)
-      stagingPatch.showOnHomepage = args.showOnHomepage
-    if (args.displayMode !== undefined)
-      stagingPatch.displayMode = args.displayMode
-    if (args.cardImageMediaId !== undefined)
-      stagingPatch.cardImageMediaId = args.cardImageMediaId
-    if (args.cardExcerpt !== undefined)
-      stagingPatch.cardExcerpt = stripHtml(args.cardExcerpt)
-
-    if (args.sharedFieldsJson !== undefined) {
-      let genericSharedPatch: Record<string, unknown>
-      try {
-        genericSharedPatch = parseDescriptorSharedFieldPatch(
-          descriptor,
-          args.sharedFieldsJson,
-          SYSTEM_OWNED_SHARED_FIELDS
-        )
-      } catch (error) {
-        throw new ConvexError(
-          error instanceof Error ? error.message : "Invalid shared fields"
-        )
-      }
-      Object.assign(
-        genericSharedPatch,
-        writeFieldMap(descriptor.sharedFields, genericSharedPatch, writeOptions)
-      )
-      validateFieldMapRichText(descriptor.sharedFields, genericSharedPatch)
-      Object.assign(stagingPatch, genericSharedPatch)
-    }
-
-    // Dedicated sharedFields retain their existing business rules and
-    // relationship normalization. Generic descriptor fields use the envelope
-    // above, so adding one no longer requires another mutation argument.
-    const targetingPost = page.pageType === "post"
-    if (args.tags !== undefined) {
-      if (!targetingPost && args.tags.length > 0) {
-        throw new ConvexError(
-          `tags is only valid on pageType='post' (row is '${page.pageType}')`
-        )
-      }
-      if (targetingPost) {
-        stagingPatch.tags = await ensureTagsForLabels(ctx, args.tags)
-      }
-    }
-    if (args.category !== undefined) {
-      if (!targetingPost) {
-        if (args.category !== null && args.category.length > 0) {
-          throw new ConvexError(
-            `category is only valid on pageType='post' (row is '${page.pageType}')`
-          )
-        }
-      } else {
-        // Preserve `null` verbatim on staging — it is the "clear at
-        // publish" signal per the null-preservation rule. Publish
-        // + `overlayStagingOnPage` translate `null` → field-removal;
-        // collapsing to `undefined` here would silently drop the clear
-        // intent so the value would spring back after Save.
-        stagingPatch.category = args.category
-      }
-    }
-    if (args.authorIds !== undefined) {
-      if (!targetingPost && args.authorIds.length > 0) {
-        throw new ConvexError(
-          `authorIds is only valid on pageType='post' (row is '${page.pageType}')`
-        )
-      }
-      if (targetingPost) {
-        const effectivePage = overlayStagingOnPage(page, staging)
-        stagingPatch.authorIds =
-          (await resolvePageRelations(
-            ctx,
-            args.authorIds,
-            POST_BYLINE_ALLOWED_TYPES,
-            effectivePage.pageType === "post"
-              ? effectivePage.authorIds
-              : undefined
-          )) ?? null
-      }
-    }
-    if (args.featured !== undefined) {
-      if (!targetingPost) {
-        throw new ConvexError(
-          `featured is only valid on pageType='post' (row is '${page.pageType}')`
-        )
-      }
-      stagingPatch.featured = args.featured
-    }
-    if (args.promoteToFront !== undefined) {
-      if (!targetingPost) {
-        throw new ConvexError(
-          `promoteToFront is only valid on pageType='post' (row is '${page.pageType}')`
-        )
-      }
-      // Note: `autoUnsetOtherPromoteToFront` fires at publish time (§1
-      // Cross-row side effects) — not on save. Staging can hold the flag
-      // without unsetting other posts yet.
-      stagingPatch.promoteToFront = args.promoteToFront
-    }
-    const targetingAuthor = page.pageType === "author"
-    if (args.name !== undefined) {
-      if (!targetingAuthor) {
-        throw new ConvexError(
-          `name is only valid on pageType='author' (row is '${page.pageType}')`
-        )
-      }
-      const trimmed = args.name.trim()
-      if (trimmed.length === 0) {
-        throw new ConvexError("Author name cannot be empty")
-      }
-      stagingPatch.name = trimmed
-    }
-    if (args.socials !== undefined) {
-      if (!targetingAuthor) {
-        if (args.socials !== null && args.socials.length > 0) {
-          throw new ConvexError(
-            `socials is only valid on pageType='author' (row is '${page.pageType}')`
-          )
-        }
-      } else {
-        stagingPatch.socials =
-          args.socials === null
-            ? null
-            : writeFieldMap(descriptor.sharedFields, { socials: args.socials })
-                .socials
-      }
-    }
-    const targetingTestimonial = page.pageType === "testimonial"
-    if (args.personName !== undefined) {
-      if (!targetingTestimonial) {
-        throw new ConvexError(
-          `personName is only valid on pageType='testimonial' (row is '${page.pageType}')`
-        )
-      }
-      const trimmed = args.personName.trim()
-      if (trimmed.length === 0) {
-        throw new ConvexError("Testimonial personName cannot be empty")
-      }
-      stagingPatch.personName = trimmed
-    }
-    if (args.personRole !== undefined) {
-      if (!targetingTestimonial) {
-        if (args.personRole !== null && args.personRole.length > 0) {
-          throw new ConvexError(
-            `personRole is only valid on pageType='testimonial' (row is '${page.pageType}')`
-          )
-        }
-      } else {
-        stagingPatch.personRole = args.personRole
-      }
-    }
-    if (args.personCompany !== undefined) {
-      if (!targetingTestimonial) {
-        if (args.personCompany !== null && args.personCompany.length > 0) {
-          throw new ConvexError(
-            `personCompany is only valid on pageType='testimonial' (row is '${page.pageType}')`
-          )
-        }
-      } else {
-        stagingPatch.personCompany = args.personCompany
-      }
-    }
-    if (args.personImage !== undefined) {
-      if (!targetingTestimonial) {
-        if (args.personImage !== null) {
-          throw new ConvexError(
-            `personImage is only valid on pageType='testimonial' (row is '${page.pageType}')`
-          )
-        }
-      } else {
-        stagingPatch.personImage = args.personImage
-      }
-    }
-    if (args.sourceUrl !== undefined) {
-      if (!targetingTestimonial) {
-        if (args.sourceUrl !== null && args.sourceUrl.length > 0) {
-          throw new ConvexError(
-            `sourceUrl is only valid on pageType='testimonial' (row is '${page.pageType}')`
-          )
-        }
-      } else {
-        stagingPatch.sourceUrl = args.sourceUrl
-      }
-    }
-
-    // Merge the incoming content bags on top of prior staging content
-    // (per-locale overlay — an unedited locale keeps its prior bag). The
-    // arm-shape cast mirrors the pattern used in `restoreRevisionAsDraft`
-    // — pageType has been gated above so the merged record is arm-safe.
-    //
-    // Critical: on LAZY-CREATE (no staging row yet), the prior side must
-    // come from `page.content`, not `{}`. Publish does a wholesale
-    // `pages.content = staging.content` promote, and staging is the
-    // complete working copy — so an EN-only first-save on a live
-    // `{en, fr}` page must carry FR through untouched. Without this
-    // seed, publish would silently drop FR. Only `content` needs
-    // seeding; the other staged fields are individually optional and
-    // publish only promotes those explicitly present in staging.
-    let mergedContent: Record<string, unknown> | undefined
-    if (anyContentWrite) {
-      const priorSource =
-        staging?.content !== undefined ? staging.content : page.content
-      const prior = (priorSource ?? {}) as Record<string, unknown>
-      mergedContent = { ...prior }
-      for (const [locale, localeContent] of Object.entries(nextContentByLocale)) {
-        mergedContent[locale] = localeContent
-      }
-      stagingPatch.content = mergedContent
-    }
-
-    // §8 option (b) — denormalized effective titles for admin overlay.
-    // Rebuild from whatever content the row will hold after this patch
-    // (prior staging content overlaid with the incoming bags, or, on a
-    // fresh row with no content write, the live page's titles as a
-    // best-effort seed so the admin list has something to show).
-    const effectiveContentForTitles =
-      (mergedContent as Record<string, { title?: string }> | undefined) ??
-      (staging?.content as Record<string, { title?: string }> | undefined) ??
-      (page.content as Record<string, { title?: string }> | undefined)
-    const effectiveTitles = pickEffectiveTitles(effectiveContentForTitles)
-    if (effectiveTitles !== undefined) {
-      stagingPatch.effectiveTitles = effectiveTitles
-    }
-
-    if (staging) {
-      await occurrenceUsageWrites(ctx).patch("pageStaging", staging._id, stagingPatch)
-    } else {
-      // Lazy-create: seed the row with the page's arm + createdBy, then
-      // apply the patch on top. The `pageType` literal locks the arm at
-      // insert time so subsequent patches stay type-safe.
-      await occurrenceUsageWrites(ctx).insert("pageStaging", {
-        pageId: args.pageId,
-        pageType: page.pageType,
-        createdBy: auth.tokenIdentifier,
-        updatedAt: now,
-        ...stagingPatch,
-      } as Parameters<typeof ctx.db.insert<"pageStaging">>[1])
-    }
-
-    // No revision creation (§6 — rollback lands at PUBLISH time), no
-    // `refreshPageReferences` / `syncPageSearch` /
-    // `revalidatePage` — those are publish-time fan-out (§Consequences)
-    // and staging edits do not touch them. `create` / `duplicate` /
-    // `publish` seed the reference + search tables with the correct
-    // staging overlay; `updateDraft` autosaves ride that seed until
-    // publish. This keeps autosave cheap (no O(locales) writes per
-    // save) and preserves PR A's decision.
-
-    return { updatedAt: stagedAt }
-  },
-})
-
-/**
- * The promote body shared by the public `publish` mutation and the
- * scheduled-publish cron (ADR-0041 Deploy 2 PR B). Given a page + its
- * staging row + the merged nextPage (per `overlayStagingOnPage`) + a
- * validated pre-publish checklist, this compose-and-write helper:
- *
- *   1. Re-checks slug uniqueness against the live tree (two pages can
- *      concurrently stage the same slug — first-to-publish wins).
- *   2. Composes the promote patch (status/publishedAt + every staging
- *      field, with descriptor sharedField null-preservation).
- *   3. Runs the sticky auto-unset for `promoteToFront`.
- *   4. Archives the outgoing snapshot as a revision (`reason` + actor).
- *   5. Patches the page, refreshes references + search,
- *      rebuilds descendant ancestry if the slug changed, schedules a
- *      revalidate, and deletes the staging row.
- *
- * The caller is responsible for auth and for pre-computing checklist
- * (throwing / graceful-clearing scheduledAt is the caller's policy).
- *
- * Split point rationale: the public `publish` throws on a failed checklist;
- * the cron catches it and clears `staging.scheduledAt` so a permanently
- * unpublishable page doesn't hot-loop the cron every minute (advisor
- * caught this class of bug in Deploy 1). Keeping the checklist call OUT
- * of this helper lets each caller apply its own recovery policy.
- */
-async function performPublish(
-  ctx: MutationCtx,
-  args: {
-    page: Doc<"pages">
-    staging: Doc<"pageStaging">
-    storedStaging: Doc<"pageStaging">
-    checklist: PrePublishChecklist
-    reason: "publish" | "scheduled_publish"
-    actorUserId: string | undefined
-    cfg: LocaleConfig
-    workflowApproval?: EditionPublishApproval
-  },
-  writeOptions: WriteOptions = {}
-): Promise<{ updatedAt: number }> {
-  const { page, checklist, reason, actorUserId, cfg } = args
-  assertContentTypeIsActive(page.pageType, "publish")
-  await assertBoundedPilotCanPublish(ctx, page.status === "published")
-  const repairedStaging = withRepairedStagingBlockIds(args.staging)
-  const staging = {
-    ...repairedStaging,
-    ...(repairedStaging.content
-      ? {
-          content: writePageContent(page.pageType, repairedStaging.content, {
-            ...writeOptions,
-            readLegacyShapes: true,
-            trustedSource: {
-              recordId: args.staging._id,
-              version: args.staging.updatedAt,
-              content: args.storedStaging.content,
-              repairedIdentityContent: repairedStaging.content,
-            },
-          }).value,
-        }
-      : {}),
-  } as Doc<"pageStaging">
-  const workflowApproval =
-    args.workflowApproval ??
-    (await assertEditionCanPublish(ctx, {
-      page,
-      staging: args.staging,
-    }))
-  const repairedSourcePage = withRepairedPageBlockIds(page)
-  const repairedPage = {
-    ...repairedSourcePage,
-    content: writePageContent(page.pageType, repairedSourcePage.content, {
-      ...writeOptions,
-      readLegacyShapes: true,
-      trustedSource: {
-        recordId: page._id,
-        version: page.updatedAt,
-        content: page.content,
-        repairedIdentityContent: repairedSourcePage.content,
-      },
-    }).value,
-  } as Doc<"pages">
-  const nextPage = overlayStagingOnPage(repairedPage, staging)
-  // Existing legacy publication retains stored Working Draft choices. Inspect
-  // the live bag too so a draft cannot hide malformed or absent-Type content.
-  await assertBlockMutationIntegrity(
-    ctx,
-    diffBlockMutations(page.content, page.content),
-    { existingContent: page.content, operation: "publish" }
-  )
-  await assertBlockMutationIntegrity(
-    ctx,
-    diffBlockMutations(nextPage.content, nextPage.content),
-    {
-      existingContent: nextPage.content,
-      content: nextPage.content,
-      operation: "publish",
-    }
-  )
-  const pageId = page._id
-
-  // URLs before this publish, so a slug/parent change purges the old
-  // locations too.
-  const oldPublicUrls = Object.values(localizedUrlsForPage(page, cfg))
-
-  // Re-run slug uniqueness against the LIVE tree — two pages can
-  // concurrently stage the same slug per ADR Consequences; the first
-  // to publish wins.
-  //
-  // Collect every changed slug first, then validate them in a single table
-  // scan. This previously ran one full scan per changed slug, so publishing a
-  // three-locale page scanned the `pages` table four times.
-  const changedSlugs: string[] = []
-  if (nextPage.slug !== page.slug) {
-    changedSlugs.push(nextPage.slug)
-  }
-  if (nextPage.localizedSlugs) {
-    for (const [locale, ls] of Object.entries(nextPage.localizedSlugs)) {
-      const before = page.localizedSlugs?.[locale]
-      if (ls && ls !== before) {
-        changedSlugs.push(ls)
-      }
-    }
-  }
-  await ensureSlugsUnique(ctx, changedSlugs, pageId)
-
-  // Publish is universally the make-live verb — flip status regardless
-  // of prior draft/archived state (§7).
-  const now = Date.now()
-  const wasPublished = page.status === "published"
-  const editToken = nextUpdatedAt(page.updatedAt, now)
-  const patch: Record<string, unknown> = {
-    updatedAt: editToken,
-    status: "published",
-    publishedAt: wasPublished ? page.publishedAt : now,
-  }
-  // Fold every staging field into the live-row patch. `overlayStagingOnPage`
-  // already computed the merged shape; re-derive the patch diff so we only
-  // send the actual overrides to `ctx.db.patch`.
-  if (staging.content !== undefined) {
-    patch.content = staging.content
-  } else if (repairedPage.content !== page.content) {
-    patch.content = repairedPage.content
-  }
-  if (staging.slug !== undefined) patch.slug = staging.slug
-  if (staging.localizedSlugs !== undefined)
-    patch.localizedSlugs = staging.localizedSlugs
-  if (staging.seo !== undefined) patch.seo = staging.seo
-  if (staging.template !== undefined) patch.template = staging.template
-  if (staging.showOnHomepage !== undefined)
-    patch.showOnHomepage = staging.showOnHomepage
-  if (staging.displayMode !== undefined) patch.displayMode = staging.displayMode
-  if (staging.cardImageMediaId !== undefined)
-    patch.cardImageMediaId = staging.cardImageMediaId
-  if (staging.cardExcerpt !== undefined) patch.cardExcerpt = staging.cardExcerpt
-
-  // Null-preservation rule (ADR-0041 shared-field clear semantics):
-  // `null` on staging is the "clear this field at publish" signal —
-  // translate to `undefined` so Convex actually removes the field
-  // from the row. `undefined` on staging = "no change". Any other
-  // value replaces. Matches `overlayStagingOnPage` — the two must
-  // agree.
-  const descriptor = contentTypeDefs[page.pageType]
-  for (const key of Object.keys(descriptor.sharedFields)) {
-    const value = (staging as unknown as Record<string, unknown>)[key]
-    if (value === undefined) continue
-    patch[key] = value === null ? undefined : value
-  }
-
-  Object.assign(
-    patch,
-    writeFieldMap(descriptor.sharedFields, patch, writeOptions)
-  )
-
-  // Sticky auto-unset (plan 029 C10 task 10) — same discipline as
-  // `pages.update`: run when the promoted staging flag is `true` and
-  // the row previously did not hold it.
-  if (
-    page.pageType === "post" &&
-    (staging as unknown as { promoteToFront?: boolean }).promoteToFront === true
-  ) {
-    await autoUnsetOtherPromoteToFront(ctx, pageId)
-  }
-
-  // ADR §6 — publish archives the OUTGOING live snapshot. First
-  // publish (never-published) archives the empty row per §6 (revisions
-  // UI may hide it). Scheduled publishes get the cron-canonical summary
-  // instead of the interactive diff.
-  const summary =
-    reason === "scheduled_publish"
-      ? ["Published automatically from scheduled publish time"]
-      : summarizePageChange(page, nextPage as Doc<"pages">)
-  await createPageRevision(
-    ctx,
-    page,
-    reason,
-    actorUserId,
-    summary,
-    snapshotPrePublishChecklist(checklist)
-  )
-
-  await occurrenceUsageWrites(ctx).patch("pages", pageId, patch as Partial<Doc<"pages">>)
-  const finalPage = { ...page, ...patch } as Doc<"pages">
-  await refreshPageReferences(ctx, finalPage)
-  await syncPageSearch(ctx, finalPage)
-
-  // Deploy 1: publish + `update` are additive siblings; if publish
-  // changes the base slug (rare here since it's the same slug moving
-  // from staging to live), rebuild descendant ancestry to match.
-  // Deploy 3 (Narrow): also rebuild when the localizedSlugs bag
-  // changes shape or value — the retired `updateLocaleContent` did
-  // both, and the ancestry cascade for a parent's per-locale slug
-  // override belongs here now that publish is the only writer.
-  const baseSlugChanged = page.slug !== finalPage.slug
-  const localizedSlugsChanged =
-    JSON.stringify(page.localizedSlugs ?? {}) !==
-    JSON.stringify(finalPage.localizedSlugs ?? {})
-  if (baseSlugChanged || localizedSlugsChanged) {
-    await rebuildDescendantAncestry(ctx, pageId, cfg)
-  }
-
-  await ctx.scheduler.runAfter(0, internal.cms.revalidate.revalidatePage, {
-    pageId,
-    extraPaths: oldPublicUrls,
-  })
-
-  await recordEditionPublished(ctx, {
-    pageId,
-    approval: workflowApproval,
-    actorId: actorUserId,
-    origin: reason === "scheduled_publish" ? "scheduled" : "interactive",
-  })
-
-  // Clear the staging row — atomic per §9 (publish is one of the three
-  // deterministic deletion paths).
-  await occurrenceUsageWrites(ctx).delete("pageStaging", staging._id)
-
-  return { updatedAt: editToken }
-}
-
-/**
- * Promote a page's staging row to live (ADR-0041 §3). Publish is
- * ALWAYS the make-live verb — on an archived page, it also returns
- * `status` to `published` (§7). Deletes the staging row on success.
- *
- * Not gated by the editor lock: a reviewer must be able to publish
- * without displacing the editor holding it.
- */
-export const publish = mutation({
-  args: {
-    pageId: v.id("pages"),
-    // No `expectedUpdatedAt` — publish is not a save. Reviewers may
-    // publish out from under an in-flight editor; the ADR spells out the
-    // subsequent autosave-rebuilds-fresh-staging semantics in §4.
-  },
-  returns: v.object({ updatedAt: v.number() }),
-  handler: async (ctx, args) => {
-    const { pageId } = args
-    const writeOptions: WriteOptions = {}
-    await requireOperationAccess(ctx)
-    await assertLegacyPublicationWriterBlocked(ctx, "pages.publish")
-    const page = await ctx.db.get("pages", pageId)
-    if (!page) throw new ConvexError("Page not found")
-    assertPageIsActiveForOrdinaryOperation(page, "publish")
-    const auth = await requirePagePermission(ctx, page.pageType, "publish", {
-      ownerId: page.createdBy,
-    })
-    const storedStaging = await getStagingByPageId(ctx, pageId)
-    if (!storedStaging) {
-      throw new ConvexError(
-        "Nothing to publish — no staged changes for this page."
-      )
-    }
-    const staging = withRepairedStagingBlockIds(storedStaging)
-
-    const cfg = await getLocaleConfig(ctx)
-    const nextPage = overlayStagingOnPage(page, staging)
-
-    // Pre-publish checklist walks the merged staged content so a broken
-    // relation or missing required field surfaces here (mid-mutation
-    // reject with clean error) instead of after the publish landed.
-    const checklist = await assertPrePublishAllowed(ctx, nextPage, cfg)
-
-    return await performPublish(
-      ctx,
-      {
-        page,
-        staging,
-        storedStaging,
-        checklist,
-        reason: "publish",
-        actorUserId: auth.tokenIdentifier,
-        cfg,
-      },
-      writeOptions
-    )
-  },
-})
-
-/**
- * Discard a page's staging row (ADR-0041 §9 path 2). Reverts to the
- * live snapshot on a published page; on a never-published page it
- * deletes the only copy of the content — the confirmation UX has to
- * carry that distinction ("Delete all content for this page?", not
- * "Discard changes?"), enforced in the client per ADR §9.
- *
- * Gated by `update` + hard lock (§4). Discard follows update rather
- * than a new `discard` permission per ADR §4 ("anyone who could have
- * made the changes can revert them").
- */
-export const discardDraft = mutation({
-  args: { pageId: v.id("pages") },
-  returns: v.null(),
-  handler: async (ctx, { pageId }) => {
-    await requireOperationAccess(ctx)
-    await assertLegacyPublicationWriterBlocked(ctx, "pages.discardDraft")
-    const page = await ctx.db.get("pages", pageId)
-    if (!page) throw new ConvexError("Page not found")
-    assertPageIsActiveForOrdinaryOperation(page, "edit")
-    const auth = await requirePagePermission(ctx, page.pageType, "update", {
-      ownerId: page.createdBy,
-    })
-    await requireHeldPageEditorLock(ctx, pageId, auth.tokenIdentifier)
-    await recordEditionDraftDiscard(ctx, {
-      pageId,
-      actorId: auth.tokenIdentifier,
-    })
-    await deleteStagingByPageId(ctx, pageId)
-    // No fan-out here — matches PR A's decision that staging edits stay
-    // off the reference / search path. For a never-published
-    // draft this leaves stale rows behind from `create`'s seed; those
-    // are picked up on next save or on hard delete via
-    // `deletePageSearch` + `clearPageReferences`. Cleanup can move here
-    // in a follow-up if needed (owner call — the alternative "fan out
-    // on discard" adds O(locales) writes to a rare action).
-    return null
-  },
-})
-
-/**
- * ADR-0041 §9 path 4 — abandoned-staging TTL sweep. One batch of at
- * most `STAGING_SWEEP_BATCH_SIZE` candidates per tick; reschedules
- * itself when more work may be queued (same discipline as
- * `processScheduledTransitions`).
- *
- * Two ADR-mandated exemptions:
- *
- *   (a) **Future `scheduledAt`** — a staging row scheduled 90 days out
- *       and never re-edited must NOT be swept, or the scheduled publish
- *       silently disappears.
- *   (b) **Never-published pages** — after the Deploy 2 hoist runs, a
- *       never-published page's `pages.content` is empty and no revision
- *       exists; the staging row is the sole copy of the content. In
- *       Deploy 1 the hoist has not run yet, so most never-published
- *       pages still have their content on `pages`, but the exemption is
- *       still correct: for pages that WERE staged post-Deploy-1 without
- *       ever being published, staging holds work the live row does not.
- */
-export const sweepAbandonedStaging = internalMutation({
-  args: {
-    // Pagination cursor threaded across reschedules so exempt rows are
-    // STEPPED PAST rather than re-fetched. Without this, a wall of
-    // never-published staging rows (all exempt per ⚑2, all clustered
-    // at the front of `by_updatedAt` because they're the oldest) would
-    // starve the sweep: `.take(N)` returns the same 25 exempt rows every
-    // reschedule, `deleted = 0`, `hasMore` stays true, loop forever.
-    // First call passes no cursor; each self-reschedule advances it.
-    cursor: v.optional(v.union(v.string(), v.null())),
-  },
-  returns: v.object({
-    scanned: v.number(),
-    deleted: v.number(),
-    hasMore: v.boolean(),
-  }),
-  handler: async (ctx, { cursor }) => {
-    if (!(await shouldRunLegacyPageCron(ctx))) {
-      return { scanned: 0, deleted: 0, hasMore: false }
-    }
-    await assertLegacyPublicationWriterBlocked(
-      ctx,
-      "pages.sweepAbandonedStaging"
-    )
-    const now = Date.now()
-    const cutoff = now - STAGING_ABANDONED_TTL_MS
-    const result = await ctx.db
-      .query("pageStaging")
-      .withIndex("by_updatedAt", (q) => q.lte("updatedAt", cutoff))
-      .paginate({
-        numItems: STAGING_SWEEP_BATCH_SIZE,
-        cursor: cursor ?? null,
-      })
-    let deleted = 0
-    for (const staging of result.page) {
-      // Exemption (a): a future scheduledAt keeps the row alive.
-      if (staging.scheduledAt !== undefined && staging.scheduledAt > now) {
-        continue
-      }
-      // Exemption (b): never-published pages keep their staging row
-      // indefinitely — page.publishedAt undefined AND status !== "published"
-      // (a page whose status was archived after being published still
-      // has publishedAt set, so this catches only the never-published
-      // case per ADR §9 ⚑2).
-      const page = await ctx.db.get("pages", staging.pageId)
-      if (!(await canEditionSweepStaging(ctx, staging.pageId))) {
-        continue
-      }
-      if (
-        page &&
-        page.publishedAt === undefined &&
-        page.status !== "published"
-      ) {
-        continue
-      }
-      await occurrenceUsageWrites(ctx).delete("pageStaging", staging._id)
-      deleted += 1
-    }
-    const hasMore = !result.isDone
-    if (hasMore) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.cms.pages.sweepAbandonedStaging,
-        { cursor: result.continueCursor }
-      )
-    }
-    return { scanned: result.page.length, deleted, hasMore }
   },
 })

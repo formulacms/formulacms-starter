@@ -1,5 +1,6 @@
 vi.mock("@/lib/preview-build-id", () => ({ PREVIEW_BUILD_ID: "test-build" }))
 import { blockProfile } from "@/test-utils/block-profile"
+import { isActiveContentType } from "@/convex/lib/contentTypes"
 import { capturePageField } from "./page-editor/lib/page-inline-draft"
 import { useEffect, useLayoutEffect } from "react"
 import { act, fireEvent } from "@testing-library/react"
@@ -221,7 +222,7 @@ describe("Page iframe consumer", () => {
       expect(view.props.onOpenSavedPreview).toHaveBeenCalledOnce()
     }
   )
-  it("sends the unsaved author fields and Post author selection to the frame", () => {
+  it.runIf(isActiveContentType("post"))("sends the unsaved author fields and Post author selection to the frame", () => {
     const sharedFieldValues = { name: "Ada", socials: [] }
     const localizedFieldValues = { roleTitle: "Editor" }
     const authorIds = ["author-1", "author-2"]
@@ -242,7 +243,7 @@ describe("Page iframe consumer", () => {
       expect.anything()
     )
   })
-  it.each(["page", "post", "author"])("gives a %s the same live frame a Landing page gets, bound to its own type", (pageType) => {
+  it.each(["page", "post", "author"].filter(isActiveContentType))("gives a %s the same live frame a Landing page gets, bound to its own type", (pageType) => {
     const view = setup({ pageType })
     expect(view.container.querySelector("iframe")).not.toBeNull()
     expect(view.queryByText(/live preview is not available/)).toBeNull()

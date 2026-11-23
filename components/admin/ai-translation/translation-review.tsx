@@ -10,7 +10,6 @@ import { Check, X } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { Button } from "@/components/ui/button"
 import type { Locale } from "@/lib/i18n/config"
-import type { LocaleContentSummary } from "../page-editor/lib/types"
 import type { PageJob } from "../ai-writing/page-jobs"
 import type { AdminAiTranslationHostInput } from "../contributions/ai-translation"
 
@@ -46,13 +45,13 @@ const isCode = (error: unknown, code: string) =>
 export function TranslationReview({
   job,
   dismiss,
-  getLocaleSummary,
+  hasUnsavedTarget,
   ensureSaved,
   beginSavedLanguage,
 }: {
   job: PageJob
   dismiss: () => Promise<void>
-  getLocaleSummary: (locale: Locale) => LocaleContentSummary
+  hasUnsavedTarget: (locale: Locale) => boolean
   ensureSaved: () => Promise<boolean>
   beginSavedLanguage?: AdminAiTranslationHostInput["beginSavedLanguage"]
 }) {
@@ -94,7 +93,7 @@ export function TranslationReview({
 
   async function acceptAll() {
     // Text typed in the target language and not yet saved would be lost.
-    if (getLocaleSummary(target).hasAny) {
+    if (hasUnsavedTarget(target)) {
       setConflict(true)
       return
     }

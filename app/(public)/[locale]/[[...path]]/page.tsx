@@ -7,10 +7,8 @@ import { cookies, draftMode } from "next/headers"
 import type { Metadata } from "next"
 import type { Id } from "@/convex/_generated/dataModel"
 import type { Block } from "@/convex/lib/blocks"
-import {
-  collectImageStorageIds,
-  applyFreshImageUrls,
-} from "@/lib/blocks/media-urls"
+import { refreshBlockImageUrls } from "@/lib/blocks/media-urls"
+import { readInIdGroups } from "@/lib/cms/batched-read"
 import { buildBlockRenderContext } from "@/lib/blocks/render-context"
 import { toPublicPath } from "@/lib/pages/url"
 import {
@@ -184,10 +182,12 @@ const loadStorageUrls = cache((storageIds: Id<"_storage">[]) =>
   storageIds.length === 0
     ? Promise.resolve({} as Record<string, string>)
     : cachedCmsRead(
+        // One cache entry for the page; the reads go in groups of at most
+        // ID_BATCH_MAX ids, the most one batch read accepts.
         () =>
-          fetchQuery(api.cms.media.getStorageUrls, {
-            storageIds,
-          }),
+          readInIdGroups(storageIds, (group) =>
+            fetchQuery(api.cms.media.getStorageUrls, { storageIds: group })
+          ),
         ["cms-storage-urls", ...storageIds.map(String).toSorted()],
         {} as Record<string, string>,
         [CMS_TAGS.media]
@@ -207,16 +207,6 @@ function normalizeRoutePath(
     return path.slice(1)
   }
   return path
-}
-
-async function refreshBlockImageUrls(blocks: Block[]): Promise<Block[]> {
-  const ids = new Set<Id<"_storage">>()
-  collectImageStorageIds(blocks, ids)
-  if (ids.size === 0) return blocks
-
-  const urls = await loadStorageUrls([...ids])
-  if (Object.keys(urls).length === 0) return blocks
-  return applyFreshImageUrls(blocks, urls) as Block[]
 }
 
 // Keep a complete route inventory for builds/tools. Published rendering remains
@@ -490,7 +480,10 @@ async function renderCmsPage(
     }
   }
 
-  const blocks = await refreshBlockImageUrls(content.blocks ?? [])
+  const blocks = await refreshBlockImageUrls<Block[]>(
+    content.blocks ?? [],
+    loadStorageUrls
+  )
 
   // Public bylines: only for posts with assigned authors. `getPublicByline`
   // returns `null` for draft/archived/soft-deleted author pages, so drafts

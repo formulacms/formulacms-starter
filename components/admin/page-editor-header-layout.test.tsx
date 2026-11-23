@@ -76,7 +76,6 @@ vi.mock("@/components/admin/command-palette", () => ({
   },
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({ DuplicatePageDialog: () => null }))
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: () => null,
 }))
@@ -139,6 +138,19 @@ test.each(scenarios)(
         page={page}
         hasStaging={false}
         stagingUpdatedAt={undefined}
+        publication={{
+          authority: "snapshot_active",
+          lifecycleGeneration: 3,
+          sharedDraftGeneration: 4,
+          locales: ["en", "fr"].map((entry) => ({
+            locale: entry,
+            state: "published" as const,
+            path: "/about",
+            draftGeneration: 2,
+            publicGeneration: 1,
+            releaseGeneration: 1,
+          })),
+        }}
       />,
       { locale }
     )
@@ -151,7 +163,7 @@ test.each(scenarios)(
     const readiness = controls.getByRole("button", {
       name: `${messages.editor.readiness.title}: ${messages.editor.readiness.readyShort}`,
     })
-    const published = controls.getByText(copy.status.published)
+    const published = controls.getByText(messages.pages.list.rowStatus.published)
 
     // One layout owner allocates the whole title row before toolbar wrapping.
     expect(header).toHaveClass("sm:flex-col", "sm:items-stretch")

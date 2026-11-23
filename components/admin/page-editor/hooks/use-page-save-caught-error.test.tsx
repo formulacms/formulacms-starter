@@ -11,7 +11,7 @@ import type { Page } from "../lib/types"
 import {
   usePageSave,
   type PageSaveDraft,
-  type UpdateDraft,
+  type SaveSnapshotEditorDraft,
 } from "./use-page-save"
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
@@ -63,8 +63,8 @@ it.each([
   ["en", false, true],
   ["fr", false, true],
 ] as const)(
-  "save failure %s coded=%s blank FR snapshot=%s keeps draft and displays translated safe copy",
-  async (locale, coded, snapshot) => {
+  "save failure %s coded=%s blank FR=%s keeps draft and displays translated safe copy",
+  async (locale, coded, blankFrench) => {
     const messages = locale === "fr" ? fr : en
     const error = coded
       ? new ConvexError({
@@ -72,13 +72,14 @@ it.each([
           message: "Private server slug diagnostic",
         })
       : new Error("Private server slug diagnostic")
-    const updateDraft = vi.fn<UpdateDraft>().mockRejectedValue(error)
-    const saveSnapshotDraft = vi.fn().mockRejectedValue(error)
+    const saveSnapshotDraft = vi
+      .fn<SaveSnapshotEditorDraft>()
+      .mockRejectedValue(error)
     const onSaveConflict = vi.fn(async () => undefined)
     const hook = renderHook(
       ({ draft }) =>
         usePageSave({
-          page: snapshot
+          page: blankFrench
             ? {
                 ...page,
                 content: {
@@ -88,13 +89,12 @@ it.each([
               }
             : page,
           defaultLocale: "en",
-          currentLocale: snapshot ? "fr" : "en",
+          currentLocale: blankFrench ? "fr" : "en",
           initialPageDraftHandoff: null,
           draft,
           hasStaging: false,
           stagingUpdatedAt: undefined,
-          updateDraft,
-          saveSnapshotDraft: snapshot ? saveSnapshotDraft : undefined,
+          saveSnapshotDraft,
           publishPage: vi.fn(async () => ({ updatedAt: 500 })),
           discardDraft: vi.fn(async () => null),
           updatePage: vi.fn(async () => ({ updatedAt: 102 })),
@@ -115,14 +115,14 @@ it.each([
       }
     )
     hook.rerender({
-      draft: { ...draft, title: snapshot ? "" : "Changed title" },
+      draft: { ...draft, title: blankFrench ? "" : "Changed title" },
     })
     let saved: boolean | undefined
     await act(async () => {
       saved = await hook.result.current.save()
     })
     expect(saved).toBe(false)
-    expect(snapshot ? saveSnapshotDraft : updateDraft).toHaveBeenCalled()
+    expect(saveSnapshotDraft).toHaveBeenCalled()
     expect(toast.error).toHaveBeenCalledTimes(1)
     expect(hook.result.current.hasUnsaved).toBe(true)
     expect(onSaveConflict).not.toHaveBeenCalled()
@@ -141,8 +141,8 @@ it.each(["en", "fr"] as const)(
   "a server SLUG_REQUIRED on a save shows the address message: %s",
   async (locale) => {
     const messages = locale === "fr" ? fr : en
-    const updateDraft = vi
-      .fn<UpdateDraft>()
+    const saveSnapshotDraft = vi
+      .fn<SaveSnapshotEditorDraft>()
       .mockRejectedValue(new ConvexError("SLUG_REQUIRED"))
     const hook = renderHook(
       ({ draft }) =>
@@ -154,7 +154,7 @@ it.each(["en", "fr"] as const)(
           draft,
           hasStaging: false,
           stagingUpdatedAt: undefined,
-          updateDraft,
+          saveSnapshotDraft,
           publishPage: vi.fn(async () => ({ updatedAt: 500 })),
           discardDraft: vi.fn(async () => null),
           updatePage: vi.fn(async () => ({ updatedAt: 102 })),
@@ -201,7 +201,7 @@ it.each(["en", "fr"] as const)(
           draft,
           hasStaging: false,
           stagingUpdatedAt: undefined,
-          updateDraft: vi.fn<UpdateDraft>(),
+          saveSnapshotDraft: vi.fn<SaveSnapshotEditorDraft>(),
           publishPage: vi.fn(async () => ({ updatedAt: 500 })),
           discardDraft: vi.fn(async () => null),
           updatePage,

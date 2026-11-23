@@ -1,4 +1,3 @@
-import { moneyInteger } from "../../lib/ai/price-quote"
 import { nextUpdatedAt } from "../lib/versions"
 import { ConvexError, v } from "convex/values"
 import { recordPublicChange } from "../lib/language/freshness"
@@ -54,7 +53,7 @@ import {
   type ApiModelTuple,
   type TaskProfile,
 } from "../../lib/ai/execution-contract"
-import { getSingleSettings, requirePermission } from "./settings"
+import { getSingleSettings } from "./settings"
 
 /** The time a Settings read checks retirement and price end dates against.
  * The screen passes none; tests pass a fixed value. */
@@ -371,7 +370,7 @@ export const setProductionAiConfiguration = mutation({
     { selectedProvider, providerDefaults, taskDefaults }
   ) => {
     await requireOwnerAndOptionalModule(ctx, "ai", { requireReady: false })
-    await requirePermission(ctx, "settings:update")
+    await requireOperationAccess(ctx)
     const existing = await getSingleSettings(ctx)
     if (!existing) {
       throw new ConvexError("Site settings not initialized yet.")
@@ -471,21 +470,6 @@ export const setProductionAiConfiguration = mutation({
       // F09 invariant 6: every siteSettings write, public or not.
       await recordPublicChange(ctx, { scopes: [] })
     }
-    return null
-  },
-})
-
-export const setMonthlyAiCap = mutation({
-  args: { capMicros: v.number() },
-  returns: v.null(),
-  handler: async (ctx, { capMicros }) => {
-    await requireOwnerAndOptionalModule(ctx, "ai", { requireReady: false })
-    moneyInteger(capMicros)
-    const settings = await getSingleSettings(ctx)
-    if (!settings) throw new ConvexError("Site settings not initialized yet.")
-    await ctx.db.patch("siteSettings", settings._id, {
-      aiMonthlyCapMicros: capMicros,
-    })
     return null
   },
 })

@@ -52,7 +52,6 @@ export default defineConfig({
             "**/.reference/**",
             "**/.kilo/**",
             "**/.handoffs/**",
-            "**/scripts/starter/overlay/convex/edition/roles.test.ts",
             "**/*.node.test.ts",
             "**/*.test.tsx",
           ],

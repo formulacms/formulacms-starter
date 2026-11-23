@@ -11,7 +11,7 @@ import { resolveRuntimeSelection } from "./lib/aiConfig"
 import { createRuntimeAccounting, resolveAiModuleReadiness, resolveAiSettingsStatus } from "./lib/ai"
 import type { ActionCtx } from "./_generated/server"
 import { executeGeneration } from "../lib/ai/execute-generation"
-import { recordProviderObservation } from "./cms/ai"
+import { currentMonth, recordProviderObservation } from "./cms/ai"
 import {
   createOptionalModuleGate,
   type ModuleReadinessProvider,
@@ -832,7 +832,17 @@ test("parked cap admits and records spend above five dollars", async () => {
     },
   })
   expect(next.admitted).toBe(true)
-  const month = await t.query(internal.cms.ai.monthStatus, { now: Date.now() })
+  const month = await t.run(async (ctx) => {
+    const month = await currentMonth(ctx, Date.now())
+    const spentMicros = month.row?.spentMicros ?? 0
+    const reservedMicros = month.row?.reservedMicros ?? 0
+    const total = BigInt(spentMicros) + BigInt(reservedMicros)
+    const cap = BigInt(month.capMicros)
+    return {
+      monthKey: month.monthKey, spentMicros, reservedMicros, capMicros: month.capMicros,
+      status: total >= cap ? "reached" : total * 5n >= cap * 4n ? "warn80" : "below",
+    }
+  })
   expect(month).toMatchObject({
     spentMicros: 6_000_000,
     capMicros: Number.MAX_SAFE_INTEGER,

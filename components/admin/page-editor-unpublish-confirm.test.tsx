@@ -86,7 +86,6 @@ vi.mock("@/components/admin/command-palette", () => ({
   },
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({ DuplicatePageDialog: () => null }))
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: () => null,
 }))
@@ -150,17 +149,13 @@ function publication(entries: Entry[]) {
   }
 }
 
-function mount(
-  entries: Entry[],
-  snapshot = true,
-  status: Page["status"] = "published"
-) {
+function mount(entries: Entry[], status: Page["status"] = "published") {
   return render(
     <PageEditor
       page={page(status)}
       hasStaging={false}
       stagingUpdatedAt={undefined}
-      publication={snapshot ? publication(entries) : undefined}
+      publication={publication(entries)}
     />
   )
 }
@@ -298,22 +293,13 @@ describe("PageEditor Unpublish asks first", () => {
     expect(withdraw()).not.toHaveBeenCalled()
   })
 
-  it("offers Duplicate only under legacy authority", () => {
-    const snapshot = mount([
-      { locale: "en", state: "published", path: "/about" },
-    ])
+  it("offers no Duplicate in the menu", () => {
+    mount([{ locale: "en", state: "published", path: "/about" }])
     openMenu()
     expect(screen.getByRole("menuitem", { name: copy.unpublish })).toBeTruthy()
-    expect(screen.queryByRole("menuitem", { name: copy.duplicate })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: /duplicate/i })).toBeNull()
     // No stray separator between the "Page" label and Unpublish.
     expect(screen.queryByRole("separator")).toBeNull()
-    snapshot.unmount()
-
-    mount([], false)
-    openMenu()
-    expect(
-      screen.getByRole("menuitem", { name: copy.duplicate })
-    ).toBeInTheDocument()
   })
 })
 
@@ -335,7 +321,6 @@ describe("PageEditor Publish right after an Unpublish", () => {
   it("publishes the saved version when the language has one but no draft row", async () => {
     mount(
       [{ locale: "en", state: "draft", path: "/about" }],
-      true,
       "draft"
     )
     const publish = publishButton()
@@ -359,7 +344,6 @@ describe("PageEditor Publish right after an Unpublish", () => {
   it("keeps Publish off when the language has nothing to publish", () => {
     mount(
       [{ locale: "en", state: "not_translated", path: null }],
-      true,
       "draft"
     )
     const publish = publishButton()

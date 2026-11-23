@@ -82,7 +82,6 @@ vi.mock("@/components/admin/command-palette", () => ({
   },
 }))
 
-vi.mock("./duplicate-page-dialog", () => ({ DuplicatePageDialog: () => null }))
 vi.mock("./content-type-fields-panel", () => ({
   ContentTypeFieldsPanel: () => null,
 }))
@@ -166,6 +165,7 @@ describe("PageEditor offers no Scheduling (FR2c row C)", () => {
         page={page("draft", { scheduledAt: FUTURE })}
         hasStaging={false}
         stagingUpdatedAt={undefined}
+        publication={publication()}
       />
     )
     expect(view.container.querySelector("div.overflow-y-auto.p-6")).toHaveClass(
@@ -174,7 +174,7 @@ describe("PageEditor offers no Scheduling (FR2c row C)", () => {
     expectNoScheduling()
   })
 
-  test("a published page with a stored expiry shows no schedule controls under snapshot authority", () => {
+  test("a published page with a stored expiry shows no schedule controls", () => {
     render(
       <PageEditor
         page={page("published", { expiresAt: FUTURE })}
@@ -193,6 +193,7 @@ test("page editor navigation titles use the effective French dictionary", () => 
       page={page("draft", {})}
       hasStaging={false}
       stagingUpdatedAt={undefined}
+      publication={publication()}
     />,
     { locale: "fr" }
   )

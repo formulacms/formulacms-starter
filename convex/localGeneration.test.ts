@@ -337,11 +337,6 @@ describe("local generation preflight", () => {
     const t = convexTest(schema, modules)
     rateLimiterTest.register(t)
     await t.run(async (ctx) => {
-      await ctx.db.insert("roles", {
-        authId: "editor-1",
-        role: "editor",
-        assignedAt: Date.now(),
-      })
       await ctx.db.insert("siteSettings", {
         siteName: "Test site",
         siteUrl: "https://example.test",

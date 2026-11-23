@@ -587,22 +587,6 @@ export const pageRevisionChecklistItemValidator = v.object({
   locales: v.optional(v.array(v.string())),
 })
 
-export const publicationReleaseStatusValidator = v.union(
-  v.literal("pending"),
-  v.literal("held"),
-  v.literal("cancelled"),
-  v.literal("replaced"),
-  v.literal("published")
-)
-
-export const publicationExpiryStatusValidator = v.union(
-  v.literal("pending"),
-  v.literal("held"),
-  v.literal("cancelled"),
-  v.literal("replaced"),
-  v.literal("executed")
-)
-
 export const pageRevisionChecklistValidator = v.object({
   blockerCount: v.number(),
   warningCount: v.number(),
@@ -1497,7 +1481,9 @@ export default defineSchema({
       "sourceKind",
     ])
     .index("by_sourceKind_and_sourceId", ["sourceKind", "sourceId"])
-    .index("by_blockType", ["blockType"]),
+    // LEGACY-REMOVE L5: the block-usage check reads one source kind at a time
+    // (live drafts, the current public version, retained history).
+    .index("by_blockType_and_sourceKind", ["blockType", "sourceKind"]),
 
   pageHistoricalLocaleRoutes: defineTable({
     pageId: v.id("pages"),
@@ -1596,29 +1582,6 @@ export default defineSchema({
     .index("by_pageId_and_locale", ["pageId", "locale"])
     .index("by_status_and_updatedAt", ["status", "updatedAt"]),
 
-  pagePublicationMigrationPages: defineTable({
-    pageId: v.id("pages"),
-    migrationRunId: v.string(),
-    sourcePageDigest: v.string(),
-    sourceStagingDigest: v.optional(v.string()),
-    sourcePageWidePublicationDigest: v.optional(v.string()),
-    sourceLocaleHomeConfigDigest: v.string(),
-    pageStateId: v.id("pagePublicationPageStates"),
-    sharedDraftId: v.id("pageSharedDrafts"),
-    localeDraftIds: v.array(v.id("pageLocaleDrafts")),
-    localeStateIds: v.array(v.id("pageLocalePublicationStates")),
-    candidateIds: v.array(v.id("pageLocalePublicationCandidates")),
-    releaseIds: v.array(v.id("pageLocalePublicationReleases")),
-    snapshotIds: v.array(v.id("pagePublishedSnapshots")),
-    workingReferenceCount: v.number(),
-    candidateReferenceCount: v.number(),
-    publicReferenceCount: v.number(),
-    successorArtifactDigest: v.string(),
-    preparedAt: v.number(),
-  })
-    .index("by_pageId_and_run", ["pageId", "migrationRunId"])
-    .index("by_run_and_pageId", ["migrationRunId", "pageId"]),
-
   pagePublicationPreviewSessions: defineTable({
     sessionToken: v.string(),
     ownerId: v.id("cmsOwner"),
@@ -1632,131 +1595,6 @@ export default defineSchema({
     .index("by_sessionToken", ["sessionToken"])
     .index("by_pageId_and_locale", ["pageId", "requestedLocale"])
     .index("by_expiresAt", ["expiresAt"]),
-
-  // Persistent publication-unit identity. Unlike pageStaging.updatedAt,
-  // these monotonic generations survive promote/discard/TTL deletion and do
-  // not churn the public Page document's updatedAt projection.
-  pagePublicationStates: defineTable({
-    pageId: v.id("pages"),
-    draftGeneration: v.number(),
-    publicGeneration: v.number(),
-    currentReleaseId: v.optional(v.id("pagePublicationReleases")),
-    releaseGeneration: v.optional(v.number()),
-    currentExpiryId: v.optional(v.id("pagePublicationExpiries")),
-    expiryGeneration: v.optional(v.number()),
-    updatedAt: v.number(),
-  }).index("by_pageId", ["pageId"]),
-
-  // U5 server foundation. Candidates and their reference fan-out are
-  // append-only evidence; unlike pageStaging/page references, they survive
-  // publication, pruning, and permanent parent deletion.
-  pagePublicationCandidates: defineTable({
-    pageId: v.id("pages"),
-    pageType: pageTypeValidator,
-    originalOwner: v.optional(v.string()),
-    sourceDraftGeneration: v.number(),
-    sourcePublicGeneration: v.number(),
-    actorPrincipal: v.string(),
-    actorAuthId: v.string(),
-    actorMembershipId: v.id("cmsMemberships"),
-    formatVersion: v.number(),
-    payloadJson: v.string(),
-    payloadBytes: v.number(),
-    digest: v.string(),
-    createdAt: v.number(),
-  })
-    .index("by_pageId", ["pageId"]),
-
-  // One durable command identity for every immediate or scheduled promotion.
-  // The candidate is immutable; replacement creates a new release row rather
-  // than retargeting an old job. Held/terminal rows remain audit evidence.
-  pagePublicationReleases: defineTable({
-    pageId: v.id("pages"),
-    candidateId: v.id("pagePublicationCandidates"),
-    requiresReview: v.boolean(),
-    policyVersion: v.number(),
-    authorPrincipal: v.string(),
-    authorAuthId: v.string(),
-    authorMembershipId: v.id("cmsMemberships"),
-    executeAt: v.number(),
-    generation: v.number(),
-    status: publicationReleaseStatusValidator,
-    holdReason: v.optional(v.string()),
-    heldAt: v.optional(v.number()),
-    cancelledAt: v.optional(v.number()),
-    cancelReason: v.optional(v.string()),
-    replacedAt: v.optional(v.number()),
-    replacedByReleaseId: v.optional(v.id("pagePublicationReleases")),
-    publishedAt: v.optional(v.number()),
-    publicGeneration: v.optional(v.number()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_pageId", ["pageId"])
-    .index("by_status_and_executeAt", ["status", "executeAt"])
-    .index("by_candidateId", ["candidateId"]),
-
-  // Scheduled takedown is independent from candidate promotion. It names the
-  // exact public generation it may archive so an old timer cannot remove a
-  // newer publication.
-  pagePublicationExpiries: defineTable({
-    pageId: v.id("pages"),
-    expectedPublicGeneration: v.number(),
-    authorPrincipal: v.string(),
-    authorAuthId: v.string(),
-    authorMembershipId: v.id("cmsMemberships"),
-    executeAt: v.number(),
-    generation: v.number(),
-    status: publicationExpiryStatusValidator,
-    holdReason: v.optional(v.string()),
-    heldAt: v.optional(v.number()),
-    cancelledAt: v.optional(v.number()),
-    cancelReason: v.optional(v.string()),
-    replacedAt: v.optional(v.number()),
-    replacedByExpiryId: v.optional(v.id("pagePublicationExpiries")),
-    executedAt: v.optional(v.number()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_pageId", ["pageId"])
-    .index("by_status_and_executeAt", ["status", "executeAt"]),
-
-  pageCandidateMediaReferences: defineTable({
-    candidateId: v.id("pagePublicationCandidates"),
-    pageId: v.id("pages"),
-    mediaId: v.optional(v.id("media")),
-    storageId: v.optional(v.id("_storage")),
-    locale: v.optional(v.string()),
-    path: v.string(),
-    source: v.string(),
-    createdAt: v.number(),
-  })
-    .index("by_candidateId", ["candidateId"])
-    .index("by_mediaId", ["mediaId"])
-    .index("by_storageId", ["storageId"]),
-
-  pageCandidateDocumentReferences: defineTable({
-    candidateId: v.id("pagePublicationCandidates"),
-    pageId: v.id("pages"),
-    targetId: v.id("pages"),
-    targetType: v.string(),
-    sourceLocale: v.optional(v.string()),
-    path: v.string(),
-    source: v.string(),
-    createdAt: v.number(),
-  })
-    .index("by_candidateId", ["candidateId"])
-    .index("by_targetId", ["targetId"]),
-
-  pageCandidateBlockReferences: defineTable({
-    candidateId: v.id("pagePublicationCandidates"),
-    pageId: v.id("pages"),
-    blockType: v.string(),
-    count: v.number(),
-    createdAt: v.number(),
-  })
-    .index("by_candidateId", ["candidateId"])
-    .index("by_blockType", ["blockType"]),
 
   // ==========================================
   // CMS: Menus
@@ -1990,13 +1828,6 @@ export default defineSchema({
     // Unit D3 typed per-provider overrides. The legacy free-form `model`
     // remains readable only for the no-typed-selection compatibility branch.
     modelOverrides: v.optional(providerModelSelectionsValidator),
-    /** @deprecated Never read. The system prompt is the agents' output contract,
-     *  not an operator knob — exposing it let a bad override silently corrupt
-     *  translations and content. It is unwritable (`updateAgent` has no such arg)
-     *  and the runtime always uses the registry default. The column survives only
-     *  because a Convex validator cannot drop a field that still has rows; run
-     *  `cms/agents:clearStoredSystemPrompts` on each deployment, then delete it. */
-    systemPrompt: v.optional(v.string()),
     userPromptTemplate: v.optional(v.string()),
     // Content-agent only: operator-curated preset libraries that surface in the
     // editor's Write / Refine dialogs. `undefined` means "use registry defaults";
@@ -2122,8 +1953,8 @@ export default defineSchema({
   // Privacy contract: stores SHA-256 of the brief, never the brief text or
   // the generated output. 90-day retention enforced by the nightly cron in
   // `convex/crons.ts`. Per-user erasure via the admin-only
-  // `deleteAuditLogForUser` mutation. `authId` matches the `roles`-table key:
-  // the Convex Auth user id from `getAuthUserId` (ADR-0056 rule 2), never
+  // `deleteAuditLogForUser` mutation. `authId` is the Convex Auth user id
+  // from `getAuthUserId` (ADR-0056 rule 2), never
   // identity.subject, which is the session id. Erasure-by-user targets it.
   // ==========================================
   aiJobs: defineTable({
@@ -2178,7 +2009,10 @@ export default defineSchema({
     targetDraftGeneration: v.optional(v.number()),
   })
     .index("by_authId_and_state", ["authId", "state"])
-    .index("by_authId_and_reviewedAt", ["authId", "reviewedAt"]),
+    .index("by_authId_and_reviewedAt", ["authId", "reviewedAt"])
+    // The block usage check reads every account's unexpired copies, because an
+    // owner recovery leaves earlier jobs on the old account.
+    .index("by_state", ["state"]),
   aiJobUnits: defineTable({
     authId: v.string(),
     jobId: v.id("aiJobs"),
@@ -2203,8 +2037,7 @@ export default defineSchema({
     admittedClaim: v.optional(v.string()),
     attemptKeys: v.array(v.string()),
   })
-    .index("by_jobId_and_index", ["jobId", "index"])
-    .index("by_authId", ["authId"]),
+    .index("by_jobId_and_index", ["jobId", "index"]),
   aiSpendingJobReservations: defineTable({
     reservationKey: v.string(),
     authId: v.string(),
@@ -2501,188 +2334,6 @@ export default defineSchema({
       })
     ),
   }).index("by_key", ["key"]),
-
-  // ==========================================
-  // CMS membership + capacity — Phase 3 authoritative authorization state.
-  // `authId` is the Convex Auth user id from `getAuthUserId` (ADR-0056 rule
-  // 2); identity.subject is the session id. The
-  // singleton capacity key is only a local OCC serialization scope; it is not
-  // the future licensed "production project" identity from ADR-0049.
-  // ==========================================
-  cmsMemberships: defineTable({
-    authId: v.string(),
-    tokenIdentifier: v.optional(v.string()),
-    role: v.string(),
-    status: v.union(
-      v.literal("active"),
-      v.literal("suspended"),
-      v.literal("removed")
-    ),
-    createdAt: v.number(),
-    activatedAt: v.number(),
-    suspendedAt: v.optional(v.number()),
-    removedAt: v.optional(v.number()),
-    updatedAt: v.number(),
-    updatedBy: v.optional(v.string()),
-    transitionId: v.string(),
-    migrationVersion: v.optional(v.number()),
-  })
-    .index("by_authId", ["authId"])
-    .index("by_status_and_role", ["status", "role"])
-    .index("by_migrationVersion", ["migrationVersion"]),
-
-  cmsProductionProject: defineTable({
-    key: v.literal("production_project"),
-    projectId: v.string(),
-    establishedByLicenseId: v.string(),
-    establishedAt: v.number(),
-  }).index("by_key", ["key"]),
-
-  cmsInstalledEntitlement: defineTable({
-    key: v.literal("team"),
-    rawEnvelope: v.string(),
-    keyId: v.string(),
-    licenseId: v.string(),
-    licensee: v.string(),
-    projectId: v.string(),
-    memberCapacity: v.number(),
-    issuedAt: v.string(),
-    reissueRef: v.optional(v.string()),
-    installedAt: v.number(),
-    updatedAt: v.number(),
-  }).index("by_key", ["key"]),
-
-  cmsEntitlementEvents: defineTable({
-    eventId: v.string(),
-    requestHash: v.string(),
-    kind: v.union(v.literal("install"), v.literal("remove")),
-    outcome: v.union(
-      v.literal("installed"),
-      v.literal("removed"),
-      v.literal("unchanged"),
-      v.literal("rejected")
-    ),
-    reason: v.union(
-      v.literal("valid_team"),
-      v.literal("removed"),
-      v.literal("already_absent"),
-      v.literal("envelope_too_large"),
-      v.literal("invalid_encoding"),
-      v.literal("malformed_json"),
-      v.literal("invalid_envelope"),
-      v.literal("unsupported_format"),
-      v.literal("unsupported_envelope_version"),
-      v.literal("invalid_claims"),
-      v.literal("unsupported_claims_version"),
-      v.literal("unknown_key"),
-      v.literal("invalid_public_key"),
-      v.literal("bad_signature"),
-      v.literal("wrong_project"),
-      v.literal("inconsistent_state"),
-      v.literal("stale_state")
-    ),
-    projectId: v.optional(v.string()),
-    licenseId: v.optional(v.string()),
-    memberCapacity: v.optional(v.number()),
-    allowance: v.number(),
-    // Phase 5C audit evidence is additive: historical events remain valid.
-    actorAuthId: v.optional(v.string()),
-    createdAt: v.number(),
-  })
-    .index("by_eventId", ["eventId"])
-    .index("by_createdAt", ["createdAt"]),
-
-  cmsCapacity: defineTable({
-    key: v.literal("cms"),
-    activeCount: v.number(),
-    reservedCount: v.number(),
-    allowance: v.number(),
-    overCap: v.boolean(),
-    migrationState: v.union(
-      v.literal("backfill_required"),
-      v.literal("backfilling"),
-      v.literal("ready"),
-      v.literal("blocked")
-    ),
-    migrationVersion: v.number(),
-    migrationIssueCount: v.number(),
-    lastTransitionId: v.string(),
-    updatedAt: v.number(),
-  }).index("by_key", ["key"]),
-
-  cmsEntitlementAudit: defineTable({
-    transitionId: v.string(),
-    kind: v.string(),
-    actorAuthId: v.optional(v.string()),
-    beforeActive: v.number(),
-    beforeReserved: v.number(),
-    afterActive: v.number(),
-    afterReserved: v.number(),
-    allowance: v.number(),
-    withinAllowance: v.boolean(),
-    wouldBlockIfEnforced: v.boolean(),
-    reason: v.string(),
-    createdAt: v.number(),
-  })
-    .index("by_transitionId", ["transitionId"])
-    .index("by_createdAt", ["createdAt"]),
-
-  // ==========================================
-  // Roles — one row per user, keyed by the Convex Auth user id (`authId`,
-  // ADR-0056 rule 2). Users live in the Convex Auth component; the role is
-  // attached here.
-  // Missing or dangling assignments grant no CMS authority. Only the
-  // owner-claim mutation grants initial admin.
-  // ==========================================
-  roles: defineTable({
-    authId: v.string(),
-    // Widened from a built-in literal union to v.string() so custom role names
-    // (ADR-0035) can be stored here. The name must resolve to either a built-in
-    // slug (admin/editor/viewer) or a row in `rolePermissions`; enforcement
-    // happens in `setRole` and `assignRoleInternal`, not in the validator.
-    role: v.string(),
-    assignedAt: v.number(),
-    assignedBy: v.optional(v.string()),
-  })
-    .index("by_authId", ["authId"])
-    // `by_role` lets custom-role delete/rename/list touch only the rows for a
-    // specific role name. Without it, those handlers had to `.take(500)` and
-    // JS-filter, silently missing assignments past position 500 (ADR-0035
-    // follow-up).
-    .index("by_role", ["role"]),
-
-  // ==========================================
-  // rolePermissions — saved Editor/Viewer policies plus Team custom roles.
-  // Admin remains the sole code-defined wildcard. Reads project historical
-  // rows through one installation-wide compatibility/active marker; only an
-  // explicit successful permission save changes active authority.
-  // ==========================================
-  rolePermissions: defineTable({
-    roleName: v.string(),
-    // Optional while existing custom-role rows are classified by the U4a
-    // authorization migration. Reserved rows back Editor/Viewer and must never
-    // pass through the older custom-role lifecycle APIs.
-    sourceKind: v.optional(v.union(v.literal("reserved"), v.literal("custom"))),
-    permissions: v.array(v.string()),
-    // U4a keeps migration inputs/history separate from the canonical active
-    // policy. Optional fields let the marker-aware binary safely inspect rows
-    // written by the preceding schema without tightening live validation.
-    activePermissions: v.optional(v.array(v.string())),
-    inactivePermissions: v.optional(v.array(v.string())),
-    legacyPermissions: v.optional(v.array(v.string())),
-    policyVersion: v.optional(v.number()),
-    templateVersion: v.optional(v.number()),
-    migrationVersion: v.optional(v.number()),
-    stagedActivePermissions: v.optional(v.array(v.string())),
-    stagedInactivePermissions: v.optional(v.array(v.string())),
-    stagedPolicyVersion: v.optional(v.number()),
-    stagedActivationId: v.optional(v.string()),
-    createdAt: v.number(),
-    createdBy: v.string(),
-    updatedAt: v.number(),
-    updatedBy: v.string(),
-    reviewedRegistryFingerprint: v.optional(v.string()),
-  }).index("by_roleName", ["roleName"]),
 
   // ==========================================
   // Site language — F09 single public-language authority and transitions.
@@ -3196,9 +2847,9 @@ export default defineSchema({
 
   // ==========================================
   // User preferences — per-user UI settings, keyed by Convex Auth user id.
-  // Distinct from `roles` (authorization) so toggles don't churn an auth-critical
-  // row. `adminLocale` drives the admin UI language; null/missing → falls back
-  // to siteSettings.defaultLocale.
+  // Separate from the durable owner binding so toggles don't churn its
+  // authorization row. `adminLocale` drives the admin UI language; null/missing
+  // falls back to siteSettings.defaultLocale.
   // ==========================================
   userPreferences: defineTable({
     authId: v.string(),

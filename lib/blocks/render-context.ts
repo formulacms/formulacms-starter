@@ -3,14 +3,17 @@ import { api } from "@/convex/_generated/api"
 import type { Block } from "@/convex/lib/blocks"
 import { collectRelationIds } from "@/convex/lib/blocks/resolve"
 import { cachedCmsRead, CMS_TAGS } from "@/lib/cms/cache"
+import { readInIdGroups } from "@/lib/cms/batched-read"
 import { collectPageIds, type BlockRenderContext } from "@/lib/blocks/links"
 import { readBlockPresentationCatalog } from "@/convex/lib/blocks/presentations"
 
 /**
  * Assemble the {@link BlockRenderContext} for a published page's block set:
  * batch-resolve every internal-link target to a canonical localized path and
- * every relation to a depth-1 card, in the fewest queries (one per kind, and
- * none when a kind isn't referenced). The public route just renders the result.
+ * every relation to a depth-1 card, in the fewest queries (one per kind and
+ * group of at most `ID_BATCH_MAX` ids, and none when a kind isn't referenced).
+ * The public route just renders the result. Each public kind keeps one cache
+ * entry for the whole page.
  *
  * `isPreview` switches relation-card resolution to include drafts and bypass the
  * Data Cache. Preview link paths also use fresh authenticated reads, including
@@ -38,18 +41,22 @@ export async function buildBlockRenderContext(opts: {
   const pagePaths =
     pageIds.length > 0
       ? isPreview
-        ? await fetchPreviewQuery!(api.cms.pages.getLocalizedPathsByIds, {
-            ids: pageIds,
-            locale: renderLocale,
-            languageVersion,
-          })
+        ? await readInIdGroups(pageIds, (ids) =>
+            fetchPreviewQuery!(api.cms.pages.getLocalizedPathsByIds, {
+              ids,
+              locale: renderLocale,
+              languageVersion,
+            })
+          )
         : await cachedCmsRead(
             () =>
-              fetchQuery(api.cms.pages.getLocalizedPathsByIds, {
-                ids: pageIds,
-                locale: renderLocale,
-                languageVersion,
-              }),
+              readInIdGroups(pageIds, (ids) =>
+                fetchQuery(api.cms.pages.getLocalizedPathsByIds, {
+                  ids,
+                  locale: renderLocale,
+                  languageVersion,
+                })
+              ),
             [
               "cms-link-paths",
               renderLocale,
@@ -64,18 +71,22 @@ export async function buildBlockRenderContext(opts: {
   const relationCards =
     relationIds.length > 0
       ? isPreview
-        ? await fetchPreviewQuery!(api.cms.pages.getRelationCardsByIds, {
-            ids: relationIds,
-            locale: renderLocale,
-            includeDrafts: true,
-          })
+        ? await readInIdGroups(relationIds, (ids) =>
+            fetchPreviewQuery!(api.cms.pages.getRelationCardsByIds, {
+              ids,
+              locale: renderLocale,
+              includeDrafts: true,
+            })
+          )
         : await cachedCmsRead(
             () =>
-              fetchQuery(api.cms.pages.getPublicRelationCardsByIds, {
-                ids: relationIds,
-                locale: renderLocale,
-                languageVersion,
-              }),
+              readInIdGroups(relationIds, (ids) =>
+                fetchQuery(api.cms.pages.getPublicRelationCardsByIds, {
+                  ids,
+                  locale: renderLocale,
+                  languageVersion,
+                })
+              ),
             [
               "cms-relation-cards",
               renderLocale,
