@@ -27,7 +27,6 @@
     },
     "archive": {
       "title": "Archive",
-      "subtitle": "Documents taken out of circulation but kept for later. Restoring one reveals the publication state it retained while archived.",
       "unavailableTitle": "Archive is unavailable right now.",
       "unavailableDescription": "Check your permissions or refresh the page to try again.",
       "authorityIncomplete": "Publication authority is incomplete. Run the supported bootstrap or cutover command before managing archived pages.",
@@ -36,7 +35,7 @@
       "untitled": "Untitled",
       "lifecycleUnavailable": "Snapshot lifecycle state is unavailable",
       "noSlug": "No slug",
-      "restored": "\"{title}\" restored",
+      "restored": "“{title}” restored as draft",
       "restoreFailed": "Could not restore document",
       "restoring": "Restoring…",
       "restore": "Restore",
@@ -47,7 +46,7 @@
       "selected": "{count} selected",
       "restoreSelected": "{count, plural, =0 {Restore selected} other {Restore #}}",
       "trashSelected": "{count, plural, =0 {Move selected to trash} other {Move # to trash}}",
-      "restoredMany": "{count} pages restored",
+      "restoredMany": "{count} page(s) restored as draft(s)",
       "movedMany": "{count, plural, one {# page moved to trash.} other {# pages moved to trash.}}",
       "notMoved": "“{title}” was not moved to trash. {reason}",
       "trashManyTitle": "Move {count} pages to trash?",
@@ -59,6 +58,7 @@
       "lifecycleUnavailable": "Snapshot lifecycle state is unavailable",
       "authorityIncomplete": "Publication authority is incomplete. Run the supported bootstrap or cutover command before managing trash.",
       "restored": "“{title}” restored",
+      "pageRestored": "“{title}” restored as draft",
       "restoreFailed": "Restore failed",
       "referenceCheckFailed": "Could not check page references",
       "childBlocker": "This page has {count, plural, one {# child page} other {# child pages}}. Move or delete {count, plural, one {it} other {them}} first.",
@@ -92,7 +92,7 @@
       "childReason": "it has {count, plural, one {# child page} other {# child pages}}. Move or delete {count, plural, one {it} other {them}} first.",
       "menuReason": "{count, plural, one {menu {menus} links} other {menus {menus} link}} to it. Remove those links or delete the {count, plural, one {menu} other {menus}} first.",
       "linkReason": "{others, plural, =0 {“{first}” links} one {“{first}” and # other page link} other {“{first}” and # other pages link}} to it. Remove those links first.",
-      "restoredMany": "{count} pages restored",
+      "restoredMany": "{count} page(s) restored as draft(s)",
       "imageSize": "{width} × {height}",
       "imageDeleteDescription": "“{title}” will be deleted permanently. This cannot be undone.",
       "imageConfirmTitleMany": "Delete {count} images permanently?",
@@ -747,7 +747,7 @@
       },
       "brandVoice": {
         "heading": "AI brand voice",
-        "description": "Short tone & style guide every AI agent inherits when writing or refining content. Optional.",
+        "description": "Short tone and style guide the AI assistants follow when they write. Optional.",
         "label": "Brand voice",
         "placeholder": "e.g. Warm and direct. Occasionally playful. Avoid jargon and superlatives."
       },
@@ -845,6 +845,7 @@
         "reviewIncomplete": "Check every item before you confirm.",
         "scheduledWork": "This language still has scheduled or held publications. Finish or cancel them first.",
         "homeMissing": "The new default language needs a published home page first.",
+        "homeNotPublished": "The home page couldn’t be published in this language, so the language wasn’t added.",
         "menuText": "A menu has no text in the new default language yet.",
         "addressTooLong": "An address would be too long after this change. Shorten it first.",
         "alreadyAdded": "That language is already added.",
@@ -1590,12 +1591,12 @@
       "tasks": {
         "writing": {
           "title": "Writing assistant",
-          "summary": "Writes a whole page from a short brief, and writes or refines text in the page editor.",
+          "summary": "Writes a whole new page from a short brief.",
           "prompt": "You write clear, friendly web pages. Use short sentences and plain words. Follow the brand voice in Settings › General. Never invent prices, dates or facts."
         },
         "translation": {
           "title": "Translation assistant",
-          "summary": "Translates a field, a block or a whole page into one language. You review it before saving.",
+          "summary": "Translates a whole page into a language that is still empty. You review it before saving.",
           "prompt": "Translate faithfully into the target language. Keep the brand voice, product names and links. Never translate the site name."
         },
         "help": {
@@ -1673,7 +1674,6 @@
       "assistantsLocal": "Choose what each assistant runs with and how it behaves. These choices are saved for local development; your live site keeps its own.",
       "assistantsLive": "Choose what each assistant runs with and how it behaves on your live site.",
       "instructionsNote": "Sent to the model before every request from this assistant.",
-      "presetsNote": "Brief seeds and quick refine presets stay as they are today.",
       "connection": {
         "refused": "Key refused: {provider} rejected {envVar} on your last AI action ({at})",
         "unreachable": "Couldn't reach {provider} on your last AI action ({at})"
@@ -1981,7 +1981,7 @@
       "jumpPlaceholder": "#section-name",
       "noneDescription": "This item will not be clickable. Use it for section headings or placeholders.",
       "noTargetConfigured": "No link target is configured.",
-      "urlError": "Enter a complete address, for example https://example.com. For a page on this site, use Internal link.",
+      "urlError": "Enter a complete address, for example https://example.com, tel:+15149550226 or mailto:hello@example.com. For a page on this site, use Internal link.",
       "pageRequired": "Choose a page or another link type.",
       "panel": "Panel"
     },
@@ -2027,7 +2027,7 @@
       "resetFilters": "Reset filters",
       "filters": {
         "contentType": "Filter by content type",
-        "allTypes": "All types",
+        "allTypes": "All content types",
         "status": "Filter by status",
         "allStatuses": "All statuses",
         "locale": "Filter by locale",
@@ -2057,11 +2057,12 @@
         "publish": "Publish",
         "unpublish": "Unpublish",
         "translate": "Translate",
-        "homeNoArchive": "The home page can’t be archived."
+        "homeNoArchive": "The home page can’t be archived.",
+        "homeNoUnpublish": "The home page can’t be unpublished."
       },
       "archiveDialog": {
         "title": "Archive this page?",
-        "description": "Archived pages are hidden from the public site."
+        "description": "This archives the page in every language."
       },
       "trashDialog": {
         "title": "Move this page to trash?",
@@ -2071,7 +2072,7 @@
       "toast": {
         "archived": "Page archived",
         "archiveFailed": "Archive failed",
-        "restored": "Page restored",
+        "restored": "“{title}” restored as draft",
         "unarchiveFailed": "Unarchive failed",
         "movedToTrash": "Moved to trash",
         "deleteFailed": "Delete failed",
@@ -2104,10 +2105,7 @@
       "wholePage": "Whole page",
       "unpublish": {
         "title": "Unpublish this page?",
-        "homeTitle": "Unpublish the home page?",
-        "redirect": "Visitors to {address} will be sent to the {language} home page ({other}) until you publish this one again.",
-        "notFoundNoOther": "No other home page is published. Visitors to {address} will see “Page not found” until you publish it again.",
-        "notFound": "Visitors to {address} will see “Page not found” until you publish it again.",
+        "notFound": "This hides its link in your navigation menu.",
         "confirm": "Unpublish",
         "cancel": "Cancel"
       }
@@ -3166,13 +3164,13 @@
       "unpublishFailed": "This page couldn't be unpublished. Try again.",
       "archived": "Page archived",
       "archiveFailed": "This page couldn't be archived. Try again.",
-      "restoredToDraft": "Page restored to draft",
+      "restoredToDraft": "“{title}” restored as draft",
       "restoreFailed": "This page couldn't be restored. Try again.",
       "finishTextInput": "Finish the current text input before saving.",
       "titleRequired": "Give the page a title before saving.",
       "slugRequired": "Give the page an address before saving.",
       "resolveRecovery": "Restore or discard the recovered draft before saving or publishing.",
-      "homeArchiveRefused": "The home page can’t be archived."
+      "homeArchiveRefused": "The home page stays published. It can’t be unpublished, archived or moved to trash."
     },
     "linkPagePicker": {
       "archived": "archived",
@@ -3561,6 +3559,7 @@
     }
   },
   "caughtErrors": {
+    "pageAddressLookupLimit": "This site has too many unpublished pages to check this address. Publish or delete some drafts, then try again.",
     "slugTaken": "This address is already used. Choose another.",
     "mediaFetchFailed": "Could not fetch this image. Check its URL.",
     "mediaNotImage": "Choose an image file or image URL.",
@@ -3571,9 +3570,12 @@
     "redirectDestinationAmbiguous": "Choose either a page or a URL.",
     "redirectSamePath": "Source and destination must differ.",
     "redirectExists": "A redirect already exists for this source and language.",
+    "redirectLoop": "This redirect would send visitors in a loop. Choose another destination.",
+    "redirectChainTooLong": "This redirect would start a chain of more than 32 redirects. Choose the final address as the destination.",
     "pilotPageLimit": "This site has reached its limit of 499 pages and other content, including what is archived or in the trash.",
     "revalidationUnconfigured": "Add the site address and matching private code, then select Retry now.",
     "siteDescriptionLocaleNotEnabled": "A site description was set for a language that is no longer on. Reload the page and try again.",
+    "siteUrlInvalid": "Enter a full web address, such as https://example.com",
     "invalidCredentials": "Check your username and password.",
     "invalidPassword": "Check your password.",
     "passwordTooShort": "Choose a longer password.",

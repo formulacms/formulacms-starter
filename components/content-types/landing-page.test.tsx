@@ -15,6 +15,13 @@ const page = {
 } as unknown as Doc<"pages">
 
 describe("LandingPageRenderer", () => {
+  it("forwards Home identity to the shared empty body", () => {
+    render(<LandingPageRenderer page={page as never} content={page.content!.en! as never}
+      blocks={[]} ctx={{ locale: "en", defaultLocale: "en", pagePaths: {} }}
+      locale="en" renderLocale="en" defaultLocale="en" bylines={[]} isHomePage />)
+    expect(screen.getByText("Add blocks to your home page.")).toBeInTheDocument()
+  })
+
   it("renders landing-page content", () => {
     render(
       <LandingPageRenderer

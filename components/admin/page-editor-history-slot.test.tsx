@@ -46,6 +46,7 @@ import {
 
 import type { Id } from "@/convex/_generated/dataModel"
 import type { AdminPageHistoryHostProps } from "./contributions/history"
+import type { AdminCommand } from "./command-palette"
 import type { Page } from "./page-editor/lib/types"
 import type { Block } from "@/convex/lib/blocks"
 import { capturePageField } from "./page-editor/lib/page-inline-draft"
@@ -71,6 +72,7 @@ const mocks = vi.hoisted(() => ({
     | null,
   translation: null as AdminAiTranslationHostProps | null,
   commandIds: [] as string[],
+  registeredCommands: [] as AdminCommand[],
   historyInstalled: true,
   queryNames: [] as string[],
   checklistRequests: [] as Array<{ name: string; args: unknown }>,
@@ -366,9 +368,10 @@ vi.mock("@/components/providers/confirm-provider", () => ({
 }))
 
 vi.mock("@/components/admin/command-palette", () => ({
-  useRegisterAdminCommands: (commands: Array<{ id: string }>) => {
+  useRegisterAdminCommands: (commands: AdminCommand[]) => {
     if (commands.length > 0) {
       mocks.commandIds = commands.map((command) => command.id)
+      mocks.registeredCommands = commands
     }
   },
 }))
@@ -459,6 +462,7 @@ describe("PageEditor with a bound History participant (FR2c row H)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.commandIds = []
+    mocks.registeredCommands = []
     mocks.historyInstalled = true
     mocks.queryNames.length = 0
     mocks.checklistRequests.length = 0
@@ -3046,9 +3050,52 @@ describe("E1 a tab never saves over content it has not loaded", () => {
       expectedGeneration: number
       draft: { localized: { title: string } }
     }
+  const publishedBilingualStates = () => ({
+    ...states({ en: 5, fr: 6 }),
+    locales: ["en", "fr"].map((locale) => ({
+      locale,
+      state: "published" as const,
+      draftGeneration: locale === "en" ? 5 : 6,
+      publicGeneration: 2,
+      releaseGeneration: 1,
+      currentSnapshotId: `snapshot-${locale}` as Id<"pagePublishedSnapshots">,
+    })),
+  })
+  const expectPageActions = async (status: "draft" | "published") => {
+    const primary = screen.getByRole("button", {
+      name: status === "published" ? "Publish changes" : "Publish",
+    })
+    expect(primary).toBeInTheDocument()
+    expect(screen.queryByRole("button", {
+      name: status === "published" ? "Publish" : "Publish changes",
+    })).toBeNull()
+    fireEvent.keyDown(screen.getByRole("button", { name: "More page actions" }), {
+      key: "Enter",
+    })
+    const menu = await screen.findByRole("menu")
+    const unpublish = within(menu).queryByRole("menuitem", {
+      name: "Unpublish",
+    })
+    if (status === "published") {
+      expect(unpublish).toBeInTheDocument()
+      expect(mocks.registeredCommands.find(
+        (command) => command.id === "page-editor:publish"
+      )).toMatchObject({
+        label: "Unpublish page",
+        description: "Move the page back to draft",
+        disabled: false,
+      })
+    } else {
+      expect(unpublish).toBeNull()
+    }
+    fireEvent.keyDown(menu, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
+    return primary
+  }
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.registeredCommands = []
     mocks.historyInstalled = false
     mocks.enabledLocales = ["en"]
     mocks.blockProps.length = 0
@@ -3057,6 +3104,12 @@ describe("E1 a tab never saves over content it has not loaded", () => {
     mocks.retainedTargetRemedy = null
     mocks.convex.query.mockReset().mockImplementation(async () => [])
     mocks.confirm.mockReset().mockResolvedValue(true)
+    // A failed publish must not leave its one-shot result for the next test.
+    mocks.publish.mockReset().mockResolvedValue({
+      updatedAt: 101,
+      generation: 1,
+      status: "acquired",
+    })
     mocks.saveDraft.mockReset().mockResolvedValue({
       updatedAt: 101,
       draftGeneration: 3,
@@ -3072,6 +3125,230 @@ describe("E1 a tab never saves over content it has not loaded", () => {
     window.localStorage.clear()
     window.sessionStorage.clear()
   })
+
+  test.each(["Unarchive", "Unpublish"] as const)(
+    "%s keeps EN+FR withdrawal status and clocks before refresh",
+    blockProfile([]),
+    async (command) => {
+      mocks.enabledLocales = ["en", "fr"]
+      mocks.historyInstalled = true
+      // Publish rechecks readiness through the imperative query, separately
+      // from the reactive checklistResult used to render the editor.
+      mocks.convex.query.mockImplementation(async (reference?: unknown) =>
+        getFunctionName(reference as never) ===
+        "cms/pages:getPrePublishChecklist"
+          ? { canPublish: true, blockers: [], warnings: [] }
+          : []
+      )
+      const hook = vi.spyOn(pageSaveHook, "usePageSave")
+      const props = publishedBilingualStates()
+      try {
+        const view = render(tab({ ...pageOf("About", "À propos"),
+          status: command === "Unarchive" ? "archived" : "published",
+        }, props))
+        fireEvent.click(screen.getByTitle("History"))
+        const handlers = () => hook.mock.results.at(-1)!.value as ReturnType<
+          typeof pageSaveHook.usePageSave
+        >
+        await act(async () => {
+          if (command === "Unarchive") await handlers().unarchive()
+          else await handlers().unpublish()
+        })
+        expect(mocks.refresh).toHaveBeenCalled()
+        const heldStatus = command === "Unarchive" ? "Draft" : "Published"
+        expect(screen.getByText(heldStatus, { exact: true })).toBeInTheDocument()
+        if (command === "Unarchive") await expectPageActions("draft")
+        await act(async () => { mocks.localeTabs!.onLocaleChange("fr") })
+        if (command === "Unpublish") {
+          await act(async () => { await handlers().unpublish() })
+        }
+        expect(screen.getByText(heldStatus, { exact: true })).toBeInTheDocument()
+        if (command === "Unarchive") await expectPageActions("draft")
+        expect(mocks.slotProps.at(-1)!.readSnapshotRestore!()).toMatchObject({
+          expectedPublicGeneration: 3,
+        })
+        await act(async () => { mocks.localeTabs!.onLocaleChange("en") })
+        expect(screen.getByText(heldStatus, { exact: true })).toBeInTheDocument()
+        if (command === "Unarchive") await expectPageActions("draft")
+        await act(async () => { mocks.localeTabs!.onLocaleChange("fr") })
+        expect(mocks.slotProps.at(-1)!.readSnapshotRestore!()).toMatchObject({
+          expectedPublicGeneration: 3,
+        })
+        const recoveredPage = { ...pageOf("About", "À propos"), status: "draft" as const }
+        const recoveredProps = {
+          ...props,
+          lifecycleGeneration: command === "Unarchive" ? 4 : 3,
+          locales: props.locales.map((entry) => ({
+            ...entry, publicGeneration: 3, currentSnapshotId: undefined,
+            state: "draft" as const,
+          })),
+        }
+        view.rerender(tab(recoveredPage, recoveredProps))
+        expect(screen.getByText("Draft", { exact: true })).toBeInTheDocument()
+        if (command === "Unarchive") {
+          await expectPageActions("draft")
+          await act(async () => { mocks.localeTabs!.onLocaleChange("en") })
+          expect(screen.getByText("Draft", { exact: true })).toBeInTheDocument()
+          await expectPageActions("draft")
+          await act(async () => { mocks.localeTabs!.onLocaleChange("fr") })
+        }
+        const withdrawals = mocks.withdrawLocale.mock.calls.length
+        await act(async () => { await handlers().unpublish() })
+        expect(mocks.withdrawLocale).toHaveBeenCalledTimes(withdrawals)
+        mocks.publish.mockResolvedValueOnce({
+          publicGeneration: 4,
+          snapshotId: "republished-fr" as Id<"pagePublishedSnapshots">,
+          publishedAt: 500,
+        })
+        await act(async () => { await handlers().publish() })
+        expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
+          locale: "fr", expectedPublicGeneration: 3,
+        }))
+        if (command === "Unarchive") {
+          // Keep the held-base Publish guard above in its original session;
+          // independently mount the same recovered payload checked before it.
+          view.unmount()
+          const remounted = render(tab(recoveredPage, recoveredProps))
+          try {
+            expect(screen.getByText("Draft", { exact: true })).toBeInTheDocument()
+            await expectPageActions("draft")
+            await act(async () => { mocks.localeTabs!.onLocaleChange("fr") })
+            expect(screen.getByText("Draft", { exact: true })).toBeInTheDocument()
+            await expectPageActions("draft")
+          } finally {
+            remounted.unmount()
+          }
+        }
+      } finally {
+        hook.mockRestore()
+      }
+    }
+  )
+
+  test(
+    "Unpublish EN keeps aggregate actions with FR published before refresh, after refresh and on remount",
+    blockProfile([]),
+    async () => {
+      mocks.enabledLocales = ["en", "fr"]
+      const publishedPage = { ...pageOf("About", "À propos"), status: "published" as const }
+      const props = publishedBilingualStates()
+      const caughtUp = {
+        ...props,
+        // An ordinary withdrawal leaves the lifecycle unchanged.
+        locales: props.locales.map((entry) => entry.locale === "en"
+          ? {
+              ...entry,
+              state: "draft" as const,
+              publicGeneration: 3,
+              currentSnapshotId: undefined,
+            }
+          : entry),
+      }
+      let view = render(tab(publishedPage, props))
+      const publishCommand = () => mocks.registeredCommands.find(
+        (command) => command.id === "page-editor:publish"
+      )!
+      const expectBothLocales = async (enStatus: "Draft" | "Published") => {
+        expect(screen.getByText(enStatus, { exact: true })).toBeInTheDocument()
+        const primary = await expectPageActions("published")
+        if (enStatus === "Published") expect(primary).toBeDisabled()
+        else expect(primary).toBeEnabled()
+        await act(async () => { mocks.localeTabs!.onLocaleChange("fr") })
+        expect(screen.getByText("Published", { exact: true })).toBeInTheDocument()
+        expect(await expectPageActions("published")).toBeDisabled()
+        await act(async () => { mocks.localeTabs!.onLocaleChange("en") })
+      }
+      try {
+        // Exercise the registered action, including its confirmation, rather
+        // than inferring its dispatch from the command label alone.
+        await act(async () => { await publishCommand().run() })
+        await act(async () => {
+          fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", {
+            name: "Unpublish",
+          }))
+        })
+        await waitFor(() => expect(mocks.refresh).toHaveBeenCalled())
+        expect(mocks.withdrawLocale).toHaveBeenCalledOnce()
+        expect(mocks.withdrawLocale).toHaveBeenCalledWith({
+          pageId,
+          locale: "en",
+          expectedSnapshotId: "snapshot-en",
+          expectedPublicGeneration: 2,
+          expectedLifecycleGeneration: 3,
+        })
+        expect(mocks.publish).not.toHaveBeenCalled()
+        await expectBothLocales("Published")
+
+        view.rerender(tab(publishedPage, caughtUp))
+        await expectBothLocales("Draft")
+        view.unmount()
+        view = render(tab(publishedPage, caughtUp))
+        await expectBothLocales("Draft")
+        expect(mocks.withdrawLocale).toHaveBeenCalledOnce()
+        expect(caughtUp.locales[1]).toMatchObject({
+          locale: "fr", state: "published", publicGeneration: 2,
+          currentSnapshotId: "snapshot-fr",
+        })
+      } finally {
+        view.unmount()
+      }
+    }
+  )
+
+  test(
+    "recovery then edit and Publish FR keeps aggregate actions when switching to withdrawn EN before refresh",
+    blockProfile([]),
+    async () => {
+      mocks.enabledLocales = ["en", "fr"]
+      mocks.convex.query.mockImplementation(async (reference?: unknown) =>
+        getFunctionName(reference as never) === "cms/pages:getPrePublishChecklist"
+          ? { canPublish: true, blockers: [], warnings: [] }
+          : []
+      )
+      mocks.saveDraft.mockResolvedValueOnce({
+        updatedAt: 101, draftGeneration: 7, sharedDraftGeneration: 4,
+      })
+      mocks.publish.mockResolvedValueOnce({
+        publicGeneration: 4,
+        snapshotId: "republished-fr" as Id<"pagePublishedSnapshots">,
+        publishedAt: 500,
+      })
+      const hook = vi.spyOn(pageSaveHook, "usePageSave")
+      const view = render(tab({
+        ...pageOf("About", "À propos"), status: "archived",
+      }, publishedBilingualStates()))
+      const handlers = () => hook.mock.results.at(-1)!.value as ReturnType<
+        typeof pageSaveHook.usePageSave
+      >
+      try {
+        await act(async () => { await handlers().unarchive() })
+        expect(screen.getByText("Draft", { exact: true })).toBeInTheDocument()
+        await expectPageActions("draft")
+        await act(async () => { mocks.localeTabs!.onLocaleChange("fr") })
+        expect(screen.getByText("Draft", { exact: true })).toBeInTheDocument()
+        type("Page title", "À propos modifié")
+        await act(async () => { await handlers().publish() })
+        expect(mocks.saveDraft).toHaveBeenCalledOnce()
+        expect(localizedOf(sent())).toMatchObject({
+          locale: "fr", expectedGeneration: 6,
+          draft: { localized: { title: "À propos modifié" } },
+        })
+        expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
+          locale: "fr", expectedPublicGeneration: 3,
+          expectedDraftGeneration: 7, expectedLifecycleGeneration: 4,
+        }))
+        expect(screen.getByText("Published", { exact: true })).toBeInTheDocument()
+        await expectPageActions("published")
+        await act(async () => { mocks.localeTabs!.onLocaleChange("en") })
+        expect(screen.getByText("Draft", { exact: true })).toBeInTheDocument()
+        await expectPageActions("published")
+        expect(mocks.withdrawLocale).not.toHaveBeenCalled()
+      } finally {
+        view.unmount()
+        hook.mockRestore()
+      }
+    }
+  )
 
   test(
     "E1-1 a refresh that carries another tab's generation does not move this tab's base",
@@ -4216,6 +4493,14 @@ describe("E1 a tab never saves over content it has not loaded", () => {
             expectedPublicGeneration: 2,
             expectedReleaseGeneration: 1,
           })
+          if (command === "Restore from archive") {
+            // The query prop is deliberately still archived/published here.
+            // The editor already holds the withdrawn generation locally.
+            expect(mocks.slotProps.at(-1)!.readSnapshotRestore!()).toMatchObject({
+              expectedPublicGeneration: 3,
+            })
+            expect(screen.getByText("Draft", { exact: true })).toBeInTheDocument()
+          }
           expect(mocks.unlistedWrite).not.toHaveBeenCalled()
           expect(mocks.saveDraft).not.toHaveBeenCalled()
           expect(toast.error).not.toHaveBeenCalled()

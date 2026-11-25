@@ -3,6 +3,7 @@ import { ConvexError } from "convex/values"
 // Only stable, explicitly allowed codes can select owner-visible copy.
 const ERROR_KEYS = {
   SLUG_TAKEN: "slugTaken",
+  PAGE_ADDRESS_LOOKUP_LIMIT: "pageAddressLookupLimit",
   MEDIA_FETCH_FAILED: "mediaFetchFailed",
   MEDIA_NOT_IMAGE: "mediaNotImage",
   MEDIA_TOO_LARGE: "mediaTooLarge",
@@ -12,9 +13,12 @@ const ERROR_KEYS = {
   REDIRECT_DESTINATION_AMBIGUOUS: "redirectDestinationAmbiguous",
   REDIRECT_SAME_PATH: "redirectSamePath",
   REDIRECT_EXISTS: "redirectExists",
+  REDIRECT_LOOP: "redirectLoop",
+  REDIRECT_CHAIN_TOO_LONG: "redirectChainTooLong",
   PILOT_PAGE_LIMIT: "pilotPageLimit",
   REVALIDATION_UNCONFIGURED: "revalidationUnconfigured",
   SITE_DESCRIPTION_LOCALE_NOT_ENABLED: "siteDescriptionLocaleNotEnabled",
+  SITE_URL_INVALID: "siteUrlInvalid",
   INVALID_EMAIL_OR_PASSWORD: "invalidCredentials",
   INVALID_PASSWORD: "invalidPassword",
   INVALID_EMAIL: "invalidEmail",

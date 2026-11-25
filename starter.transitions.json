@@ -160,6 +160,37 @@
         "block-registration",
         "tokens"
       ]
+    },
+    {
+      "id": "v0.5.1-to-v0.5.2",
+      "source": {
+        "tag": "v0.5.1",
+        "tagObjectOid": "c9555509d147ded19b26b86513a74f4573dbefbf",
+        "starterCommitOid": "75faa3ab981ec78d3d87ebbcf1afc07ccea4aed9",
+        "engineCommitOid": "f2eaf1fea95c548130f2be530826976619708873",
+        "generatedTreeDigest": "0e78fd0ccac2a6b5da174354cc66c045c5527b22d8e30b2e3cbab4378f5a5e3a"
+      },
+      "targetTag": "v0.5.2",
+      "class": "unsupported",
+      "composable": false,
+      "rollback": {
+        "codeArtifact": "unsupported",
+        "boundary": "There is no upgrade from v0.5.1 to v0.5.2: release 0.5.2 supports fresh installs only. Do not merge or pull v0.5.2 into a 0.5.1 site; start a new site and a new Convex deployment from v0.5.2 instead. Do not reuse the older site or its Convex deployment."
+      },
+      "migrationIds": [],
+      "configurationChanges": [],
+      "manualActionIds": [],
+      "requirements": {
+        "membershipReconciliation": false
+      },
+      "checks": [
+        "frozen-install",
+        "typecheck",
+        "lint",
+        "tests",
+        "block-registration",
+        "tokens"
+      ]
     }
   ]
 }

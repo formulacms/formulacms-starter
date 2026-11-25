@@ -31,7 +31,7 @@ import type {
   SweepSection,
 } from "./lib/language/collection"
 import crons from "./crons"
-import { publishPreparedTargetLocale } from "./cms/publication"
+import { initializeSuccessorPageLocale, publishPreparedTargetLocale } from "./cms/publication"
 import {
   addLanguageInTransaction,
   adoptMultilingualAuthorityInTransaction,
@@ -292,6 +292,8 @@ async function buildSite(
   }
   for (const pageId of [homeId, aboutId]) {
     for (const locale of locales) {
+      // B52 setup already publishes this exact empty Home once.
+      if (state === "S1" && pageId === homeId) continue
       const args = await publishArgs(t, pageId, locale)
       if (pageId === aboutId && aboutPublicationTimes) {
         const receipt = await owner.mutation(async (ctx) => {
@@ -1064,6 +1066,19 @@ function uniqueAddressReadDeltas(state: string): AllowedDelta[] {
     reason:
       "Unique address: Publish refuses another page's saved future path from the bounded same-identifier draft bucket, independently of Multilingual",
   })
+  deltas.push({
+    path: ["operations", "publish"],
+    addReads: [
+      range(
+        "pageLocalePublicationStates",
+        "by_hasCurrentSnapshot_and_locale",
+        'hasCurrentSnapshot Eq false, locale Eq "en"',
+        1000
+      ),
+    ],
+    reason:
+      "B01, 0.5.2: the address check reads unpublished language states so a withdrawn language keeps its address without a draft row",
+  })
   for (const read of [
     "get pages",
     "get pagePublishedSnapshots",
@@ -1094,6 +1109,16 @@ function allowedDeltas(key: string): AllowedDelta[] {
   // Seeded "disabled" rows start at configuration version 2.
   const version = variant === "disabled" ? 2 : 0
   return [
+    ...(state === "S1" ? [{
+      path: ["gates", "bootstrapInstallationResume"],
+      addReads: [
+        'query pagePublicationCutover.by_key [key Eq "published-snapshot-v1"] asc +operators [{"limit":2}]',
+        'query blockOccurrenceCountState.by_key [key Eq "block-occurrences-v1"] asc +operators [{"limit":2}]',
+        'query siteSettings full-scan asc +operators [{"limit":2}]',
+        'query siteLanguageAuthority.by_key [key Eq "site-language-v1"] asc +operators [{"limit":2}]',
+      ],
+      reason: "B52 exact resume accepts published Home, validates the existing authority and ready occurrence counts, and never republishes",
+    }] : []),
     {
       path: ["gates", "assertNoLanguageTransitionConflicts"],
       addReads: [MODULE_STATE_READ],
@@ -1236,6 +1261,11 @@ async function expectedAfterC1(
     unknown
   >
   // MG2 adds only the nullable Apply token to this unchanged empty preview.
+  if (key.startsWith("S1/")) {
+    const resumed = (expected.gates as Record<string, { outcome: unknown }>).bootstrapInstallationResume
+    expect(resumed.outcome).toEqual({ error: "INSTALLATION_BOOTSTRAP_STATE_INVALID" })
+    resumed.outcome = { ok: { phase: "snapshot_active", revision: 1, onboardingCompletedAt: FIXED_NOW } }
+  }
   const previewGate = (
     expected.gates as Record<
       string,
@@ -1511,13 +1541,14 @@ const LANGUAGE_SOURCE_INVENTORY: Record<string, number> = {
   // Translate page: Start and the estimate check that the source and the
   // target are both languages of this site (two calls in `prepare`).
   "convex/cms/aiJobs.ts#prepare#assertOrdinaryLocale": 2,
+  "convex/lib/ai/pageJobEligibility.ts#assertPageJobEligible#assertOrdinaryLocale": 1,
   // Ordinary Publication gates.
   "convex/cms/preview.ts#createPreviewSession#assertOrdinaryLocale": 1,
   // Owner draft query accepts ordinary locales and preparable F09 targets.
   "convex/cms/publication.ts#addressAvailability#resolveDraftLocaleEligibility": 2,
   "convex/cms/publication.ts#deleteLocaleContent#assertOrdinaryLocale": 1,
   "convex/cms/publication.ts#discardLocaleDraft#resolveDraftLocaleEligibility": 1,
-  "convex/cms/publication.ts#publishLocale#assertOrdinaryLocale": 1,
+  "convex/cms/publication.ts#publishLocaleInTransaction#assertOrdinaryLocale": 1,
   "convex/cms/publication.ts#restoreSnapshotAsDraft#assertOrdinaryLocale": 1,
   "convex/cms/publication.ts#saveEditorDraft#assertOrdinaryLocale": 1,
   "convex/cms/publication.ts#saveLocaleDraft#resolveDraftLocaleEligibility": 1,
@@ -3438,9 +3469,9 @@ const CLEARING_WRITE = "clears a current route; creates no claim"
 
 /** M05 P10b: every current or historical route-claim writer. */
 const CLAIM_WRITER_INVENTORY: Record<string, string> = {
-  "convex/cms/publication.ts#publishLocale#insert#pageHistoricalLocaleRoutes":
+  "convex/cms/publication.ts#publishLocaleInTransaction#insert#pageHistoricalLocaleRoutes":
     RETIREMENT_HOOKED,
-  "convex/cms/publication.ts#publishLocale#patch#pageLocalePublicationStates#currentPath":
+  "convex/cms/publication.ts#publishLocaleInTransaction#patch#pageLocalePublicationStates#currentPath":
     RETIREMENT_HOOKED,
   "convex/cms/publication.ts#publishPreparedTargetLocale#insert#pageHistoricalLocaleRoutes":
     PREPARED_TARGET_EXCLUSION,
@@ -3480,7 +3511,7 @@ describe("M05 P10b durable retirement source ownership", () => {
       })
     )
     expect([...hooks]).toEqual([
-      "convex/cms/publication.ts#publishLocale#retireContinuityRowForClaim",
+      "convex/cms/publication.ts#publishLocaleInTransaction#retireContinuityRowForClaim",
       "convex/cms/publication.ts#transitionLifecycle#retireContinuityRowForClaim",
     ])
     for (const [writer, disposition] of Object.entries(
@@ -3534,15 +3565,15 @@ const FRESHNESS_WRITER_INVENTORY: Record<string, string> = {
     F09_ONLY,
   "convex/cms/publication.ts#discardLocaleDraft#patch#pageLocalePublicationStates":
     RECORDS,
-  "convex/cms/publication.ts#initializeSuccessorPage#insert#pageLocalePublicationStates":
+  "convex/cms/publication.ts#initializeSuccessorPageLocale#insert#pageLocalePublicationStates":
     "a new Page's first state rows carry no selection or route",
-  "convex/cms/publication.ts#publishLocale#insert#pageHistoricalLocaleRoutes":
+  "convex/cms/publication.ts#publishLocaleInTransaction#insert#pageHistoricalLocaleRoutes":
     RECORDS,
-  "convex/cms/publication.ts#publishLocale#insert#pageLocalePublicationReleases":
+  "convex/cms/publication.ts#publishLocaleInTransaction#insert#pageLocalePublicationReleases":
     RECORDS,
-  "convex/cms/publication.ts#publishLocale#patch#pageLocalePublicationReleases":
+  "convex/cms/publication.ts#publishLocaleInTransaction#patch#pageLocalePublicationReleases":
     RECORDS,
-  "convex/cms/publication.ts#publishLocale#patch#pageLocalePublicationStates":
+  "convex/cms/publication.ts#publishLocaleInTransaction#patch#pageLocalePublicationStates":
     RECORDS,
   "convex/cms/publication.ts#publishPreparedTargetLocale#insert#pageHistoricalLocaleRoutes":
     F09_ONLY,
@@ -3606,7 +3637,7 @@ const RECORDING_CALL_SITES = [
   "convex/cms/pages.ts#create#recordPublicChange",
   "convex/cms/publication.ts#deleteLocaleContent#recordPublicChange",
   "convex/cms/publication.ts#discardLocaleDraft#recordPublicChange",
-  "convex/cms/publication.ts#publishLocale#recordPublicChange",
+  "convex/cms/publication.ts#publishLocaleInTransaction#recordPublicChange",
   "convex/lib/publishing/pagePurge.ts#drainRedirects#recordPublicChange",
   "convex/cms/publication.ts#restoreSnapshotAsDraft#recordPublicChange",
   "convex/cms/publication.ts#saveEditorDraft#recordPublicChange",
@@ -3732,6 +3763,7 @@ async function freshnessScript(site: Site) {
       expectedLifecycleGeneration: (await page()).lifecycleGeneration,
     })
   )
+  await publishPage(site, aboutId, "en")
   const selected = await localeState(t, aboutId, "en")
   await record("publication.withdrawLocale", async () =>
     owner.mutation(api.cms.publication.withdrawLocale, {
@@ -5834,17 +5866,17 @@ async function rowsOutsideAddWriteSet(t: T) {
   return rows
 }
 
+
 const NOT_FOUND = { id: null, page: null }
 
 describe("M05 P4 add and independent publish", () => {
-  test("a plain add writes nothing else, and the new language is public only once published", async () => {
+  test("a plain add publishes Home, and other pages are public only once published", async () => {
     const site = await buildSite("S1", "absent")
     const { t, owner } = site
     await toggleMultilingual(site, true)
     await adopt(site)
     const aboutEn = await publicRead(t, "en", "about")
     expect(aboutEn.id).toBe(site.aboutId)
-    const rows = await rowsOutsideAddWriteSet(t)
     const version = await authorityVersion(t)
 
     expect(await addLanguage(site, "fr")).toEqual({
@@ -5852,7 +5884,8 @@ describe("M05 P4 add and independent publish", () => {
       enabledLocales: ["en", "fr"],
       operationKind: "add",
     })
-    expect(await rowsOutsideAddWriteSet(t)).toEqual(rows)
+    const { homePageId } = await settingsRow(t)
+    expect(await localeState(t, homePageId!, "fr")).toMatchObject({ hasCurrentSnapshot: true })
     expect(await lifecycleOf(site)).toBe("S4")
     expect(await t.query(api.cms.settings.getSiteConfig, {})).toMatchObject({
       defaultLocale: "en",
@@ -5967,14 +6000,14 @@ describe("M05 P4 add and independent publish", () => {
     ).toEqual(refused("LANGUAGE_PREVIEW_REVIEW_INCOMPLETE"))
 
     await reviewEveryPage(site, previewId)
-    const rows = await rowsOutsideAddWriteSet(t)
     const version = await authorityVersion(t)
     expect(await addLanguage(site, "nl", claim)).toEqual({
       version: version + 1,
       enabledLocales: ["en", "fr", "nl"],
       operationKind: "reveal",
     })
-    expect(await rowsOutsideAddWriteSet(t)).toEqual(rows)
+    const { homePageId } = await settingsRow(t)
+    expect(await localeState(t, homePageId!, "nl")).toMatchObject({ hasCurrentSnapshot: true })
     expect((await previewRow(t, previewId)).phase).toBe("consumed")
   }, 120_000)
 
@@ -5997,7 +6030,6 @@ describe("M05 P4 add and independent publish", () => {
     const previewId = await startPreview(site, "reveal", "nl")
     await runPreview(t, previewId)
     const unused = await previewRow(t, previewId)
-    const rows = await rowsOutsideAddWriteSet(t)
     expect(
       await addLanguage(site, "nl", {
         ...(await previewClaim(t, previewId)),
@@ -6007,7 +6039,8 @@ describe("M05 P4 add and independent publish", () => {
       enabledLocales: ["en", "fr", "nl"],
       operationKind: "add",
     })
-    expect(await rowsOutsideAddWriteSet(t)).toEqual(rows)
+    const { homePageId } = await settingsRow(t)
+    expect(await localeState(t, homePageId!, "nl")).toMatchObject({ hasCurrentSnapshot: true })
     expect(await previewRow(t, previewId)).toEqual(unused)
   }, 120_000)
 
@@ -6021,7 +6054,7 @@ describe("M05 P4 add and independent publish", () => {
 
     const previewId = await reviewedReveal(site)
     expect((await previewRow(t, previewId)).count).toMatchObject({
-      publicPages: 1,
+      publicPages: 2, // The newly added language also published its empty Home.
     })
     const rows = await rowsOutsideAddWriteSet(t)
     expect(
@@ -7696,6 +7729,7 @@ describe("M05 P8 disable and re-enable", () => {
   test("after a real removal and return, disable keeps the authority, its continuity pointer and every M9 row, and a reviewed reveal brings the translation back without republishing", async () => {
     const site = await previewSite()
     const { t } = site
+    await site.owner.mutation(internal.cms.publication.startEmptyHomeInLanguage, { locale: "fr" })
     const indexedBefore = await localeState(t, site.frPageId, "fr")
     expect(indexedBefore.pageType).toBeDefined()
     expect(indexedBefore.publicSince).toBe(indexedBefore.currentPublishedAt)
@@ -13489,7 +13523,7 @@ describe("M05 P16 complete enumeration (post-activation half)", () => {
       await redirectTo(t, aboutId, "en", "/about")
     )
     // The archived Page's row is claimed but never redirects to an unserved
-    // Page; restored, it answers with the same en Page.
+    // Page; restored, it stays unavailable until explicitly republished.
     expect(routeView(rows.get("/archived")!)).toMatchObject({
       pageId: archivedId,
       locale: "en",
@@ -13508,9 +13542,7 @@ describe("M05 P16 complete enumeration (post-activation half)", () => {
       expectedLifecycleGeneration: (await generations(t, archivedId, "en"))
         .page!.lifecycleGeneration,
     })
-    expect(await resolvePath(t, "fr", "/archived")).toEqual(
-      await redirectTo(t, archivedId, "en", "/archived")
-    )
+    expect(await resolvePath(t, "fr", "/archived")).toEqual(UNAVAILABLE)
   }, 180_000)
 })
 
@@ -14783,23 +14815,16 @@ describe("M05 A4 addSiteLanguage", () => {
     60_000
   )
 
-  test("S2 adoption keeps every language and publishes nothing", async () => {
+  test("S2 adoption rolls back when Home has a retained private draft", async () => {
     const site = await onSite("S2")
-    const surface = await publicSurface(site.t)
-    await addSite(site, "nl", await commandTokens(site))
-    const state = await site.owner.query(
-      api.cms.multilingual.getMultilingualState,
-      {}
-    )
-    expect(state.enabledLocales).toEqual(["en", "fr", "nl"])
-    const withoutSettings = (value: unknown) => {
-      const { settings, ...rest } = value as Record<string, unknown>
-      void settings
-      return rest
-    }
-    expect(withoutSettings(await publicSurface(site.t))).toEqual(
-      withoutSettings(surface)
-    )
+    const { homePageId } = await settingsRow(site.t)
+    await site.t.run(async (ctx) => {
+      const home = (await ctx.db.get("pages", homePageId!))!
+      const shared = (await ctx.db.query("pageSharedDrafts").withIndex("by_pageId", (q) => q.eq("pageId", home._id)).unique())!
+      await initializeSuccessorPageLocale(ctx, home, "nl", { title: "Private Home", blocks: [] }, shared.updatedBy, Date.now())
+    })
+    expect(await refusalWritesNothing(site.t, async () => addSite(site, "nl", await commandTokens(site))))
+      .toEqual(refused("LANGUAGE_HOME_NOT_PUBLISHED"))
   })
 
   test("invalid language state refuses with no write in every command", async () => {
@@ -15300,13 +15325,11 @@ describe("M05 A4 off-module continuity pointer", () => {
       conflicts: [],
       moreConflicts: false,
     })
-    // The reveal alone no longer needs a preview: the add commits once the
-    // owner has switched Multilingual back on in Modules.
+    // The advisory needs no preview, but the retained private Home refuses
+    // the add without changing the continuity pointer or language state.
     await toggleMultilingual(site, true)
-    expect(await addSite(site, "en", await commandTokens(site))).toMatchObject({
-      ok: true,
-      operationKind: "reveal",
-    })
+    expect(await refusalWritesNothing(t, async () => addSite(site, "en", await commandTokens(site))))
+      .toEqual(refused("LANGUAGE_HOME_NOT_PUBLISHED"))
 
     // A route row under the pointer at `/nl/...` is what the branch looks
     // for: seeded with the existing pointed-generation helper on a fresh

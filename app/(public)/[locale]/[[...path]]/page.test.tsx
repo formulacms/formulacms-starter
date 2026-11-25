@@ -146,7 +146,7 @@ const config = {
   onboardingCompletedAt: 1,
   defaultLocale: "en",
   enabledLocales: ["en", "fr"],
-  homePageId: null,
+  homePageId: null as string | null,
   siteUrl: "https://example.com",
   languageVersion: 1,
 }
@@ -200,6 +200,7 @@ describe("public localized Page route", () => {
     config.enabledLocales = ["en", "fr"]
     config.defaultLocale = "en"
     config.languageVersion = 1
+    config.homePageId = null
     for (const locale of Object.keys(page.content)) {
       if (locale !== "en") delete page.content[locale]
     }
@@ -230,6 +231,18 @@ describe("public localized Page route", () => {
       pagePaths: {},
       relationCards: {},
     })
+  })
+
+  test.each([false, true])("marks Home by configured identity, preserving preview copy (%s)", async (preview) => {
+    mocks.isPreview = preview
+    config.homePageId = page._id
+    render(await CmsPage({ params: Promise.resolve({ locale: "en", path: ["english-only"] }) }))
+    expect(mocks.renderer).toHaveBeenCalledWith(expect.objectContaining({ isHomePage: !preview }), undefined)
+  })
+
+  test("an ordinary empty page is not marked Home", async () => {
+    render(await CmsPage({ params: Promise.resolve({ locale: "en", path: ["english-only"] }) }))
+    expect(mocks.renderer).toHaveBeenCalledWith(expect.objectContaining({ isHomePage: false }), undefined)
   })
 
   for (const query of [

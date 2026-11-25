@@ -347,7 +347,7 @@ describe("F08a corrective authority and ownership proof", () => {
     expect(redirects).not.toContain("api.cms.pages.list(")
   })
 
-  test("clean bootstrap reaches onboarding authoring and explicit home publication", async () => {
+  test("clean bootstrap reaches onboarding authoring with a published home", async () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     await owner.mutation(api.cms.settings.bootstrapInstallation, {
@@ -372,8 +372,11 @@ describe("F08a corrective authority and ownership proof", () => {
           )
           .unique()
       )
-    ).toMatchObject({ generation: 1, content: { title: "Successor site" } })
-    const published = await publishEn(owner, homeId)
+    ).toBeNull()
+    const published = await t.run((ctx) => ctx.db
+      .query("pageLocalePublicationStates")
+      .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", homeId).eq("locale", "en"))
+      .unique())
     expect(
       await t.query(api.cms.pages.getPublicPageById, {
         languageVersion: 1,
@@ -391,7 +394,7 @@ describe("F08a corrective authority and ownership proof", () => {
         locale: "en",
       })
     ).toBe(homeId)
-    expect(published.publicGeneration).toBe(1)
+    expect(published!.publicGeneration).toBe(1)
     await expect(
       owner.mutation(api.cms.pages.create, {
         pageType: "landing-page",
@@ -502,7 +505,7 @@ describe("F08a corrective authority and ownership proof", () => {
       pages: 1,
       pageStates: 1,
       sharedDrafts: 1,
-      localeDrafts: 1,
+      localeDrafts: 0,
       localeStates: 1,
     })
     await expect(
@@ -863,7 +866,7 @@ describe("F08a corrective authority and ownership proof", () => {
         expect.objectContaining({
           _id: pageId,
           lifecycleState: "trashed",
-          restoreLifecycleState: "archived",
+          restoreLifecycleState: "active",
           lifecycleGeneration: 3,
         }),
       ],
@@ -954,7 +957,7 @@ describe("F08a corrective authority and ownership proof", () => {
     ).rejects.toThrow("PUBLISHED_SNAPSHOT_CUTOVER_REQUIRES_MIGRATION")
   })
 
-  test("candidate is exact canonical UTF-8 SHA-256 and lifecycle restores the same pointer", async () => {
+  test("candidate is exact canonical UTF-8 SHA-256 and lifecycle recovery withdraws the pointer and keeps the draft", async () => {
     const { t, owner, pageId } = await activeFixture()
     const published = await publishEn(owner, pageId)
     const candidate = await t.run((ctx) => ctx.db.get("pageLocalePublicationCandidates", published.candidateId))
@@ -1006,9 +1009,7 @@ describe("F08a corrective authority and ownership proof", () => {
       id: pageId,
       locale: "en",
     })
-    expect(
-      (restored?.content.en as { title?: string } | undefined)?.title
-    ).toBe("Café ☕")
+    expect(restored).toBeNull()
     await owner.mutation(api.cms.publication.softDeletePage, {
       pageId,
       expectedLifecycleGeneration: 3,
@@ -1032,9 +1033,9 @@ describe("F08a corrective authority and ownership proof", () => {
         )
         .unique()
     )
-    expect(pointerAfter?.currentSnapshotId).toBe(
-      pointerBefore?.currentSnapshotId
-    )
+    expect(pointerAfter?.currentSnapshotId).toBeUndefined()
+    expect(pointerAfter?.draftBaseSnapshotId).toBe(pointerBefore?.draftBaseSnapshotId)
+    expect(pointerAfter?.publicGeneration).toBe(pointerBefore!.publicGeneration + 1)
   })
 
   test("draft/candidate/current media ownership validates storage and blocks permanent deletion", async () => {

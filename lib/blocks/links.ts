@@ -1,3 +1,9 @@
+import {
+  hasUnsafeUrlCharacters,
+  safeMailtoHref,
+  safeTelHref,
+} from "@/convex/lib/linkSchemes"
+export { safeMailtoHref, safeTelHref } from "@/convex/lib/linkSchemes"
 import type { ReactNode } from "react"
 import type { RichTextProfile } from "@/convex/lib/richtext/profiles"
 import type { Block, CMSLinkField } from "@/convex/lib/blocks"
@@ -59,18 +65,8 @@ export type BlockRenderContext = {
 }
 
 const URL_SCHEME = /^([a-z][a-z\d+.-]*):/i
-const URL_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
-const URL_ENCODED_CONTROLS = /%(?:0[0-9a-f]|1[0-9a-f]|7f)/i
 // Reserved origin used only to classify app-relative media references.
 const MEDIA_RELATIVE_BASE = new URL("https://formulacms.invalid/")
-
-function hasUnsafeUrlCharacters(value: string): boolean {
-  return (
-    URL_CONTROL_CHARACTERS.test(value) ||
-    value !== value.trim() ||
-    value.includes("\\")
-  )
-}
 
 function safeHttpHref(value: string): string | undefined {
   try {
@@ -81,38 +77,6 @@ function safeHttpHref(value: string): string | undefined {
   } catch {
     return undefined
   }
-}
-
-function safeMailtoHref(value: string): string | undefined {
-  const recipientList = value.slice("mailto:".length).split("?", 1)[0]
-  const hasQuery = value.includes("?")
-  if (
-    (!recipientList && !hasQuery) ||
-    recipientList.startsWith("//") ||
-    recipientList.includes(":") ||
-    /[\s<>]/.test(recipientList) ||
-    URL_ENCODED_CONTROLS.test(value)
-  ) {
-    return undefined
-  }
-  return value
-}
-
-function safeTelHref(value: string): string | undefined {
-  const numberAndParams = value.slice("tel:".length)
-  const [number, ...params] = numberAndParams.split(";")
-  if (
-    !number ||
-    !/[0-9]/.test(number) ||
-    !/^[+0-9().*#,\-\s]+$/.test(number) ||
-    params.some(
-      (param) => !/^(?:ext|isub|phone-context)=[+a-z0-9.-]+$/i.test(param)
-    ) ||
-    URL_ENCODED_CONTROLS.test(value)
-  ) {
-    return undefined
-  }
-  return value
 }
 
 function safeExternalHref(value: string): string | undefined {

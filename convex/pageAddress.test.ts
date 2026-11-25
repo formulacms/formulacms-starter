@@ -6,6 +6,7 @@ import schema from "./schema"
 import { blockProfile } from "../test-utils/block-profile"
 import {
   checkPageAddress,
+  PAGE_ADDRESS_UNPUBLISHED_STATE_LIMIT,
   allocatePageAddress,
   readLiveAddressRows,
 } from "./lib/publishing/snapshots"
@@ -112,6 +113,168 @@ async function fixture() {
   return { t, owner, create, publish, save, clocks, home }
 }
 
+describe("snapshot-backed recovery address", () => {
+  test.each(["restore", "restore_soft_deleted", "withdraw"] as const)(
+    "%s keeps snapshot-only EN+FR draft addresses claimed until republish",
+    async (operation) => {
+      const f = await fixture()
+      await f.t.run(async (ctx) => {
+        const settings = await ctx.db.query("siteSettings").unique()
+        await ctx.db.patch("siteSettings", settings!._id, {
+          enabledLocales: ["en", "fr"],
+        })
+      })
+      const createBilingual = () => f.owner.mutation(api.cms.pages.create, {
+        pageType: "page",
+        status: "draft",
+        slug: "about",
+        title: "About",
+        content: {
+          en: { title: "About", blocks: [] },
+          fr: { title: "À propos", blocks: [] },
+        },
+      })
+      const a = await createBilingual()
+      for (const locale of ["en", "fr"]) await f.publish(a, locale)
+      expect(await f.t.run((ctx) => ctx.db.query("pageLocaleDrafts")
+        .withIndex("by_pageId_and_updatedAt", (q) => q.eq("pageId", a)).collect()))
+        .toEqual([])
+      const before = await f.clocks(a)
+      if (operation === "withdraw") {
+        for (const locale of ["en", "fr"]) {
+          const p = await f.clocks(a)
+          const l = p.locales.find((entry) => entry.locale === locale)!
+          await f.owner.mutation(api.cms.publication.withdrawLocale, {
+            pageId: a, locale,
+            expectedSnapshotId: l.currentSnapshotId!,
+            expectedPublicGeneration: l.publicGeneration,
+            expectedLifecycleGeneration: p.lifecycleGeneration,
+          })
+        }
+      } else {
+        await f.owner.mutation(operation === "restore"
+          ? api.cms.publication.archivePage : api.cms.publication.softDeletePage, {
+          pageId: a, expectedLifecycleGeneration: 1,
+        })
+        await f.owner.mutation(operation === "restore"
+          ? api.cms.publication.restorePage : api.cms.publication.restoreSoftDeletedPage, {
+          pageId: a, expectedLifecycleGeneration: 2,
+        })
+      }
+      const assertCleanClaim = async () => {
+        const edit = await f.owner.query(api.cms.pages.getForEdit, { id: a })
+        expect(edit?.hasStaging).toBe(false)
+        expect(edit?.page.status).toBe("draft")
+        expect(await f.t.run((ctx) => ctx.db.query("pageLocaleDrafts")
+          .withIndex("by_pageId_and_updatedAt", (q) => q.eq("pageId", a)).collect()))
+          .toEqual([])
+        for (const locale of ["en", "fr"]) {
+          const state = await f.t.run((ctx) => ctx.db.query("pageLocalePublicationStates")
+            .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", a).eq("locale", locale)).unique())
+          const original = before.locales.find((entry) => entry.locale === locale)!
+          expect(state?.draftBaseSnapshotId).toBe(original.currentSnapshotId)
+          expect(state?.currentSnapshotId).toBeUndefined()
+          expect(state?.currentReleaseId).toBeUndefined()
+          expect(state?.currentPath).toBeUndefined()
+          expect(state?.currentPublishedAt).toBeUndefined()
+          expect(state?.hasCurrentSnapshot).toBe(false)
+          expect(state?.publicGeneration).toBe(original.publicGeneration + 1)
+          expect(edit?.publication?.locales.find((entry) => entry.locale === locale)?.state)
+            .toBe("draft")
+          const check = await f.t.run((ctx) => checkPageAddress(ctx, {
+            pageType: "page", locale, slug: "about",
+          }))
+          expect(check).toMatchObject({ kind: "taken", holder: {
+            pageId: a, title: locale === "fr" ? "À propos" : "About",
+          } })
+        }
+      }
+      await assertCleanClaim()
+      for (const locale of ["en", "fr"]) {
+        expect((await f.clocks(a)).locales.find((entry) => entry.locale === locale)?.draftGeneration)
+          .toBe(before.locales.find((entry) => entry.locale === locale)?.draftGeneration)
+        const p = await f.clocks(a)
+        const l = p.locales.find((entry) => entry.locale === locale)!
+        await f.owner.mutation(api.cms.publication.saveEditorDraft, {
+          pageId: a, expectedLifecycleGeneration: p.lifecycleGeneration,
+          localized: { locale, slug: "about", expectedGeneration: l.draftGeneration,
+            draft: { pageType: "page", localized: { title: "Edited" }, blocks: [] } },
+        })
+        expect((await f.owner.query(api.cms.pages.getForEdit, { id: a }))?.hasStaging).toBe(true)
+        expect(await f.t.run((ctx) => checkPageAddress(ctx, {
+          pageType: "page", locale, slug: "about",
+        }))).toMatchObject({ kind: "taken", holder: { pageId: a } })
+        const edited = await f.clocks(a)
+        await f.owner.mutation(api.cms.publication.discardLocaleDraft, {
+          pageId: a, locale, expectedLifecycleGeneration: edited.lifecycleGeneration,
+          expectedDraftGeneration: edited.locales.find((entry) => entry.locale === locale)!.draftGeneration,
+        })
+        await assertCleanClaim()
+        const clean = await f.clocks(a)
+        await f.owner.mutation(api.cms.publication.discardLocaleDraft, {
+          pageId: a, locale, expectedLifecycleGeneration: clean.lifecycleGeneration,
+          expectedDraftGeneration: clean.locales.find((entry) => entry.locale === locale)!.draftGeneration,
+        })
+        await assertCleanClaim()
+      }
+      const b = await createBilingual()
+      for (const locale of ["en", "fr"]) {
+        await f.publish(b, locale)
+        expect((await f.clocks(b)).locales.find((l) => l.locale === locale)?.path)
+          .not.toBe("/about")
+        await f.publish(a, locale)
+        expect((await f.clocks(a)).locales.find((l) => l.locale === locale)?.path)
+          .toBe("/about")
+      }
+    }
+  )
+  test("unpublished state lookup refuses at its supported bound instead of reporting free", async () => {
+    const f = await fixture()
+    await f.t.run(async (ctx) => {
+      const template = await ctx.db.query("pageLocalePublicationStates")
+        .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", f.home).eq("locale", "en")).unique()
+      const { _id, _creationTime, ...row } = template!
+      void _id
+      void _creationTime
+      const home = await ctx.db.get("pages", f.home)
+      const { _id: homeId, _creationTime: createdAt, ...page } = home!
+      void homeId
+      void createdAt
+      for (let i = 0; i < PAGE_ADDRESS_UNPUBLISHED_STATE_LIMIT; i++) {
+        const pageId = await ctx.db.insert("pages", { ...page, slug: `draft-${i}` })
+        await ctx.db.insert("pageLocalePublicationStates", { ...row, pageId })
+      }
+    })
+    await expect(f.t.run((ctx) => checkPageAddress(ctx, {
+      pageType: "page", locale: "en", slug: "unclaimed",
+    }))).rejects.toThrow("PAGE_ADDRESS_LOOKUP_LIMIT")
+  })
+  test("unarchive refuses a conflicting future address without losing its snapshot draft", async () => {
+    const f = await fixture()
+    const parent = await f.create("parent")
+    await f.publish(parent)
+    const pageId = await f.create("child", parent)
+    await f.publish(pageId)
+    await f.owner.mutation(api.cms.publication.archivePage, {
+      pageId, expectedLifecycleGeneration: 1,
+    })
+    await f.create("child")
+    await f.t.run(async (ctx) => {
+      const draft = await ctx.db.query("pageLocaleDrafts")
+        .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", pageId).eq("locale", "en")).unique()
+      if (draft) await ctx.db.delete("pageLocaleDrafts", draft._id)
+      const shared = await ctx.db.query("pageSharedDrafts")
+        .withIndex("by_pageId", (q) => q.eq("pageId", pageId)).unique()
+      await ctx.db.patch("pageSharedDrafts", shared!._id, { system: {} })
+    })
+    const before = await f.clocks(pageId)
+    await expect(f.owner.mutation(api.cms.publication.restorePage, {
+      pageId, expectedLifecycleGeneration: 2,
+    })).rejects.toThrow("PAGE_ADDRESS_TAKEN")
+    expect(await f.clocks(pageId)).toEqual(before)
+  })
+})
+
 describe("review round1 address identity regressions", () => {
   test.each(["retained-current", "former"] as const)(
     "trash restore respects a draft holder of the %s address after its own identifier changes",
@@ -137,11 +300,7 @@ describe("review round1 address identity regressions", () => {
         }
       )
       if (kind === "retained-current") {
-        expect(restored.addressNotices?.[0]).toMatchObject({
-          oldPath: "/old",
-          newPath: "/new",
-          check: { holder: { pageId: holder } },
-        })
+        expect(restored.addressNotices).toBeUndefined()
         expect((await f.clocks(a)).locales[0]?.state).toBe("draft")
       } else {
         const route = await f.t.run((ctx) =>
@@ -1006,7 +1165,7 @@ describe("unique page address: transactional policies", () => {
       )?.page.slug
     ).toBe("contact")
   })
-  test("trash restore unpublishes only the language whose address was reused", async () => {
+  test("trash restore withdraws both languages even when only one address was reused", async () => {
     const f = await fixture()
     await f.t.run(async (ctx) => {
       const site = await ctx.db.query("siteSettings").unique()
@@ -1054,9 +1213,11 @@ describe("unique page address: transactional policies", () => {
         )
         .unique()
     )
-    expect(afterFr).toEqual(before)
+    expect(afterFr?.hasCurrentSnapshot).toBe(false)
+    expect(afterFr?.publicGeneration).toBe(before!.publicGeneration + 1)
+    expect(afterFr?.draftBaseSnapshotId).toBe(before!.draftBaseSnapshotId)
   })
-  test("trash restore keeps a language published when only its draft address is reused", async () => {
+  test("trash restore withdraws publication when only its draft address is reused", async () => {
     const f = await fixture()
     const a = await f.create("events")
     await f.publish(a)
@@ -1087,19 +1248,18 @@ describe("unique page address: transactional policies", () => {
         path: "/events",
         languageVersion: 0,
       })
-    ).toBe(a)
+    ).toBeNull()
     const after = (await stateOf("en"))!
-    expect(after.hasCurrentSnapshot).toBe(true)
-    expect(after.currentSnapshotId).toBe(before.currentSnapshotId)
-    expect(after.currentPath).toBe(before.currentPath)
-    expect(after.publicGeneration).toBe(before.publicGeneration)
+    expect(after.hasCurrentSnapshot).toBe(false)
+    expect(after.currentSnapshotId).toBeUndefined()
+    expect(after.currentPath).toBeUndefined()
+    expect(after.publicGeneration).toBe(before.publicGeneration + 1)
     expect(after.draftGeneration).toBeGreaterThan(before.draftGeneration)
     expect(restored.addressNotices).toHaveLength(1)
     expect(restored.addressNotices?.[0]).toMatchObject({
       locale: "en",
       oldPath: "/agenda",
       newPath: "/agenda-2",
-      kept: "published",
       check: { holder: { pageId: other } },
     })
     const draft = await f.t.run((ctx) =>
@@ -1112,7 +1272,7 @@ describe("unique page address: transactional policies", () => {
     )
     expect(draft?.slug).toBe("agenda-2")
   })
-  test("archived restore keeps a language whose live address is free", async () => {
+  test("archived trash restore returns an active draft when its live address is free", async () => {
     const f = await fixture()
     const a = await f.create("events")
     await f.publish(a)
@@ -1147,18 +1307,17 @@ describe("unique page address: transactional policies", () => {
         .withIndex("by_pageId", (q) => q.eq("pageId", a))
         .unique()
     )
-    expect(pageState?.lifecycleState).toBe("archived")
+    expect(pageState?.lifecycleState).toBe("active")
     expect(restored.addressNotices).toHaveLength(1)
     expect(restored.addressNotices?.[0]).toMatchObject({
       locale: "en",
       oldPath: "/agenda",
-      kept: "archived",
     })
     const after = (await stateOf("en"))!
-    expect(after.hasCurrentSnapshot).toBe(true)
-    expect(after.currentSnapshotId).toBe(before.currentSnapshotId)
-    expect(after.currentPath).toBe(before.currentPath)
-    expect(after.publicGeneration).toBe(before.publicGeneration)
+    expect(after.hasCurrentSnapshot).toBe(false)
+    expect(after.currentSnapshotId).toBeUndefined()
+    expect(after.currentPath).toBeUndefined()
+    expect(after.publicGeneration).toBe(before.publicGeneration + 1)
     const draft = await f.t.run((ctx) =>
       ctx.db
         .query("pageLocaleDrafts")
@@ -1175,14 +1334,10 @@ describe("unique page address: transactional policies", () => {
         languageVersion: 0,
       })
     expect(await resolveEvents()).toBeNull()
-    // Unarchive: the kept publication serves the page again.
-    await f.owner.mutation(api.cms.publication.restorePage, {
-      pageId: a,
-      expectedLifecycleGeneration: restored.lifecycleGeneration,
-    })
-    expect(await resolveEvents()).toBe(a)
+    await f.publish(a)
+    expect(await resolveEvents()).toBeNull()
   })
-  test("archived restore keeps the live address held against other pages until Unarchive", async () => {
+  test("archived trash restore releases the old live address", async () => {
     const f = await fixture()
     const a = await f.create("events")
     await f.publish(a)
@@ -1200,27 +1355,19 @@ describe("unique page address: transactional policies", () => {
       api.cms.publication.restoreSoftDeletedPage,
       { pageId: a, expectedLifecycleGeneration: 3 }
     )
-    // While A is archived and kept, a third page cannot take /events.
+    expect(restored.lifecycleGeneration).toBe(4)
     const third = await f.create("events")
     expect(
       (await f.owner.query(api.cms.pages.getForEdit, { id: third }))?.page.slug
-    ).toBe("events-2")
-    await expect(f.save(third, "events")).rejects.toThrow(
-      "PAGE_ADDRESS_ARCHIVED"
-    )
-    await f.owner.mutation(api.cms.publication.restorePage, {
-      pageId: a,
-      expectedLifecycleGeneration: restored.lifecycleGeneration,
-    })
+    ).toBe("events")
+    await f.publish(third)
     expect(
       await f.t.query(api.cms.pages.resolveLocalizedPathQuery, {
-        locale: "en",
-        path: "/events",
-        languageVersion: 0,
+        locale: "en", path: "/events", languageVersion: 0,
       })
-    ).toBe(a)
+    ).toBe(third)
   })
-  test("trash restore splits per language: draft-only conflict stays live, live conflict unpublishes", async () => {
+  test("trash restore withdraws both languages with draft and live address conflicts", async () => {
     const f = await fixture()
     await f.t.run(async (ctx) => {
       const site = await ctx.db.query("siteSettings").unique()
@@ -1289,14 +1436,14 @@ describe("unique page address: transactional policies", () => {
       { pageId: a, expectedLifecycleGeneration: 2 }
     )
     const afterEn = (await stateOf("en"))!
-    expect(afterEn.hasCurrentSnapshot).toBe(true)
-    expect(afterEn.currentSnapshotId).toBe(beforeEn.currentSnapshotId)
-    expect(afterEn.publicGeneration).toBe(beforeEn.publicGeneration)
+    expect(afterEn.hasCurrentSnapshot).toBe(false)
+    expect(afterEn.currentSnapshotId).toBeUndefined()
+    expect(afterEn.publicGeneration).toBe(beforeEn.publicGeneration + 1)
     const afterFr = (await stateOf("fr"))!
     expect(afterFr.hasCurrentSnapshot).toBe(false)
     const en = restored.addressNotices?.find((n) => n.locale === "en")
     const fr = restored.addressNotices?.find((n) => n.locale === "fr")
-    expect(en).toMatchObject({ oldPath: "/agenda", kept: "published" })
+    expect(en).toMatchObject({ oldPath: "/agenda" })
     expect(fr).toBeDefined()
     expect(fr).not.toHaveProperty("kept")
   })
@@ -1754,10 +1901,8 @@ describe("review round2 literal address split class", () => {
           { pageId: restored, expectedLifecycleGeneration: 2 }
         )
         if (collision && kind === "retained-current") {
-          expect(result.addressNotices?.[0]).toMatchObject({
-            oldPath: wantedPath,
-            check: { holder: { pageId: existing } },
-          })
+          // The conflicting old live path is withdrawn, not reclaimed.
+          expect(result.addressNotices).toBeUndefined()
           expect((await r.localeState(restored))?.hasCurrentSnapshot).toBe(
             false
           )
@@ -1775,7 +1920,7 @@ describe("review round2 literal address split class", () => {
           else expect(former?.releasedAt).toBeUndefined()
         } else {
           expect(result.addressNotices).toBeUndefined()
-          expect((await r.localeState(restored))?.hasCurrentSnapshot).toBe(true)
+          expect((await r.localeState(restored))?.hasCurrentSnapshot).toBe(false)
         }
         await r.publish(existing, input.locale)
         expect((await r.localeState(existing))?.currentPath).toBe(

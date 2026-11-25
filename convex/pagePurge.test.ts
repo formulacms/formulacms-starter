@@ -12,7 +12,7 @@ import {
   PAGE_STRING_KEYED,
   pagePurgeTuning,
 } from "./lib/publishing/pagePurge"
-import { readCurrentSnapshotProjection } from "./lib/publishing/snapshots"
+import { checkPageAddress, readCurrentSnapshotProjection } from "./lib/publishing/snapshots"
 
 const modules = import.meta.glob("./**/*.ts")
 const OWNER = {
@@ -306,6 +306,33 @@ describe("schema closure", () => {
 })
 
 describe("permanent page purge", () => {
+  test("purging a withdrawn snapshot-only EN+FR draft releases its address claims", async () => {
+    const f = await setup()
+    const pageId = await newPage(f, "claimed")
+    for (const locale of ["en", "fr"]) {
+      const published = await publish(f, pageId, locale)
+      const g = await gens(f, pageId, locale)
+      await f.owner.mutation(api.cms.publication.withdrawLocale, {
+        pageId, locale, expectedSnapshotId: published.snapshotId,
+        expectedPublicGeneration: published.publicGeneration,
+        expectedLifecycleGeneration: g.page.lifecycleGeneration,
+      })
+    }
+    const address = (locale: string) => f.t.run((ctx) => checkPageAddress(ctx, {
+      pageType: "landing-page", locale, slug: "claimed",
+    }))
+    for (const locale of ["en", "fr"])
+      expect(await address(locale)).toMatchObject({ kind: "taken", holder: { pageId } })
+    const generation = await trash(f, pageId)
+    for (const locale of ["en", "fr"])
+      expect(await address(locale)).toMatchObject({ kind: "free" })
+    const [result] = await purge(f, [{ pageId, generation }])
+    expect(result).toMatchObject({ pageId, status: "started" })
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers)
+    expect(await f.t.run((ctx) => ctx.db.get("pages", pageId))).toBeNull()
+    for (const locale of ["en", "fr"])
+      expect(await address(locale)).toMatchObject({ kind: "free" })
+  })
   test(
     "a two-language page published three times is removed from every owned table",
     blockProfile(["rich-text-body"]),

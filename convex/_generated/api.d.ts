@@ -59,6 +59,7 @@ import type * as lib_agents_pageContext from "../lib/agents/pageContext.js";
 import type * as lib_agents_registry from "../lib/agents/registry.js";
 import type * as lib_agents_translationWorkflow from "../lib/agents/translationWorkflow.js";
 import type * as lib_ai from "../lib/ai.js";
+import type * as lib_ai_pageJobEligibility from "../lib/ai/pageJobEligibility.js";
 import type * as lib_aiCatalog from "../lib/aiCatalog.js";
 import type * as lib_aiConfig from "../lib/aiConfig.js";
 import type * as lib_aiRateLimit from "../lib/aiRateLimit.js";
@@ -138,6 +139,7 @@ import type * as lib_language_localePrefix from "../lib/language/localePrefix.js
 import type * as lib_language_multilingual from "../lib/language/multilingual.js";
 import type * as lib_language_retirement from "../lib/language/retirement.js";
 import type * as lib_language_state from "../lib/language/state.js";
+import type * as lib_linkSchemes from "../lib/linkSchemes.js";
 import type * as lib_localAiAuditProof from "../lib/localAiAuditProof.js";
 import type * as lib_media_imageDimensions from "../lib/media/imageDimensions.js";
 import type * as lib_media_purge from "../lib/media/purge.js";
@@ -252,6 +254,7 @@ declare const fullApi: ApiFromModules<{
   "lib/agents/registry": typeof lib_agents_registry;
   "lib/agents/translationWorkflow": typeof lib_agents_translationWorkflow;
   "lib/ai": typeof lib_ai;
+  "lib/ai/pageJobEligibility": typeof lib_ai_pageJobEligibility;
   "lib/aiCatalog": typeof lib_aiCatalog;
   "lib/aiConfig": typeof lib_aiConfig;
   "lib/aiRateLimit": typeof lib_aiRateLimit;
@@ -331,6 +334,7 @@ declare const fullApi: ApiFromModules<{
   "lib/language/multilingual": typeof lib_language_multilingual;
   "lib/language/retirement": typeof lib_language_retirement;
   "lib/language/state": typeof lib_language_state;
+  "lib/linkSchemes": typeof lib_linkSchemes;
   "lib/localAiAuditProof": typeof lib_localAiAuditProof;
   "lib/media/imageDimensions": typeof lib_media_imageDimensions;
   "lib/media/purge": typeof lib_media_purge;

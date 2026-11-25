@@ -10,8 +10,8 @@ import {
   TriangleAlert,
   Undo2,
 } from "lucide-react"
-import { useState } from "react"
-import { useLocale, useTranslations } from "next-intl"
+import { useId, useState, type ReactNode } from "react"
+import { useTranslations } from "next-intl"
 import type { Id } from "@/convex/_generated/dataModel"
 import type { SnapshotAdminPageRow } from "@/convex/cms/publication"
 import { Badge } from "@/components/ui/badge"
@@ -38,8 +38,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { getLocaleDisplayName } from "@/lib/i18n/config"
-import { toPublicPath } from "@/lib/pages/url"
 import { cn } from "@/lib/utils"
 import { RowTitle, RowUrlName, WrappingBadge } from "./list-row-text"
 import {
@@ -66,7 +64,7 @@ export type RowActions = {
   unpublish(page: SnapshotListPage, locale: string): void
   translate(page: SnapshotListPage, locale: string): void
   archive(page: SnapshotListPage): void
-  unarchive(page: SnapshotListPage): void
+  unarchive(page: SnapshotListPage, title: string): void
   trash(page: SnapshotListPage): void
 }
 
@@ -83,6 +81,47 @@ function statusLabel(
   status: RowStatus | "archived"
 ) {
   return t(`rowStatus.${status}`)
+}
+
+/** A home-page action that stays focusable to explain why it is unavailable. */
+export function HomeDisabledMenuItem({
+  icon,
+  label,
+  reason,
+}: {
+  icon?: ReactNode
+  label: string
+  reason: string
+}) {
+  const reasonId = useId()
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {/* Keep keyboard focus; the wrapper receives pointer hover. */}
+        <span className="block">
+          <DropdownMenuItem
+            aria-disabled={true}
+            aria-describedby={reasonId}
+            className="pointer-events-none cursor-default opacity-50"
+            onSelect={(event) => event.preventDefault()}
+          >
+            {icon}
+            {label}
+          </DropdownMenuItem>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent
+        side="left"
+        collisionPadding={8}
+        className="max-w-[min(16rem,var(--radix-tooltip-content-available-width))]"
+      >
+        {reason}
+      </TooltipContent>
+      <span id={reasonId} className="sr-only">
+        {reason}
+      </span>
+    </Tooltip>
+  )
 }
 
 /** Row menu: this language on top, the whole page below. */
@@ -124,13 +163,21 @@ function RowMenu({
           </DropdownMenuItem>
         )}
         {status === "published" && (
-          <DropdownMenuItem
-            disabled={busy}
-            onSelect={() => actions.unpublish(page, locale)}
-          >
-            <Undo2 className="mr-2 size-4" />
-            {t("actions.unpublish")}
-          </DropdownMenuItem>
+          isHome ? (
+            <HomeDisabledMenuItem
+              icon={<Undo2 className="mr-2 size-4" />}
+              label={t("actions.unpublish")}
+              reason={t("actions.homeNoUnpublish")}
+            />
+          ) : (
+            <DropdownMenuItem
+              disabled={busy}
+              onSelect={() => actions.unpublish(page, locale)}
+            >
+              <Undo2 className="mr-2 size-4" />
+              {t("actions.unpublish")}
+            </DropdownMenuItem>
+          )
         )}
         {status === "notTranslated" && (
           <DropdownMenuItem onSelect={() => actions.translate(page, locale)}>
@@ -141,14 +188,14 @@ function RowMenu({
         {!archived && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+            <DropdownMenuLabel className="sr-only">
               {t("wholePage")}
             </DropdownMenuLabel>
           </>
         )}
         {archived ? (
           <>
-            <DropdownMenuItem onSelect={() => actions.unarchive(page)}>
+            <DropdownMenuItem onSelect={() => actions.unarchive(page, title)}>
               <ArchiveRestore className="mr-2 size-4" />
               {t("actions.unarchive")}
             </DropdownMenuItem>
@@ -158,20 +205,11 @@ function RowMenu({
             </DropdownMenuItem>
           </>
         ) : isHome ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              {/* The disabled item takes no pointer events; its wrapper does. */}
-              <span className="block">
-                <DropdownMenuItem disabled>
-                  <Archive className="mr-2 size-4" />
-                  {t("actions.archive")}
-                </DropdownMenuItem>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="left">
-              {t("actions.homeNoArchive")}
-            </TooltipContent>
-          </Tooltip>
+          <HomeDisabledMenuItem
+            icon={<Archive className="mr-2 size-4" />}
+            label={t("actions.archive")}
+            reason={t("actions.homeNoArchive")}
+          />
         ) : (
           <DropdownMenuItem onSelect={() => actions.archive(page)}>
             <Archive className="mr-2 size-4" />
@@ -413,98 +451,31 @@ export type UnpublishRequest = {
   cancel: string
 }
 
-function languageName(code: string, inLocale: string): string {
-  try {
-    return (
-      new Intl.DisplayNames([inLocale], { type: "language" }).of(code) ?? code
-    )
-  } catch {
-    return getLocaleDisplayName(code)
-  }
-}
-
 /**
  * The question asked before one language of a page is unpublished. The Pages
  * list and the page editor both ask it, so its wording has this one owner.
  */
 export function unpublishRequest(
   t: ReturnType<typeof useTranslations<"pages.list">>,
-  adminLocale: string,
   {
-    locale,
     path,
-    defaultLocale,
-    languages,
-    locales,
-    isHome,
   }: {
     locale: string
     /** This language's address before its language prefix; null when none. */
     path: string | null | undefined
     defaultLocale: string
-    /** The site languages in site order. */
-    languages: readonly string[]
-    /** Each language's state and address, as the Pages list reads them. */
-    locales: readonly {
-      locale: string
-      state?: string
-      path?: string | null
-    }[]
-    isHome: boolean
   }
 ): UnpublishRequest {
-  const buttons = {
+  return {
     confirm: t("unpublish.confirm"),
     cancel: t("unpublish.cancel"),
-  }
-  if (!isHome) {
-    return {
-      ...buttons,
-      title: t("unpublish.title"),
-      warning: false,
-      ...(path == null
-        ? {}
-        : {
-            body: t("unpublish.notFound", {
-              address: toPublicPath(path, locale, defaultLocale),
-            }),
-          }),
-    }
-  }
-  const address = toPublicPath(path ?? "/", locale, defaultLocale)
-  const published = (code: string) =>
-    locales.find(
-      (entry) => entry.locale === code && entry.state === "published"
-    )
-  // The default language's "/" falls back to the first other published home
-  // in site order; any other address, or no other home, is "Page not found".
-  const otherLocale =
-    locale === defaultLocale
-      ? languages.find((other) => other !== locale && published(other))
-      : undefined
-  const base = { ...buttons, title: t("unpublish.homeTitle") }
-  if (otherLocale) {
-    return {
-      ...base,
-      warning: false,
-      body: t("unpublish.redirect", {
-        address,
-        language: languageName(otherLocale, adminLocale),
-        other: toPublicPath(
-          published(otherLocale)?.path ?? "/",
-          otherLocale,
-          defaultLocale
-        ),
-      }),
-    }
-  }
-  return {
-    ...base,
-    warning: true,
-    body:
-      locale === defaultLocale
-        ? t("unpublish.notFoundNoOther", { address })
-        : t("unpublish.notFound", { address }),
+    title: t("unpublish.title"),
+    warning: false,
+    ...(path == null
+      ? {}
+      : {
+          body: t("unpublish.notFound"),
+        }),
   }
 }
 
@@ -583,11 +554,10 @@ export function SnapshotPagesBody({
   defaultLocale: string
   homePageId: Id<"pages"> | null | undefined
   onArchive(page: SnapshotListPage): void
-  onUnarchive(page: SnapshotListPage): void
+  onUnarchive(page: SnapshotListPage, title: string): void
   onTrash(page: SnapshotListPage): void
 }) {
   const t = useTranslations("pages.list")
-  const adminLocale = useLocale()
   const rowActions = usePageRowActions()
   const [unpublishAsk, setUnpublishAsk] = useState<{
     request: UnpublishRequest
@@ -605,13 +575,10 @@ export function SnapshotPagesBody({
       if (!entry || !target) return
       setUnpublishAsk({
         target,
-        request: unpublishRequest(t, adminLocale, {
+        request: unpublishRequest(t, {
           locale,
           path: entry.path,
           defaultLocale,
-          languages,
-          locales: page.locales ?? [],
-          isHome: homePageId != null && homePageId === page._id,
         }),
       })
     },

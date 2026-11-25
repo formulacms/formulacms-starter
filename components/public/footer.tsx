@@ -3,6 +3,7 @@ import {
   type ShownPanelSection,
   type ShownTarget,
 } from "@/lib/admin/menu/public-visibility"
+import { opensInNewTab } from "@/lib/menu/link-target"
 import { getPublicMessages } from "@/lib/i18n/public-messages"
 import Image from "next/image"
 import Link from "next/link"
@@ -46,7 +47,7 @@ function FooterTargetLink({
     <a
       href={target.url}
       className={className}
-      {...((target.openInNewTab ?? true)
+      {...(opensInNewTab(target)
         ? { target: "_blank", rel: "noopener noreferrer" }
         : {})}
     >

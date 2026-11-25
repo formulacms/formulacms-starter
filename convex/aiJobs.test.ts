@@ -1,6 +1,7 @@
 // @vitest-environment node
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
+import { ConvexError, type Value } from "convex/values"
 import { convexTest, seedCommunityOwner } from "../convexTestWithExplicitAdmin"
 import schema from "./schema"
 import { currentMonth } from "./cms/ai"
@@ -220,7 +221,8 @@ const start = (owner: ReturnType<App["withIdentity"]>, count = 2) =>
 async function callback(
   t: App,
   row: Doc<"aiJobUnits">,
-  kind: "success" | "failed" | "canceled" = "success"
+  kind: "success" | "failed" | "canceled" = "success",
+  errorData?: Value
 ) {
   await t.mutation(internal.cms.aiJobs.onComplete, {
     workId: row.workId! as WorkId,
@@ -229,9 +231,18 @@ async function callback(
       kind === "success"
         ? { kind, returnValue: null }
         : kind === "failed"
-          ? { kind, error: "FAKE_FAILURE" }
+          ? { kind, error: "FAKE_FAILURE", ...(errorData === undefined ? {} : { errorData }) }
           : { kind },
   })
+}
+async function admissionRefusal(t: App, row: Doc<"aiJobUnits">, code: string) {
+  const error: unknown = await t.action(internal.agents.pageJobWorker.runUnit, {
+    jobId: row.jobId, unitId: row._id,
+  }).catch((error: unknown) => error)
+  expect(error).toBeInstanceOf(ConvexError)
+  if (!(error instanceof ConvexError)) throw new Error("Expected an admission ConvexError")
+  expect(error.data).toBe(code)
+  return error.data as Value
 }
 async function run(
   t: App,
@@ -2189,13 +2200,16 @@ describe("Write page with AI: accept works whether or not the working draft row 
       "publish, then withdraw",
       async (c) => {
         await publishJobPage(c.t, c.owner, c.pageId)
-        const rows = await pageRows(c.t, c.pageId)
-        await c.owner.mutation(api.cms.publication.withdrawLocale, {
-          pageId: c.pageId,
-          locale: "en",
-          expectedSnapshotId: rows.states[0]!.currentSnapshotId!,
-          expectedPublicGeneration: rows.states[0]!.publicGeneration,
-          expectedLifecycleGeneration: rows.life.lifecycleGeneration,
+        // Historical private Home: ordinary Home withdrawal is now refused.
+        await c.t.run(async (ctx) => {
+          const state = (await ctx.db.query("pageLocalePublicationStates")
+            .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", c.pageId).eq("locale", "en")).unique())!
+          await ctx.db.patch("pageLocalePublicationStates", state._id, {
+            publicGeneration: state.publicGeneration + 1,
+            hasCurrentSnapshot: false, currentSnapshotId: undefined,
+            currentReleaseId: undefined, currentPath: undefined,
+            currentPublishedAt: undefined, pageType: undefined, publicSince: undefined,
+          })
         })
       },
     ],
@@ -3750,5 +3764,316 @@ describe("Translate page with AI: a content type switched to one language after 
     await expect(
       owner.mutation(api.cms.aiJobs.resumePageJob, { jobId: id })
     ).rejects.toThrow("CONTENT_TYPE_TRANSLATION_OFF")
+  })
+})
+
+// B17: transaction-time guards, through the registered worker and accounting.
+async function adoptJobLanguages(t: App, owner: Owner, locales = ["en", "fr"]) {
+  await t.run(async (ctx) => {
+    const settings = (await ctx.db.query("siteSettings").first())!
+    await ctx.db.patch("siteSettings", settings._id, { enabledLocales: locales })
+  })
+  const preview = await owner.query(api.cms.multilingual.previewAdoption, {})
+  if (!preview.canAdopt) throw new Error(preview.blockerCode)
+  const { canAdopt, defaultLocale, enabledLocales, ...tokens } = preview
+  void canAdopt; void defaultLocale; void enabledLocales
+  await owner.mutation(api.cms.multilingual.adoptMultilingualAuthority, tokens)
+}
+async function removeJobLanguage(t: App, owner: Owner, locale: string) {
+  const { previewId } = await owner.mutation(api.cms.multilingual.startLanguageImpactPreview, { kind: "remove", locale })
+  let preview = (await t.run((ctx) => ctx.db.get("siteLanguageImpactPreviews", previewId)))!
+  for (let step = 0; preview.phase === "scanning" && step < 100; step++) {
+    await t.mutation(internal.cms.multilingual.stepLanguageImpactPreview, { previewId, generation: preview.generation })
+    preview = (await t.run((ctx) => ctx.db.get("siteLanguageImpactPreviews", previewId)))!
+  }
+  expect(preview.phase).toBe("complete")
+  for (let ordinal = 0; ordinal < preview.pageCount; ordinal++) {
+    const page = await owner.query(api.cms.multilingual.listLanguageImpact, { previewId, ordinal })
+    if (page.stale) throw new Error("stale language review")
+    await owner.mutation(api.cms.multilingual.recordLanguageImpactReview, { previewId, ordinal, pageDigest: page.digest })
+  }
+  await owner.mutation(api.cms.multilingual.removeLanguage, { previewId, expectedDigest: preview.digest, expectedCount: preview.count })
+}
+async function purgeJobPage(t: App, owner: Owner, pageId: Id<"pages">, complete: boolean) {
+  await trash(t, owner, pageId)
+  // The revalidation cron is outside convex-test; settle its real intents.
+  await t.run(async (ctx) => {
+    for (const row of await ctx.db.query("pagePublicationRevalidationIntents").collect())
+      if (row.pageId === pageId)
+        await ctx.db.patch("pagePublicationRevalidationIntents", row._id, { status: "complete", phase: "complete" })
+  })
+  expect(await owner.mutation(api.cms.publication.purgeTrashedPages, {
+    items: [{ pageId, expectedLifecycleGeneration: (await pageRows(t, pageId)).life.lifecycleGeneration }],
+  })).toEqual([{ pageId, status: "started" }])
+  expect(await t.run((ctx) => ctx.db.query("pagePurges").first())).not.toBeNull()
+  if (!complete) return
+  await t.mutation(internal.cms.publication.startQueuedPagePurges, {})
+  for (let step = 0; step < 100 && await t.run((ctx) => ctx.db.get("pages", pageId)); step++)
+    await t.mutation(internal.cms.publication.runPagePurgeStep, {})
+  expect(await t.run((ctx) => ctx.db.get("pages", pageId))).toBeNull()
+  expect(await t.run((ctx) => ctx.db.query("pagePurges").first())).toBeNull()
+}
+const spendingAttempts = (t: App) => t.run((ctx) => ctx.db.query("aiSpendingAttempts").collect())
+const jobReservation = (t: App, key: string) => t.run((ctx) => ctx.db.query("aiSpendingJobReservations")
+  .withIndex("by_reservationKey", (q) => q.eq("reservationKey", key)).unique())
+
+describe("B17 AI page-job target eligibility", () => {
+  const boundaries = ["queued", "between units", "claimed before admission", "stopped Resume"] as const
+  for (const trigger of ["archive", "trash", "purge marker", "purge complete", "removed target language"] as const) {
+    test.each(boundaries)(`${trigger} after Start buys no next attempt: %s`, async (boundary) => {
+      const removed = trigger === "removed target language"
+      const { t, owner } = await setup({ multilingual: removed })
+      if (removed) await adoptJobLanguages(t, owner)
+      const id = removed ? await translate(owner, await source(t, owner)) : await start(owner, 3)
+      const j = (await job(t, id))!
+      const reservationKey = j.reservationKey!
+      const invalidate = async () => {
+        if (removed) await removeJobLanguage(t, owner, "fr")
+        else if (trigger.startsWith("purge")) await purgeJobPage(t, owner, j.pageId, trigger === "purge complete")
+        else if (trigger === "trash") await trash(t, owner, j.pageId)
+        else await owner.mutation(api.cms.publication.archivePage, {
+          pageId: j.pageId, expectedLifecycleGeneration: (await pageRows(t, j.pageId)).life.lifecycleGeneration,
+        })
+      }
+      // Save one real provider result in every non-queued case. For the
+      // between-unit boundary its callback is held until after the trigger.
+      if (boundary === "between units") {
+        const first = (await units(t, id))[0]!
+        await t.action(internal.agents.pageJobWorker.runUnit, { jobId: id, unitId: first._id })
+      } else if (boundary !== "queued") await run(t, id)
+      if (boundary === "stopped Resume") await cancelQueued(t, owner, id)
+      const saved = (await units(t, id)).filter((u) => u.state === "saved").map((u) => ({ id: u._id, output: u.output }))
+      const calls = fake.generate.mock.calls.length
+      const attempts = await spendingAttempts(t)
+      const auditBefore = await t.run((ctx) => ctx.db.query("aiAuditLog").collect())
+      const errorCode = removed ? "LOCALE_NOT_ENABLED" : "AI_JOB_SOURCE_UNAVAILABLE"
+      if (boundary === "claimed before admission") {
+        const next = (await units(t, id)).find((u) => u.state === "waiting" && u.workId)!
+        fake.beforeAdmission.mockImplementationOnce(async () => {
+          expect((await units(t, id)).find((u) => u._id === next._id)!.state).toBe("inProgress")
+          await invalidate()
+        })
+        const errorData = await admissionRefusal(t, next, errorCode)
+        // A refusal rolls back admission only; completion owns cancellation.
+        expect((await job(t, id))!.state).toBe("running")
+        await callback(t, next, "failed", errorData)
+      } else {
+        await invalidate()
+        if (boundary === "between units") {
+          await callback(t, (await units(t, id))[0]!)
+          expect((await job(t, id))!.state).toMatch(/cancel/)
+          // A write's next unit was never enqueued by advance.
+          if (!removed) expect((await units(t, id))[1]!.workId).toBeUndefined()
+        } else if (boundary === "queued") {
+          const first = (await units(t, id))[0]!
+          await t.action(internal.agents.pageJobWorker.runUnit, { jobId: id, unitId: first._id })
+          expect((await job(t, id))!.state).toBe("canceling")
+        }
+      }
+      // Drain only existing callbacks, without launching another worker.
+      for (const row of await units(t, id)) if (row.workId) await callback(t, row, "canceled")
+      expect((await job(t, id))!.state).toBe("canceled")
+      expect(fake.generate).toHaveBeenCalledTimes(calls)
+      expect(await spendingAttempts(t)).toEqual(attempts)
+      expect(await t.run((ctx) => ctx.db.query("aiAuditLog").collect())).toEqual(auditBefore)
+      expect((await units(t, id)).filter((u) => u.state === "saved").map((u) => ({ id: u._id, output: u.output }))).toEqual(saved)
+      expect((await status(t)).reservedMicros).toBe(0)
+      const released = await jobReservation(t, reservationKey)
+      expect(released).toMatchObject({ state: "released", remainingMicros: 0 })
+      const stopped = await job(t, id), stoppedUnits = await units(t, id)
+      expect((await progress(owner)).find((row) => row.jobId === id)!.canResume).toBe(false)
+      await expect(owner.mutation(api.cms.aiJobs.resumePageJob, { jobId: id })).rejects.toThrow(errorCode)
+      expect(await job(t, id)).toEqual(stopped)
+      expect(await units(t, id)).toEqual(stoppedUnits)
+      await owner.mutation(api.cms.aiJobs.cancelPageJob, { jobId: id })
+      expect(await jobReservation(t, reservationKey)).toEqual(released)
+      expect((await status(t)).reservedMicros).toBe(0)
+      expect(await spendingAttempts(t)).toEqual(attempts)
+    })
+  }
+  test.each(["saved first", "refused first"])("saved and refused translation siblings end canceled: %s", async (order) => {
+    const { t, owner } = await setup({ multilingual: true })
+    const id = await translate(owner, await source(t, owner))
+    const { pageId, reservationKey } = (await job(t, id))!
+    const [saved, refused] = await units(t, id)
+    await t.action(internal.agents.pageJobWorker.runUnit, { jobId: id, unitId: saved!._id })
+    const output = (await units(t, id))[0]!.output
+    const attempts = await spendingAttempts(t)
+    fake.beforeAdmission.mockImplementationOnce(async () => owner.mutation(api.cms.publication.archivePage, {
+      pageId, expectedLifecycleGeneration: (await pageRows(t, pageId)).life.lifecycleGeneration,
+    }))
+    const errorData = await admissionRefusal(t, refused!, "AI_JOB_SOURCE_UNAVAILABLE")
+    if (order === "saved first") await callback(t, saved!)
+    await callback(t, refused!, "failed", errorData)
+    if (order === "refused first") await callback(t, saved!)
+    for (const row of await units(t, id)) if (row.workId) await callback(t, row, "canceled")
+    expect((await job(t, id))!.state).toBe("canceled")
+    expect((await units(t, id))[0]).toMatchObject({ state: "saved", output })
+    expect(fake.generate).toHaveBeenCalledTimes(1)
+    expect(await spendingAttempts(t)).toEqual(attempts)
+    expect((await status(t)).reservedMicros).toBe(0)
+    const released = await jobReservation(t, reservationKey!)
+    expect(released).toMatchObject({ state: "released", remainingMicros: 0 })
+    await callback(t, refused!, "failed", errorData)
+    await callback(t, saved!)
+    expect(await jobReservation(t, reservationKey!)).toEqual(released)
+  })
+  test("an original admission refusal stays canceled after restore before callback", async () => {
+    const { t, owner } = await setup()
+    const id = await start(owner, 1)
+    const { pageId } = (await job(t, id))!
+    const row = (await units(t, id))[0]!
+    fake.beforeAdmission.mockImplementationOnce(async () => owner.mutation(api.cms.publication.archivePage, {
+      pageId, expectedLifecycleGeneration: (await pageRows(t, pageId)).life.lifecycleGeneration,
+    }))
+    const errorData = await admissionRefusal(t, row, "AI_JOB_SOURCE_UNAVAILABLE")
+    await owner.mutation(api.cms.publication.restorePage, {
+      pageId, expectedLifecycleGeneration: (await pageRows(t, pageId)).life.lifecycleGeneration,
+    })
+    await callback(t, row, "failed", errorData)
+    expect((await job(t, id))!.state).toBe("canceled")
+    expect(fake.generate).not.toHaveBeenCalled()
+    expect(await spendingAttempts(t)).toEqual([])
+    expect((await status(t)).reservedMicros).toBe(0)
+  })
+  test("an unrelated provider failure on an archived page stays failed", async () => {
+    const { t, owner } = await setup()
+    const id = await start(owner, 1)
+    const { pageId } = (await job(t, id))!
+    const row = (await units(t, id))[0]!
+    fake.generate.mockImplementationOnce(async () => {
+      await owner.mutation(api.cms.publication.archivePage, {
+        pageId, expectedLifecycleGeneration: (await pageRows(t, pageId)).life.lifecycleGeneration,
+      })
+      throw new Error("Unrelated provider failure")
+    })
+    await expect(t.action(internal.agents.pageJobWorker.runUnit, { jobId: id, unitId: row._id })).rejects.toThrow()
+    await callback(t, row, "failed")
+    expect((await job(t, id))!.state).toBe("failed")
+    expect(fake.generate).toHaveBeenCalledTimes(1)
+    expect(await spendingAttempts(t)).toHaveLength(1)
+    expect((await status(t)).reservedMicros).toBe(0)
+  })
+  test.each([
+    "AI_JOB_SOURCE_UNAVAILABLE", "PAGE_PURGE_IN_PROGRESS", "LOCALE_NOT_ENABLED",
+  ])("original %s refusal wins over a newly reached cap", async (errorData) => {
+    fake.enforceCap = true
+    const { t, owner } = await setup()
+    const id = await start(owner, 1)
+    await claim(t, id)
+    await setCap(t, 0)
+    const row = (await units(t, id))[0]!
+    await callback(t, row, "failed", errorData)
+    expect((await job(t, id))!.state).toBe("canceled")
+    expect(fake.generate).not.toHaveBeenCalled()
+    expect(await spendingAttempts(t)).toEqual([])
+    expect((await status(t)).reservedMicros).toBe(0)
+  })
+  test.each([
+    undefined, null, "CMS_MODULE_DISABLED", "CONTENT_TYPE_TRANSLATION_OFF",
+    "SITE_LANGUAGE_AUTHORITY_INVALID", { code: "AI_JOB_SOURCE_UNAVAILABLE" },
+    "AI_JOB_SOURCE_UNAVAILABLE: wrapped",
+  ])("completion only recognizes exact refusal data: %j", async (errorData) => {
+    const { t, owner } = await setup()
+    const id = await start(owner, 1)
+    await claim(t, id)
+    const row = (await units(t, id))[0]!
+    await callback(t, row, "failed", errorData)
+    expect((await job(t, id))!.state).toBe("failed")
+    expect((await status(t)).reservedMicros).toBe(0)
+  })
+  test.each(["canceled", "capped"] as const)("refusal preserves an established %s stop reason", async (reason) => {
+    const { t, owner } = await setup()
+    const id = await start(owner, 1)
+    await claim(t, id)
+    const row = (await units(t, id))[0]!
+    if (reason === "canceled") await owner.mutation(api.cms.aiJobs.cancelPageJob, { jobId: id })
+    else await t.run((ctx) => ctx.db.patch("aiJobs", id, { state: "canceling", stopReason: reason }))
+    await callback(t, row, "failed", "LOCALE_NOT_ENABLED")
+    expect((await job(t, id))!.state).toBe(reason)
+    expect((await status(t)).reservedMicros).toBe(0)
+  })
+  test("registered Workpool delivers the original admission refusal and ends canceled", async () => {
+    const { t, owner } = await setup()
+    const id = await start(owner, 1)
+    const { pageId, reservationKey } = (await job(t, id))!
+    fake.beforeAdmission.mockImplementationOnce(async () => {
+      expect((await units(t, id))[0]!.state).toBe("inProgress")
+      await owner.mutation(api.cms.publication.archivePage, {
+        pageId, expectedLifecycleGeneration: (await pageRows(t, pageId)).life.lifecycleGeneration,
+      })
+    })
+    // Use the existing registered pool + batchWorker seam, without synthesizing
+    // a callback or advancing as far as the job expiry timer.
+    for (let i = 0; i < 40 && (await job(t, id))!.state !== "canceled"; i++) {
+      await vi.advanceTimersByTimeAsync(250)
+      await t.finishInProgressScheduledFunctions()
+    }
+    expect((await job(t, id))!.state).toBe("canceled")
+    expect(fake.beforeAdmission).toHaveBeenCalledTimes(1)
+    expect(fake.generate).not.toHaveBeenCalled()
+    expect(await spendingAttempts(t)).toEqual([])
+    expect((await status(t)).reservedMicros).toBe(0)
+    const released = await jobReservation(t, reservationKey!)
+    expect(released).toMatchObject({ state: "released", remainingMicros: 0 })
+    await owner.mutation(api.cms.aiJobs.cancelPageJob, { jobId: id })
+    expect(await jobReservation(t, reservationKey!)).toEqual(released)
+  })
+  test("AI Off before paid admission still refuses with CMS_MODULE_DISABLED", async () => {
+    const { t, owner } = await setup()
+    const id = await start(owner)
+    fake.beforeAdmission.mockImplementationOnce(() => setModules(t, []))
+    const row = (await units(t, id))[0]!
+    await expect(t.action(internal.agents.pageJobWorker.runUnit, { jobId: id, unitId: row._id }))
+      .rejects.toMatchObject({ data: "CMS_MODULE_DISABLED" })
+    expect(fake.generate).not.toHaveBeenCalled()
+    expect(await spendingAttempts(t)).toEqual([])
+    await callback(t, row, "failed")
+    expect((await job(t, id))!.state).toBe("failed")
+    expect((await status(t)).reservedMicros).toBe(0)
+  })
+  test("F09 single-language write and a home-page job remain eligible", async () => {
+    const { t, owner } = await setup()
+    await t.run(async (ctx) => {
+      const settings = (await ctx.db.query("siteSettings").first())!
+      await ctx.db.patch("siteSettings", settings._id, { enabledLocales: ["en"] })
+      await ctx.db.insert("siteLanguageAuthority", { key: "site-language-v1", mode: "single", currentLocale: "en", version: 1, updatedAt: Date.now() })
+    })
+    const id = await start(owner)
+    const j = (await job(t, id))!
+    await t.run(async (ctx) => {
+      const settings = (await ctx.db.query("siteSettings").first())!
+      await ctx.db.patch("siteSettings", settings._id, { homePageId: j.pageId })
+    })
+    await finish(t, id)
+    expect(fake.generate).toHaveBeenCalledTimes(2)
+  })
+  test("removing an unrelated language keeps the target eligible", async () => {
+    const { t, owner } = await setup({ multilingual: true })
+    await adoptJobLanguages(t, owner, ["en", "fr", "nl"])
+    const id = await translate(owner, await source(t, owner))
+    await removeJobLanguage(t, owner, "nl")
+    await finish(t, id)
+    expect(fake.generate).toHaveBeenCalled()
+  })
+  test.each(["archive", "trash"])("restore after %s allows explicit Resume with saved output", async (trigger) => {
+    const { t, owner } = await setup()
+    const id = await start(owner, 3)
+    await run(t, id)
+    const pageId = (await job(t, id))!.pageId
+    const saved = (await units(t, id))[0]!.output
+    if (trigger === "archive") await owner.mutation(api.cms.publication.archivePage, {
+      pageId, expectedLifecycleGeneration: (await pageRows(t, pageId)).life.lifecycleGeneration,
+    })
+    else await trash(t, owner, pageId)
+    await run(t, id, 1)
+    expect((await job(t, id))!.state).toBe("canceled")
+    const restore = trigger === "archive" ? api.cms.publication.restorePage : api.cms.publication.restoreSoftDeletedPage
+    await owner.mutation(restore, { pageId, expectedLifecycleGeneration: (await pageRows(t, pageId)).life.lifecycleGeneration })
+    expect((await progress(owner)).find((row) => row.jobId === id)!.canResume).toBe(true)
+    await owner.mutation(api.cms.aiJobs.resumePageJob, { jobId: id })
+    await finish(t, id)
+    expect((await units(t, id))[0]).toMatchObject({ output: saved, reused: true })
+    expect(fake.generate).toHaveBeenCalledTimes(3)
   })
 })

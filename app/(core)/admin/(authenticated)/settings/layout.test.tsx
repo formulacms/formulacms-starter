@@ -24,6 +24,25 @@ vi.mock("@/components/admin/contributions/authoring-tools", () => ({
 
 afterEach(cleanup)
 
+beforeEach(() => {
+  mocks.pathname = "/admin/settings"
+  mocks.ai = "on"
+})
+
+test.each([
+  ["/admin/settings", "general"],
+  ["/admin/settings/account", "account"],
+])("Settings at %s uses the shell main and names its navigation", (pathname, active) => {
+  mocks.pathname = pathname
+  const { container } = render(<SettingsLayout><p>Settings content</p></SettingsLayout>)
+
+  expect(container.querySelector("main")).toBeNull()
+  const nav = screen.getByRole("navigation", { name: "heading" })
+  expect(nav).toHaveAttribute("aria-labelledby", screen.getByText("heading").id)
+  expect(screen.getByRole("link", { name: active })).toHaveAttribute("aria-current", "page")
+  expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
+})
+
 test("omits member and role management navigation", () => {
   render(
     <SettingsLayout>

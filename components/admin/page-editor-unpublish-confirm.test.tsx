@@ -1,10 +1,13 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { getFunctionName } from "convex/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { toast } from "sonner"
 
 import type { Id } from "@/convex/_generated/dataModel"
+import { ConfirmProvider } from "@/components/providers/confirm-provider"
 import { render } from "@/test-utils/admin-i18n"
 import en from "@/messages/admin/en.json"
+import fr from "@/messages/admin/fr.json"
 import type { Page } from "./page-editor/lib/types"
 
 const mocks = vi.hoisted(() => ({
@@ -71,10 +74,6 @@ vi.mock("@/app/(core)/admin/(authenticated)/pages/actions", () => ({
   revalidatePagePaths: vi.fn(async () => undefined),
 }))
 
-vi.mock("@/components/providers/confirm-provider", () => ({
-  useConfirm: () => vi.fn(async () => true),
-}))
-
 vi.mock("@/components/admin/command-palette", () => ({
   useRegisterAdminCommands: (
     commands: Array<{ id: string; run(): unknown }>
@@ -102,13 +101,16 @@ import { PageEditor } from "./page-editor"
 const pageId = "page-1" as Id<"pages">
 const copy = en.editor.page
 
-function page(status: Page["status"] = "published"): Page {
+function page(
+  status: Page["status"] = "published",
+  pageType: "page" | "landing-page" = "page"
+): Page {
   return {
     _id: pageId,
     _creationTime: 1,
     slug: "about",
     localizedSlugs: { fr: "a-propos" },
-    pageType: "page",
+    pageType,
     status,
     ...(status === "published" ? { publishedAt: 50 } : {}),
     createdAt: 100,
@@ -149,14 +151,32 @@ function publication(entries: Entry[]) {
   }
 }
 
-function mount(entries: Entry[], status: Page["status"] = "published") {
+function mount(
+  entries: Entry[],
+  status: Page["status"] = "published",
+  {
+    locale = "en",
+    hasStaging = false,
+    contentLocale,
+    pageType = "page",
+  }: {
+    locale?: "en" | "fr"
+    hasStaging?: boolean
+    contentLocale?: "en" | "fr"
+    pageType?: "page" | "landing-page"
+  } = {}
+) {
   return render(
-    <PageEditor
-      page={page(status)}
-      hasStaging={false}
-      stagingUpdatedAt={undefined}
-      publication={publication(entries)}
-    />
+    <ConfirmProvider>
+      <PageEditor
+        page={page(status, pageType)}
+        requestedLocale={contentLocale}
+        hasStaging={hasStaging}
+        stagingUpdatedAt={hasStaging ? 100 : undefined}
+        publication={publication(entries)}
+      />
+    </ConfirmProvider>,
+    { locale }
   )
 }
 
@@ -172,6 +192,124 @@ function chooseUnpublish() {
 }
 
 const withdraw = () => mocks.mutations["cms/publication:withdrawLocale"]!
+
+describe("PageEditor Archive and Unarchive match the Content list", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.homePageId = undefined
+    mocks.publishCommand = null
+    for (const key of Object.keys(mocks.mutations)) delete mocks.mutations[key]
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+  })
+
+  it.each(["en", "fr"] as const)(
+    "asks the shared Archive question in %s; Cancel writes nothing and confirm archives once",
+    async (locale) => {
+      const messages = locale === "fr" ? fr : en
+      const editorCopy = messages.editor.page
+      const dialogCopy = messages.pages.list.archiveDialog
+      mount([{ locale: "en", state: "draft", path: "/about" }], "draft", {
+        locale,
+      })
+      const archive = mocks.mutations["cms/publication:archivePage"]!
+      archive.mockResolvedValue({ lifecycleGeneration: 4 })
+      async function chooseArchive() {
+        fireEvent.keyDown(
+          screen.getByRole("button", { name: editorCopy.moreActions }),
+          { key: "Enter" }
+        )
+        const menu = await screen.findByRole("menu")
+        fireEvent.click(
+          within(menu).getByRole("menuitem", { name: editorCopy.archive })
+        )
+        return screen.findByRole("dialog", { name: dialogCopy.title })
+      }
+
+      const dialog = await chooseArchive()
+      expect(dialog).toHaveTextContent(dialogCopy.description)
+      expect(
+        within(dialog).getByRole("button", {
+          name: locale === "fr" ? "Archiver" : "Archive",
+        })
+      ).toBeInTheDocument()
+      expect(archive).not.toHaveBeenCalled()
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: messages.common.cancel })
+      )
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+      expect(archive).not.toHaveBeenCalled()
+
+      const confirmed = await chooseArchive()
+      expect(archive).not.toHaveBeenCalled()
+      fireEvent.click(
+        within(confirmed).getByRole("button", {
+          name: locale === "fr" ? "Archiver" : "Archive",
+        })
+      )
+      await waitFor(() => expect(archive).toHaveBeenCalledExactlyOnceWith({
+        pageId,
+        expectedLifecycleGeneration: 3,
+      }))
+    }
+  )
+
+  it.each(["en", "fr"] as const)(
+    "keeps home Archive disabled with its reason in %s and opens no dialog",
+    async (locale) => {
+      const messages = locale === "fr" ? fr : en
+      mocks.homePageId = pageId
+      mount([{ locale: "en", state: "draft", path: "/" }], "draft", { locale })
+      fireEvent.keyDown(
+        screen.getByRole("button", { name: messages.editor.page.moreActions }),
+        { key: "Enter" }
+      )
+      const item = within(await screen.findByRole("menu")).getByRole("menuitem", {
+        name: messages.editor.page.archive,
+      })
+      expect(item).toHaveAttribute("aria-disabled", "true")
+      expect(
+        document.getElementById(item.getAttribute("aria-describedby")!)
+      ).toHaveTextContent(messages.pages.list.actions.homeNoArchive)
+      fireEvent.click(item)
+      expect(screen.queryByRole("dialog")).toBeNull()
+      expect(mocks.mutations["cms/publication:archivePage"]).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(["menu", "direct button"] as const)(
+    "offers only Unarchive in the archived menu and restores as draft via the %s",
+    async (entryPoint) => {
+      mount([{ locale: "en", state: "draft", path: "/about" }], "archived", {
+        hasStaging: true,
+      })
+      const restore = mocks.mutations["cms/publication:restorePage"]!
+      restore.mockResolvedValue({ lifecycleGeneration: 4 })
+      const direct = screen.getByRole("button", { name: copy.unarchive })
+      expect(direct).toBeEnabled()
+      openMenu()
+      const menu = await screen.findByRole("menu")
+      const items = within(menu).getAllByRole("menuitem")
+      expect(items).toHaveLength(1)
+      expect(items[0]).toHaveAccessibleName(copy.unarchive)
+      expect(restore).not.toHaveBeenCalled()
+      if (entryPoint === "menu") {
+        fireEvent.click(items[0]!)
+      } else {
+        fireEvent.keyDown(menu, { key: "Escape" })
+        await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
+        fireEvent.click(direct)
+      }
+      await waitFor(() => expect(restore).toHaveBeenCalledExactlyOnceWith({
+        pageId,
+        expectedLifecycleGeneration: 3,
+      }))
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
+        "“About” restored as draft"
+      ))
+    }
+  )
+})
 
 describe("PageEditor Unpublish asks first", () => {
   beforeEach(() => {
@@ -191,7 +329,7 @@ describe("PageEditor Unpublish asks first", () => {
     const dialog = await screen.findByRole("alertdialog")
     expect(dialog).toHaveTextContent("Unpublish this page?")
     expect(dialog).toHaveTextContent(
-      "Visitors to /about will see “Page not found” until you publish it again."
+      "This hides its link in your navigation menu."
     )
     expect(
       within(dialog).getByRole("button", { name: "Unpublish" })
@@ -227,51 +365,63 @@ describe("PageEditor Unpublish asks first", () => {
     expect(withdraw()).not.toHaveBeenCalled()
   })
 
-  it("the home page gets the Pages list's home warning", async () => {
-    mocks.homePageId = pageId
-    mount([
-      { locale: "en", state: "published", path: "/" },
-      { locale: "fr", state: "published", path: "/" },
-    ])
-    chooseUnpublish()
-    const dialog = await screen.findByRole("alertdialog")
-    expect(dialog).toHaveTextContent("Unpublish the home page?")
-    expect(dialog).toHaveTextContent(
-      "Visitors to / will be sent to the French home page (/fr) until you publish this one again."
-    )
-    expect(withdraw()).not.toHaveBeenCalled()
-  })
+  it.each([
+    ["en", "en", "published"],
+    ["en", "fr", "published"],
+    ["fr", "en", "published"],
+    ["fr", "fr", "published"],
+    ["en", "en", "draft"],
+    ["en", "en", undefined],
+  ] as const)(
+    "home Unpublish is described and inert in admin %s, content %s, other home %s",
+    async (admin, contentLocale, otherState) => {
+      const messages = admin === "fr" ? fr : en
+      mocks.homePageId = pageId
+      mount([
+        {
+          locale: "en",
+          state: otherState === undefined ? undefined : "published",
+          path: "/",
+        },
+        { locale: "fr", state: otherState, path: "/" },
+      ], "published", { locale: admin, contentLocale, pageType: "landing-page" })
+      fireEvent.keyDown(screen.getByRole("button", {
+        name: messages.editor.page.moreActions,
+      }), { key: "Enter" })
+      const unpublish = await screen.findByRole("menuitem", {
+        name: messages.editor.page.unpublish,
+      })
+      expect(unpublish).toHaveAttribute("aria-disabled", "true")
+      expect(unpublish).not.toHaveAttribute("data-disabled")
+      expect(unpublish).toHaveAccessibleDescription(
+        admin === "en"
+          ? "The home page can’t be unpublished."
+          : "La page d’accueil ne peut pas être dépubliée."
+      )
+      expect(unpublish.querySelector("svg")).toBeNull()
+      fireEvent.click(unpublish)
+      fireEvent.keyDown(unpublish, { key: "Enter" })
+      expect(screen.queryByRole("alertdialog")).toBeNull()
+      expect(withdraw()).not.toHaveBeenCalled()
+      fireEvent.pointerMove(unpublish.parentElement!, { pointerType: "mouse" })
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        messages.pages.list.actions.homeNoUnpublish
+      )
+    }
+  )
 
-  it("the home page with no other published home is the red warning", async () => {
-    mocks.homePageId = pageId
-    mount([
-      { locale: "en", state: "published", path: "/" },
-      { locale: "fr", state: "draft", path: "/" },
-    ])
-    chooseUnpublish()
+  it("a non-home Landing page still asks and withdraws its language", async () => {
+    mount([{ locale: "en", state: "published", path: "/about" }], "published", {
+      pageType: "landing-page",
+    })
+    openMenu()
+    const unpublish = screen.getByRole("menuitem", { name: copy.unpublish })
+    expect(unpublish).not.toHaveAttribute("aria-disabled", "true")
+    fireEvent.click(unpublish)
     const dialog = await screen.findByRole("alertdialog")
-    expect(dialog).toHaveTextContent(
-      "No other home page is published. Visitors to / will see “Page not found” until you publish it again."
-    )
-    expect(
-      within(dialog).getByRole("button", { name: "Unpublish" })
-    ).toHaveAttribute("data-variant", "destructive")
-  })
-
-  it("the home warning finds the other published home when state is absent", async () => {
-    mocks.homePageId = pageId
-    mount([
-      { locale: "en", path: "/" },
-      { locale: "fr", path: "/" },
-    ])
-    chooseUnpublish()
-    const dialog = await screen.findByRole("alertdialog")
-    expect(dialog).toHaveTextContent(
-      "Visitors to / will be sent to the French home page (/fr) until you publish this one again."
-    )
-    expect(
-      within(dialog).getByRole("button", { name: "Unpublish" })
-    ).toHaveAttribute("data-variant", "default")
+    expect(dialog).toHaveTextContent("Unpublish this page?")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }))
+    await waitFor(() => expect(withdraw()).toHaveBeenCalledOnce())
   })
 
   it("a language that is not published asks nothing, as before", () => {

@@ -378,6 +378,10 @@ describe("admin Redirects route (M01c)", () => {
       "REDIRECT_EXISTS",
       "Une redirection existe déjà pour cette source et cette langue.",
     ],
+    [
+      "REDIRECT_LOOP",
+      "Cette redirection enverrait les visiteurs dans une boucle. Choisissez une autre destination.",
+    ],
     ["UNKNOWN_REDIRECT_FAILURE", "Une erreur est survenue"],
   ])(
     "French create maps structured %s without leaking diagnostics or changing module state",

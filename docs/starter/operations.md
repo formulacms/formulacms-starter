@@ -68,10 +68,14 @@ it supports fresh installs only, and `starter.transitions.json` declares the
 0.3.1 to 0.4.0 hop `unsupported`; start a new site and a new Convex deployment
 from v0.4.0. Release 0.5.1 declares the v0.4.0 to v0.5.1 hop
 `unsupported`; start a new site and a new Convex deployment from v0.5.1.
+Release 0.5.2 also supports fresh installs only: the v0.5.1 to v0.5.2 hop is
+`unsupported`, and the checker refuses it
+with exit 1. Start a new site and a new Convex deployment from v0.5.2; do not
+merge or pull it into a 0.5.1 site or reuse that site’s backend.
 From 1.0.0 on, the checker refuses an `unsupported` hop that keeps
 the major version. Per-hop transitions may be non-composable.
 
-`engine.manifest.json` records schema version 7 (release 0.5.1) as the fresh-install baseline: the retired page-wide publication, migration, membership, entitlement and role tables were removed. It supports no upgrade from schema version 6 (release 0.4.0), schema version 5 (releases 0.3.0 and 0.3.1) or schema version 4 (release 0.2.0), and schema version 3 or older is unsupported.
+`engine.manifest.json` records schema version 7 (releases 0.5.1 and 0.5.2) as the fresh-install baseline: the retired page-wide publication, migration, membership, entitlement and role tables were removed. It supports no upgrade from schema version 6 (release 0.4.0), schema version 5 (releases 0.3.0 and 0.3.1) or schema version 4 (release 0.2.0), and schema version 3 or older is unsupported.
 The separate `starter.transitions.json` is the
 machine-readable authority for exact tagged source-to-target paths. Validate a
 named hop before merging it:

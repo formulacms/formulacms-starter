@@ -306,6 +306,9 @@ describe("language change workflow", () => {
     expect(start).toBeDisabled()
 
     fireEvent.change(select, { target: { value: "fr" } })
+    expect(select).toHaveValue("fr")
+    expect(select).not.toHaveClass("bg-emerald-600")
+    expect(within(select).getByRole("option", { name: "Français", selected: true })).not.toHaveClass("bg-emerald-600")
     fireEvent.click(
       screen.getByLabelText(/Switch to content in another language/)
     )

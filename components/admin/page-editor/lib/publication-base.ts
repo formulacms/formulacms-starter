@@ -54,6 +54,15 @@ export function adoptLocaleBase(
     return
   }
   const copy = structuredClone(source)
+  const held = base.locales[index]
+  // Loading text from a lagging refresh must not undo our own withdrawal.
+  // Its draft clock belongs to that text; public clocks describe our result.
+  if (held && held.publicGeneration > copy.publicGeneration) {
+    copy.publicGeneration = held.publicGeneration
+    copy.releaseGeneration = held.releaseGeneration
+    copy.currentSnapshotId = held.currentSnapshotId
+    copy.state = held.state
+  }
   if (index >= 0) base.locales[index] = copy
   else base.locales.push(copy)
 }

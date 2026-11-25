@@ -2,6 +2,7 @@
 "use client"
 
 import Link from "next/link"
+import { useId } from "react"
 import { usePathname } from "next/navigation"
 import { useTranslations } from "next-intl"
 import { cn } from "@/lib/utils"
@@ -65,6 +66,7 @@ export default function SettingsLayout({
   const aiGate = useModuleGate("ai")
   const pathname = usePathname()
   const t = useTranslations("settings.nav")
+  const headingId = useId()
 
   // The parent (authenticated) layout already pads its <main> (p-6 lg:p-8) and
   // sets min-h-screen, so this sub-layout adds only a sidebar + a left gutter —
@@ -72,10 +74,10 @@ export default function SettingsLayout({
   return (
     <div className="flex min-w-0 flex-col gap-6 lg:flex-row lg:gap-0">
       <aside className="w-full min-w-0 border-b border-border pb-3 lg:w-56 lg:shrink-0 lg:border-r lg:border-b-0 lg:pr-3 lg:pb-0">
-        <p className="mb-2 px-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase lg:mb-4">
+        <p id={headingId} className="mb-2 px-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase lg:mb-4">
           {t("heading")}
         </p>
-        <nav className="flex gap-0.5 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+        <nav aria-labelledby={headingId} className="flex gap-0.5 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
           {NAV_ITEMS.filter((item) => item.key !== "ai" || showsModuleEntry(aiGate)).map((item) => {
             const isActive = item.exact
               ? pathname === item.href
@@ -84,6 +86,7 @@ export default function SettingsLayout({
               <Link
                 key={item.key}
                 href={item.href}
+                aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "flex shrink-0 items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
                   isActive
@@ -99,7 +102,7 @@ export default function SettingsLayout({
         </nav>
       </aside>
 
-      <main className="min-w-0 flex-1 lg:pl-6">{children}</main>
+      <div className="min-w-0 flex-1 lg:pl-6">{children}</div>
     </div>
   )
 }

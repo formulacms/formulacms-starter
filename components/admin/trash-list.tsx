@@ -518,7 +518,7 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
   /** Restores one Page; returns the messages today's single restore shows. */
   async function restoreOne(page: TrashPage) {
     const title = titleOf(page)
-    const fallback = t("restored", { title })
+    const fallback = t("pageRestored", { title })
     if (authority !== "snapshot_active")
       throw new Error(t("authorityIncomplete"))
     const result = await restoreSnapshot({
@@ -564,7 +564,7 @@ function PagesTrash({ selected, setSelected }: SelectionProps) {
     if (targets.length > 1)
       toast.success(
         restored.length === 1
-          ? t("restored", { title: restored[0]!.title })
+          ? t("pageRestored", { title: restored[0]!.title })
           : t("restoredMany", { count: restored.length })
       )
     for (const { notices } of restored)

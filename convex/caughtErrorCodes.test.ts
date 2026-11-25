@@ -170,6 +170,40 @@ describe("registered redirect owner validation", () => {
       "redirectSamePath"
     )
   })
+  it.each(["en", "fr"])("translates same source and destination with %s", async (locale) => {
+    const caller = app()
+    await enableRedirectsForTest(caller)
+    await assertTranslated(
+      caller.mutation(api.cms.redirects.create, {
+        fromPath: "/same/",
+        toPath: "/same",
+        locale,
+        statusCode: 301,
+      }),
+      "REDIRECT_SAME_PATH",
+      "redirectSamePath"
+    )
+  })
+  it("translates a loop refusal", async () => {
+    const caller = app()
+    await enableRedirectsForTest(caller)
+    await caller.mutation(api.cms.redirects.create, {
+      fromPath: "/loop-a",
+      toPath: "/loop-b",
+      locale: "en",
+      statusCode: 301,
+    })
+    await assertTranslated(
+      caller.mutation(api.cms.redirects.create, {
+        fromPath: "/loop-b",
+        toPath: "/loop-a",
+        locale: "en",
+        statusCode: 301,
+      }),
+      "REDIRECT_LOOP",
+      "redirectLoop"
+    )
+  })
   it("translates duplicate refusal without overwriting a redirect", async () => {
     const caller = app()
     await enableRedirectsForTest(caller)
@@ -209,5 +243,28 @@ describe("registered site description validation", () => {
       "SITE_DESCRIPTION_LOCALE_NOT_ENABLED",
       "siteDescriptionLocaleNotEnabled"
     )
+  })
+  it("translates an incomplete site address without saving it", async () => {
+    const caller = app()
+    await caller.run((ctx) =>
+      ctx.db.insert("siteSettings", {
+        siteName: "Test site",
+        siteUrl: "https://example.test",
+        defaultLocale: "en",
+        enabledLocales: ["en"],
+        updatedAt: 1,
+      })
+    )
+    await assertTranslated(
+      caller.mutation(api.cms.settings.updateSettings, {
+        siteUrl: "example.com",
+      }),
+      "SITE_URL_INVALID",
+      "siteUrlInvalid"
+    )
+    const saved = await caller.run((ctx) =>
+      ctx.db.query("siteSettings").first()
+    )
+    expect(saved?.siteUrl).toBe("https://example.test")
   })
 })

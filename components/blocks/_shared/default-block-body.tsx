@@ -11,10 +11,11 @@ export function DefaultBlockBodyRenderer({
   content,
   blocks,
   ctx,
+  isHomePage,
 }: BlockBodyRendererProps) {
   return (
     <div>
-      <DefaultBlockBodyContent content={content} blocks={blocks} ctx={ctx} />
+      <DefaultBlockBodyContent content={content} blocks={blocks} ctx={ctx} isHomePage={isHomePage} />
     </div>
   )
 }
@@ -23,7 +24,8 @@ export function DefaultBlockBodyContent({
   content,
   blocks,
   ctx,
-}: Pick<BlockBodyRendererProps, "content" | "blocks" | "ctx">) {
+  isHomePage,
+}: Pick<BlockBodyRendererProps, "content" | "blocks" | "ctx" | "isHomePage">) {
   const outline = resolvePageOutline({
     blocks,
     locale: ctx.locale,
@@ -34,8 +36,9 @@ export function DefaultBlockBodyContent({
       <h1 className="text-3xl font-semibold">{content.title}</h1>
       <p className="mt-2 text-muted-foreground">
         {
-          getPublicMessages(ctx.presentationLocale ?? ctx.locale).chrome
-            .noContent
+          getPublicMessages(ctx.presentationLocale ?? ctx.locale).chrome[
+            isHomePage ? "homeNoBlocks" : "noContent"
+          ]
         }
       </p>
     </div>

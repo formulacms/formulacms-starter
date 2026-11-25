@@ -81,10 +81,10 @@ import { readEffectiveBlockPresentationCatalog } from "../lib/blocks/presentatio
 import { hasExplicitBlockPresentations } from "../lib/blocks/presentationMutations"
 import { assertOrdinaryLocale } from "../lib/language/state"
 import {
-  CONTENT_TYPE_TRANSLATION_OFF,
-  assertPageIdTranslatedIn,
-  assertPageTypeTranslatedIn,
-} from "../lib/publishing/translationSwitch"
+  assertPageJobEligible,
+  isPageJobEligibilityRefusal,
+} from "../lib/ai/pageJobEligibility"
+import { assertPageTypeTranslatedIn } from "../lib/publishing/translationSwitch"
 import {
   enumerateSegments,
   assembleTranslation,
@@ -1002,6 +1002,13 @@ export async function advance(ctx: MutationCtx, job: Job): Promise<void> {
       await finish(ctx, job, job.stopReason ?? "canceled")
     return
   }
+  try {
+    await assertPageJobEligible(ctx, job)
+  } catch (error) {
+    if (!isPageJobEligibilityRefusal(error)) throw error
+    await stop(ctx, job, "canceled")
+    return advance(ctx, { ...job, state: "canceling", stopReason: "canceled" })
+  }
   // A local runner claims its own units; a local job is never priced or capped.
   if (job.localRoute) return
   const month = await monthBlock(ctx, job)
@@ -1055,9 +1062,8 @@ export const resumePageJob = mutation({
       !["canceled", "failed", "capped"].includes(job.state)
     )
       throw new ConvexError("AI_JOB_NOT_RESUMABLE")
-    // Before any reservation: a type switched to another language since Start
-    // is not translated into the hidden language.
-    await assertJobTargetTranslated(ctx, job)
+    // Before reservation or resets: the live target must still allow work.
+    await assertPageJobEligible(ctx, job)
     const units = await unitsFor(ctx, jobId)
     if (await jobIsStillSettling(ctx, units))
       throw new ConvexError("AI_JOB_STILL_SETTLING")
@@ -1101,22 +1107,9 @@ export const resumePageJob = mutation({
 })
 
 /**
- * ADR-0037 amendment (2026-11-17): a translation job whose target language
- * hides the page's type (the content type is switched to another language)
- * must not run, resume or spend. Start checks it in `prepare`; every later
- * entry (claim, Resume, resumability, paid-attempt admission) uses this.
- */
-export async function assertJobTargetTranslated(
-  ctx: Ctx,
-  job: Pick<Job, "kind" | "pageId" | "locale">
-): Promise<void> {
-  if (job.kind !== "translation") return
-  await assertPageIdTranslatedIn(ctx, job.pageId, job.locale)
-}
-/**
  * Whether the modules a job needs still allow it to run: AI effective, and for
  * an API job ready (an API connection), plus Multilingual for a translation,
- * the translation's target language still being public for the page's type,
+ * the live page/language target remaining eligible,
  * and the API job's own provider. False means the caller stops the job; any
  * other failure is thrown.
  */
@@ -1131,17 +1124,17 @@ export async function jobModulesAvailable(
     if (api && guard.readiness !== "ready")
       throw new ConvexError("CMS_MODULE_NOT_READY")
     if (job.kind === "translation") await requireAiTranslationModule(ctx)
-    await assertJobTargetTranslated(ctx, job)
+    await assertPageJobEligible(ctx, job)
     if (api) await requireJobProvider(ctx, job)
     return true
   } catch (error) {
+    if (isPageJobEligibilityRefusal(error)) return false
     if (
       !(error instanceof ConvexError) ||
       ![
         "CMS_MODULE_DISABLED",
         "CMS_MODULE_NOT_READY",
         "AI_JOB_PROVIDER_UNAVAILABLE",
-        CONTENT_TYPE_TRANSLATION_OFF,
       ].includes(error.data as string)
     )
       throw error
@@ -1253,7 +1246,7 @@ export const onComplete = internalMutation({
     v.object({ jobId: v.id("aiJobs"), unitId: v.id("aiJobUnits") })
   ),
   returns: v.null(),
-  handler: async (ctx, { context, workId }): Promise<null> => {
+  handler: async (ctx, { context, workId, result }): Promise<null> => {
     try {
       // A failed callback is not evidence that a successful output was unsaved.
       const unit = await ctx.db.get("aiJobUnits", context.unitId)
@@ -1279,9 +1272,16 @@ export const onComplete = internalMutation({
       })
       let next = job
       if (unit.state !== "saved" && job.state === "running") {
-        const stopReason = fits(await monthBlock(ctx, job), 0)
-          ? "failed"
-          : "capped"
+        // Use the original admission refusal, even if the target was restored
+        // before completion. A live recheck could also relabel provider errors.
+        const targetRefused = result.kind === "failed" && (
+          result.errorData === "AI_JOB_SOURCE_UNAVAILABLE" ||
+          result.errorData === "PAGE_PURGE_IN_PROGRESS" ||
+          result.errorData === "LOCALE_NOT_ENABLED"
+        )
+        const stopReason = targetRefused
+          ? "canceled"
+          : fits(await monthBlock(ctx, job), 0) ? "failed" : "capped"
         await stop(ctx, job, stopReason)
         next = { ...job, state: "canceling", stopReason }
       }
@@ -1975,6 +1975,7 @@ export const pageJobProgress = query({
       .order("desc")
       .take(100)
     const result = []
+    const localeChecks = new Map<string, Promise<unknown>>()
     for (const job of jobs) {
       // An API job needs a ready AI module; without it the job is hidden, not
       // an error, so a local job in the same list still shows.
@@ -2002,9 +2003,8 @@ export const pageJobProgress = query({
         !(await jobIsStillSettling(ctx, units))
       ) {
         try {
-          // Resume refuses a type switched to another language; the list
-          // must say so too.
-          await assertJobTargetTranslated(ctx, job)
+          // The list uses the same live-target decision as Resume.
+          await assertPageJobEligible(ctx, job, localeChecks)
           // A local job has no provider and no price. Whether this computer
           // may resume it is the caller's check (the local Next server).
           if (!job.localRoute) {

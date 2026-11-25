@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react"
 import { getFunctionName } from "convex/server"
+import { ConvexError } from "convex/values"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 import {
@@ -378,6 +379,99 @@ describe("SetupWizard auth bridge", () => {
       "https://saved.example.com"
     )
   })
+
+  const SITE_URL_MESSAGE = {
+    en: "Enter a full web address, such as https://example.com",
+    fr: "Saisissez une adresse web complète, par exemple https://example.com",
+  } as const
+
+  function openIdentity(locale: TestLocale) {
+    mocks.ownerEstablished = true
+    mocks.role = "admin"
+    render(<SetupWizard />, locale)
+    const messages = locale === "fr" ? fr : en
+    fireEvent.change(screen.getByLabelText(messages.setup.fields.siteName), {
+      target: { value: "Site" },
+    })
+    return {
+      field: screen.getByLabelText(messages.setup.fields.siteUrl),
+      finish: () =>
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: messages.setup.actions.finishSetup,
+          })
+        ),
+    }
+  }
+
+  test.each([
+    ["en", "https:example.com"],
+    ["en", "https:/example.com"],
+    ["en", "http:example.com"],
+    ["en", "https//example.com"],
+    ["en", "example.com"],
+    ["en", "ftp://example.com"],
+    ["fr", "example.com"],
+  ] as const)(
+    "%s: Site address %s is refused under the field before setup saves",
+    async (locale, typed) => {
+      const { field, finish } = openIdentity(locale)
+      const message = SITE_URL_MESSAGE[locale]
+      fireEvent.change(field, { target: { value: typed } })
+      finish()
+      await act(async () => {})
+
+      expect(mocks.bootstrapInstallation).not.toHaveBeenCalled()
+      expect(mocks.assign).not.toHaveBeenCalled()
+      const error = screen.getByText(message)
+      expect(field.closest(".space-y-1\\.5")).toContainElement(error)
+      expect(field).toHaveAttribute("aria-invalid", "true")
+      expect(field).toHaveFocus()
+      expect(field).toHaveAccessibleDescription(
+        expect.stringContaining(message)
+      )
+
+      // A pending save proves the call without leaving setup.
+      const pending = deferred<never>()
+      mocks.bootstrapInstallation.mockReturnValue(pending.promise)
+      fireEvent.change(field, { target: { value: "http://127.0.0.1:3000" } })
+      expect(screen.queryByText(message)).not.toBeInTheDocument()
+      expect(field).not.toHaveAttribute("aria-invalid", "true")
+      finish()
+      await waitFor(() =>
+        expect(mocks.bootstrapInstallation).toHaveBeenCalledWith(
+          expect.objectContaining({ siteUrl: "http://127.0.0.1:3000" })
+        )
+      )
+      expect(mocks.assign).not.toHaveBeenCalled()
+    }
+  )
+
+  test.each(["en", "fr"] as const)(
+    "%s: a server refusal of the Site address shows the same field message",
+    async (locale) => {
+      mocks.bootstrapInstallation.mockRejectedValue(
+        new ConvexError({ code: "SITE_URL_INVALID" })
+      )
+      const { field, finish } = openIdentity(locale)
+      const message = SITE_URL_MESSAGE[locale]
+      fireEvent.change(field, { target: { value: "https://www.example.org" } })
+      finish()
+
+      const error = await screen.findByText(message)
+      expect(mocks.bootstrapInstallation).toHaveBeenCalledOnce()
+      expect(mocks.assign).not.toHaveBeenCalled()
+      expect(field.closest(".space-y-1\\.5")).toContainElement(error)
+      expect(field).toHaveAttribute("aria-invalid", "true")
+      expect(field).toHaveFocus()
+      expect(field).toHaveAccessibleDescription(
+        expect.stringContaining(message)
+      )
+
+      fireEvent.change(field, { target: { value: "https://www.example.com" } })
+      expect(screen.queryByText(message)).not.toBeInTheDocument()
+    }
+  )
 
   test("renders the French setup dictionary and the rewritten language hint", () => {
     mocks.ownerEstablished = true

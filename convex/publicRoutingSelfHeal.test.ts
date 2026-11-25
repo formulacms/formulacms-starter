@@ -97,6 +97,20 @@ async function publishTranslated(
   await publish(site, pageId, locale)
 }
 
+/** Historical Home data needed by recovery/routing tests. */
+async function unpublishLegacyHome(site: { t: T }, pageId: Id<"pages">, locale: string) {
+  await site.t.run(async (ctx) => {
+    const state = (await ctx.db.query("pageLocalePublicationStates")
+      .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", pageId).eq("locale", locale)).unique())!
+    await ctx.db.patch("pageLocalePublicationStates", state._id, {
+      publicGeneration: state.publicGeneration + 1,
+      hasCurrentSnapshot: false, currentSnapshotId: undefined,
+      currentReleaseId: undefined, currentPath: undefined,
+      currentPublishedAt: undefined, pageType: undefined, publicSince: undefined,
+    })
+  })
+}
+
 async function withdraw(
   site: { t: T; owner: Caller },
   pageId: Id<"pages">,
@@ -248,7 +262,7 @@ describe("U3 resolveHistoricalPublishedPath: self-heal", () => {
   test("default home unpublished, French home published: / heals to the French home, whatever the browser", async () => {
     const s = await site()
     await publishTranslated(s, s.homeId, "fr", "accueil")
-    await withdraw(s, s.homeId, "en")
+    await unpublishLegacyHome(s, s.homeId, "en")
     const fr = await localeState(s.t, s.homeId, "fr")
     expect(await resolve(s.t, "en", "/")).toEqual({
       authority: "snapshot_active",
@@ -270,7 +284,7 @@ describe("U3 resolveHistoricalPublishedPath: self-heal", () => {
     const settings = await s.t.run((ctx) => ctx.db.query("siteSettings").first())
     expect(settings?.defaultLocale).toBe("en")
     await publishTranslated(s, s.homeId, "fr", "accueil")
-    await withdraw(s, s.homeId, "en")
+    await unpublishLegacyHome(s, s.homeId, "en")
     const fr = await localeState(s.t, s.homeId, "fr")
     expect(await resolve(s.t, "en", "/")).toMatchObject({
       disposition: "unclaimed",
@@ -287,11 +301,11 @@ describe("U3 resolveHistoricalPublishedPath: self-heal", () => {
     const s = await site()
     await publishTranslated(s, s.homeId, "es", "inicio")
     await publishTranslated(s, s.homeId, "fr", "accueil")
-    await withdraw(s, s.homeId, "en")
+    await unpublishLegacyHome(s, s.homeId, "en")
     expect(await resolve(s.t, "en", "/")).toMatchObject({
       selfHeal: { pageId: s.homeId, locale: "fr", destinationPath: "/" },
     })
-    await withdraw(s, s.homeId, "fr")
+    await unpublishLegacyHome(s, s.homeId, "fr")
     expect(await resolve(s.t, "en", "/")).toMatchObject({
       selfHeal: { pageId: s.homeId, locale: "es", destinationPath: "/" },
     })

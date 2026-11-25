@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   refusalCode: "PAGE_SOFT_DELETE_MENU_REFERENCE",
   routerPush: vi.fn(),
   toastError: vi.fn(),
+  archive: vi.fn(),
 }))
 
 vi.mock("convex/react", () => ({
@@ -22,6 +23,7 @@ vi.mock("convex/react", () => ({
   useConvex: () => mocks.convex,
   useMutation: (reference: unknown) => {
     const name = getFunctionName(reference as never)
+    if (name === "cms/publication:archivePage") return mocks.archive
     if (name === "cms/publication:softDeletePage") {
       return vi.fn(async () => {
         throw new ConvexError({ code: mocks.refusalCode, truncated: false })
@@ -149,6 +151,18 @@ describe("PageEditor destructive refusals", () => {
     mocks.confirm.mockResolvedValue(true)
     window.localStorage.clear()
     window.sessionStorage.clear()
+  })
+
+  it("keeps home Archive focusable, described and inert", async () => {
+    render(<PageEditor page={{ ...page("page"), status: "draft" }} publication={publication()} hasStaging={false} stagingUpdatedAt={undefined} routeHomePageId={pageId} />)
+    fireEvent.pointerDown(screen.getByRole("button", { name: en.editor.page.moreActions }), { button: 0, ctrlKey: false })
+    const archive = await screen.findByRole("menuitem", { name: en.editor.page.archive })
+    expect(archive).toHaveAttribute("aria-disabled", "true")
+    expect(archive).not.toHaveAttribute("data-disabled")
+    expect(archive).toHaveAccessibleDescription(en.pages.list.actions.homeNoArchive)
+    fireEvent.click(archive)
+    fireEvent.keyDown(archive, { key: "Enter" })
+    expect(mocks.archive).not.toHaveBeenCalled()
   })
 
   it.each([

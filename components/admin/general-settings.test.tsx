@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { getFunctionName } from "convex/server"
+import { ConvexError } from "convex/values"
 import { NextIntlClientProvider } from "next-intl"
+import { toast } from "sonner"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 import en from "@/messages/admin/en.json"
+import fr from "@/messages/admin/fr.json"
 
 const mocks = vi.hoisted(() => ({
   updateSettings: vi.fn(),
@@ -59,9 +62,12 @@ function openTab(tab: HTMLElement) {
   fireEvent.mouseDown(tab, { button: 0, ctrlKey: false })
 }
 
-function renderGeneral() {
+function renderGeneral(locale: "en" | "fr" = "en") {
   return render(
-    <NextIntlClientProvider locale="en" messages={en}>
+    <NextIntlClientProvider
+      locale={locale}
+      messages={locale === "fr" ? fr : en}
+    >
       <GeneralSettings />
     </NextIntlClientProvider>
   )
@@ -245,4 +251,98 @@ describe("General settings: Brand voice", () => {
       brandVoice: "Warm and direct.",
     })
   })
+})
+
+const SITE_URL_MESSAGE = {
+  en: "Enter a full web address, such as https://example.com",
+  fr: "Saisissez une adresse web complète, par exemple https://example.com",
+} as const
+
+function generalLabels(locale: "en" | "fr") {
+  const messages = locale === "fr" ? fr : en
+  return {
+    siteUrl: messages.settings.general.identity.siteUrl,
+    save: messages.settings.common.save,
+  }
+}
+
+describe("General settings: Site address check", () => {
+  test.each([
+    ["en", "https:example.com"],
+    ["en", "https:/example.com"],
+    ["en", "http:example.com"],
+    ["en", "https//example.com"],
+    ["en", "example.com"],
+    ["en", "ftp://example.com"],
+    ["fr", "example.com"],
+  ] as const)(
+    "%s: %s is refused under the field and nothing saves until corrected",
+    async (locale, typed) => {
+      mocks.settings = settingsDoc()
+      renderGeneral(locale)
+      const labels = generalLabels(locale)
+      const message = SITE_URL_MESSAGE[locale]
+      const field = screen.getByLabelText(labels.siteUrl)
+      fireEvent.change(field, { target: { value: typed } })
+      fireEvent.click(screen.getByRole("button", { name: labels.save }))
+      await act(async () => {})
+
+      expect(mocks.updateSettings).not.toHaveBeenCalled()
+      expect(toast.success).not.toHaveBeenCalled()
+      const error = screen.getByText(message)
+      expect(field.closest(".space-y-2")).toContainElement(error)
+      expect(field).toHaveAttribute("aria-invalid", "true")
+      expect(field).toHaveFocus()
+      expect(field).toHaveAccessibleDescription(
+        expect.stringContaining(message)
+      )
+
+      fireEvent.change(field, { target: { value: "http://127.0.0.1:3000" } })
+      expect(screen.queryByText(message)).not.toBeInTheDocument()
+      expect(field).not.toHaveAttribute("aria-invalid", "true")
+      fireEvent.click(screen.getByRole("button", { name: labels.save }))
+      await waitFor(() => expect(mocks.updateSettings).toHaveBeenCalledOnce())
+      expect(mocks.updateSettings.mock.calls[0]![0]).toMatchObject({
+        siteUrl: "http://127.0.0.1:3000",
+      })
+    }
+  )
+
+  test("an empty Site address still saves", async () => {
+    mocks.settings = settingsDoc()
+    renderGeneral()
+    fireEvent.change(screen.getByLabelText(generalLabels("en").siteUrl), {
+      target: { value: "" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+    await waitFor(() => expect(mocks.updateSettings).toHaveBeenCalledOnce())
+    expect(mocks.updateSettings.mock.calls[0]![0]).toMatchObject({ siteUrl: "" })
+    expect(screen.queryByText(SITE_URL_MESSAGE.en)).not.toBeInTheDocument()
+  })
+
+  test.each(["en", "fr"] as const)(
+    "%s: a server refusal of the Site address shows the same field message",
+    async (locale) => {
+      mocks.settings = settingsDoc()
+      mocks.updateSettings.mockRejectedValue(
+        new ConvexError({ code: "SITE_URL_INVALID" })
+      )
+      renderGeneral(locale)
+      const labels = generalLabels(locale)
+      const message = SITE_URL_MESSAGE[locale]
+      const field = screen.getByLabelText(labels.siteUrl)
+      fireEvent.change(field, { target: { value: "https://www.example.org" } })
+      fireEvent.click(screen.getByRole("button", { name: labels.save }))
+
+      const error = await screen.findByText(message)
+      expect(mocks.updateSettings).toHaveBeenCalledOnce()
+      expect(toast.success).not.toHaveBeenCalled()
+      expect(field.closest(".space-y-2")).toContainElement(error)
+      expect(field).toHaveAttribute("aria-invalid", "true")
+      expect(field).toHaveFocus()
+      expect(field).toHaveAccessibleDescription(
+        expect.stringContaining(message)
+      )
+    }
+  )
 })

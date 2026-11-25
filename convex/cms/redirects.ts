@@ -334,6 +334,128 @@ function validateToPath(p: string): string {
   return trimmed
 }
 
+/*
+ * Prevents loops made of stored redirect rows at save time. Later page address,
+ * language or domain-alias changes, and redirects outside this table, are not covered.
+ * The 32-hop bound applies to the walk from the new rule; it does not cap chains built by adding rules in front.
+ * Under snapshot authority the walk also follows rules saved without a language (API only), which the resolver ignores there; this can refuse a safe redirect but never saves a loop.
+ */
+type Rule = Pick<Doc<"redirects">, "fromPath" | "toPath" | "toPageId" | "locale">
+
+// Same pathname split as proxy.ts; paths in the walk have no language prefix.
+function splitLocale(
+  pathname: string,
+  enabledLocales: string[],
+  defaultLocale: string
+): { locale: string; path: string } {
+  const segments = pathname.split("/").filter((s) => s.length > 0)
+  if (segments.length > 0 && enabledLocales.includes(segments[0])) {
+    const rest = segments.slice(1).join("/")
+    return { locale: segments[0], path: rest ? `/${rest}` : "/" }
+  }
+  return { locale: defaultLocale, path: pathname || "/" }
+}
+
+/** Read-only save guard; reuse the resolver's matching and legacy page URL seams. */
+async function assertRedirectDoesNotLoop(
+  ctx: QueryCtx,
+  proposed: Rule,
+  cfg: Awaited<ReturnType<typeof getLocaleConfig>>
+): Promise<void> {
+  const startLocales = proposed.locale ? [proposed.locale] : cfg.enabledLocales
+  const authority = await readPublicationAuthority(ctx)
+  for (const startLocale of startLocales) {
+    // A language-specific source shadows a new language-agnostic source.
+    if (
+      !proposed.locale &&
+      (await findMatch(ctx, proposed.fromPath, startLocale))?.locale === startLocale
+    ) {
+      continue
+    }
+
+    const visited = new Set<string>()
+    let state = { locale: startLocale, path: proposed.fromPath }
+    let hops = 0
+    while (true) {
+      const key = `${state.locale}\u0000${state.path}`
+      if (visited.has(key)) {
+        throw new ConvexError({
+          code: "REDIRECT_LOOP",
+          message:
+            "This redirect would send visitors in a loop. Choose another destination.",
+        })
+      }
+      visited.add(key)
+      let row: Rule | null
+      if (
+        proposed.fromPath === state.path &&
+        (!proposed.locale || proposed.locale === state.locale)
+      ) {
+        // An unscoped proposal must also respect language-specific matches mid-walk.
+        const stored = proposed.locale
+          ? null
+          : await findMatch(ctx, state.path, state.locale)
+        row = stored?.locale === state.locale ? stored : proposed
+      } else {
+        row = await findMatch(ctx, state.path, state.locale)
+      }
+      if (!row) break
+      if (++hops > 32) {
+        throw new ConvexError({
+          code: "REDIRECT_CHAIN_TOO_LONG",
+          message:
+            "This redirect would start a chain of more than 32 redirects. Choose the final address as the destination.",
+        })
+      }
+
+      let destination: string | null = null
+      if (row.toPageId) {
+        // The proxy serves a published page before consulting manual redirects.
+        if (authority === "snapshot_active") break
+        destination = await urlForPageInLocale(
+          ctx, row.toPageId, state.locale, cfg
+        )
+      }
+      if (!destination && row.toPath) {
+        if (/^https?:\/\//i.test(row.toPath)) {
+          destination = row.toPath
+        } else {
+          const prefix =
+            state.locale === cfg.defaultLocale ? "" : `/${state.locale}`
+          const body = row.toPath === "/" ? "" : row.toPath
+          destination = `${prefix}${body}` || "/"
+        }
+      }
+      if (!destination) break
+
+      const absolute = /^(?:https?:)?\/\//i.test(destination)
+      const settings = absolute
+        ? await ctx.db.query("siteSettings").first()
+        : null
+      let pathname: string
+      try {
+        if (absolute) {
+          const siteUrl = new URL(settings?.siteUrl ?? "")
+          const target = new URL(destination, siteUrl)
+          if (target.origin !== siteUrl.origin) break
+          pathname = target.pathname
+        } else {
+          pathname = new URL(destination, "https://redirect.invalid").pathname
+        }
+      } catch {
+        // Invalid site URLs cannot establish that an absolute URL is same-site.
+        break
+      }
+      // Next.js normalizes repeated slashes before the proxy runs.
+      pathname = pathname.replace(/\/{2,}/g, "/")
+      if (pathname.length > 1 && pathname.endsWith("/")) {
+        pathname = pathname.slice(0, -1)
+      }
+      state = splitLocale(pathname, cfg.enabledLocales, cfg.defaultLocale)
+    }
+  }
+}
+
 export const create = mutation({
   args: {
     fromPath: v.string(),
@@ -356,7 +478,7 @@ export const create = mutation({
     const fromPath = validateFromPath(args.fromPath)
     const toPath = args.toPath ? validateToPath(args.toPath) : undefined
 
-    if (toPath && fromPath === toPath && !args.locale) {
+    if (toPath && fromPath === toPath) {
       throw new ConvexError({ code: "REDIRECT_SAME_PATH", message: "Source and destination must differ" })
     }
 
@@ -371,6 +493,12 @@ export const create = mutation({
           : `A redirect from ${fromPath} already exists`,
       })
     }
+
+    await assertRedirectDoesNotLoop(
+      ctx,
+      { fromPath, toPath, toPageId: args.toPageId, locale: args.locale },
+      await getLocaleConfig(ctx)
+    )
 
     const now = Date.now()
     const id = await ctx.db.insert("redirects", {

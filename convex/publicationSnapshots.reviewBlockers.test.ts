@@ -225,7 +225,7 @@ describe("F08a review blockers on e181c632", () => {
       )
     ).toMatchObject({
       lifecycleState: "trashed",
-      restoreLifecycleState: "archived",
+      restoreLifecycleState: "active",
       lifecycleGeneration: 3,
     })
   })

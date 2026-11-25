@@ -289,7 +289,7 @@ describe("TrashList snapshot pages", () => {
       })
     })
     await waitFor(() =>
-      expect(mocks.success).toHaveBeenCalledWith("“Snapshot page” restored")
+      expect(mocks.success).toHaveBeenCalledWith("“Snapshot page” restored as draft")
     )
   })
 
@@ -922,7 +922,7 @@ describe("TrashList snapshot pages", () => {
       { pageId: "p1", expectedLifecycleGeneration: 5 },
       { pageId: "p2", expectedLifecycleGeneration: 5 },
     ])
-    expect(mocks.success.mock.calls[0]?.[0]).toBe("2 pages restored")
+    expect(mocks.success.mock.calls[0]?.[0]).toBe("2 page(s) restored as draft(s)")
     expect(mocks.success.mock.calls[1]?.[0]).toContain("/workshops-2")
     expect(mocks.success.mock.calls[1]?.[0]).toContain("Workshops")
   })

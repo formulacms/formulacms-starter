@@ -125,6 +125,20 @@ async function publish(
   })
 }
 
+/** Pre-existing private Home; the owner can no longer withdraw it. */
+async function withdrawEmptyHome(t: T, homeId: Id<"pages">) {
+  await t.run(async (ctx) => {
+    const state = (await ctx.db.query("pageLocalePublicationStates")
+      .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", homeId).eq("locale", "fr")).unique())!
+    await ctx.db.patch("pageLocalePublicationStates", state._id, {
+      publicGeneration: state.publicGeneration + 1,
+      hasCurrentSnapshot: false, currentSnapshotId: undefined,
+      currentReleaseId: undefined, currentPath: undefined,
+      currentPublishedAt: undefined, pageType: undefined, publicSince: undefined,
+    })
+  })
+}
+
 async function saveDraft(
   t: T,
   owner: Caller,
@@ -389,13 +403,13 @@ async function startRetainedReplacement(
   })
   const settings = (await t.run((ctx) => ctx.db.query("siteSettings").unique()))!
   const homeId = settings.homePageId!
-  await publish(t, owner, homeId, "en")
   if (options.keepSourceDraft) {
     await saveDraft(t, owner, homeId, "en", "home-updated", "Home updated")
   }
   await toggleMultilingual(t, owner, true)
   await adoptMultilingual(t, owner)
   await addLanguage(t, owner, "fr")
+  if (basis === "draft") await withdrawEmptyHome(t, homeId)
   await saveDraft(t, owner, homeId, "fr", "accueil", "Accueil conservé")
   if (basis === "retained_snapshot") {
     await publish(t, owner, homeId, "fr")
@@ -457,7 +471,6 @@ test(
     })
     const settings = (await t.run((ctx) => ctx.db.query("siteSettings").unique()))!
     const homeId = settings.homePageId!
-    await publish(t, owner, homeId, "en")
     const englishSnapshotId = (await generations(t, homeId, "en")).state!
       .currentSnapshotId!
 
@@ -571,10 +584,10 @@ test(
     })
     const settings = (await t.run((ctx) => ctx.db.query("siteSettings").unique()))!
     const homeId = settings.homePageId!
-    await publish(t, owner, homeId, "en")
     await toggleMultilingual(t, owner, true)
     await adoptMultilingual(t, owner)
     await addLanguage(t, owner, "fr")
+    await withdrawEmptyHome(t, homeId)
     await saveDraft(t, owner, homeId, "fr", "accueil", "Accueil privé")
     const retainedDraft = await t.run((ctx) =>
       ctx.db
@@ -716,7 +729,6 @@ test.each(["correct_label", "replace_content"] as const)(
     })
     const settings = (await t.run((ctx) => ctx.db.query("siteSettings").unique()))!
     const homeId = settings.homePageId!
-    await publish(t, owner, homeId, "en")
     const transitionId = await startTransition(t, owner, mode, "fr")
     const row = retainedRow(await transitionReport(owner, transitionId), homeId)
 
@@ -750,10 +762,10 @@ test.each(["retained_snapshot", "draft"] as const)(
     })
     const settings = (await t.run((ctx) => ctx.db.query("siteSettings").unique()))!
     const homeId = settings.homePageId!
-    await publish(t, owner, homeId, "en")
     await toggleMultilingual(t, owner, true)
     await adoptMultilingual(t, owner)
     await addLanguage(t, owner, "fr")
+    if (basis === "draft") await withdrawEmptyHome(t, homeId)
     await saveDraft(t, owner, homeId, "fr", "accueil", "Accueil conservé")
     if (basis === "retained_snapshot") {
       await publish(t, owner, homeId, "fr")
@@ -1035,7 +1047,6 @@ async function adoptedSnapshotSetup(t: T, owner: Caller) {
   })
   const settings = (await t.run((ctx) => ctx.db.query("siteSettings").unique()))!
   const homeId = settings.homePageId!
-  await publish(t, owner, homeId, "en")
   await toggleMultilingual(t, owner, true)
   await adoptMultilingual(t, owner)
   await addLanguage(t, owner, "fr")
@@ -1269,7 +1280,6 @@ test.each([false, true])(
       defaultLocale: "en",
     })
     const settings = (await t.run((ctx) => ctx.db.query("siteSettings").unique()))!
-    await publish(t, owner, settings.homePageId!, "en")
     const pageId = await owner.mutation(api.cms.pages.create, {
       pageType: "landing-page",
       status: "draft",

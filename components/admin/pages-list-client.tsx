@@ -242,6 +242,7 @@ function PagesListSurface({
     const ok = await confirm({
       title: tList("archiveDialog.title"),
       description: tList("archiveDialog.description"),
+      confirmText: tList("actions.archive"),
     })
     if (!ok) return
     try {
@@ -262,13 +263,13 @@ function PagesListSurface({
     }
   }
 
-  async function handleUnarchive(page: SnapshotListPage) {
+  async function handleUnarchive(page: SnapshotListPage, title: string) {
     try {
       await restoreSnapshotPage({
         pageId: page._id,
         expectedLifecycleGeneration: lifecycleGeneration(page),
       })
-      toast.success(tList("toast.restored"))
+      toast.success(tList("toast.restored", { title }))
       router.refresh()
     } catch (err) {
       toast.error(
@@ -492,7 +493,7 @@ function PagesListSurface({
             defaultLocale={defaultLocale ?? adminLocale}
             homePageId={siteConfig?.homePageId}
             onArchive={(page) => void handleArchive(page)}
-            onUnarchive={(page) => void handleUnarchive(page)}
+            onUnarchive={(page, title) => void handleUnarchive(page, title)}
             onTrash={(page) => void handleMoveToTrash(page)}
           />
         )}

@@ -7,6 +7,51 @@ Fixed. The format follows Keep a Changelog 1.1.0.
 The known limits of each release are on its release page:
 https://github.com/formulacms/formulacms-starter/releases
 
+## 0.5.2
+
+0.5.2 supports fresh installs only; there is no upgrade path from 0.5.1.
+Start a new site and a new Convex deployment from v0.5.2. Do not merge or
+pull this release into an older site or reuse its Convex deployment.
+`scripts/check-release-transition.ts` refuses the 0.5.1 to 0.5.2 hop as
+unsupported and exits 1.
+
+### Fixed
+
+- Menus accept phone and email links alongside the other link types. Link-type
+  labels and Save fit in the menu editor at phone width, in English and French.
+  <!-- #214 -->
+- A fresh site's home page answers with a published placeholder, "Add blocks
+  to your home page.", until it has blocks. <!-- #216 -->
+- Restore and Unarchive return pages as unpublished drafts in every language.
+  Archive asks for confirmation, and the home page cannot be archived.
+  <!-- #215 -->
+- The home page always stays published in every public language. It cannot
+  be unpublished or moved to Trash. <!-- #220 -->
+- Redirects that would create a loop are refused. <!-- #217 -->
+- AI page work stops when its page is archived, trashed or deleted, or its
+  target language is removed. <!-- #218 -->
+- The page editor works in production builds. <!-- #221 -->
+- An invalid site address is refused. <!-- C01; merges before release -->
+- Settings > AI describes the controls that are available, without promising
+  editor write, refine or translate controls that are not there. <!-- #219 B06 -->
+- Settings pages have one main landmark for assistive technology.
+  <!-- #219 B59 -->
+- The selected-language accent stays in the page editor and crowded controls,
+  such as the menu editor. Simple language pickers use neutral styling.
+  <!-- #219 B61 -->
+- The Unpublish dialog says that the page's link will be hidden in navigation.
+  <!-- #219 B62 -->
+
+### Known limits
+
+- An AI attempt admitted just before the stop can still run once. <!-- B17 -->
+- In a production build, an unpublished French version with its own French
+  address answers 404. One that shares the English address redirects to English.
+  Both cases will answer 404 in 0.5.3.
+- A page unpublished in every language answers 404.
+- The footer's featured section does not show its image yet. This is planned
+  for 0.5.3. <!-- W1 N03 -->
+
 ## 0.5.1
 
 0.5.1 supports fresh installs only; there is no upgrade path from 0.4.0.

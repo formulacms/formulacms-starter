@@ -344,19 +344,16 @@ test("V03 makes image-alt warnings explicit and blocks a draft Author byline", a
         .click()
       await expect(
         owner.getByText(
-          (await pageTranslator(owner))("inventory.trash.restored", { title: authorTitle }),
+          (await pageTranslator(owner))("inventory.trash.pageRestored", { title: authorTitle }),
           { exact: true }
         )
       ).toBeVisible()
 
       await owner.goto(authorEditor)
-      await owner
-        .getByRole("button", { name: (await pageTranslator(owner))("editor.page.unarchive"), exact: true })
-        .click()
       const restoredAuthor = await ownerClient.query(api.cms.pages.getForEdit, {
         id: authorId,
       })
-      expect(restoredAuthor?.page.status).toBe("published")
+      expect(restoredAuthor?.page.status).toBe("draft")
 
       await owner.goto(postEditor)
       await owner.getByRole("button", { name: (await pageTranslator(owner))("editor.page.moreActions") }).click()
@@ -369,15 +366,10 @@ test("V03 makes image-alt warnings explicit and blocks a draft Author byline", a
         })
         .click()
       await owner.goto(authorEditor)
-      await owner.getByRole("button", { name: (await pageTranslator(owner))("editor.page.moreActions") }).click()
-      await owner.getByRole("menuitem", { name: (await pageTranslator(owner))("editor.page.unpublish") }).click()
-      await owner
-        .getByRole("alertdialog")
-        .getByRole("button", {
-          name: (await pageTranslator(owner))("pages.list.unpublish.confirm"),
-          exact: true,
-        })
-        .click()
+      const finalAuthor = await ownerClient.query(api.cms.pages.getForEdit, {
+        id: authorId,
+      })
+      expect(finalAuthor?.page.status).toBe("draft")
     })
   } finally {
     await owner.context().close()

@@ -180,7 +180,7 @@ test("Menus item CRUD and live link continuity", async ({ browser, request }) =>
 
     await test.step("Page-list trash succeeds after the live Menu link is removed", async () => {
       const actionsForPage = t("pages.list.actionsFor", { title: pageTitle })
-      const restoredToast = t("inventory.trash.restored", { title: pageTitle })
+      const restoredToast = t("inventory.trash.pageRestored", { title: pageTitle })
 
       await owner.goto("/admin/pages")
       await owner.getByLabel((await pageTranslator(owner))("pages.list.filters.status")).selectOption("archived")
@@ -200,13 +200,15 @@ test("Menus item CRUD and live link continuity", async ({ browser, request }) =>
       await trashRow.getByRole("button", { name: (await pageTranslator(owner))("inventory.trash.restore") }).click()
       await expect(owner.getByText(restoredToast, { exact: true })).toBeVisible()
 
-      await owner.goto("/admin/pages")
-      await owner.getByLabel((await pageTranslator(owner))("pages.list.filters.status")).selectOption("archived")
-      await owner.getByRole("button", { name: actionsForPage, exact: true }).click()
-      await owner.getByRole("menuitem", { name: (await pageTranslator(owner))("pages.list.actions.unarchive") }).click()
-      await expect(owner.getByText((await pageTranslator(owner))("pages.list.toast.restored"), { exact: true })).toBeVisible()
       const restored = await ownerClient.query(api.cms.pages.getForEdit, { id: pageId })
-      expect(restored?.page.status).toBe("published")
+      expect(restored?.page.status).toBe("draft")
+      expect(restored?.publication?.locales.every((locale) => !locale.currentSnapshotId)).toBe(true)
+      // Restore keeps the page private; explicitly republish the fixture itself.
+      await owner.goto(editor)
+      await owner.getByRole("button", { name: (await pageTranslator(owner))("editor.page.publish"), exact: true }).click()
+      await expect.poll(async () =>
+        (await ownerClient.query(api.cms.pages.getForEdit, { id: pageId }))?.page.status
+      ).toBe("published")
     })
   } finally {
     await owner.context().close()

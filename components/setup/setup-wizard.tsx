@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useConvex, useConvexAuth, useMutation, useQuery } from "convex/react"
 import { ConvexHttpClient } from "convex/browser"
+import { ConvexError } from "convex/values"
 import { Loader2 } from "lucide-react"
 import {
   NextIntlClientProvider,
@@ -17,6 +18,7 @@ import {
   type AbstractIntlMessages,
 } from "next-intl"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
+import { hasSiteAddressScheme } from "@/lib/site-address"
 import { api } from "@/convex/_generated/api"
 import { useSignOut, useUsernamePasswordSignIn } from "@/lib/auth/client"
 import { SUPPORTED_LOCALES, getLocaleDisplayName } from "@/lib/i18n/config"
@@ -53,6 +55,32 @@ const STEPS: StepKey[] = ["language", "account", "identity"]
 
 // Convex Auth password limits (ADR-0056): 10 to 100 characters.
 const MIN_PASSWORD_LENGTH = 10
+
+/** Empty means no address; anything else must be a full http(s) address. */
+function isSiteAddressValid(value: string): boolean {
+  if (value === "") return true
+  const siteUrl = value.trim()
+  if (!hasSiteAddressScheme(siteUrl)) return false
+  try {
+    const url = new URL(siteUrl)
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.hostname !== ""
+    )
+  } catch {
+    return false
+  }
+}
+
+function isSiteUrlRefusal(error: unknown): boolean {
+  if (!(error instanceof ConvexError)) return false
+  const data: unknown = error.data
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as Record<string, unknown>).code === "SITE_URL_INVALID"
+  )
+}
 
 /**
  * Admin dictionaries the wizard can switch to, as `{ setup, caughtErrors }`
@@ -518,6 +546,9 @@ function SetupWizardBody({
   const [siteDescriptionDraft, setSiteDescription] = useState<string | null>(
     initialSetup?.siteDescription ?? null
   )
+  // Shown under Site address after a local or server refusal.
+  const [siteUrlError, setSiteUrlError] = useState<string | null>(null)
+  const siteUrlRef = useRef<HTMLInputElement>(null)
 
   const siteName = siteNameDraft ?? savedSettings?.siteName ?? ""
   // Only a suggestion, and only while nothing is saved: a saved or edited
@@ -706,8 +737,13 @@ function SetupWizardBody({
   }
 
   async function handleIdentity() {
-    setBusy(true)
     setError(null)
+    if (!isSiteAddressValid(siteUrl)) {
+      setSiteUrlError(tErrors("siteUrlInvalid"))
+      siteUrlRef.current?.focus()
+      return
+    }
+    setBusy(true)
     try {
       await withRetryOnAuthLag(() =>
         bootstrapInstallation({
@@ -725,7 +761,10 @@ function SetupWizardBody({
       window.location.assign("/admin")
       setBusy(false)
     } catch (e) {
-      setError(displayError(e, t("errors.saveSite")))
+      if (isSiteUrlRefusal(e)) {
+        setSiteUrlError(displayError(e, t("errors.saveSite")))
+        siteUrlRef.current?.focus()
+      } else setError(displayError(e, t("errors.saveSite")))
       setBusy(false)
     }
   }
@@ -1226,13 +1265,26 @@ function SetupWizardBody({
               <Label htmlFor="siteUrl">{t("fields.siteUrl")}</Label>
               <Input
                 id="siteUrl"
+                ref={siteUrlRef}
                 placeholder={t("fields.siteUrlPlaceholder")}
                 value={siteUrl}
-                onChange={(e) => setSiteUrl(e.target.value)}
+                aria-invalid={!!siteUrlError || undefined}
+                aria-describedby={
+                  siteUrlError ? "siteUrlHint siteUrlError" : "siteUrlHint"
+                }
+                onChange={(e) => {
+                  setSiteUrl(e.target.value)
+                  if (isSiteAddressValid(e.target.value)) setSiteUrlError(null)
+                }}
               />
-              <p className="text-xs text-muted-foreground">
+              <p id="siteUrlHint" className="text-xs text-muted-foreground">
                 {t("fields.siteUrlHint")}
               </p>
+              {siteUrlError && (
+                <p id="siteUrlError" className="text-xs text-destructive" role="alert">
+                  {siteUrlError}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="siteDescription">

@@ -11,7 +11,7 @@ import {
   removedTitleLinksValidator,
   type WriteOptions,
 } from "../lib/richtext/write"
-import { ConvexError, v } from "convex/values"
+import { ConvexError, v, type Infer } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import type { WithoutSystemFields } from "convex/server"
 import { internalQuery, query } from "../_generated/server"
@@ -66,7 +66,9 @@ import {
   type PageAddressCheck,
   type PageAddressNotice,
 } from "../lib/publishing/snapshots"
-import { assertPageTypeTranslatedIn } from "../lib/publishing/translationSwitch"
+import {
+  assertPageTypeTranslatedIn,
+} from "../lib/publishing/translationSwitch"
 import {
   OPEN_TRANSITION_PHASES,
   assertOrdinaryLocale,
@@ -1216,6 +1218,31 @@ export async function initializeSuccessorPage(
     throw new ConvexError("PAGE_LOCALE_DRAFT_REQUIRED")
   }
   for (const locale of locales) {
+    await initializeSuccessorPageLocale(
+      ctx, page, locale, content[locale], attribution, now, addressPlans.get(locale)
+    )
+  }
+}
+
+/** Initialize one previously absent language with the normal draft/address rules. */
+export async function initializeSuccessorPageLocale(
+  ctx: MutationCtx,
+  page: Doc<"pages">,
+  locale: string,
+  localeContent: Record<string, unknown>,
+  attribution: Doc<"pageLocaleDrafts">["updatedBy"],
+  now: number,
+  addressPlan?: Awaited<ReturnType<typeof allocatePageAddress>>
+): Promise<void> {
+    if (!addressPlan && attribution.kind !== "migration") {
+      addressPlan = await allocatePageAddress(ctx, {
+        pageId: page._id,
+        pageType: page.pageType,
+        locale,
+        slug: typeof localeContent.slug === "string" ? localeContent.slug : page.slug,
+        parentId: page.parentId,
+      })
+    }
     const localeStateId = await occurrenceUsageWrites(ctx).insert(
       "pageLocalePublicationStates",
       {
@@ -1229,7 +1256,6 @@ export async function initializeSuccessorPage(
       }
     )
     void localeStateId
-    const localeContent = content[locale]
     const slug = typeof localeContent.slug === "string" ? localeContent.slug : page.slug
     const localized = isRecord(localeContent.content) ? localeContent.content : localeContent
     const localeDraftId = await occurrenceUsageWrites(ctx).insert(
@@ -1239,9 +1265,9 @@ export async function initializeSuccessorPage(
         locale,
         pageType: page.pageType,
         generation: 1,
-        slug: addressPlans.get(locale)?.slug ?? slug,
-        ...(addressPlans.get(locale)?.addressAllocation
-          ? { addressAllocation: addressPlans.get(locale)!.addressAllocation }
+        slug: addressPlan?.slug ?? slug,
+        ...(addressPlan?.addressAllocation
+          ? { addressAllocation: addressPlan!.addressAllocation }
           : {}),
         content: localized,
         updatedBy: attribution,
@@ -1263,7 +1289,6 @@ export async function initializeSuccessorPage(
       undefined,
       now
     )
-  }
 }
 
 async function oneLocaleState(
@@ -2872,8 +2897,7 @@ export const deleteLocaleContent = mutation({
  * one Page+locale selector. This path deliberately has no Team import or
  * Team-table read: Community publication is a zero-participant policy path.
  */
-export const publishLocale = mutation({
-  args: {
+const publishLocaleArgsValidator = v.object({
     pageId: v.id("pages"),
     locale: v.string(),
     expectedDraftGeneration: v.number(),
@@ -2881,11 +2905,24 @@ export const publishLocale = mutation({
     expectedPublicGeneration: v.number(),
     expectedLifecycleGeneration: v.number(),
     expectedReleaseGeneration: v.number(),
-  },
+})
+
+export const publishLocale = mutation({
+  args: publishLocaleArgsValidator.fields,
   returns: publicationResultValidator,
   handler: async (ctx, args) => {
     await requireSnapshotAuthority(ctx)
     const owner = await requireOperationAccess(ctx)
+    return publishLocaleInTransaction(ctx, owner, args)
+  },
+})
+
+/** Caller establishes publication authority and operation access. */
+export async function publishLocaleInTransaction(
+  ctx: MutationCtx,
+  owner: OwnerPrincipal,
+  args: Infer<typeof publishLocaleArgsValidator>
+): Promise<Infer<typeof publicationResultValidator>> {
     // F09 invariant 3: the locale gate runs before any draft or generation
     // check, so a hidden target is refused even when a target draft exists.
     const { settings } = await assertOrdinaryLocale(
@@ -3328,6 +3365,78 @@ export const publishLocale = mutation({
       publicGeneration: localeState.publicGeneration + 1,
       publishedAt,
     }
+}
+
+/** Publish only a newly introduced home language; retained content belongs to the owner. */
+export async function publishEmptyHomeInNewLanguage(
+  ctx: MutationCtx,
+  owner: OwnerPrincipal,
+  locale: string
+): Promise<void> {
+  const settings = await ctx.db.query("siteSettings").first()
+  if (!settings?.homePageId) return
+  const home = await ctx.db.get("pages", settings.homePageId)
+  if (!home) throw new ConvexError("LANGUAGE_HOME_NOT_PUBLISHED")
+  const pageStates = await ctx.db
+    .query("pagePublicationPageStates")
+    .withIndex("by_pageId", (q) => q.eq("pageId", home._id))
+    .take(2)
+  if (pageStates.length !== 1 || pageStates[0]!.lifecycleState !== "active") {
+    throw new ConvexError("LANGUAGE_HOME_NOT_PUBLISHED")
+  }
+  const [states, drafts] = await Promise.all([
+    ctx.db.query("pageLocalePublicationStates")
+      .withIndex("by_pageId_and_locale", (q) =>
+        q.eq("pageId", home._id).eq("locale", locale)
+      ).take(1),
+    ctx.db.query("pageLocaleDrafts")
+      .withIndex("by_pageId_and_locale", (q) =>
+        q.eq("pageId", home._id).eq("locale", locale)
+      ).take(1),
+  ])
+  const sharedRows = await ctx.db
+    .query("pageSharedDrafts")
+    .withIndex("by_pageId", (q) => q.eq("pageId", home._id))
+    .take(2)
+  if (sharedRows.length !== 1) throw new ConvexError("LANGUAGE_HOME_NOT_PUBLISHED")
+  if (states[0]?.hasCurrentSnapshot && states[0].currentSnapshotId) return
+  // Kept private content belongs to the owner; never publish it on language add.
+  if (states.length > 0 || drafts.length > 0) {
+    throw new ConvexError("LANGUAGE_HOME_NOT_PUBLISHED")
+  }
+  const shared = sharedRows[0]!
+  const addressPlan = await allocatePageAddress(ctx, {
+    pageId: home._id,
+    pageType: home.pageType,
+    locale,
+    slug: home.slug,
+    parentId: shared.system.parentId,
+    homePageId: home._id,
+  })
+  await initializeSuccessorPageLocale(
+    ctx, home, locale, { title: settings.siteName, blocks: [] },
+    ownerAttribution(owner), Date.now(), addressPlan
+  )
+  const state = await oneLocaleState(ctx, home._id, locale)
+  await publishLocaleInTransaction(ctx, owner, {
+    pageId: home._id,
+    locale,
+    expectedDraftGeneration: state.draftGeneration,
+    expectedSharedDraftGeneration: shared.generation,
+    expectedPublicGeneration: state.publicGeneration,
+    expectedLifecycleGeneration: pageStates[0]!.lifecycleGeneration,
+    expectedReleaseGeneration: state.releaseGeneration,
+  })
+}
+
+export const startEmptyHomeInLanguage = internalMutation({
+  args: { locale: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireSnapshotAuthority(ctx)
+    const owner = await requireOperationAccess(ctx)
+    await publishEmptyHomeInNewLanguage(ctx, owner, args.locale)
+    return null
   },
 })
 
@@ -3346,6 +3455,7 @@ export const withdrawLocale = mutation({
     // F09 invariant 3: a hidden prepared target is withdrawn only through
     // `withdrawPreparedTargetLocale`, never here.
     const { settings } = await assertOrdinaryLocale(ctx, args.locale)
+    assertNotHomePage([settings], args.pageId)
     const pageStateRows = await ctx.db
       .query("pagePublicationPageStates")
       .withIndex("by_pageId", (q) => q.eq("pageId", args.pageId))
@@ -3510,7 +3620,11 @@ async function recordLifecycleIntents(
         ? { oldSnapshotId: state.currentSnapshotId }
         : {}),
       oldPublicGeneration: state.publicGeneration,
-      newPublicGeneration: state.publicGeneration,
+      newPublicGeneration:
+        (operationKind === "restore" || operationKind === "restore_soft_deleted") &&
+        state.hasCurrentSnapshot
+          ? state.publicGeneration + 1
+          : state.publicGeneration,
       ...(state.currentPath ? { oldPath: state.currentPath } : {}),
       phase: "self",
       status: "pending",
@@ -3615,6 +3729,13 @@ export async function assertSnapshotPageSoftDeleteAllowed(
   }
 }
 
+function assertNotHomePage(settingsRows: Doc<"siteSettings">[], pageId: Id<"pages">) {
+  // Raw setting on purpose: resolveEffectiveHomePageId reads stale legacy status.
+  if (settingsRows.length === 1 && settingsRows[0]!.homePageId === pageId) {
+    throw new ConvexError("PAGE_HOME_LIFECYCLE_REFUSED")
+  }
+}
+
 async function transitionLifecycle(
   ctx: MutationCtx,
   pageId: Id<"pages">,
@@ -3630,12 +3751,8 @@ async function transitionLifecycle(
   await requireSnapshotAuthority(ctx)
   const owner = await requireOperationAccess(ctx)
   if (next !== "active") {
-    // Raw setting on purpose: resolveEffectiveHomePageId reads stale legacy
-    // status. Restoring to active stays allowed.
-    const settingsRows = await ctx.db.query("siteSettings").take(2)
-    if (settingsRows.length === 1 && settingsRows[0]!.homePageId === pageId) {
-      throw new ConvexError("PAGE_HOME_LIFECYCLE_REFUSED")
-    }
+    // Restoring to active stays allowed.
+    assertNotHomePage(await ctx.db.query("siteSettings").take(2), pageId)
   }
   const state = await onePageState(ctx, pageId)
   // A Page being permanently deleted never changes lifecycle again.
@@ -3662,16 +3779,13 @@ async function transitionLifecycle(
     slug: string
     content: Record<string, unknown>
     addressAllocation?: { wantedSlug: string; allocatedSlug: string }
-    // Only the draft address was reused; the live address is free, so the
-    // language stays published (a draft-only change must not reach public).
-    keepLive?: boolean
   }> = []
   const retireHistory: Array<Id<"pageHistoricalLocaleRoutes">> = []
   const releasedLocales = new Set<string>()
   const reactivated: Array<{
     locale: string
     path: string
-    retiredReason: "to_current" | "to_historical"
+    retiredReason: "to_historical"
   }> = []
   const cache = new Map<string, Promise<unknown>>([
     [`lifecycle:${pageId}`, Promise.resolve(state)],
@@ -3705,18 +3819,8 @@ async function transitionLifecycle(
       }
       if (slug) {
         const future = await checkPageAddress(ctx, input)
-        const live = localeState.currentPath
-          ? await checkPageAddress(ctx, {
-              ...input,
-              path: localeState.currentPath,
-            })
-          : future
-        const conflict = future.kind !== "free" ? future : live
+        const conflict = future
         if (conflict.kind !== "free") {
-          const keepLive =
-            live.kind === "free" &&
-            Boolean(localeState.currentPath) &&
-            localeState.hasCurrentSnapshot
           const allocated = await allocatePageAddress(ctx, input)
           restorePlans.push({
             state: localeState,
@@ -3727,7 +3831,6 @@ async function transitionLifecycle(
             ...(allocated.addressAllocation
               ? { addressAllocation: allocated.addressAllocation }
               : {}),
-            ...(keepLive ? { keepLive: true } : {}),
           })
           if (conflict.path && allocated.check.path)
             addressNotices.push({
@@ -3735,23 +3838,8 @@ async function transitionLifecycle(
               oldPath: conflict.path,
               newPath: allocated.check.path,
               check: conflict,
-              ...(keepLive
-                ? { kept: next === "active" ? "published" : "archived" }
-                : {}),
             })
         }
-        if (
-          !restorePlans.some(
-            (plan) => plan.state._id === localeState._id && !plan.keepLive
-          ) &&
-          localeState.currentPath &&
-          localeState.hasCurrentSnapshot
-        )
-          reactivated.push({
-            locale: localeState.locale,
-            path: localeState.currentPath,
-            retiredReason: "to_current",
-          })
       }
       const history = ctx.db
         .query("pageHistoricalLocaleRoutes")
@@ -3822,30 +3910,53 @@ async function transitionLifecycle(
       undefined,
       now
     )
-    if (plan.keepLive) {
-      await occurrenceUsageWrites(ctx).patch(
-        "pageLocalePublicationStates",
-        plan.state._id,
-        { draftGeneration: generation, updatedAt: now }
-      )
-      continue
-    }
-    await clearCurrentReferences(ctx, pageId, plan.state.locale)
     await occurrenceUsageWrites(ctx).patch(
       "pageLocalePublicationStates",
       plan.state._id,
-      {
-        draftGeneration: generation,
-        publicGeneration: plan.state.publicGeneration + 1,
-        currentSnapshotId: undefined,
-        currentReleaseId: undefined,
-        hasCurrentSnapshot: false,
-        currentPath: undefined,
-        currentPublishedAt: undefined,
-        ...currentSnapshotIndexFields(plan.state, null),
-        updatedAt: now,
-      }
+      { draftGeneration: generation, updatedAt: now }
     )
+  }
+  if (operationKind === "restore" || operationKind === "restore_soft_deleted") {
+    const page = await ctx.db.get("pages", pageId)
+    if (!page) throw new ConvexError("PAGE_NOT_FOUND")
+    const drafts = await addressDraftRows(ctx, pageId)
+    for (const localeState of localeStates) {
+      if (!localeState.hasCurrentSnapshot) continue
+      // Like withdrawLocale, protect a snapshot-backed draft whose shared
+      // parent may have changed since publication. Trash already allocated
+      // a free future draft address above.
+      if (
+        operationKind === "restore" &&
+        !drafts.some((draft) => draft.locale === localeState.locale)
+      ) {
+        const base = await verifiedDraftBase(
+          ctx, page, localeState.locale, localeState
+        )
+        if (base)
+          await preflightPageDraftAddresses(ctx, {
+            page,
+            drafts,
+            localeState,
+            cache,
+            localized: { locale: localeState.locale, slug: base.payload.localized.slug },
+          })
+      }
+      await clearCurrentReferences(ctx, pageId, localeState.locale)
+      await occurrenceUsageWrites(ctx).patch(
+        "pageLocalePublicationStates",
+        localeState._id,
+        {
+          publicGeneration: localeState.publicGeneration + 1,
+          currentSnapshotId: undefined,
+          currentReleaseId: undefined,
+          hasCurrentSnapshot: false,
+          currentPath: undefined,
+          currentPublishedAt: undefined,
+          ...currentSnapshotIndexFields(localeState, null),
+          updatedAt: now,
+        }
+      )
+    }
   }
   const patch: Record<string, unknown> = {
     lifecycleState: next,
@@ -3853,8 +3964,7 @@ async function transitionLifecycle(
     updatedAt: now,
   }
   if (next === "trashed")
-    patch.restoreLifecycleState =
-      expectedCurrent === "archived" ? "archived" : "active"
+    patch.restoreLifecycleState = "active"
   else patch.restoreLifecycleState = undefined
   await occurrenceUsageWrites(ctx).patch("pagePublicationPageStates", state._id, patch)
   const cancelledReleaseLocales = new Set<string>()
@@ -4014,7 +4124,7 @@ export const restoreSoftDeletedPage = mutation({
       ctx,
       args.pageId,
       args.expectedLifecycleGeneration,
-      state.restoreLifecycleState,
+      "active",
       "trashed",
       "restore_soft_deleted"
     )

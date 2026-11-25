@@ -580,12 +580,13 @@
     },
     {
       "literal": "page",
-      "reason": "ARIA current-page token (aria-current) of the Settings › AI rail, not user-facing text.",
+      "reason": "ARIA current-page token (aria-current) of the Settings › AI rail and the Settings navigation, not user-facing text.",
       "categories": [
         "conditional-label"
       ],
       "paths": [
-        "components/admin/ai-settings-screen.tsx"
+        "components/admin/ai-settings-screen.tsx",
+        "app/(core)/admin/(authenticated)/settings/layout.tsx"
       ]
     },
     {
@@ -599,7 +600,7 @@
       ]
     },
     {
-      "literal": "assistant-summary-${…}${…}",
+      "literal": "assistant-summary-${…}",
       "reason": "ARIA label/description relationship ID reference in the AI settings screen; protocol identifier, not translated or visible copy.",
       "categories": [
         "named-string-prop"
@@ -646,6 +647,46 @@
       ],
       "paths": [
         "components/admin/ai-settings-screen.tsx"
+      ]
+    },
+    {
+      "literal": "siteUrlHelp siteUrlError",
+      "reason": "ARIA description relationship ID reference for the site address field in General settings; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "conditional-label"
+      ],
+      "paths": [
+        "components/admin/general-settings.tsx"
+      ]
+    },
+    {
+      "literal": "siteUrlHelp",
+      "reason": "ARIA description relationship ID reference for the site address field in General settings; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "conditional-label"
+      ],
+      "paths": [
+        "components/admin/general-settings.tsx"
+      ]
+    },
+    {
+      "literal": "siteUrlHint siteUrlError",
+      "reason": "ARIA description relationship ID reference for the site address field in the setup wizard; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "conditional-label"
+      ],
+      "paths": [
+        "components/setup/setup-wizard.tsx"
+      ]
+    },
+    {
+      "literal": "siteUrlHint",
+      "reason": "ARIA description relationship ID reference for the site address field in the setup wizard; protocol identifier, not translated or visible copy.",
+      "categories": [
+        "conditional-label"
+      ],
+      "paths": [
+        "components/setup/setup-wizard.tsx"
       ]
     },
     {

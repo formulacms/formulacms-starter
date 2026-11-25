@@ -5,6 +5,7 @@ import type {
   ShownNavItem,
   ShownTarget,
 } from "@/lib/admin/menu/public-visibility"
+import { opensInNewTab } from "@/lib/menu/link-target"
 import { getPublicMessages } from "@/lib/i18n/public-messages"
 import { usePresentationLocale } from "@/components/public/presentation-locale"
 import { resolveNavigationPathname } from "@/lib/i18n/presentation-locale"
@@ -67,7 +68,7 @@ function TargetLink({
         <a
           href={href}
           {...shared}
-          {...((target.openInNewTab ?? true)
+          {...(opensInNewTab(target)
             ? { target: "_blank", rel: "noopener noreferrer" }
             : {})}
         >

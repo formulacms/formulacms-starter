@@ -183,6 +183,26 @@ test("Provider uses status.defaults then the exact tuple is sent to setAssistant
   expect(mocks.success).toHaveBeenCalledWith("Saved")
 })
 
+test.each([
+  {
+    locale: "en" as const,
+    writingSummary: "Writes a whole new page from a short brief.",
+    translationSummary: "Translates a whole page into a language that is still empty. You review it before saving.",
+  },
+  {
+    locale: "fr" as const,
+    writingSummary: "Écrit une nouvelle page entière à partir d'un court brief.",
+    translationSummary: "Traduit une page entière dans une langue encore vide. Vous la relisez avant d'enregistrer.",
+  },
+])("AI Settings describes only whole-page writing and translation in $locale", async ({ locale, writingSummary, translationSummary }) => {
+  await mount(locale)
+
+  expect(screen.getByTestId("assistant-writing")).toHaveAccessibleDescription(writingSummary)
+  expect(screen.getByTestId("assistant-translation")).toHaveAccessibleDescription(translationSummary)
+  expect(screen.getByTestId("assistant-writing")).toHaveAttribute("aria-describedby", "assistant-summary-writing")
+  expect(document.getElementById("assistant-presets")).toBeNull()
+})
+
 test("an explicit effective model is never replaced by an offered default", async () => {
   assistant().effective = { mode: "catalog", provider: "openrouter", model: "saved/removed", reasoning: { kind: "effort", effort: "high" } }
   await mount()

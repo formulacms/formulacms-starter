@@ -226,8 +226,8 @@ it.each(["en", "fr"] as const)(
     expect(toast.error).toHaveBeenCalledTimes(1)
     expect(toast.error).toHaveBeenCalledWith(
       locale === "fr"
-        ? "La page d’accueil ne peut pas être archivée."
-        : "The home page can’t be archived."
+        ? "La page d’accueil reste publiée. Elle ne peut pas être dépubliée, archivée ni déplacée vers la corbeille."
+        : "The home page stays published. It can’t be unpublished, archived or moved to trash."
     )
     expect(toast.success).not.toHaveBeenCalled()
   }

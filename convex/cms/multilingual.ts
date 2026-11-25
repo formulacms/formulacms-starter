@@ -405,7 +405,14 @@ export const addLanguage = mutation({
   handler: async (ctx, args) => {
     const owner = await requireInstallationOwner(ctx)
     await requireOwnerAndOptionalModule(ctx, "multilingual")
-    return addLanguageInTransaction(ctx, owner, args)
+    const added = await addLanguageInTransaction(ctx, owner, args)
+    try {
+      await ctx.runMutation(internal.cms.publication.startEmptyHomeInLanguage, { locale: args.locale })
+    } catch (error) {
+      console.warn(`Could not start Home in ${args.locale}`, error instanceof ConvexError ? error.data : "UNKNOWN_ERROR")
+      throw new ConvexError("LANGUAGE_HOME_NOT_PUBLISHED")
+    }
+    return added
   },
 })
 
@@ -664,6 +671,12 @@ export const addSiteLanguage = mutation({
     // Unreachable unless state changed under the check above; throwing rolls
     // back the adopt write (a returned result would commit them).
     if (!added.ok) failWith(added.code)
+    try {
+      await ctx.runMutation(internal.cms.publication.startEmptyHomeInLanguage, { locale: args.locale })
+    } catch (error) {
+      console.warn(`Could not start Home in ${args.locale}`, error instanceof ConvexError ? error.data : "UNKNOWN_ERROR")
+      throw new ConvexError("LANGUAGE_HOME_NOT_PUBLISHED")
+    }
     return {
       ok: true as const,
       authorityVersion: added.version,

@@ -983,3 +983,130 @@ describe("a content type switched to one language after Start (ADR-0037 amendmen
     expect((await job(t, id))!.state).toBe("failed")
   })
 })
+
+// B17: real multilingual adoption, preview, review and removal.
+async function adoptJobLanguages(t: App, owner: Owner, locales = ["en", "fr"]) {
+  await t.run(async (ctx) => {
+    const settings = (await ctx.db.query("siteSettings").first())!
+    await ctx.db.patch("siteSettings", settings._id, { enabledLocales: locales })
+  })
+  const preview = await owner.query(api.cms.multilingual.previewAdoption, {})
+  if (!preview.canAdopt) throw new Error(preview.blockerCode)
+  const { canAdopt, defaultLocale, enabledLocales, ...tokens } = preview
+  void canAdopt; void defaultLocale; void enabledLocales
+  await owner.mutation(api.cms.multilingual.adoptMultilingualAuthority, tokens)
+}
+async function removeJobLanguage(t: App, owner: Owner, locale: string) {
+  const { previewId } = await owner.mutation(api.cms.multilingual.startLanguageImpactPreview, { kind: "remove", locale })
+  let preview = (await t.run((ctx) => ctx.db.get("siteLanguageImpactPreviews", previewId)))!
+  for (let step = 0; preview.phase === "scanning" && step < 100; step++) {
+    await t.mutation(internal.cms.multilingual.stepLanguageImpactPreview, { previewId, generation: preview.generation })
+    preview = (await t.run((ctx) => ctx.db.get("siteLanguageImpactPreviews", previewId)))!
+  }
+  expect(preview.phase).toBe("complete")
+  for (let ordinal = 0; ordinal < preview.pageCount; ordinal++) {
+    const page = await owner.query(api.cms.multilingual.listLanguageImpact, { previewId, ordinal })
+    if (page.stale) throw new Error("stale language review")
+    await owner.mutation(api.cms.multilingual.recordLanguageImpactReview, { previewId, ordinal, pageDigest: page.digest })
+  }
+  await owner.mutation(api.cms.multilingual.removeLanguage, { previewId, expectedDigest: preview.digest, expectedCount: preview.count })
+}
+
+async function localPageLife(t: App, pageId: Id<"pages">) {
+  return (await t.run((ctx) => ctx.db.query("pagePublicationPageStates")
+    .withIndex("by_pageId", (q) => q.eq("pageId", pageId)).unique()))!
+}
+async function invalidateLocalTarget(t: App, owner: Owner, id: Id<"aiJobs">, trigger: string) {
+  const pageId = (await job(t, id))!.pageId
+  if (trigger === "removed target language") return removeJobLanguage(t, owner, "fr")
+  const expectedLifecycleGeneration = (await localPageLife(t, pageId)).lifecycleGeneration
+  if (trigger === "archive") {
+    await owner.mutation(api.cms.publication.archivePage, { pageId, expectedLifecycleGeneration })
+    return
+  }
+  await owner.mutation(api.cms.publication.softDeletePage, { pageId, expectedLifecycleGeneration })
+  if (!trigger.startsWith("purge")) return
+  await t.run(async (ctx) => {
+    for (const row of await ctx.db.query("pagePublicationRevalidationIntents").collect())
+      if (row.pageId === pageId)
+        await ctx.db.patch("pagePublicationRevalidationIntents", row._id, { status: "complete", phase: "complete" })
+  })
+  expect(await owner.mutation(api.cms.publication.purgeTrashedPages, {
+    items: [{ pageId, expectedLifecycleGeneration: (await localPageLife(t, pageId)).lifecycleGeneration }],
+  })).toEqual([{ pageId, status: "started" }])
+  expect(await t.run((ctx) => ctx.db.query("pagePurges").first())).not.toBeNull()
+  if (trigger !== "purge complete") return
+  await t.mutation(internal.cms.publication.startQueuedPagePurges, {})
+  for (let step = 0; step < 100 && await t.run((ctx) => ctx.db.get("pages", pageId)); step++)
+    await t.mutation(internal.cms.publication.runPagePurgeStep, {})
+  expect(await t.run((ctx) => ctx.db.get("pages", pageId))).toBeNull()
+  expect(await t.run((ctx) => ctx.db.query("pagePurges").first())).toBeNull()
+}
+
+describe("B17 local page-job target eligibility", () => {
+  for (const trigger of ["archive", "trash", "purge marker", "purge complete", "removed target language"] as const) {
+    test.each(["queued", "between units", "claimed state", "claimed heartbeat", "stopped Resume"])(`${trigger} stops local work: %s`, async (boundary) => {
+      const removed = trigger === "removed target language"
+      const { t, owner } = await setup({ multilingual: removed })
+      if (removed) await adoptJobLanguages(t, owner)
+      const { id, secret } = removed ? await startLocalTranslation(t, owner) : await startLocal(owner, { count: 3 })
+      if (boundary !== "queued") {
+        const first = await claimed(t, id, secret)
+        expect(await save(t, id, secret, first, removed ? "Traduit" : GOOD_TEXT)).toEqual({ kind: "saved" })
+      }
+      const current = boundary.startsWith("claimed") ? await claimed(t, id, secret) : null
+      if (boundary === "stopped Resume") await owner.mutation(api.cms.aiJobs.cancelPageJob, { jobId: id })
+      const saved = (await units(t, id)).filter((u) => u.state === "saved").map((u) => ({ id: u._id, output: u.output }))
+      const auditBefore = await rows(t, "aiAuditLog")
+      const lease = (await job(t, id))!.runner!
+      await invalidateLocalTarget(t, owner, id, trigger)
+      const runnerArgs = { jobId: id, runnerSecret: secret }
+      if (current) {
+        const beforeQuery = await job(t, id), beforeScheduled = await scheduled(t)
+        expect(await t.query(api.cms.aiLocalJobs.localJobState, runnerArgs)).toEqual({ keepGoing: false })
+        expect(await job(t, id)).toEqual(beforeQuery)
+        expect(await scheduled(t)).toEqual(beforeScheduled)
+        if (boundary === "claimed heartbeat") {
+          expect(await t.mutation(api.cms.aiLocalJobs.localHeartbeat, runnerArgs)).toEqual({ keepGoing: false })
+          expect((await job(t, id))!.state).toBe("canceling")
+          expect((await job(t, id))!.runner).toEqual(lease)
+          expect(await t.run((ctx) => ctx.db.system.get("_scheduled_functions", lease.checkId!))).toMatchObject({ state: { kind: "pending" } })
+        }
+        // State-query refusal drains through release -> advance as well.
+        await t.mutation(api.cms.aiLocalJobs.localReleaseUnit, { ...runnerArgs, unitId: current.unitId, claimToken: current.claimToken })
+      } else if (boundary !== "stopped Resume") {
+        expect(await claim(t, id, secret)).toEqual({ kind: "stop" })
+      }
+      expect((await job(t, id))!.state).toBe("canceled")
+      expect((await job(t, id))!.runner!.secretHash).toBe(lease.secretHash)
+      expect((await job(t, id))!.runner!.checkId).toBeUndefined()
+      expect((await units(t, id)).filter((u) => u.state === "saved").map((u) => ({ id: u._id, output: u.output }))).toEqual(saved)
+      expect(await rows(t, "aiAuditLog")).toEqual(auditBefore)
+      const stopped = await job(t, id), stoppedUnits = await units(t, id), stoppedScheduled = await scheduled(t)
+      const renewed = await runner()
+      expect((await owner.query(api.cms.aiJobs.pageJobProgress, {})).find((row) => row.jobId === id)!.canResume).toBe(false)
+      await expect(owner.mutation(api.cms.aiLocalJobs.resumeLocalPageJob, {
+        jobId: id, kind: removed ? "translation" : "write", runnerSecretHash: renewed.hash,
+      })).rejects.toThrow(removed ? "LOCALE_NOT_ENABLED" : "AI_JOB_SOURCE_UNAVAILABLE")
+      expect(await job(t, id)).toEqual(stopped)
+      expect(await units(t, id)).toEqual(stoppedUnits)
+      expect(await scheduled(t)).toEqual(stoppedScheduled)
+      expect(await rows(t, "aiSpendingAttempts")).toEqual([])
+      expect(await rows(t, "aiSpendingJobReservations")).toEqual([])
+      expect(await rows(t, "aiSpendingMonths")).toEqual([])
+      expect(fake.generate).not.toHaveBeenCalled()
+    })
+  }
+  test("invalid language authority throws rather than becoming a normal target stop", async () => {
+    const { t, owner } = await setup()
+    const { id, secret } = await startLocal(owner)
+    await t.run(async (ctx) => {
+      const settings = (await ctx.db.query("siteSettings").first())!
+      await ctx.db.patch("siteSettings", settings._id, { enabledLocales: [] })
+    })
+    await expect(claim(t, id, secret)).rejects.toThrow("SITE_LANGUAGE_AUTHORITY_INVALID")
+    await expect(t.query(api.cms.aiLocalJobs.localJobState, { jobId: id, runnerSecret: secret })).rejects.toThrow("SITE_LANGUAGE_AUTHORITY_INVALID")
+    await expect(t.mutation(api.cms.aiLocalJobs.localHeartbeat, { jobId: id, runnerSecret: secret })).rejects.toThrow("SITE_LANGUAGE_AUTHORITY_INVALID")
+    expect((await job(t, id))!.state).toBe("running")
+  })
+})

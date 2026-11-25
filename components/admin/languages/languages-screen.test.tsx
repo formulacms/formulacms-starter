@@ -758,6 +758,21 @@ describe("add a language, silently", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
+  test.each(["en", "fr"] as const)("Home publication refusal has a plain-language toast in %s", async (locale) => {
+    const setup = makeProps()
+    setup.actions.addSiteLanguage.mockRejectedValue(new ConvexError("LANGUAGE_HOME_NOT_PUBLISHED"))
+    renderScreen(oneLanguageOn(), setup, locale)
+    const french = locale === "fr"
+    fireEvent.keyDown(screen.getByRole("button", { name: french ? "Langue à ajouter" : "Language to add" }), { key: "ArrowDown" })
+    fireEvent.click(await screen.findByRole("option", { name: /Español/ }))
+    fireEvent.click(screen.getByRole("button", { name: french ? "Ajouter" : "Add" }))
+    await flush()
+    expect(toast.error).toHaveBeenCalledWith(french
+      ? "La page d’accueil n’a pas pu être publiée dans cette langue : la langue n’a pas été ajoutée."
+      : "The home page couldn’t be published in this language, so the language wasn’t added.")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
   test("shows the same error in French", async () => {
     const setup = makeProps()
     setup.actions.addSiteLanguage.mockRejectedValue(new ConvexError("LOCALE_ALREADY_ENABLED"))

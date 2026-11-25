@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react"
 import type { Target } from "@/convex/lib/menu"
+import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -63,6 +64,9 @@ export function MenuTargetField({
   const showError =
     code && (validation.attempt > 0 || (code === "url" && blurred))
   const errorId = `${fieldId}-error`
+  // New tab does nothing for phone and email links, even while typed.
+  const isContactLink =
+    value?.type === "external" && /^(?:tel|mailto):/i.test(value.url.trim())
 
   async function handleTypeChange(type: TargetType) {
     const label =
@@ -101,7 +105,10 @@ export function MenuTargetField({
       onValueChange={(type) => handleTypeChange(type as TargetType)}
     >
       <TabsList
-        className={`grid w-full ${onSelectPanel ? "grid-cols-4" : allowEmpty ? "grid-cols-3" : "grid-cols-2"}`}
+        className={cn(
+          "grid h-auto w-full grid-cols-2 sm:h-9",
+          onSelectPanel ? "sm:grid-cols-4" : allowEmpty && "sm:grid-cols-3"
+        )}
       >
         <TabsTrigger
           value="internal"
@@ -223,24 +230,26 @@ export function MenuTargetField({
             {t("urlError")}
           </p>
         )}
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={
-              value?.type === "external" ? (value.openInNewTab ?? true) : true
-            }
-            onChange={(event) =>
-              onChange({
-                type: "external",
-                url: value?.type === "external" ? value.url : "",
-                openInNewTab: event.target.checked,
-              })
-            }
-            className="rounded"
-            disabled={!canEditTarget}
-          />
-          {t("openInNewTab")}
-        </label>
+        {!isContactLink && (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={
+                value?.type === "external" ? (value.openInNewTab ?? true) : true
+              }
+              onChange={(event) =>
+                onChange({
+                  type: "external",
+                  url: value?.type === "external" ? value.url : "",
+                  openInNewTab: event.target.checked,
+                })
+              }
+              className="rounded"
+              disabled={!canEditTarget}
+            />
+            {t("openInNewTab")}
+          </label>
+        )}
       </TabsContent>
 
       {allowEmpty && (

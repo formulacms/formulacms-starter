@@ -216,3 +216,43 @@ test.each(
   if (count >= 2) expect(columns).toHaveClass("sm:grid-cols-2")
   if (count >= 3) expect(columns).toHaveClass(`lg:grid-cols-${count}`)
 })
+
+test.each([
+  ["tel:+15149550226", true],
+  ["tel:+15149550226", undefined],
+  ["mailto:hello@example.com", true],
+  ["mailto:hello@example.com", undefined],
+  ["https://example.com", true],
+  ["https://example.com", undefined],
+  ["https://example.com", false],
+] as const)(
+  "renders footer destination %s with new-tab preference %s",
+  (url, openInNewTab) => {
+    render(
+      <Footer
+        footerMenu={{
+          nav: [
+            {
+              id: "contact",
+              label: "Contact",
+              target: { type: "external", url, openInNewTab },
+            },
+          ],
+        }}
+        chrome={{ siteName: "Example" }}
+        logoUrl={null}
+        locale="en"
+        defaultLocale="en"
+      />
+    )
+    const link = screen.getByRole("link", { name: "Contact" })
+    expect(link).toHaveAttribute("href", url)
+    if (url.startsWith("https:") && openInNewTab !== false) {
+      expect(link).toHaveAttribute("target", "_blank")
+      expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    } else {
+      expect(link).not.toHaveAttribute("target")
+      expect(link).not.toHaveAttribute("rel")
+    }
+  }
+)

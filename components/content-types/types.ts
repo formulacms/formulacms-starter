@@ -37,6 +37,7 @@ export type BlockBodyRendererProps = {
   renderLocale: string
   defaultLocale: string
   bylines: PublicByline[]
+  isHomePage?: boolean
 }
 
 /**

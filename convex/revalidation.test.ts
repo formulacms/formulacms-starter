@@ -47,13 +47,26 @@ async function makeConfiguredTest({
   siteUrl = "https://site.example.com",
 }: { siteUrl?: string } = {}) {
   const t = await ownerTest()
+  vi.stubEnv("REVALIDATE_SECRET", "test-revalidation-secret")
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })))
   await t.withIdentity(OWNER).mutation(api.cms.settings.bootstrapInstallation, {
     siteName: "Test site",
     ...(siteUrl ? { siteUrl } : {}),
     timezone: "UTC",
     defaultLocale: "en",
   })
-  vi.stubEnv("REVALIDATE_SECRET", "test-revalidation-secret")
+  // B52 publishes Home during setup. Isolate the action under test from that
+  // setup receipt, using the same scheduled-job cleanup as the page fixture.
+  await t.finishInProgressScheduledFunctions()
+  await t.run(async (ctx) => {
+    for (const job of await ctx.db.system.query("_scheduled_functions").take(50))
+      if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id)
+    for (const row of await ctx.db.query("pagePublicationRevalidationIntents").take(50))
+      await ctx.db.delete("pagePublicationRevalidationIntents", row._id)
+    for (const row of await ctx.db.query("revalidationAttempts").take(50))
+      await ctx.db.delete("revalidationAttempts", row._id)
+  })
+  vi.unstubAllGlobals()
   return t
 }
 

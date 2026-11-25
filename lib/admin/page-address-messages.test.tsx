@@ -211,10 +211,10 @@ test.each([
   }
 )
 
-test("S5f changes trash quotes only; archive copy is preserved", () => {
+test("image restore copy stays unchanged; page recovery says draft", () => {
   expect(en.inventory.trash.restored).toBe(en.pageAddress.S5f)
-  expect(en.inventory.archive.restored).toBe('"{title}" restored')
-  expect(fr.inventory.archive.restored).toBe("« {title} » restauré")
+  expect(en.inventory.archive.restored).toBe("“{title}” restored as draft")
+  expect(fr.inventory.archive.restored).toBe("« {title} » restaurée comme brouillon")
 })
 
 // The backend omits the notice after rolling back a cross-language History move.

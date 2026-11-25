@@ -1021,7 +1021,6 @@ describe("M05 P22 sitemap partitions: build, publication and children", () => {
   test("a child answers overflow above CEILING and serves exactly CEILING rows", async () => {
     const { t } = await bootstrappedSite()
     const version = await languageVersion(t)
-    await insertBareRows(t, "en", CEILING - 1)
     const at = () =>
       child(t, {
         languageVersion: version,
@@ -1029,10 +1028,13 @@ describe("M05 P22 sitemap partitions: build, publication and children", () => {
         locale: "en",
         ordinal: 0,
       })
-    // Bare rows have no verified aggregate, so they read but emit nothing.
-    expect(await at()).toEqual({ status: "ok", entries: [] })
+    const home = await at()
+    expect(home).toEqual({ status: "ok", entries: [expect.objectContaining({ url: "/" })] })
+    // Home already occupies one row. Bare rows emit nothing beyond that Home.
+    await insertBareRows(t, "en", CEILING - 2)
+    expect(await at()).toEqual(home)
     await insertBareRows(t, "en", 1)
-    expect(await at()).toEqual({ status: "ok", entries: [] })
+    expect(await at()).toEqual(home)
     await insertBareRows(t, "en", 1)
     expect(await at()).toEqual({ status: "unavailable", reason: "overflow" })
   })

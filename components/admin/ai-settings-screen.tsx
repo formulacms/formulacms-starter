@@ -279,7 +279,7 @@ function AssistantCard(props: CardProps) {
     ? <StatusBadge tone="ok" text={t("words.ready")} testId={`assistant-status-${id}`} word="ready" />
     : <StatusBadge tone="warn" text={t("chooseAnotherModel")} testId={`assistant-status-${id}`} word="chooseAnotherModel" />
   return (
-    <Card role="region" aria-labelledby={`assistant-title-${id}`} aria-describedby={`assistant-summary-${id}${id === "writing" ? " assistant-presets" : ""}`} data-testid={`assistant-${id}`} className="overflow-visible">
+    <Card role="region" aria-labelledby={`assistant-title-${id}`} aria-describedby={`assistant-summary-${id}`} data-testid={`assistant-${id}`} className="overflow-visible">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <h3 id={`assistant-title-${id}`} className="font-heading text-base leading-normal font-medium">{title}</h3>
@@ -322,7 +322,6 @@ function AssistantCard(props: CardProps) {
         {fableNeedsPlan && <Description id={`fable-description-${id}`} testId="fable-plan">{t("fableNeedsPlan")}</Description>}
         {!disabled && props.effortLocked && <Description id={`effort-locked-${id}`}>{t("redesign.effortLocked")}</Description>}
         {props.instructions}
-        {id === "writing" && <Description id="assistant-presets">{t("presetsNote")}</Description>}
       </CardContent>
     </Card>
   )

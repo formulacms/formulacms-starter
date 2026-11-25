@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
+import { ConvexError } from "convex/values"
 import { useTranslations } from "next-intl"
 import { useCaughtError } from "@/lib/i18n/use-caught-error"
 import { api } from "@/convex/_generated/api"
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/tooltip"
 import { getLocaleDisplayName } from "@/lib/i18n/config"
 import { readSiteDescription } from "@/lib/i18n/site-description"
+import { hasSiteAddressScheme } from "@/lib/site-address"
 import Image from "next/image"
 import { MediaPicker } from "./media-picker"
 import { PublicSiteUpdatesRow } from "./public-site-updates-row"
@@ -69,6 +71,32 @@ type Draft = {
 
 const BRAND_VOICE_MAX = 400
 
+/** Empty means no address; anything else must be a full http(s) address. */
+function isSiteAddressValid(value: string): boolean {
+  if (value === "") return true
+  const siteUrl = value.trim()
+  if (!hasSiteAddressScheme(siteUrl)) return false
+  try {
+    const url = new URL(siteUrl)
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.hostname !== ""
+    )
+  } catch {
+    return false
+  }
+}
+
+function isSiteUrlRefusal(error: unknown): boolean {
+  if (!(error instanceof ConvexError)) return false
+  const data: unknown = error.data
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as Record<string, unknown>).code === "SITE_URL_INVALID"
+  )
+}
+
 type BrandingSlot = "logo" | "favicon" | "og"
 
 /** Language name written in its own language, first letter capitalised. */
@@ -85,6 +113,7 @@ export function GeneralSettings() {
   const displayError = useCaughtError()
   const t = useTranslations("settings.general")
   const tCommon = useTranslations("settings.common")
+  const tErrors = useTranslations("caughtErrors")
   const settings = useQuery(api.cms.settings.getSettings)
   const brandingUrls = useQuery(api.cms.settings.getBrandingUrls)
   const updateSettings = useMutation(api.cms.settings.updateSettings)
@@ -97,6 +126,9 @@ export function GeneralSettings() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [saving, setSaving] = useState(false)
   const [descriptionTab, setDescriptionTab] = useState<string | null>(null)
+  // Shown under Site address after a local or server refusal.
+  const [siteUrlError, setSiteUrlError] = useState<string | null>(null)
+  const siteUrlRef = useRef<HTMLInputElement>(null)
 
   if (settings === undefined) {
     return (
@@ -149,6 +181,11 @@ export function GeneralSettings() {
     setDraft({ ...value, [key]: next })
   }
 
+  function changeSiteUrl(next: string) {
+    field("siteUrl", next)
+    if (isSiteAddressValid(next)) setSiteUrlError(null)
+  }
+
   function setDescription(code: string, next: string) {
     setDraft({
       ...value,
@@ -157,6 +194,11 @@ export function GeneralSettings() {
   }
 
   async function save() {
+    if (!isSiteAddressValid(value.siteUrl)) {
+      setSiteUrlError(tErrors("siteUrlInvalid"))
+      siteUrlRef.current?.focus()
+      return
+    }
     setSaving(true)
     // No `finally`: catch swallows the error; an unconditional cleanup after
     // the try/catch is equivalent and React-Compiler-friendly.
@@ -165,7 +207,10 @@ export function GeneralSettings() {
       setDraft(null)
       toast.success(t("toast.saved"))
     } catch (err) {
-      toast.error(displayError(err, tCommon("failedSave")))
+      if (isSiteUrlRefusal(err)) {
+        setSiteUrlError(displayError(err, tCommon("failedSave")))
+        siteUrlRef.current?.focus()
+      } else toast.error(displayError(err, tCommon("failedSave")))
     }
     setSaving(false)
   }
@@ -327,14 +372,24 @@ export function GeneralSettings() {
             <Label htmlFor="siteUrl">{t("identity.siteUrl")}</Label>
             <Input
               id="siteUrl"
+              ref={siteUrlRef}
               type="url"
               value={value.siteUrl}
-              onChange={(e) => field("siteUrl", e.target.value)}
+              onChange={(e) => changeSiteUrl(e.target.value)}
               placeholder={t("identity.siteUrlPlaceholder")}
+              aria-invalid={!!siteUrlError || undefined}
+              aria-describedby={
+                siteUrlError ? "siteUrlHelp siteUrlError" : "siteUrlHelp"
+              }
             />
-            <p className="text-xs text-muted-foreground">
+            <p id="siteUrlHelp" className="text-xs text-muted-foreground">
               {t("identity.siteUrlHelp")}
             </p>
+            {siteUrlError && (
+              <p id="siteUrlError" className="text-xs text-destructive" role="alert">
+                {siteUrlError}
+              </p>
+            )}
           </div>
           <PublicSiteUpdatesRow />
         </div>

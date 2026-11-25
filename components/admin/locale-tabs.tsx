@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl"
 import type { Locale } from "@/lib/i18n/config"
 import { getLocaleDisplayName } from "@/lib/i18n/config"
+import { SELECTED_LANGUAGE_CLASS } from "@/lib/admin/language-control"
 import { cn } from "@/lib/utils"
 
 interface LocaleTabsProps {
@@ -48,11 +49,12 @@ export function LocaleTabs({
             title={language}
             disabled={disabled}
             onClick={() => onLocaleChange(locale)}
-            className={`relative rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={cn(
+              "relative rounded px-2.5 py-1 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
               isActive
-                ? "bg-accent text-accent-foreground shadow-sm"
+                ? SELECTED_LANGUAGE_CLASS
                 : "text-muted-foreground hover:bg-background/50 hover:text-foreground"
-            }`}
+            )}
           >
             {locale.toUpperCase()}
             {hasContent && !isActive && (

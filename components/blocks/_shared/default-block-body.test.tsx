@@ -39,6 +39,37 @@ function makePage(pageType: "landing-page" | "page") {
 }
 
 describe("DefaultBlockBodyRenderer", () => {
+  it.each([
+    ["en", "Add blocks to your home page."],
+    ["fr", "Ajoutez des blocs à votre page d’accueil."],
+  ])("shows the empty home message in %s only until blocks exist", blockProfile(["hero-agency"]), (locale, message) => {
+    const page = makePage("landing-page")
+    const props = {
+      page: page as never,
+      content: { title: "Atelier Lune", blocks: [] } as never,
+      blocks: [] as Block[],
+      ctx: { ...ctx, locale },
+      locale,
+      renderLocale: locale,
+      defaultLocale: "en",
+      bylines: [],
+      isHomePage: true,
+    }
+    const view = render(<DefaultBlockBodyRenderer {...props} />)
+    expect(screen.getByText(message)).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Atelier Lune" })).toBeInTheDocument()
+    view.rerender(<DefaultBlockBodyRenderer {...props} blocks={[heroBlock]} />)
+    expect(screen.queryByText(message)).toBeNull()
+  })
+
+  it("keeps the ordinary empty message off Home", () => {
+    const page = makePage("page")
+    render(<DefaultBlockBodyRenderer page={page as never} content={page.content!.en! as never}
+      blocks={[]} ctx={ctx} locale="en" renderLocale="en" defaultLocale="en" bylines={[]} isHomePage={false} />)
+    expect(screen.getByText("No content yet.")).toBeInTheDocument()
+    expect(screen.queryByText("Add blocks to your home page.")).toBeNull()
+  })
+
   for (const profileRow of [
     ["empty", []],
     ["populated", [heroBlock]],

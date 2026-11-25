@@ -471,12 +471,25 @@ describe("Pages list row menu", () => {
     expect(push).toHaveBeenCalledWith("/admin/pages/contact?locale=fr")
   })
 
+  it("unarchive names the Content row in the draft toast", async () => {
+    rows.push({ ...about(), status: "archived", lifecycleState: "archived" })
+    mount()
+    openMenu(/Actions for About/)
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Unarchive" }))
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("“About us” restored as draft"))
+  })
+
   it("the home page can't be archived: disabled with a tooltip", async () => {
     rows.push(home())
     mount()
     openMenu(/Actions for Welcome/)
     const archive = await screen.findByRole("menuitem", { name: "Archive" })
     expect(archive).toHaveAttribute("aria-disabled", "true")
+    expect(archive).not.toHaveAttribute("data-disabled")
+    expect(archive).toHaveAccessibleDescription(copy.actions.homeNoArchive)
+    fireEvent.click(archive)
+    fireEvent.keyDown(archive, { key: "Enter" })
+    expect(mutations["cms/publication:archivePage"]).not.toHaveBeenCalled()
     fireEvent.pointerMove(archive.parentElement!, { pointerType: "mouse" })
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
       "The home page can’t be archived."
@@ -711,7 +724,7 @@ describe("Pages list row Unpublish", () => {
     const dialog = await screen.findByRole("alertdialog")
     expect(dialog).toHaveTextContent("Unpublish this page?")
     expect(dialog).toHaveTextContent(
-      "Visitors to /about will see “Page not found” until you publish it again."
+      "This hides its link in your navigation menu."
     )
     // The plain question, not the red warning.
     expect(
@@ -734,7 +747,7 @@ describe("Pages list row Unpublish", () => {
     const dialog = await screen.findByRole("alertdialog")
     expect(dialog).toHaveTextContent("Dépublier cette page ?")
     expect(dialog).toHaveTextContent(
-      "Les visiteurs de /about verront « Page introuvable » tant que vous ne la republierez pas."
+      "Son lien sera masqué dans votre menu de navigation."
     )
   })
 
@@ -774,72 +787,87 @@ describe("Pages list row Unpublish", () => {
     )
   })
 
-  it("the home page asks first; with another published home it says where visitors go", async () => {
+  it.each([
+    ["en", "en", "published"],
+    ["en", "fr", "published"],
+    ["fr", "en", "published"],
+    ["fr", "fr", "published"],
+    ["en", "en", "draft"],
+  ] as const)(
+    "home Unpublish is described and inert in admin %s, content %s, other home %s",
+    async (admin, locale, otherState) => {
+      const messages = admin === "fr" ? fr : en
+      const listCopy = messages.pages.list
+      rows.push(
+        page(HOME, [
+          { locale: "en", state: "published", title: "Welcome", path: "/" },
+          { locale: "fr", state: otherState, title: "Bienvenue", path: "/" },
+        ], { pageType: "landing-page" })
+      )
+      mount({ admin })
+      fireEvent.change(
+        screen.getByRole("combobox", { name: listCopy.filters.locale }),
+        { target: { value: locale } }
+      )
+      expect(screen.getByRole("option", {
+        name: admin === "en" ? "All content types" : "Tous les types de contenu",
+      })).toBeTruthy()
+      openMenu(listCopy.actionsFor.replace(
+        "{title}", locale === "en" ? "Welcome" : "Bienvenue"
+      ))
+      const unpublish = await screen.findByRole("menuitem", {
+        name: listCopy.actions.unpublish,
+      })
+      expect(unpublish).toHaveAttribute("aria-disabled", "true")
+      expect(unpublish).not.toHaveAttribute("data-disabled")
+      expect(unpublish).toHaveAccessibleDescription(
+        admin === "en"
+          ? "The home page can’t be unpublished."
+          : "La page d’accueil ne peut pas être dépubliée."
+      )
+      fireEvent.click(unpublish)
+      fireEvent.keyDown(unpublish, { key: "Enter" })
+      expect(screen.queryByRole("alertdialog")).toBeNull()
+      expect(mutations["cms/publication:withdrawLocale"]).not.toHaveBeenCalled()
+      expect(screen.getByText(listCopy.wholePage)).toHaveClass("sr-only")
+      fireEvent.pointerMove(unpublish.parentElement!, { pointerType: "mouse" })
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        listCopy.actions.homeNoUnpublish
+      )
+    }
+  )
+
+  it("keeps home Unpublish disabled in the All languages view", async () => {
+    rows.push(home())
+    mount()
+    fireEvent.change(screen.getByRole("combobox", { name: copy.filters.locale }), {
+      target: { value: "all" },
+    })
+    openMenu(/Actions for Bienvenue/)
+    const unpublish = await screen.findByRole("menuitem", { name: "Unpublish" })
+    expect(unpublish).toHaveAttribute("aria-disabled", "true")
+    expect(unpublish).toHaveAccessibleDescription(
+      "The home page can’t be unpublished."
+    )
+    fireEvent.click(unpublish)
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+    expect(mutations["cms/publication:withdrawLocale"]).not.toHaveBeenCalled()
+  })
+
+  it("a non-home Landing page still asks and withdraws its language", async () => {
     const withdraw = (mutations["cms/publication:withdrawLocale"] = vi
       .fn()
       .mockResolvedValue(null))
-    rows.push(home())
+    rows.push({ ...about(), pageType: "landing-page" })
     mount()
-    openMenu(/Actions for Welcome/)
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Unpublish" }))
-    const dialog = await screen.findByRole("alertdialog")
-    expect(dialog).toHaveTextContent("Unpublish the home page?")
-    expect(dialog).toHaveTextContent(
-      "Visitors to / will be sent to the French home page (/fr) until you publish this one again."
-    )
-    expect(withdraw).not.toHaveBeenCalled()
-    // Not the red warning: the confirm button is the plain default variant.
-    expect(
-      within(dialog).getByRole("button", { name: "Unpublish" })
-    ).toHaveAttribute("data-variant", "default")
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
-    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
-    expect(withdraw).not.toHaveBeenCalled()
-  })
-
-  it("with no other published home it is the red Page not found warning, and confirming withdraws", async () => {
-    const withdraw = (mutations["cms/publication:withdrawLocale"] = vi
-      .fn()
-      .mockResolvedValue(null))
-    rows.push(
-      page(HOME, [
-        { locale: "en", state: "published", title: "Welcome", path: "/" },
-        { locale: "fr", state: "draft", title: "Bienvenue", path: "/" },
-      ])
-    )
-    mount()
-    openMenu(/Actions for Welcome/)
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Unpublish" }))
-    const dialog = await screen.findByRole("alertdialog")
-    expect(dialog).toHaveTextContent(
-      "No other home page is published. Visitors to / will see “Page not found” until you publish it again."
-    )
-    const confirmButton = within(dialog).getByRole("button", {
-      name: "Unpublish",
-    })
-    expect(confirmButton).toHaveAttribute("data-variant", "destructive")
-    fireEvent.click(confirmButton)
-    await waitFor(() => expect(withdraw).toHaveBeenCalledOnce())
-    expect(withdraw.mock.calls[0]![0]).toMatchObject({
-      pageId: HOME,
-      locale: "en",
-      expectedSnapshotId: "snap-en",
-    })
-  })
-
-  it("another language's home address is a Page not found warning, in French", async () => {
-    rows.push(home())
-    mount({ admin: "fr" })
-    fireEvent.change(
-      screen.getByRole("combobox", { name: "Filtrer par langue" }),
-      {
-        target: { value: "fr" },
-      }
-    )
-    openMenu(/Actions pour Bienvenue/)
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Dépublier" }))
+    openMenu(/Actions for About us/)
+    const unpublish = await screen.findByRole("menuitem", { name: "Unpublish" })
+    expect(unpublish).not.toHaveAttribute("aria-disabled", "true")
+    fireEvent.click(unpublish)
     expect(await screen.findByRole("alertdialog")).toHaveTextContent(
-      "Les visiteurs de /fr verront « Page introuvable » tant que vous ne la republierez pas."
+      "Unpublish this page?"
     )
+    await confirmUnpublish()
+    await waitFor(() => expect(withdraw).toHaveBeenCalledOnce())
   })
 })

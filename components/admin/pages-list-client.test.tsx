@@ -152,6 +152,11 @@ describe("PagesListClient filters", () => {
     expect(
       screen.getByRole("combobox", { name: "Filter by locale" })
     ).toBeInTheDocument()
+    const language = screen.getByRole("combobox", { name: "Filter by locale" })
+    fireEvent.change(language, { target: { value: "fr" } })
+    expect(language).toHaveValue("fr")
+    expect(language).not.toHaveClass("bg-emerald-600")
+    expect(screen.getByRole("option", { name: "FR", selected: true })).not.toHaveClass("bg-emerald-600")
   })
 
   it("keeps the warning quiet while revalidation health is loading", () => {
@@ -230,6 +235,41 @@ describe("PagesListClient filters", () => {
     )
     expect(screen.queryByRole("button", { name: "Retry now" })).not.toBeInTheDocument()
     expect(screen.queryByText(/recent update attempt/)).not.toBeInTheDocument()
+  })
+
+  it("names the archive confirmation after the action", async () => {
+    snapshotResults.push({
+      _id: "page-1",
+      pageType: "page",
+      slug: "fixture",
+      status: "draft",
+      updatedAt: 1,
+      lifecycleState: "draft",
+      lifecycleGeneration: 2,
+      content: { en: { title: "Fixture", blocks: [] } },
+    })
+    confirm.mockResolvedValue(false)
+    useQuery.mockImplementation((reference: unknown) => {
+      const name = getFunctionName(reference as never)
+      if (name === "cms/publication:getAdminAuthority") return "snapshot_active"
+      if (name === "cms/settings:getSiteConfig") return siteConfig
+      if (name === "cms/owner:getOwnerSession") return ownerSession
+      return undefined
+    })
+    render(list())
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: /Actions for/ }),
+      { button: 0, ctrlKey: false }
+    )
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }))
+
+    expect(confirm).toHaveBeenCalledExactlyOnceWith({
+      title: en.pages.list.archiveDialog.title,
+      description: en.pages.list.archiveDialog.description,
+      confirmText: "Archive",
+    })
+    expect(mutate).not.toHaveBeenCalled()
   })
 
   it.each([

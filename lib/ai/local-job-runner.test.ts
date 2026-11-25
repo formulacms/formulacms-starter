@@ -31,7 +31,7 @@ function fakeConvex(handlers: Record<string, Handler>) {
   const answer = async (reference: unknown, args: Record<string, unknown>) => {
     const name = getFunctionName(reference as never).replace("cms/aiLocalJobs:", "")
     calls.push({ name, args })
-    const handler = handlers[name]
+    const handler = handlers[name] ?? (name === "localJobState" ? () => ({ keepGoing: true }) : undefined)
     if (!handler) throw new Error(`unexpected ${name}`)
     return handler(args)
   }
@@ -105,7 +105,7 @@ describe("the local job runner", () => {
       phase: "page-fill",
     }))
     // Claim, wait while the unit runs, save, then stop.
-    expect(fake.names()).toEqual(["localClaimUnit", "localClaimUnit", "localSaveUnit", "localClaimUnit"])
+    expect(fake.names()).toEqual(["localClaimUnit", "localJobState", "localClaimUnit", "localSaveUnit", "localClaimUnit"])
     expect(call(fake, "localSaveUnit")).toEqual({
       jobId: JOB,
       runnerSecret: SECRET,
@@ -349,7 +349,7 @@ describe("the local job runner", () => {
       localSaveUnit: settles({ kind: "saved" }),
     })
     await start(fake.convex, { generate: async () => generation("x") })
-    expect(fake.names().slice(0, 3)).toEqual(["localClaimUnit", "localClaimUnit", "localClaimUnit"])
+    expect(fake.names().slice(0, 4)).toEqual(["localClaimUnit", "localClaimUnit", "localJobState", "localClaimUnit"])
     expect(fake.names()).toContain("localSaveUnit")
   })
 
@@ -427,4 +427,22 @@ describe("the local job runner", () => {
     expect(JSON.stringify(generate.mock.calls)).not.toContain(SECRET)
     for (const spy of logs) expect(JSON.stringify(spy.mock.calls)).not.toContain(SECRET)
   })
+})
+
+// This is the claim-to-tool seam; background polling cannot guard dispatch.
+test.each(["ineligible", "unreachable"])("pre-dispatch state %s releases the claim without launching the tool", async (reason) => {
+  const fake = fakeConvex({
+    localClaimUnit: claims(unit(0)),
+    localJobState: () => {
+      if (reason === "unreachable") throw new Error("offline")
+      return { keepGoing: false }
+    },
+    localReleaseUnit: settles({ kind: "released" }),
+  })
+  const generate = vi.fn(async () => generation("unused"))
+  await start(fake.convex, { generate })
+  expect(generate).not.toHaveBeenCalled()
+  expect(fake.names().filter((name) => name === "localReleaseUnit")).toHaveLength(1)
+  expect(call(fake, "localReleaseUnit")).toMatchObject({ unitId: "unit-0", claimToken: "token-0" })
+  expect(fake.names()).not.toContain("localFailUnit")
 })

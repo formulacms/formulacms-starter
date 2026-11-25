@@ -155,14 +155,18 @@ async function addressHolder(
   cache: AddressReadCache
 ) {
   return addressRead(cache, `holder:${pageId}:${locale}`, async () => {
-    const page = await ctx.db.get("pages", pageId)
+    const page = await addressRead(cache, `page:${pageId}`, () =>
+      ctx.db.get("pages", pageId)
+    )
     if (!page) throw new ConvexError("PAGE_ADDRESS_STATE_INVALID")
-    const drafts = await ctx.db
-      .query("pageLocaleDrafts")
-      .withIndex("by_pageId_and_locale", (q) =>
-        q.eq("pageId", pageId).eq("locale", locale)
-      )
-      .take(2)
+    const drafts = await addressRead(cache, `locale-draft:${pageId}:${locale}`, () =>
+      ctx.db
+        .query("pageLocaleDrafts")
+        .withIndex("by_pageId_and_locale", (q) =>
+          q.eq("pageId", pageId).eq("locale", locale)
+        )
+        .take(2)
+    )
     if (drafts.length > 1) throw new ConvexError("PAGE_ADDRESS_STATE_INVALID")
     let title = drafts[0]?.content.title
     if (!title) {
@@ -173,11 +177,15 @@ async function addressHolder(
         )
         .take(2)
       if (states.length > 1) throw new ConvexError("PAGE_ADDRESS_STATE_INVALID")
-      // Archives hold their selected address but are deliberately not public.
+      // Archives keep their selection; unedited withdrawn drafts keep their base.
       // Read the exact frozen aggregate, including its ownership verification.
-      const selected = states[0]?.currentSnapshotId
+      const selected =
+        states[0]?.currentSnapshotId ??
+        (drafts.length === 0 ? states[0]?.draftBaseSnapshotId : undefined)
       const projection = selected
-        ? await readFrozenSnapshotProjection(ctx, selected, pageId, locale)
+        ? await addressRead(cache, `frozen:${pageId}:${locale}:${selected}`, () =>
+            readFrozenSnapshotProjection(ctx, selected, pageId, locale)
+          )
         : null
       const content = projection?.payload.localized.content
       if (content && typeof content.title === "string") title = content.title
@@ -257,6 +265,76 @@ export type PageAddressInput = FuturePageAddressInput & {
   path?: string
   cache?: AddressReadCache
   proposed?: Map<string, NonNullable<PageAddressCheck["holder"]>>
+}
+export const PAGE_ADDRESS_UNPUBLISHED_STATE_LIMIT = 1_000
+
+/** Snapshot-backed Working Drafts hold addresses without an edited draft row. */
+async function snapshotDraftAddressHolders(
+  ctx: PublicationReadCtx,
+  locale: string,
+  requestingPageId: Id<"pages"> | undefined,
+  cache: AddressReadCache
+) {
+  return addressRead(
+    cache,
+    `snapshot-drafts:${locale}:${requestingPageId ?? ""}`,
+    async () => {
+      const states = await ctx.db
+        .query("pageLocalePublicationStates")
+        .withIndex("by_hasCurrentSnapshot_and_locale", (q) =>
+          q.eq("hasCurrentSnapshot", false).eq("locale", locale)
+        )
+        .take(PAGE_ADDRESS_UNPUBLISHED_STATE_LIMIT)
+      // Support fewer than 1,000 unpublished language states per locale; refuse at the bound.
+      if (states.length >= PAGE_ADDRESS_UNPUBLISHED_STATE_LIMIT)
+        throw new ConvexError("PAGE_ADDRESS_LOOKUP_LIMIT")
+      if (new Set(states.map((state) => state.pageId)).size !== states.length)
+        throw new ConvexError("PAGE_ADDRESS_STATE_INVALID")
+      const holders = []
+      for (const state of states) {
+        // by_locale_and_currentPath owns live claims; this scan is only for withdrawn languages with no live path.
+        if (
+          state.currentPath !== undefined ||
+          state.currentSnapshotId !== undefined
+        )
+          continue
+        const baseId = state.draftBaseSnapshotId
+        if (state.pageId === requestingPageId || !baseId) continue
+        const lifecycle = await addressPageLifecycle(ctx, state.pageId, cache)
+        if (lifecycle.lifecycleState === "trashed") continue
+        const drafts = await addressRead(
+          cache,
+          `locale-draft:${state.pageId}:${locale}`,
+          () => ctx.db
+            .query("pageLocaleDrafts")
+            .withIndex("by_pageId_and_locale", (q) =>
+              q.eq("pageId", state.pageId).eq("locale", locale)
+            )
+            .take(2)
+        )
+        if (drafts.length > 1) throw new ConvexError("PAGE_ADDRESS_STATE_INVALID")
+        if (drafts.length) continue
+        const page = await addressRead(cache, `page:${state.pageId}`, () =>
+          ctx.db.get("pages", state.pageId)
+        )
+        const base = await addressRead(
+          cache,
+          `frozen:${state.pageId}:${locale}:${baseId}`,
+          () => readFrozenSnapshotProjection(ctx, baseId, state.pageId, locale)
+        )
+        if (!page || !base || base.payload.page.pageType !== page.pageType)
+          throw new ConvexError("PUBLISHED_SNAPSHOT_INTEGRITY_INVALID")
+        holders.push({
+          pageId: page._id,
+          pageType: page.pageType,
+          slug: base.payload.localized.slug,
+          parentId: await addressSharedParent(ctx, page._id, cache),
+          lifecycleState: lifecycle.lifecycleState,
+        })
+      }
+      return holders
+    }
+  )
 }
 /** The sole comparison owner for live, historical and saved-draft claims. */
 export async function checkPageAddress(
@@ -391,6 +469,25 @@ export async function checkPageAddress(
           holder: await addressHolder(ctx, draft.pageId, input.locale, cache),
         }
     }
+  }
+  const snapshotHolders = await snapshotDraftAddressHolders(
+    ctx, input.locale, input.pageId, cache
+  )
+  for (const holder of snapshotHolders) {
+    const holderPath = await futurePath({
+      ...input,
+      pageId: holder.pageId,
+      pageType: holder.pageType,
+      slug: holder.slug,
+      parentId: holder.parentId,
+      homePageId,
+    })
+    if (holderPath === path)
+      return {
+        ...free,
+        kind: holder.lifecycleState === "archived" ? "archived" : "taken",
+        holder: await addressHolder(ctx, holder.pageId, input.locale, cache),
+      }
   }
   return free
 }

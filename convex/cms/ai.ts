@@ -56,7 +56,7 @@ import type {
 } from "../../lib/ai/accounting-contract"
 import type { Doc, Id } from "../_generated/dataModel"
 import { runtimeProviderKey, readLegacyModelAssistants, resolveAiSettingsStatus, requireAiTranslationModule, readRuntimeProviderConnection } from "../lib/ai"
-import { assertPageIdTranslatedIn } from "../lib/publishing/translationSwitch"
+import { assertPageJobEligible } from "../lib/ai/pageJobEligibility"
 import { hashOwnerClaim } from "../lib/ownerClaim"
 
 function availability(): RuntimeProviderAvailability {
@@ -543,11 +543,9 @@ async function admitAttempt(
       jobUnit.admittedClaim === jobUnit.claimToken
     )
       throw new Error("AI operation is no longer available.")
-    // ADR-0037 amendment (2026-11-17): a claim made before the switch turned
-    // the target language off buys no new attempt. An attempt admitted
-    // earlier still settles through `settleAttempt` once.
-    if (job.kind === "translation")
-      await assertPageIdTranslatedIn(ctx, job.pageId, job.locale)
+    // Refuse before any pricing/accounting write. Throwing rolls back this
+    // admission; the worker completion path stops and settles the job.
+    await assertPageJobEligible(ctx, job)
   } else if (anchorAttemptKey !== undefined) {
     const anchor = await ctx.db
       .query("aiSpendingAttempts")

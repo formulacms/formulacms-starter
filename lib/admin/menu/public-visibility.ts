@@ -24,6 +24,7 @@ type ResolvedTarget = NonNullable<CanonicalResolvedNavItem["target"]>
 type ResolvedPanel = NonNullable<CanonicalResolvedNavItem["panel"]>
 
 export type ShownTarget = ResolvedTarget & { url: string }
+
 type ShownLink<T> = Omit<T, "target"> & { target: ShownTarget }
 type LinkGroup = Extract<ResolvedPanelSection, { kind: "linkGroup" }>
 type Featured = Extract<ResolvedPanelSection, { kind: "featured" }>

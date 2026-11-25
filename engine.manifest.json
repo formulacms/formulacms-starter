@@ -1,12 +1,12 @@
 {
   "$comment": "Engine version manifest (plan 023 Phase 4 #1-minimal, ADR-0025). Read by downstream forks (and the future upgrade CLI) to decide what an engine sync requires. Keep in lockstep with convex/lib/versions.ts — lib/engine-manifest.test.ts fails the gates on drift.",
   "name": "formulacms-engine",
-  "engineVersion": "0.5.1",
+  "engineVersion": "0.5.2",
   "schemaVersion": 7,
   "compatibility": {
     "freshInstallBaseline": 7,
     "supportedUpgradeFromSchemaVersions": [],
-    "note": "Schema version 7 removes the retired page-wide publication, migration, membership, entitlement and role tables. Release 0.5.1 supports fresh installs only: the v0.4.0-to-v0.5.1 transition is declared unsupported, so start a new site and a new Convex deployment from v0.5.1. Schema version 6 (release 0.4.0) has no upgrade path. Schema version 6 renames stored tables, fields and indexes to block names, for example the blockOccurrence tables, pagePublicationBlockReferences, pageCandidateBlockReferences, the page field blocks and archivedBlockTypes. Release 0.4.0 supports fresh installs only: the v0.3.1-to-v0.4.0 transition is declared unsupported, so start a new site and a new Convex deployment from v0.4.0. Schema version 5 (releases 0.3.0 and 0.3.1) has no upgrade path. Schema version 4 (release 0.2.0) has no upgrade path: the v0.2.0-to-v0.3.0 transition is declared unsupported. Upgrades from schema version 3 or older are unsupported."
+    "note": "Schema version 7 removes the retired page-wide publication, migration, membership, entitlement and role tables. Release 0.5.2 supports fresh installs only: the v0.5.1-to-v0.5.2 transition is declared unsupported, so start a new site and a new Convex deployment from v0.5.2. The schema version remains 7. Release 0.5.1 supports fresh installs only: the v0.4.0-to-v0.5.1 transition is declared unsupported, so start a new site and a new Convex deployment from v0.5.1. Schema version 6 (release 0.4.0) has no upgrade path. Schema version 6 renames stored tables, fields and indexes to block names, for example the blockOccurrence tables, pagePublicationBlockReferences, pageCandidateBlockReferences, the page field blocks and archivedBlockTypes. Release 0.4.0 supports fresh installs only: the v0.3.1-to-v0.4.0 transition is declared unsupported, so start a new site and a new Convex deployment from v0.4.0. Schema version 5 (releases 0.3.0 and 0.3.1) has no upgrade path. Schema version 4 (release 0.2.0) has no upgrade path: the v0.2.0-to-v0.3.0 transition is declared unsupported. Upgrades from schema version 3 or older are unsupported."
   },
   "migrations": [
     {

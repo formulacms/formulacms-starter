@@ -88,6 +88,8 @@ describe("linkToHref", () => {
   test.each([
     "mailto:team@example.com",
     "mailto:?subject=Hello",
+    "mailto:hello",
+    "TEL:+15149550226",
     "tel:+1 (555) 123-4567",
     "tel:+15551234567;ext=9",
   ])("external preserves supported contact URL %s", (url) => {

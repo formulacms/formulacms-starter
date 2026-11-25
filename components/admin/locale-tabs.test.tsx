@@ -55,8 +55,8 @@ describe("LocaleTabs", () => {
       en.common.localeTabs.hasContent
     )
     expect(screen.getByRole("tab", { name: /Edit English/ })).toHaveClass(
-      "bg-accent",
-      "text-accent-foreground"
+      "bg-emerald-600",
+      "text-white"
     )
   })
 })

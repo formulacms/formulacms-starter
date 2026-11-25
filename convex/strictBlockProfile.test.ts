@@ -222,7 +222,7 @@ describe("actual emitted source block profile", () => {
     expect(await t.run((ctx) => ctx.db.query("pages").take(10))).toEqual(before)
   })
 
-  test("the separate setup constructor persists an empty Home Working Draft", async () => {
+  test("the separate setup constructor publishes an empty Home and consumes its Working Draft", async () => {
     const t = makeTest("missing")
     await t
       .withIdentity(ownerIdentity)
@@ -234,10 +234,18 @@ describe("actual emitted source block profile", () => {
     const drafts = await t.run((ctx) =>
       ctx.db.query("pageLocaleDrafts").take(2)
     )
-    expect(drafts).toHaveLength(1)
-    expect(drafts[0].content).toMatchObject({
-      title: "Blank setup",
-      blocks: [],
+    expect(drafts).toHaveLength(0)
+    const config = await t.query(api.cms.settings.getSiteConfig, {})
+    const snapshots = await t.run((ctx) =>
+      ctx.db.query("pagePublishedSnapshots").take(2)
+    )
+    expect(snapshots).toHaveLength(1)
+    expect(snapshots[0]).toMatchObject({ pageId: config.homePageId, locale: "en" })
+    const candidate = await t.run((ctx) =>
+      ctx.db.get("pageLocalePublicationCandidates", snapshots[0].candidateId)
+    )
+    expect(JSON.parse(candidate!.payloadJson).localized.content).toMatchObject({
+      title: "Blank setup", blocks: [],
     })
   })
 })

@@ -107,8 +107,9 @@ const PUBLICATION_ERROR_MESSAGES = {
   // The server backstop for a save with no address; the editor normally
   // refuses it first, so this covers a draft that slipped past that check.
   SLUG_REQUIRED: "Give the page an address before saving.",
-  // The home page can be neither archived nor moved to trash.
-  PAGE_HOME_LIFECYCLE_REFUSED: "The home page can’t be archived.",
+  // The home page stays published in every enabled language.
+  PAGE_HOME_LIFECYCLE_REFUSED:
+    "The home page stays published. It can’t be unpublished, archived or moved to trash.",
   // Save and Publish both refuse an image whose media item or file is gone.
   // An identity mismatch is not a deletion, so it keeps the generic message.
   PUBLICATION_MEDIA_REFERENCE_MISSING: IMAGE_MISSING_MESSAGE,
@@ -1548,6 +1549,6 @@ export function usePageSave({
       updateStatus("draft", t("unpublished"), t("unpublishFailed")),
     archive: () => updateStatus("archived", t("archived"), t("archiveFailed")),
     unarchive: () =>
-      updateStatus("draft", t("restoredToDraft"), t("restoreFailed")),
+      updateStatus("draft", t("restoredToDraft", { title: getTitle(page, currentLocale) }), t("restoreFailed")),
   }
 }

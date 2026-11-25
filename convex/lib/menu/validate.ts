@@ -9,6 +9,7 @@ import {
 } from "../menu"
 import { menuTextLeaves } from "./canonical"
 import { isActiveContentType } from "../contentTypes"
+import { isContactHref } from "../linkSchemes"
 import { guardOutboundUrl } from "../urlGuard"
 
 const MENU_ICON_NAME_SET = new Set<string>(MENU_ICON_NAMES)
@@ -38,7 +39,9 @@ function requireDefaultText(
 function validateTarget(target: Target, path: string): void {
   if (target.type === "external") {
     if (!hasText(target.url)) reject(`${path} must have an external URL`)
-    guardOutboundUrl(target.url)
+    const url = target.url.trim()
+    if (isContactHref(url)) return
+    guardOutboundUrl(url)
   } else if (target.type === "anchor") {
     if (!hasText(target.anchor) || !target.anchor.startsWith("#")) {
       reject(`${path} must have a #page-anchor`)

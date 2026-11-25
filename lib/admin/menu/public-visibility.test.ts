@@ -1,6 +1,7 @@
 import { placeholderTarget as target, postCards } from "@/test-utils/menu-visibility"
 import { describe, expect, test } from "vitest"
 import { decideMenu } from "./public-visibility"
+import { opensInNewTab } from "@/lib/menu/link-target"
 import {
   panelSections,
   type CanonicalResolvedNavItem,
@@ -426,3 +427,51 @@ test.each([
       expect(item).toEqual(input)
   }
 )
+
+test.each(["tel:+15149550226", "mailto:hello@example.com"])(
+  "shows contact destination %s without opening a new tab",
+  (url) => {
+    for (const openInNewTab of [true, false, undefined]) {
+      const target = { type: "external" as const, url, openInNewTab }
+      const result = decideMenu(
+        [{ id: "contact", label: "Contact", target }],
+        {}
+      )
+      expect(result.items).toHaveLength(1)
+      expect(result.nodes.get("contact")).toMatchObject({
+        shown: true,
+        reason: null,
+      })
+      expect(opensInNewTab(target)).toBe(false)
+    }
+  }
+)
+
+test.each(["javascript:alert(1)", "tel:", "tel:abc", "mailto:hello"])(
+  "hides invalid destination %s as No address",
+  (url) => {
+    const result = decideMenu(
+      [{ id: "bad", label: "Bad", target: { type: "external", url } }],
+      {}
+    )
+    expect(result.items).toEqual([])
+    expect(result.nodes.get("bad")).toMatchObject({
+      shown: false,
+      reason: "No address",
+    })
+  }
+)
+
+test("keeps the existing web and internal link new-tab policy", () => {
+  expect(opensInNewTab({ type: "external", url: "https://example.com" })).toBe(
+    true
+  )
+  expect(
+    opensInNewTab({
+      type: "external",
+      url: "https://example.com",
+      openInNewTab: false,
+    })
+  ).toBe(false)
+  expect(opensInNewTab({ type: "internal", url: "/about" })).toBe(false)
+})

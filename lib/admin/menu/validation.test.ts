@@ -207,3 +207,43 @@ test("text validity accepts any retained locale, rejects a blank new label, and 
   legacyPanel(nav[0]!.panel).sections[0]!.image.alt = { fr: "" }
   expect(menuTextValid(nav)).toBe(true)
 })
+
+test.each([
+  ["tel:+15149550226", true],
+  ["tel:+1 (514) 955-0226", true],
+  ["tel:514-955-0226;ext=12", true],
+  ["tel:5.1.4", true],
+  ["tel:++15149550226", false],
+  ["tel:+1+514", false],
+  ["tel:+15149550226;ext=abc", false],
+  ["tel:+15149550226;phone-context=x", false],
+  ["tel:*#", false],
+  ["tel:51;ext=234", false],
+  ["tel:514;ext=", false],
+  ["tel:514;ext=12;ext=34", false],
+  ["mailto:hello@example.com", true],
+  [" tel:+15149550226 ", true],
+  [" mailto:hello@example.com ", true],
+  ["TEL:+15149550226", true],
+  ["MAILTO:hello@example.com", true],
+  ["https://example.com", true],
+  ["http://example.com", true],
+  ["javascript:alert(1)", false],
+  ["data:text/html,x", false],
+  ["tel:", false],
+  ["mailto:", false],
+  ["tel:abc", false],
+  ["mailto:hello", false],
+  ["mailto:hello@@example.com", false],
+  ["mailto:hello@example.com?body=%0d%0aBcc:other@example.com", false],
+  ["tel:+1514\n9550226", false],
+  ["mailto:hello%0a@example.com", false],
+  ["https://localhost", false],
+] as const)(
+  "validates menu destination %j (accepted: %s)",
+  (url, accepted) => {
+    expect(targetError({ type: "external", url })).toBe(
+      accepted ? undefined : "url"
+    )
+  }
+)

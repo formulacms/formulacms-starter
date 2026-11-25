@@ -12,6 +12,7 @@ import {
   validateCanonicalMenu,
   validateCanonicalMenuForLocale,
 } from "./lib/menu/validate"
+import { targetError } from "../lib/admin/menu/validation"
 import { validateCanonicalWrite } from "./lib/menu/canonicalWrite"
 import { countMenuNodesMissingText, localizeCanonicalNav, menuTextKey, menuTextLeaves } from "./lib/menu/canonical"
 import { menuNodePathsMissingRequiredText } from "./lib/language/defaultMigration"
@@ -1981,3 +1982,64 @@ describe("Language-owned public locale eligibility", () => {
     }
   )
 })
+
+test.each([
+  ["tel:+15149550226", true],
+  ["tel:+1 (514) 955-0226", true],
+  ["tel:514-955-0226;ext=12", true],
+  ["tel:5.1.4", true],
+  ["tel:++15149550226", false],
+  ["tel:+1+514", false],
+  ["tel:+15149550226;ext=abc", false],
+  ["tel:+15149550226;phone-context=x", false],
+  ["tel:*#", false],
+  ["tel:51;ext=234", false],
+  ["tel:514;ext=", false],
+  ["tel:514;ext=12;ext=34", false],
+  ["mailto:hello@example.com", true],
+  [" tel:+15149550226 ", true],
+  [" mailto:hello@example.com ", true],
+  ["TEL:+15149550226", true],
+  ["MAILTO:hello@example.com", true],
+  ["https://example.com", true],
+  ["http://example.com", true],
+  ["javascript:alert(1)", false],
+  ["data:text/html,x", false],
+  ["tel:", false],
+  ["mailto:", false],
+  ["tel:abc", false],
+  ["mailto:hello", false],
+  ["mailto:hello@@example.com", false],
+  ["mailto:hello@example.com?body=%0d%0aBcc:other@example.com", false],
+  ["tel:+1514\n9550226", false],
+  ["mailto:hello%0a@example.com", false],
+  ["https://localhost", false],
+] as const)(
+  "client and real menu save agree for %j (accepted: %s)",
+  async (url, accepted) => {
+    const f = await fixture([])
+    // Text only in the saved (default) language, so only the destination varies.
+    const nav: NavItem[] = [
+      {
+        id: "contact",
+        label: { fr: "Contact" },
+        target: { type: "external", url, openInNewTab: true },
+      },
+    ]
+    expect(targetError({ type: "external", url })).toBe(
+      accepted ? undefined : "url"
+    )
+    if (accepted) {
+      await f.save(nav, "fr", 1)
+      // Save stores the URL as typed, like web links; validation trims it.
+      expect((await f.load())!.nav[0]!.target).toEqual({
+        type: "external",
+        url,
+        openInNewTab: true,
+      })
+    } else {
+      await expect(f.save(nav, "fr", 1)).rejects.toThrow()
+      expect((await f.load())!.nav).toEqual([])
+    }
+  }
+)

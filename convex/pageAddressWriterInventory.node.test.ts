@@ -16,6 +16,7 @@ const snapshots = "convex/lib/publishing/snapshots.ts"
 const guarded = new Set([
   ...[
     "initializeSuccessorPage",
+    "initializeSuccessorPageLocale",
     "saveLocaleDraft",
     "saveEditorDraft",
     "saveSharedDraft",
@@ -24,6 +25,8 @@ const guarded = new Set([
     "withdrawLocale",
     "transitionLifecycle",
     "publishLocale",
+    "publishLocaleInTransaction",
+    "publishEmptyHomeInNewLanguage",
     "publishPreparedTargetLocale",
     "createTransitionTargetDraft",
   ].map((name) => `${publication}:${name}`),

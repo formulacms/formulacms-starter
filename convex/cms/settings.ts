@@ -13,6 +13,7 @@ import { ConvexError, v } from "convex/values"
 import { recordPublicChange } from "../lib/language/freshness"
 import { query } from "../_generated/server"
 import type { MutationCtx, QueryCtx } from "../_generated/server"
+import type { OwnerPrincipal } from "../lib/access/owner"
 import type { Doc, Id } from "../_generated/dataModel"
 import { internal } from "../_generated/api"
 import { requireOperationAccess } from "../lib/access/policy"
@@ -25,6 +26,7 @@ import {
 import {
   initializeEmptySnapshotAuthorityForOwner,
   initializeSuccessorPage,
+  publishLocaleInTransaction,
 } from "./publication"
 import { siteSettingsDocValidator } from "../schema"
 import {
@@ -37,6 +39,7 @@ import {
   readSiteDescription,
 } from "../../lib/i18n/site-description"
 import { insertInitialSiteLanguageAuthority } from "./language"
+import { hasSiteAddressScheme } from "../../lib/site-address"
 
 const FALLBACK_LOCALE = "en"
 
@@ -64,6 +67,87 @@ function validateLocales(defaultLocale: string, enabledLocales: string[]) {
       "DEFAULT_LOCALE_MUST_BE_ENABLED: The default locale must remain in the enabled set. Change the default locale before removing it."
     )
   }
+}
+
+/**
+ * An empty string means no address. Other input must parse as an http(s) URL
+ * with a host; whitespace alone is an invalid address.
+ */
+function normalizeSiteUrl(value: string): string {
+  if (value === "") return ""
+  const siteUrl = value.trim()
+  if (!hasSiteAddressScheme(siteUrl)) {
+    throw new ConvexError({ code: "SITE_URL_INVALID" })
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(siteUrl)
+  } catch {
+    throw new ConvexError({ code: "SITE_URL_INVALID" })
+  }
+  const isWeb = parsed.protocol === "http:" || parsed.protocol === "https:"
+  if (!isWeb || !parsed.host) {
+    throw new ConvexError({ code: "SITE_URL_INVALID" })
+  }
+  return siteUrl.replace(/\/$/, "")
+}
+
+/** Exact setup retry: accept the finished selection, or publish the old draft once. */
+async function publishBootstrapHome(
+  ctx: MutationCtx,
+  owner: OwnerPrincipal,
+  homePageId: Id<"pages">,
+  locale: string
+): Promise<void> {
+  const [home, pageStates, sharedDrafts, localeStates, localeDrafts] =
+    await Promise.all([
+      ctx.db.get("pages", homePageId),
+      ctx.db
+        .query("pagePublicationPageStates")
+        .withIndex("by_pageId", (q) => q.eq("pageId", homePageId))
+        .take(2),
+      ctx.db
+        .query("pageSharedDrafts")
+        .withIndex("by_pageId", (q) => q.eq("pageId", homePageId))
+        .take(2),
+      ctx.db
+        .query("pageLocalePublicationStates")
+        .withIndex("by_pageId_and_locale", (q) =>
+          q.eq("pageId", homePageId).eq("locale", locale)
+        )
+        .take(2),
+      ctx.db
+        .query("pageLocaleDrafts")
+        .withIndex("by_pageId_and_locale", (q) =>
+          q.eq("pageId", homePageId).eq("locale", locale)
+        )
+        .take(2),
+    ])
+  if (
+    !home ||
+    pageStates.length !== 1 ||
+    pageStates[0]!.lifecycleState !== "active" ||
+    sharedDrafts.length !== 1 ||
+    localeStates.length !== 1 ||
+    localeDrafts.length > 1 ||
+    (localeDrafts[0]
+      ? localeDrafts[0].generation !== localeStates[0]!.draftGeneration
+      : !localeStates[0]!.hasCurrentSnapshot ||
+        localeStates[0]!.currentSnapshotId === undefined)
+  ) {
+    throw new ConvexError("INSTALLATION_BOOTSTRAP_STATE_INVALID")
+  }
+  const state = localeStates[0]!
+  if (state.hasCurrentSnapshot) return
+  await publishLocaleInTransaction(ctx, owner, {
+    pageId: homePageId,
+    locale,
+    expectedDraftGeneration: state.draftGeneration,
+    expectedSharedDraftGeneration: sharedDrafts[0]!.generation,
+    expectedPublicGeneration: state.publicGeneration,
+    expectedLifecycleGeneration: pageStates[0]!.lifecycleGeneration,
+    expectedReleaseGeneration: state.releaseGeneration,
+  })
 }
 
 // Public, no-auth: read by middleware on every request (kept tiny + cached).
@@ -173,7 +257,7 @@ export const bootstrapInstallation = mutation({
   handler: async (ctx, args) => {
     const auth = await requireOperationAccess(ctx)
     const siteName = args.siteName.trim()
-    const siteUrl = (args.siteUrl ?? "").replace(/\/$/, "")
+    const siteUrl = normalizeSiteUrl(args.siteUrl ?? "")
     const defaultLocale = args.defaultLocale.trim()
     if (!siteName) throw new ConvexError("SITE_NAME_REQUIRED")
     validateLocales(defaultLocale, [defaultLocale])
@@ -197,45 +281,6 @@ export const bootstrapInstallation = mutation({
         existing.enabledLocales[0] === defaultLocale &&
         existing.homePageId !== undefined
       ) {
-        const [home, pageStates, sharedDrafts, localeStates, localeDrafts] =
-          await Promise.all([
-            ctx.db.get("pages", existing.homePageId),
-            ctx.db
-              .query("pagePublicationPageStates")
-              .withIndex("by_pageId", (q) =>
-                q.eq("pageId", existing.homePageId!)
-              )
-              .take(2),
-            ctx.db
-              .query("pageSharedDrafts")
-              .withIndex("by_pageId", (q) =>
-                q.eq("pageId", existing.homePageId!)
-              )
-              .take(2),
-            ctx.db
-              .query("pageLocalePublicationStates")
-              .withIndex("by_pageId_and_locale", (q) =>
-                q.eq("pageId", existing.homePageId!).eq("locale", defaultLocale)
-              )
-              .take(2),
-            ctx.db
-              .query("pageLocaleDrafts")
-              .withIndex("by_pageId_and_locale", (q) =>
-                q.eq("pageId", existing.homePageId!).eq("locale", defaultLocale)
-              )
-              .take(2),
-          ])
-        if (
-          !home ||
-          pageStates.length !== 1 ||
-          pageStates[0]!.lifecycleState !== "active" ||
-          sharedDrafts.length !== 1 ||
-          localeStates.length !== 1 ||
-          localeDrafts.length !== 1 ||
-          localeDrafts[0]!.generation !== localeStates[0]!.draftGeneration
-        ) {
-          throw new ConvexError("INSTALLATION_BOOTSTRAP_STATE_INVALID")
-        }
         const cutover = await initializeEmptySnapshotAuthorityForOwner(ctx)
         await initializeEmptyBlockOccurrenceCounts(ctx)
         // A resumed bootstrap ends with the same language authority as a fresh
@@ -249,6 +294,7 @@ export const bootstrapInstallation = mutation({
         ) {
           throw new ConvexError("INSTALLATION_BOOTSTRAP_STATE_INVALID")
         }
+        await publishBootstrapHome(ctx, auth, existing.homePageId, defaultLocale)
         return {
           ...cutover,
           onboardingCompletedAt: existing.onboardingCompletedAt,
@@ -324,6 +370,7 @@ export const bootstrapInstallation = mutation({
     // F09: the site language is chosen here, before any public content exists.
     await insertInitialSiteLanguageAuthority(ctx, defaultLocale)
     await initializeEmptyBlockOccurrenceCounts(ctx)
+    await publishBootstrapHome(ctx, auth, homePageId, defaultLocale)
 
     return { ...cutover, onboardingCompletedAt: now }
   },
@@ -405,11 +452,12 @@ export const updateSettings = mutation({
           )
         : {}
 
+    const siteUrl =
+      args.siteUrl === undefined ? undefined : normalizeSiteUrl(args.siteUrl)
+
     await ctx.db.patch("siteSettings", existing._id, {
       ...(args.siteName !== undefined && { siteName: args.siteName }),
-      ...(args.siteUrl !== undefined && {
-        siteUrl: args.siteUrl.replace(/\/$/, ""),
-      }),
+      ...(siteUrl !== undefined && { siteUrl }),
       ...descriptionFields,
       ...(args.contactEmail !== undefined && {
         contactEmail: args.contactEmail,

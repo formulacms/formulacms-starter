@@ -170,7 +170,6 @@ async function saveDraft(
 
 async function englishSite(t: T, owner: Caller, slugs: string[] = ["about"]) {
   const homeId = await bootstrap(t, owner)
-  await publish(t, owner, homeId)
   const ids: Record<string, Id<"pages">> = {}
   for (const slug of slugs) {
     ids[slug] = await createPage(owner, slug)
@@ -471,7 +470,6 @@ async function preparedPointedReplacementFixture(routeCount = 1) {
   const t = app()
   const owner = t.withIdentity(OWNER)
   const homeId = await bootstrap(t, owner)
-  await publish(t, owner, homeId)
   await seedPointedContinuity(
     t,
     Array.from({ length: routeCount }, (_, index) => ({
@@ -2563,7 +2561,6 @@ describe("M05 C3e.1 carry foundation", () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const homeId = await bootstrap(t, owner)
-    await publish(t, owner, homeId)
     await owner.mutation(api.cms.menus.createCanonical, { slug: "primary" })
     await owner.mutation(api.cms.menus.saveCanonical, {
       slug: "primary",
@@ -2721,7 +2718,7 @@ describe("M05 C3e.1 carry foundation", () => {
 })
 
 describe("F09a initial selection", () => {
-  test("row 1: a French bootstrap commits authority v1 fr and publishes nothing", async () => {
+  test("row 1: a French bootstrap commits authority v1 fr and publishes empty Home", async () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const homeId = await bootstrap(t, owner, "fr")
@@ -2746,11 +2743,10 @@ describe("F09a initial selection", () => {
       enabledLocales: ["fr"],
       homePageId: homeId,
     })
-    expect(stored.drafts.map((draft) => [draft.pageId, draft.locale])).toEqual([
-      [homeId, "fr"],
-    ])
-    expect(stored.snapshots).toEqual([])
-    expect(stored.candidates).toEqual([])
+    expect(stored.drafts).toEqual([])
+    expect(stored.snapshots).toHaveLength(1)
+    expect(stored.snapshots[0]).toMatchObject({ pageId: homeId, locale: "fr", generation: 1 })
+    expect(stored.candidates).toHaveLength(1)
     expect(
       await owner.query(api.cms.language.getLanguageState, {})
     ).toMatchObject({
@@ -3151,7 +3147,6 @@ describe("F09a preparation", () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const homeId = await bootstrap(t, owner)
-    await publish(t, owner, homeId)
     const about = await createPage(owner, "about")
     // The social title is stored in the language (ADR-0037 amendment).
     const { state: aboutState } = await generations(t, about, "en")
@@ -3272,7 +3267,6 @@ describe("F09a preparation", () => {
     const t = app()
     const owner = t.withIdentity(OWNER)
     const homeId = await bootstrap(t, owner)
-    await publish(t, owner, homeId)
     // Created before its parent, so the first pass must wait for the parent.
     const child = await createPage(owner, "child")
     const parent = await createPage(owner, "parent")
@@ -4445,7 +4439,6 @@ describe("M05 P24 cancellation cleanup (C3e.3c-2)", () => {
       const t = app()
       const owner = t.withIdentity(OWNER)
       const homeId = await bootstrap(t, owner)
-      await publish(t, owner, homeId)
       const transitionId = await startTransition(
         t,
         owner,
@@ -4819,12 +4812,42 @@ describe("F09c F1 readiness and bounded activation", () => {
     ).toMatchObject({ target: "settings", pathCount: 3, tagCount: 3 })
   })
 
+  test("B52 a fresh site's published Home follows correction preparation and stays public", async () => {
+    const t = app()
+    const owner = t.withIdentity(OWNER)
+    const homeId = await bootstrap(t, owner)
+    expect((await generations(t, homeId, "en")).state).toMatchObject({ hasCurrentSnapshot: true })
+    const id = await startTransition(t, owner, "correct_label", "fr")
+    await drain(t)
+    const ready = await confirmAndValidate(t, owner, id)
+    expect(ready).toMatchObject({ phase: "ready", shortPath: false })
+    await activate(t, owner, id)
+    const { languageVersion } = await t.query(api.cms.settings.getSiteConfig, {})
+    expect(await t.query(api.cms.pages.resolveLocalizedPathQuery, { path: "/", locale: "fr", languageVersion })).toBe(homeId)
+    expect(await t.query(api.cms.pages.getPublicPageById, { id: homeId, locale: "fr", languageVersion })).toMatchObject({ content: { fr: { blocks: [] } } })
+  })
+
   test.each(["correct_label", "replace_content"] as const)(
-    "row 3: the %s short path switches language without a candidate or snapshot",
+    "row 3: the %s short path switches an unpublished site without new candidates or snapshots",
     async (mode) => {
       const t = app()
       const owner = t.withIdentity(OWNER)
-      await bootstrap(t, owner)
+      const homeId = await bootstrap(t, owner)
+      // Pre-existing unpublished site, not an ordinary Home withdrawal.
+      await t.run(async (ctx) => {
+        const state = (await ctx.db.query("pageLocalePublicationStates")
+          .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", homeId).eq("locale", "en")).unique())!
+        await ctx.db.patch("pageLocalePublicationStates", state._id, {
+          publicGeneration: state.publicGeneration + 1,
+          hasCurrentSnapshot: false, currentSnapshotId: undefined,
+          currentReleaseId: undefined, currentPath: undefined,
+          currentPublishedAt: undefined, pageType: undefined, publicSince: undefined,
+        })
+      })
+      const before = await t.run(async (ctx) => ({
+        candidates: await ctx.db.query("pageLocalePublicationCandidates").collect(),
+        snapshots: await ctx.db.query("pagePublishedSnapshots").collect(),
+      }))
       const id = await startTransition(t, owner, mode, "fr")
       await drain(t)
       const ready = await confirmAndValidate(t, owner, id)
@@ -4842,8 +4865,8 @@ describe("F09c F1 readiness and bounded activation", () => {
         defaultLocale: "fr",
         enabledLocales: ["fr"],
       })
-      expect(stored.candidates).toEqual([])
-      expect(stored.snapshots).toEqual([])
+      expect(stored.candidates).toEqual(before.candidates)
+      expect(stored.snapshots).toEqual(before.snapshots)
     }
   )
 
@@ -5658,6 +5681,8 @@ async function runShortTransition(
   mode: Mode,
   target: string
 ) {
+  // Description-only fixtures deliberately have no Page disposition work.
+  await removeAllPages(t)
   const id = await startTransition(t, owner, mode, target)
   await drain(t)
   await confirmAndValidate(t, owner, id)

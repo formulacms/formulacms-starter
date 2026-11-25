@@ -199,7 +199,8 @@ describe("owner presentation lifecycle", () => {
     // publication stores, not merely empty-table equality.
     expect(beforeOtherTables.pages).toHaveLength(1)
     expect(beforeOtherTables.pageSharedDrafts).toHaveLength(1)
-    expect(beforeOtherTables.pagePublishedSnapshots).toHaveLength(1)
+    // Setup publishes Home once; the explicit publish above adds its successor.
+    expect(beforeOtherTables.pagePublishedSnapshots).toHaveLength(2)
     expect(beforeOtherTables.pageLocaleDrafts).toEqual([])
 
     vi.setSystemTime(new Date("2026-10-26T12:01:00Z"))

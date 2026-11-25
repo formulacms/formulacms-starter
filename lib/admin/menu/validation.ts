@@ -6,6 +6,7 @@ import {
   type Target,
 } from "@/convex/lib/menu"
 import { menuTextLeaves } from "@/convex/lib/menu/canonical"
+import { isContactHref } from "@/convex/lib/linkSchemes"
 import { guardOutboundUrl, OutboundUrlError } from "@/convex/lib/urlGuard"
 
 export type TargetIntent = Target["type"] | "none"
@@ -23,8 +24,10 @@ export function targetError(target: Target | undefined, intent?: TargetIntent) {
   )
     return "page"
   if (target?.type !== "external") return undefined
+  const url = target.url.trim()
+  if (isContactHref(url)) return undefined
   try {
-    guardOutboundUrl(target.url)
+    guardOutboundUrl(url)
   } catch (error) {
     if (error instanceof OutboundUrlError) return "url"
     throw error

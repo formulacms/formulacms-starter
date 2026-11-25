@@ -320,9 +320,9 @@ export function MenuEditor({ slug }: MenuEditorProps) {
 
   return (
     <div ref={editorRef} className="max-w-3xl space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         {heading}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
           {hasChanges && (
             <span className="text-xs text-amber-600">
               {t("unsavedChanges")}

@@ -596,6 +596,7 @@ async function renderCmsPage(
       )}
       <RenderContentType
         page={page}
+        isHomePage={!isPreview && page._id === config.homePageId}
         content={content}
         blocks={blocks}
         ctx={ctx}

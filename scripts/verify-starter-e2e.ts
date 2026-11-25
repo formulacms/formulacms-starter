@@ -116,58 +116,18 @@ async function runOnboarding(page: Page) {
     .getByLabel(setup.fields.siteDescription)
     .fill("Automated starter verification site.")
   // Setup is one atomic bootstrap: it saves the one site language, creates a
-  // private draft home and marks setup complete. Email and AI live in Settings.
+  // published empty home (B52) and marks setup complete. Email and AI live in Settings.
   await page.getByRole("button", { name: setup.actions.finishSetup }).click()
   await page.waitForURL(/\/admin(?:\/)?$/, { timeout: 20_000 })
 
-  // Setup publishes nothing, so a fresh site has no public home yet.
+  // Setup publishes the empty home (B52), which invites the owner to add blocks.
   await page.goto(url("/"))
   await waitForSettled(page)
+  const publicMessages = getPublicMessages(await pageLocale(page))
   await assertVisible(
-    page.getByRole("heading", {
-      name: getPublicMessages(await pageLocale(page)).notFound.title,
-    }),
-    "A fresh site's home should show the not-found page until something is published."
+    page.getByText(publicMessages.chrome.homeNoBlocks, { exact: true }),
+    "A fresh site's home should show the add-blocks placeholder."
   )
-
-  await publishDraftHome(page)
-}
-
-// The owner's first publish: the private draft home that setup created goes
-// public at "/", so later public checks run against a published home.
-async function publishDraftHome(page: Page) {
-  await page.goto(url("/admin/pages"))
-  await waitForSettled(page)
-  const homeLink = page
-    .locator('a[href^="/admin/pages/"]')
-    .filter({ hasText: "Starter E2E" })
-    .first()
-  await assertVisible(homeLink, "The draft home is missing from the page list.")
-  await homeLink.click()
-  await waitForSettled(page)
-  const editor = adminMessagesForResolvedLocale(await pageLocale(page)).editor
-
-  const publish = page.getByRole("button", {
-    name: editor.page.publish,
-    exact: true,
-  })
-  await assertVisible(publish, "The draft home editor has no Publish button.")
-  await publish.click()
-  // An empty home publishes with warnings (no sections or SEO text yet).
-  const publishAnyway = page.getByRole("button", {
-    name: editor.page.prePublish.publishAnyway,
-  })
-  if (await publishAnyway.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await publishAnyway.click()
-  }
-  await assertVisible(
-    page.getByRole("button", { name: editor.page.publishChanges }),
-    "Publishing the draft home did not finish.",
-    20_000
-  )
-
-  await page.goto(url("/"))
-  await waitForSettled(page)
   if (
     (await page
       .getByRole("heading", {
@@ -175,7 +135,7 @@ async function publishDraftHome(page: Page) {
       })
       .count()) > 0
   ) {
-    throw new Error("The published home still shows the not-found page.")
+    throw new Error("A fresh site's home should not show the not-found page.")
   }
 }
 

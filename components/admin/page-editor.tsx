@@ -77,8 +77,8 @@ import type {
   BlockPreviewClickSelection,
 } from "./visual-editing-types"
 import { useConfirm } from "@/components/providers/confirm-provider"
-import { siteLocaleOrder } from "@/components/admin/pages-list-locales"
 import {
+  HomeDisabledMenuItem,
   UnpublishDialog,
   unpublishRequest,
   type UnpublishRequest,
@@ -752,6 +752,7 @@ function PageEditorSession({
     : tReadiness("checking")
   const activeLocaleRef = useRef<Locale>(currentLocale)
 
+  const isHome = (siteConfig?.homePageId ?? routeHomePageId) === page._id
   const retainedLocaleDraft = retainedDrafts?.[currentLocale]
   const localeContent =
     retainedLocaleDraft ?? asBlockBodyLocaleBag(page.content?.[currentLocale])
@@ -766,7 +767,7 @@ function PageEditorSession({
   // into it never inherits (or overwrites) the other language's address.
   function isUntranslatedDefault(locale: Locale): boolean {
     // The home page's address is its own: it never adopts a title's.
-    if ((siteConfig?.homePageId ?? routeHomePageId) === page._id) return false
+    if (isHome) return false
     const content = page.content ?? {}
     if (getTitle(page, locale) || content[locale]) return false
     return Object.keys(content).length > 0
@@ -1391,6 +1392,38 @@ function PageEditorSession({
     )
   )
   const publicationRef = useRef(initialPublicationBase)
+  const [publicationResult, setPublicationResult] = useState<{
+    base: SnapshotEditorPublication
+    archived: boolean
+  }>()
+  const ownLocale = publicationResult?.base.locales.find(
+    (entry) => entry.locale === currentLocale
+  )
+  const incomingLocale = publication.locales.find(
+    (entry) => entry.locale === currentLocale
+  )
+  const ownsLifecycle =
+    publicationResult !== undefined &&
+    publicationResult.base.lifecycleGeneration > publication.lifecycleGeneration
+  const displayedLocale =
+    ownsLifecycle && ownLocale &&
+    ownLocale.publicGeneration > (incomingLocale?.publicGeneration ?? -1)
+      ? ownLocale
+      : incomingLocale
+  const displayedStatus = ownsLifecycle
+    ? publicationResult.archived
+      ? "archived"
+      : publicationResult.base.locales.some((entry) => entry.currentSnapshotId)
+        ? "published"
+        : "draft"
+    : page.status
+
+  function rememberPublicationResult(
+    base: SnapshotEditorPublication,
+    archived: boolean
+  ) {
+    setPublicationResult({ base: structuredClone(base), archived })
+  }
   // Active content and its provenance are captured together. A cached copy
   // is never the authority for a locale that is currently being edited.
   const activeLocaleBufferRef = useRef<LocaleDraft>({
@@ -1608,6 +1641,8 @@ function PageEditorSession({
     localeState.publicGeneration = result.publicGeneration
     localeState.releaseGeneration += 1
     localeState.currentSnapshotId = result.snapshotId
+    localeState.state = "published"
+    rememberPublicationResult(publicationState, false)
     return { updatedAt: result.publishedAt }
   }
 
@@ -1628,12 +1663,18 @@ function PageEditorSession({
   const editorUpdatePage: UpdatePage = async (args) => {
     const publicationState = snapshotBase()
     if (args.status === "draft") {
-      if (page.status === "archived") {
+      if (displayedStatus === "archived") {
         const result = await restoreSnapshotPage({
           pageId: page._id,
           expectedLifecycleGeneration: publicationState.lifecycleGeneration,
         })
         publicationState.lifecycleGeneration = result.lifecycleGeneration
+        for (const localeState of publicationState.locales) {
+          if (!localeState.currentSnapshotId) continue
+          localeState.publicGeneration += 1
+          localeState.currentSnapshotId = undefined
+          localeState.state = "draft"
+        }
       } else {
         const localeState = currentPublicationLocale()!
         if (!localeState.currentSnapshotId) {
@@ -1648,13 +1689,16 @@ function PageEditorSession({
         })
         localeState.publicGeneration += 1
         localeState.currentSnapshotId = undefined
+        localeState.state = "draft"
       }
+      rememberPublicationResult(publicationState, false)
     } else if (args.status === "archived") {
       const result = await archiveSnapshotPage({
         pageId: page._id,
         expectedLifecycleGeneration: publicationState.lifecycleGeneration,
       })
       publicationState.lifecycleGeneration = result.lifecycleGeneration
+      rememberPublicationResult(publicationState, true)
     }
     return { updatedAt: currentTimestamp() }
   }
@@ -1859,7 +1903,6 @@ function PageEditorSession({
   )
   // Ask the same question as the Pages list before anything is written.
   function requestUnpublish() {
-    const isHome = (siteConfig?.homePageId ?? routeHomePageId) === page._id
     // A missing state reads as the header does: published when it has a snapshot.
     const locales = publication.locales.map((entry) => ({
       ...entry,
@@ -1875,13 +1918,10 @@ function PageEditorSession({
     // The address this language is published at.
     const path = entry.path
     setUnpublishAsk(
-      unpublishRequest(tList, adminLocale, {
+      unpublishRequest(tList, {
         locale: currentLocale,
         path,
         defaultLocale,
-        languages: siteLocaleOrder(enabledLocales, defaultLocale),
-        locales,
-        isHome,
       })
     )
   }
@@ -2969,6 +3009,18 @@ function PageEditorSession({
     }
   }
 
+  async function requestArchive() {
+    if (isHome) return
+    const isCurrent = captureEditorScope()
+    const ok = await confirm({
+      title: tList("archiveDialog.title"),
+      description: tList("archiveDialog.description"),
+      confirmText: tList("actions.archive"),
+    })
+    if (!ok || !isCurrent()) return
+    await handleArchive()
+  }
+
   async function handleDelete() {
     const isCurrent = captureEditorScope()
     const ok = await confirm({
@@ -3029,15 +3081,15 @@ function PageEditorSession({
       ?.state === "draft"
   const publishDisabled =
     hiddenByTranslationSwitch ||
-    page.status === "archived" ||
+    displayedStatus === "archived" ||
     workflow.editingLocked ||
-    (page.status !== "published" &&
+    (displayedStatus !== "published" &&
       (publishReadinessUnavailable ||
         hasPublishBlockers ||
         (workflow.requiresApproval && !workflow.canPublish)))
   const publishDisabledReason = hiddenByTranslationSwitch
     ? translationOffText
-    : page.status === "archived"
+    : displayedStatus === "archived"
       ? t("commands.unarchiveFirst")
       : workflow.editingLocked
         ? t("commands.reviewActive")
@@ -3102,19 +3154,19 @@ function PageEditorSession({
             {
               id: "page-editor:publish",
               label:
-                page.status === "published"
+                displayedStatus === "published"
                   ? t("commands.unpublishPage")
                   : t("commands.publishPage"),
               section: t("commands.section"),
               description:
-                page.status === "published"
+                displayedStatus === "published"
                   ? t("commands.unpublishDescription")
                   : t("commands.publishDescription"),
-              icon: page.status === "published" ? Archive : ArrowRight,
+              icon: displayedStatus === "published" ? Archive : ArrowRight,
               disabled: publishDisabled,
               disabledReason: publishDisabledReason,
               run: () =>
-                page.status === "published"
+                displayedStatus === "published"
                   ? commandActionsRef.current.unpublish()
                   : commandActionsRef.current.publish(),
             },
@@ -3133,7 +3185,7 @@ function PageEditorSession({
       hasUnsaved,
       isSaving,
       commandShortcut,
-      page.status,
+      displayedStatus,
       publishDisabled,
       publishDisabledReason,
       workflow.editingLocked,
@@ -3535,14 +3587,10 @@ function PageEditorSession({
                   <PageHeaderMeta
                     locale={currentLocale}
                     defaultLocale={defaultLocale}
-                    entry={publication.locales.find(
-                      (entry) => entry.locale === currentLocale
-                    )}
+                    entry={displayedLocale}
                     pageType={page.pageType}
-                    isHome={
-                      (siteConfig?.homePageId ?? routeHomePageId) === page._id
-                    }
-                    archived={page.status === "archived"}
+                    isHome={isHome}
+                    archived={displayedStatus === "archived"}
                   />
                 </div>
               </div>
@@ -3782,12 +3830,9 @@ function PageEditorSession({
 
             <div className="mx-1 hidden h-6 w-px shrink-0 bg-border md:block" />
 
-            {/* Lifecycle — More menu carries the low-frequency lifecycle actions
-              (Discard/Unpublish/Archive) so Save · Preview ·
-              Publish stay the visible primaries. Archived pages skip the menu
-              entirely — Unarchive is the only meaningful action from there. */}
+            {/* Archived pages offer only Unarchive in the More menu. */}
             <div className="col-start-3 row-start-2 flex items-center gap-1 sm:gap-2">
-              {page.status !== "archived" && !targetDraftLocale && (
+              {!targetDraftLocale && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -3802,36 +3847,63 @@ function PageEditorSession({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56">
                     <DropdownMenuLabel>{t("page")}</DropdownMenuLabel>
-                    {/* ADR-0041 §9 — Discard is only meaningful when a
-                      staging row exists; the handler uniformly reverts
-                      to the last saved state. */}
-                    {hasStaging && (
-                      <DropdownMenuItem
-                        disabled={isSaving || workflow.editingLocked}
-                        onSelect={() => handleDiscard()}
-                      >
-                        <Trash2 className="size-4" />
-                        {t("discard.menuAction")}
-                      </DropdownMenuItem>
-                    )}
-                    {hasStaging &&
-                      (page.status === "published" ||
-                        page.status === "draft") && <DropdownMenuSeparator />}
-                    {page.status === "published" && (
+                    {displayedStatus === "archived" ? (
                       <DropdownMenuItem
                         disabled={workflow.editingLocked}
-                        onSelect={requestUnpublish}
+                        onSelect={() => void handleUnarchive()}
                       >
-                        {t("unpublish")}
+                        <ArchiveRestore className="size-4" />
+                        {t("unarchive")}
                       </DropdownMenuItem>
+                    ) : (
+                      <>
+                        {/* ADR-0041 §9 — Discard is only meaningful when a
+                          staging row exists; the handler uniformly reverts
+                          to the last saved state. */}
+                        {hasStaging && (
+                          <DropdownMenuItem
+                            disabled={isSaving || workflow.editingLocked}
+                            onSelect={() => handleDiscard()}
+                          >
+                            <Trash2 className="size-4" />
+                            {t("discard.menuAction")}
+                          </DropdownMenuItem>
+                        )}
+                        {hasStaging &&
+                          (displayedStatus === "published" ||
+                            displayedStatus === "draft") && <DropdownMenuSeparator />}
+                        {displayedStatus === "published" && (
+                          isHome ? (
+                            <HomeDisabledMenuItem
+                              label={t("unpublish")}
+                              reason={tList("actions.homeNoUnpublish")}
+                            />
+                          ) : (
+                            <DropdownMenuItem
+                              disabled={workflow.editingLocked}
+                              onSelect={requestUnpublish}
+                            >
+                              {t("unpublish")}
+                            </DropdownMenuItem>
+                          )
+                        )}
+                        {isHome ? (
+                          <HomeDisabledMenuItem
+                            icon={<Archive className="size-4" />}
+                            label={t("archive")}
+                            reason={tList("actions.homeNoArchive")}
+                          />
+                        ) : (
+                          <DropdownMenuItem
+                            disabled={workflow.editingLocked}
+                            onSelect={() => void requestArchive()}
+                          >
+                            <Archive className="size-4" />
+                            {t("archive")}
+                          </DropdownMenuItem>
+                        )}
+                      </>
                     )}
-                    <DropdownMenuItem
-                      disabled={workflow.editingLocked}
-                      onSelect={() => void handleArchive()}
-                    >
-                      <Archive className="size-4" />
-                      {t("archive")}
-                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
@@ -3868,7 +3940,7 @@ function PageEditorSession({
                       {t("preview")}
                     </span>
                   </button>
-                  {page.status === "archived" ? (
+                  {displayedStatus === "archived" ? (
                     <button
                       type="button"
                       onClick={handleUnarchive}
@@ -3884,7 +3956,7 @@ function PageEditorSession({
                         {t("unarchive")}
                       </span>
                     </button>
-                  ) : page.status === "published" ? (
+                  ) : displayedStatus === "published" ? (
                     // Republish button — enabled only when there's staged work
                     // to promote. Same permission gate as first publish
                     // (`pages.<type>:publish`).
@@ -4223,7 +4295,7 @@ function PageEditorSession({
                     {...(targetDraftLocale
                       ? {}
                       : {
-                          onArchive: () => void handleArchive(),
+                          onArchive: () => void requestArchive(),
                           onDelete: () => void handleDelete(),
                         })}
                   />

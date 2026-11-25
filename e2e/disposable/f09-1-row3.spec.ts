@@ -84,18 +84,19 @@ async function confirmValidateActivate(client: ConvexHttpClient) {
 
 /**
  * F09 stage 1 — revision-6 row 3. Preconditions: disposable French setup is
- * complete, the Home Working Draft has never been published, no locale has a
- * candidate/current snapshot, no continuity route exists, and no transition is
+ * complete. B52 publishes empty Home during setup; this stage withdraws it
+ * explicitly to exercise the no-current-selection short path. No continuity
+ * route exists, and no transition is
  * open. The stage performs the short-path `fr -> en` label correction followed
  * immediately by the short-path `en -> fr` content replacement. Postcondition:
  * current locale and the private Home draft are French again; public Home and
  * sitemap remain empty and no transition is open. The operator owns the
- * never-published fixture. Start state: `single-fr`.
+ * unpublished fixture, retaining setup's historical snapshot. Start state: `single-fr`.
  * Server: Playwright starts built Next by default and the caller owns Convex;
  * with `FR6_E2E_SERVER=external` the caller (in FR6, the D10 launcher) owns
  * both and Playwright only verifies the origin (see `playwright.config.ts`).
  */
-test("F09 row 3 round-trips a never-published French site without stray public state", async ({ browser, request }) => {
+test("F09 row 3 round-trips an unpublished French site without stray public state", async ({ browser, request }) => {
   requireDisposableStage("f09", "f09-1-row3")
   const owner = await ownerPage(browser)
   try {
@@ -103,6 +104,16 @@ test("F09 row 3 round-trips a never-published French site without stray public s
     const pageId = required("FR6_E2E_F09_HOME_ID") as Id<"pages">
     const before = await client.query(api.cms.language.getLanguageState, {})
     expect(before).toMatchObject({ kind: "current", currentLocale: "fr", enabledLocales: ["fr"], transition: null })
+    const editor = await client.query(api.cms.pages.getForEdit, { id: pageId })
+    const publication = editor?.publication
+    const french = publication?.locales.find((entry) => entry.locale === "fr")
+    if (publication && french?.currentSnapshotId) {
+      await client.mutation(api.cms.publication.withdrawLocale, {
+        pageId, locale: "fr", expectedSnapshotId: french.currentSnapshotId,
+        expectedPublicGeneration: french.publicGeneration,
+        expectedLifecycleGeneration: publication.lifecycleGeneration,
+      })
+    }
     expect(await client.query(api.cms.pages.getPublicPageById, {
       id: pageId,
       locale: "fr",

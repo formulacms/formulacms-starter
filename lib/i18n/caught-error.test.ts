@@ -8,6 +8,7 @@ import { caughtErrorMessage } from "./caught-error"
 
 const codeKeys = {
   SLUG_TAKEN: "slugTaken",
+  PAGE_ADDRESS_LOOKUP_LIMIT: "pageAddressLookupLimit",
   MEDIA_FETCH_FAILED: "mediaFetchFailed",
   MEDIA_NOT_IMAGE: "mediaNotImage",
   MEDIA_TOO_LARGE: "mediaTooLarge",
@@ -17,8 +18,11 @@ const codeKeys = {
   REDIRECT_DESTINATION_AMBIGUOUS: "redirectDestinationAmbiguous",
   REDIRECT_SAME_PATH: "redirectSamePath",
   REDIRECT_EXISTS: "redirectExists",
+  REDIRECT_LOOP: "redirectLoop",
+  REDIRECT_CHAIN_TOO_LONG: "redirectChainTooLong",
   PILOT_PAGE_LIMIT: "pilotPageLimit",
   SITE_DESCRIPTION_LOCALE_NOT_ENABLED: "siteDescriptionLocaleNotEnabled",
+  SITE_URL_INVALID: "siteUrlInvalid",
   INVALID_EMAIL_OR_PASSWORD: "invalidCredentials",
   INVALID_PASSWORD: "invalidPassword",
   INVALID_EMAIL: "invalidEmail",
@@ -107,6 +111,9 @@ for (const [locale, messages] of [
       expect(
         caughtErrorMessage(new ConvexError("SLUG_TAKEN"), t, fallback)
       ).toBe(t("slugTaken"))
+      expect(
+        caughtErrorMessage(new ConvexError("PAGE_ADDRESS_LOOKUP_LIMIT"), t, fallback)
+      ).toBe(t("pageAddressLookupLimit"))
     })
     it("the page limit message names the server's limit", () => {
       expect(t("pilotPageLimit").match(/\d+/g)).toEqual([

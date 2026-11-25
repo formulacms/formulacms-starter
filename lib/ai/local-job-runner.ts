@@ -185,6 +185,14 @@ async function runJob(
       if (release) await convex.mutation(api.cms.aiLocalJobs.localReleaseUnit, unit).catch(() => {})
     }
     if (halt.signal.aborted) return giveBack()
+    // A claim can outlive its target. A failed/negative check must never
+    // launch the local tool; release uses the ordinary cancellation path.
+    const state = await convex.query(api.cms.aiLocalJobs.localJobState, runner)
+      .catch(() => undefined)
+    if (!state?.keepGoing || halt.signal.aborted) {
+      stopRunner(true)
+      return giveBack()
+    }
     // Each unit runs on the route Convex froze for the job and returned with
     // the claim, never on a route kept in this process.
     const route = claim.localRoute

@@ -229,7 +229,7 @@ describe("ArchiveList", () => {
       fireEvent.click(screen.getByRole("button", { name: "Restore 2" }))
 
       await waitFor(() =>
-        expect(mocks.success).toHaveBeenCalledWith("2 pages restored")
+        expect(mocks.success).toHaveBeenCalledWith("2 page(s) restored as draft(s)")
       )
       expect(mocks.restoreSnapshot).toHaveBeenCalledTimes(2)
       expect(mocks.restoreSnapshot).toHaveBeenCalledWith({

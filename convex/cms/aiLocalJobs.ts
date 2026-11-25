@@ -21,6 +21,7 @@ import { ConvexError, v, type Infer } from "convex/values"
 import { internalMutation, mutation, query } from "../_generated/server"
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { Id } from "../_generated/dataModel"
+import { assertPageJobEligible, isPageJobEligibilityRefusal } from "../lib/ai/pageJobEligibility"
 import { enforceAiRateLimit } from "../lib/aiRateLimit"
 import {
   equalOwnerClaimHashes,
@@ -47,7 +48,6 @@ import {
   expired,
   finish,
   jobGenerationInput,
-  assertJobTargetTranslated,
   jobModulesAvailable,
   noOtherActive,
   ownedJobNoTaskGate,
@@ -207,9 +207,8 @@ export const resumeLocalPageJob = mutation({
       !["canceled", "failed", "capped"].includes(job.state)
     )
       throw new ConvexError("AI_JOB_NOT_RESUMABLE")
-    // A type switched to another language since Start is not translated into
-    // the hidden language.
-    await assertJobTargetTranslated(ctx, job)
+    // Before unit resets or secret rotation: the live target must allow work.
+    await assertPageJobEligible(ctx, job)
     const units = await unitsFor(ctx, jobId)
     // A local unit has no spending attempt; a unit still in progress is settling.
     if (units.some((unit) => unit.state === "inProgress"))
@@ -328,6 +327,17 @@ export const localHeartbeat = mutation({
   handler: async (ctx, { jobId, runnerSecret }) => {
     const job = await authorizeRunner(ctx, jobId, runnerSecret)
     if (!job || !active(job)) return { keepGoing: false }
+    if (job.state === "running") {
+      try {
+        await assertPageJobEligible(ctx, job)
+      } catch (error) {
+        if (!isPageJobEligibilityRefusal(error)) throw error
+        await stop(ctx, job, "canceled")
+        await advance(ctx, await reread(ctx, job))
+        // stop keeps the existing lease check while claimed units drain.
+        return { keepGoing: false }
+      }
+    }
     await renewRunnerLease(ctx, job)
     return { keepGoing: job.state === "running" }
   },
@@ -346,7 +356,14 @@ export const localJobState = query({
   returns: v.object({ keepGoing: v.boolean() }),
   handler: async (ctx, { jobId, runnerSecret }) => {
     const job = await runnerJob(ctx, jobId, runnerSecret)
-    return { keepGoing: job?.state === "running" }
+    if (job?.state !== "running") return { keepGoing: false }
+    try {
+      await assertPageJobEligible(ctx, job)
+    } catch (error) {
+      if (!isPageJobEligibilityRefusal(error)) throw error
+      return { keepGoing: false }
+    }
+    return { keepGoing: true }
   },
 })
 

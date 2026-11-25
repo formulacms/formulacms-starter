@@ -2350,7 +2350,9 @@ describe("menu picker successor writer seam", () => {
         api.cms.pages.listRelationCandidates,
         { pageTypes: ["landing-page"], includeDrafts: false }
       )
-      expect(onlyPublished.map((row) => row._id)).toEqual([published])
+      const config = await t.query(api.cms.settings.getSiteConfig, {})
+      // Setup's Home is now published as well as the explicitly published target.
+      expect(onlyPublished.map((row) => row._id)).toEqual([published, config.homePageId])
 
       await renameFr(owner, draftOnly, "Titre renommé")
       const renamed = await owner.query(api.cms.pages.listRelationCandidates, {

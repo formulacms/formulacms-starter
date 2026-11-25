@@ -33,6 +33,7 @@ const ERROR_CODES: ReadonlyArray<readonly [string, LanguagesErrorKey]> = [
   ["DEFAULT_MIGRATION_REVIEW_INCOMPLETE", "reviewIncomplete"],
   ["LANGUAGE_LOCALE_OBLIGATIONS_PRESENT", "scheduledWork"],
   ["DEFAULT_MIGRATION_TARGET_HOME_MISSING", "homeMissing"],
+  ["LANGUAGE_HOME_NOT_PUBLISHED", "homeNotPublished"],
   ["DEFAULT_MIGRATION_SUPERSEDED", "stale"],
   ["LANGUAGE_OPERATION_REQUIRES_SNAPSHOT_AUTHORITY", "notReady"],
   ["LOCALE_NOT_ENABLED", "notLastExtra"],

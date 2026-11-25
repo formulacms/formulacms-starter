@@ -335,6 +335,12 @@ describe("F08b publication contribution transaction boundary", () => {
         pageRevisions: await ctx.db.query("pageRevisions").collect(),
         pageSearch: await ctx.db.query("pageSearch").collect(),
       }))
+    const expectCleanDraft = async () => {
+      expect(await t.run((ctx) => ctx.db.query("pageLocaleDrafts")
+        .withIndex("by_pageId_and_updatedAt", (q) => q.eq("pageId", pageId)).collect()))
+        .toEqual([])
+      expect(await rows()).toEqual({ pageRevisions: [], pageSearch: [] })
+    }
     expect(await rows()).toEqual({ pageRevisions: [], pageSearch: [] })
 
     const published = await publishEn(t, owner, pageId)
@@ -345,6 +351,8 @@ describe("F08b publication contribution transaction boundary", () => {
       expectedPublicGeneration: published.publicGeneration,
       expectedLifecycleGeneration: 1,
     })
+    await expectCleanDraft()
+    await publishEn(t, owner, pageId)
     const archived = await owner.mutation(api.cms.publication.archivePage, {
       pageId,
       expectedLifecycleGeneration: 1,
@@ -353,6 +361,8 @@ describe("F08b publication contribution transaction boundary", () => {
       pageId,
       expectedLifecycleGeneration: archived.lifecycleGeneration,
     })
+    await expectCleanDraft()
+    await publishEn(t, owner, pageId)
     const trashed = await owner.mutation(api.cms.publication.softDeletePage, {
       pageId,
       expectedLifecycleGeneration: restored.lifecycleGeneration,
@@ -362,7 +372,7 @@ describe("F08b publication contribution transaction boundary", () => {
       { pageId, expectedLifecycleGeneration: trashed.lifecycleGeneration }
     )
     expect(untrashed.lifecycleGeneration).toBe(5)
-    expect(await rows()).toEqual({ pageRevisions: [], pageSearch: [] })
+    await expectCleanDraft()
   })
 
   test("a History failure rolls back the whole publication before Search runs", async () => {
@@ -453,6 +463,27 @@ describe("F08b publication contribution transaction boundary", () => {
         owner.mutation(transition, { pageId, expectedLifecycleGeneration: 1 })
       ).rejects.toThrow("HISTORY_PARTICIPANT_FAILED:lifecycle")
       expect(await dumpState(t)).toEqual(before)
+    }
+    for (const [leave, restore] of [
+      [api.cms.publication.archivePage, api.cms.publication.restorePage],
+      [api.cms.publication.softDeletePage, api.cms.publication.restoreSoftDeletedPage],
+    ] as const) {
+      slots.history = null
+      const left = await owner.mutation(leave, {
+        pageId,
+        expectedLifecycleGeneration: (await generations(t, pageId)).expectedLifecycleGeneration,
+      })
+      slots.history = async () => { throw new Error("RESTORE_PARTICIPANT_FAILED") }
+      before = await dumpState(t)
+      await expect(owner.mutation(restore, {
+        pageId, expectedLifecycleGeneration: left.lifecycleGeneration,
+      })).rejects.toThrow("RESTORE_PARTICIPANT_FAILED")
+      expect(await dumpState(t)).toEqual(before)
+      slots.history = null
+      await owner.mutation(restore, {
+        pageId, expectedLifecycleGeneration: left.lifecycleGeneration,
+      })
+      await publishEn(t, owner, pageId)
     }
   })
 

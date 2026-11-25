@@ -148,6 +148,20 @@ async function publish(
   await drain(site.t)
 }
 
+/** Historical Home data needed by recovery/routing tests. */
+async function unpublishLegacyHome(site: { t: T }, pageId: Id<"pages">, locale: string) {
+  await site.t.run(async (ctx) => {
+    const state = (await ctx.db.query("pageLocalePublicationStates")
+      .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", pageId).eq("locale", locale)).unique())!
+    await ctx.db.patch("pageLocalePublicationStates", state._id, {
+      publicGeneration: state.publicGeneration + 1,
+      hasCurrentSnapshot: false, currentSnapshotId: undefined,
+      currentReleaseId: undefined, currentPath: undefined,
+      currentPublishedAt: undefined, pageType: undefined, publicSince: undefined,
+    })
+  })
+}
+
 async function withdraw(
   site: Pick<Site, "t" | "owner">,
   pageId: Id<"pages">,
@@ -691,7 +705,7 @@ describe("U2 setDefaultLanguage: the silent change", () => {
       string,
       (site: Site) => Promise<void> | void
     > = {
-      withdrawn: (site) => withdraw(site, site.homeId, "fr"),
+      withdrawn: (site) => unpublishLegacyHome(site, site.homeId, "fr"),
       "no fr content at all": async (site) => {
         const other = await createPage(site.owner, "startseite", ["en"])
         await publish(site, other, "en")
@@ -1108,7 +1122,7 @@ describe("U2 setDefaultLanguage: lifecycle drain", () => {
     const site = await mlSite()
     const { t, homeId } = site
     await withOrigin(site)
-    await withdraw(site, homeId, "fr")
+    await unpublishLegacyHome(site, homeId, "fr")
     await setDefault(site, "fr")
     const version = (await authorityRow(t)).version
     const fetchMock = okFetch()

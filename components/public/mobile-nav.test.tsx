@@ -358,3 +358,38 @@ test.each([MobileNav])("R1a mobile column panel stacks in order without menu sty
   expect(columns.children[0]).toHaveTextContent("Read feature")
   expect(columns.children[1]).toHaveTextContent("Second column")
 })
+
+test.each([
+  ["tel:+15149550226", true],
+  ["tel:+15149550226", undefined],
+  ["mailto:hello@example.com", true],
+  ["mailto:hello@example.com", undefined],
+  ["https://example.com", true],
+  ["https://example.com", undefined],
+  ["https://example.com", false],
+] as const)(
+  "renders mobile menu destination %s with new-tab preference %s",
+  (url, openInNewTab) => {
+    render(
+      <MobileNav
+        items={[
+          {
+            id: "contact",
+            label: "Contact",
+            target: { type: "external", url, openInNewTab },
+          },
+        ]}
+      />
+    )
+    openSheet()
+    const link = screen.getByRole("link", { name: "Contact" })
+    expect(link).toHaveAttribute("href", url)
+    if (url.startsWith("https:") && openInNewTab !== false) {
+      expect(link).toHaveAttribute("target", "_blank")
+      expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    } else {
+      expect(link).not.toHaveAttribute("target")
+      expect(link).not.toHaveAttribute("rel")
+    }
+  }
+)

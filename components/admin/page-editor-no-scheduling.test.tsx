@@ -351,9 +351,7 @@ describe("PageEditor shared header action semantics", () => {
       }
       if (scenario.status === "archived") {
         expect(singleAction(copy.unarchive)).toBeEnabled()
-        expect(
-          header.queryByRole("button", { name: copy.moreActions })
-        ).not.toBeInTheDocument()
+        expect(singleAction(copy.moreActions)).toBeEnabled()
       } else {
         expect(
           header.queryByRole("button", { name: copy.unarchive })
@@ -430,6 +428,13 @@ describe("PageEditor shared header action semantics", () => {
             })
           ).not.toBeInTheDocument()
         }
+      } else if (scenario.status === "archived") {
+        fireEvent.keyDown(singleAction(copy.moreActions), { key: "Enter" })
+        const menu = within(screen.getByRole("menu"))
+        expect(menu.getAllByRole("menuitem")).toHaveLength(1)
+        expect(
+          menu.getByRole("menuitem", { name: copy.unarchive })
+        ).toBeEnabled()
       }
     }
   )

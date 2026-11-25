@@ -930,7 +930,7 @@ test.each(["query", "write"] as const)(
 test("review snapshot delete uses the lifecycle this tab's own transition set during confirmation", async () => {
   const view = mount()
   const confirmation = deferred<boolean>()
-  mocks.confirm.mockImplementation(() => confirmation.promise)
+  mocks.confirm.mockImplementationOnce(() => confirmation.promise)
   mocks.mutation.mockImplementation(async (name: string, args: unknown) => {
     if (name === "cms/publication:archivePage")
       return { lifecycleGeneration: 4, updatedAt: 102 }
@@ -950,6 +950,11 @@ test("review snapshot delete uses the lifecycle this tab's own transition set du
   await act(async () => {
     panel.onArchive?.()
   })
+  expect(mocks.confirm).toHaveBeenCalledTimes(2)
+  expect(mocks.confirm).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({ title: "Archive this page?" })
+  )
   await waitFor(() =>
     expect(
       mocks.mutation.mock.calls.some(

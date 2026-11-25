@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { describe, expect, test } from "vitest"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { ConvexError, type Value } from "convex/values"
 import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
@@ -257,9 +257,129 @@ describe("per-language page states", () => {
   })
 })
 
+describe("safe recovery", () => {
+  test("recovery leaves an already-draft language's public generation unchanged", async () => {
+    const { t, owner } = await fixture()
+    const pageId = await createPage(owner, "about", ["en", "fr"])
+    await publish(owner, pageId, "en")
+    await owner.mutation(api.cms.publication.archivePage, { pageId, expectedLifecycleGeneration: 1 })
+    await owner.mutation(api.cms.publication.restorePage, { pageId, expectedLifecycleGeneration: 2 })
+    expect(byLocale((await row(owner, pageId)).locales, "fr")?.publicGeneration).toBe(0)
+    const intents = await t.run((ctx) => ctx.db.query("pagePublicationRevalidationIntents")
+      .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", pageId).eq("locale", "fr")).collect())
+    expect(intents.find((intent) => intent.operationKind === "restore")).toMatchObject({
+      oldPublicGeneration: 0, newPublicGeneration: 0,
+    })
+  })
+
+  test.each(["unarchive", "trash", "archived-trash"] as const)(
+    "%s returns every selected language as a draft with one withdrawal generation",
+    async (operation) => {
+      const { t, owner } = await fixture()
+      const pageId = await createPage(owner, "about", ["en", "fr"])
+      await publish(owner, pageId, "en")
+      await publish(owner, pageId, "fr")
+      const readStates = () => t.run((ctx) => ctx.db
+        .query("pageLocalePublicationStates")
+        .withIndex("by_pageId", (q) => q.eq("pageId", pageId)).collect())
+      const before = await readStates()
+      let generation = 1
+      if (operation !== "trash") {
+        await owner.mutation(api.cms.publication.archivePage, {
+          pageId, expectedLifecycleGeneration: generation++,
+        })
+      }
+      if (operation !== "unarchive") {
+        await owner.mutation(api.cms.publication.softDeletePage, {
+          pageId, expectedLifecycleGeneration: generation++,
+        })
+        // An already-trashed page may still store the previous archived target.
+        if (operation === "archived-trash") await t.run(async (ctx) => {
+          const state = await ctx.db.query("pagePublicationPageStates")
+            .withIndex("by_pageId", (q) => q.eq("pageId", pageId)).unique()
+          await ctx.db.patch("pagePublicationPageStates", state!._id, {
+            restoreLifecycleState: "archived",
+          })
+        })
+      }
+      // A persisted menu link may outlive lifecycle changes; it must fail closed.
+      await t.run((ctx) => ctx.db.insert("menus", {
+        slug: "primary", updatedAt: Date.now(),
+        nav: [{ id: "about", label: { en: "About", fr: "À propos" },
+          target: { type: "internal", pageId } }],
+      }))
+      await owner.mutation(operation === "unarchive"
+        ? api.cms.publication.restorePage : api.cms.publication.restoreSoftDeletedPage, {
+        pageId, expectedLifecycleGeneration: generation,
+      })
+      const after = await readStates()
+      for (const old of before) {
+        const current = after.find((entry) => entry.locale === old.locale)!
+        expect(current).toMatchObject({
+          hasCurrentSnapshot: false, publicGeneration: old.publicGeneration + 1,
+          draftGeneration: old.draftGeneration, draftBaseSnapshotId: old.draftBaseSnapshotId,
+        })
+        for (const key of ["currentSnapshotId", "currentReleaseId", "currentPath",
+          "currentPublishedAt", "pageType", "publicSince"] as const)
+          expect(current[key]).toBeUndefined()
+        expect(await t.query(api.cms.pages.getPublicPageById, {
+          id: pageId, locale: old.locale, languageVersion: 0,
+        })).toBeNull()
+        const menu = await t.query(api.cms.menus.getWithResolvedLinks, {
+          slug: "primary", locale: old.locale, languageVersion: 0,
+        })
+        expect(menu?.nav.flatMap((item) => item.target?.url ? [item.target.url] : []) ?? []).toEqual([])
+        const edit = await owner.query(api.cms.pages.getForEdit, { id: pageId })
+        expect(edit?.page.content?.[old.locale]).toMatchObject({ title: `${old.locale} about` })
+        const intents = await t.run((ctx) => ctx.db.query("pagePublicationRevalidationIntents")
+          .withIndex("by_pageId_and_locale", (q) => q.eq("pageId", pageId).eq("locale", old.locale)).collect())
+        expect(intents.find((intent) => intent.operationKind ===
+          (operation === "unarchive" ? "restore" : "restore_soft_deleted"))).toMatchObject({
+          oldPublicGeneration: old.publicGeneration,
+          newPublicGeneration: old.publicGeneration + 1,
+          oldSnapshotId: old.currentSnapshotId, oldPath: old.currentPath,
+        })
+        const refs = await t.run(async (ctx) => ({
+          documents: await ctx.db.query("pagePublicationDocumentReferences").collect(),
+          media: await ctx.db.query("pagePublicationMediaReferences").collect(),
+          blocks: await ctx.db.query("pagePublicationBlockReferences").collect(),
+        }))
+        for (const rows of Object.values(refs))
+          expect(rows.filter((ref) => ref.pageId === pageId && ref.sourceKind === "current_public")).toEqual([])
+      }
+      expect((await row(owner, pageId)).status).toBe("draft")
+      expect((await row(owner, pageId)).lifecycleState).toBe("active")
+      for (const current of after) {
+        await owner.mutation(api.cms.publication.publishLocale, {
+          pageId, locale: current.locale,
+          expectedDraftGeneration: current.draftGeneration,
+          expectedSharedDraftGeneration: 1,
+          expectedPublicGeneration: current.publicGeneration,
+          expectedLifecycleGeneration: generation + 1,
+          expectedReleaseGeneration: current.releaseGeneration,
+        })
+        expect(await t.query(api.cms.pages.getPublicPageById, {
+          id: pageId, locale: current.locale, languageVersion: 0,
+        })).not.toBeNull()
+        const menu = await t.query(api.cms.menus.getWithResolvedLinks, {
+          slug: "primary", locale: current.locale, languageVersion: 0,
+        })
+        expect(menu?.nav[0]?.target?.url).toBeTruthy()
+      }
+    }
+  )
+})
+
 describe("home page lifecycle guard", () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
   async function snapshot(t: Awaited<ReturnType<typeof fixture>>["t"], id: Id<"pages">) {
     return t.run(async (ctx) => ({
+      drafts: await ctx.db.query("pageLocaleDrafts").collect(),
+      shared: await ctx.db.query("pageSharedDrafts").collect(),
+      snapshots: await ctx.db.query("pagePublishedSnapshots").collect(),
+      candidates: await ctx.db.query("pageLocalePublicationCandidates").collect(),
+      references: await ctx.db.query("pagePublicationDocumentReferences").collect(),
       state: await ctx.db
         .query("pagePublicationPageStates")
         .withIndex("by_pageId", (q) => q.eq("pageId", id))
@@ -294,7 +414,7 @@ describe("home page lifecycle guard", () => {
     expect(await snapshot(t, homeId)).toEqual(before)
   })
 
-  test("restore to active stays allowed; restoring a trashed home to archived is refused", async () => {
+  test("recovery returns even a previously trashed home with an archived target to active", async () => {
     const { t, owner, homeId } = await fixture()
     // Pre-existing data only: put the home page in other lifecycle states.
     const setState = (
@@ -312,24 +432,13 @@ describe("home page lifecycle guard", () => {
         })
       })
     await setState("trashed", "archived")
-    const before = await snapshot(t, homeId)
-    expect(
-      await rejection(
-        owner.mutation(api.cms.publication.restoreSoftDeletedPage, {
-          pageId: homeId,
-          expectedLifecycleGeneration: 1,
-        })
-      )
-    ).toBe("PAGE_HOME_LIFECYCLE_REFUSED")
-    expect(await snapshot(t, homeId)).toEqual(before)
-
-    await setState("trashed", "active")
     await expect(
       owner.mutation(api.cms.publication.restoreSoftDeletedPage, {
         pageId: homeId,
         expectedLifecycleGeneration: 1,
       })
     ).resolves.toEqual({ pageId: homeId, lifecycleGeneration: 2 })
+    expect((await snapshot(t, homeId)).state?.lifecycleState).toBe("active")
 
     await setState("archived")
     await expect(
@@ -340,17 +449,33 @@ describe("home page lifecycle guard", () => {
     ).resolves.toEqual({ pageId: homeId, lifecycleGeneration: 3 })
   })
 
-  test("a non-home page can still be archived and trashed; home Unpublish stays allowed", async () => {
-    const { owner, homeId } = await fixture()
-    const published = await publish(owner, homeId, "en")
-    await owner.mutation(api.cms.publication.withdrawLocale, {
-      pageId: homeId,
+  test.each(["en", "fr"])("home Unpublish in %s is refused before stale checks with nothing written", async (locale) => {
+    const { t, owner, homeId } = await fixture()
+    const published = await publish(owner, homeId, locale)
+    const before = await snapshot(t, homeId)
+    for (const generation of [1, 99]) {
+      expect(await rejection(owner.mutation(api.cms.publication.withdrawLocale, {
+        pageId: homeId,
+        locale,
+        expectedSnapshotId: published.snapshotId,
+        expectedPublicGeneration: generation,
+        expectedLifecycleGeneration: generation,
+      }))).toBe("PAGE_HOME_LIFECYCLE_REFUSED")
+      expect(await snapshot(t, homeId)).toEqual(before)
+    }
+  })
+
+  test("a non-home Landing page can still be unpublished, archived and trashed", async () => {
+    const { owner } = await fixture()
+    const other = await createPage(owner, "other", ["en"])
+    const published = await publish(owner, other, "en")
+    await expect(owner.mutation(api.cms.publication.withdrawLocale, {
+      pageId: other,
       locale: "en",
       expectedSnapshotId: published.snapshotId,
       expectedPublicGeneration: 1,
       expectedLifecycleGeneration: 1,
-    })
-    const other = await createPage(owner, "other", ["en"])
+    })).resolves.toMatchObject({ pageId: other })
     const archived = await owner.mutation(api.cms.publication.archivePage, {
       pageId: other,
       expectedLifecycleGeneration: 1,
